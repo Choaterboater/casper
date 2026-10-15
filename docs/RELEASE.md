@@ -10,7 +10,7 @@ because GitHub's `latest/download` link skips preview releases. The first publis
 preview was **v0.1.0**. A published release is never changed; every fix ships under a
 new version.
 
-## v0.2.36: casper new asks nothing, SGLang and MLX model servers, fewer command interruptions
+## v0.2.36: casper new asks nothing, model servers, fewer command interruptions and designed plans
 
 **Not released yet.** The version number and the installers still say v0.2.35; the release step
 sets them and removes this line.
@@ -46,6 +46,31 @@ Built, not released; these changes are not in v0.2.35.
 - SGLang and MLX use streaming OpenAI-compatible chat completions and tool calls when supported by
   the model and server flags. SGLang may need `--tool-call-parser <parser>` suited to the model.
   Start the server separately; Casper doesn't install a backend or download models.
+
+### Plans designed before building (unreleased)
+
+- Plan polish: wrapped facts/questions keep hanging bullet indents; mock-ups have a small dim inner box below
+  the prose. Open questions contains only questions (statements move to What I found), and known main step
+  files are dimmed and right-aligned, wrapping below when space is tight. Frame edges use the theme's accent;
+  paths and mock-up boxes are explicitly faint even in high-contrast, while `NO_COLOR` keeps the plan plain.
+- `/plan` stays optional. A clear request returns a plan directly; only choices that change the build get at
+  most 3 questions in one round, with 2-4 options each and the normal picker's Type your own. The initial answer
+  is question JSON parsed by the host, not a tool call; the next prompt includes the answers and must return
+  a plan without more questions. The read-only planning gate is unchanged.
+- Existing-project plans have Title, Goal, What I found, What you'll see (a mock-up at most 60 columns), numbered
+  Steps, Done means (criteria including checks), Open questions only for unknowns, and optional Details. A
+  new/empty folder or make-an-app/site/game request gets a spec: Goal, Screens, Data, Look (a named style),
+  First version, Later and Done means, with no forced implementation steps.
+- The rich plan has an accent frame at most 80 columns wide, with dim paths; plain terminals and `NO_COLOR`
+  have no frame. Ctrl+T shows Details. Ctrl+G opens the saved Markdown using `VISUAL` or `EDITOR`; Casper
+  rereads it on return and shows it again. Choice `3 Change the plan` still takes plain words: the model
+  rewrites the whole plan and shows the same `1 Stop · 2 Build · 3 Change the plan` choices. Enter still stops,
+  never builds.
+- Plans are saved in gitignored `.casper/plans/date-slug.md`; `/plan` alone lists recent plans to reopen.
+  Build receives the whole accepted plan and its Done means checklist. Work names the current step, such as
+  `Step 2 of 4 · Draw the header`. The receipt reports each item from Steps (or First version in a spec):
+  completed items as done, not-done items with reasons, labelled **model report**, not check proof;
+  recorded checks still decide verification.
 
 ## v0.2.35: plain live steps, plans you change in words, a grouped /settings, Crews complete, and casper update on Windows
 

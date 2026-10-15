@@ -326,7 +326,7 @@ Next: 1 Show diff · 2 Undo</pre>
             <li>a test that was <em>already</em> failing before the change, before paying to fix
             it;</li>
             <li>a model error that repeated, to retry or stop;</li>
-            <li>a plan you asked for with <code>/plan</code>: <code>1 Stop · 2 Build · 3 Change the plan</code> (Enter stops);</li>
+            <li>an optional plan you asked for with <code>/plan</code>: <code>1 Stop · 2 Build · 3 Change the plan</code> (Enter stops); choice 3 stays plain words. Built, not released: a clear request returns a plan directly, and only choices that change the build get up to 3 questions in one round, with 2-4 options and Type your own; answers lead to a plan, not more questions. New apps, sites and games get a first-version spec without forced steps. <kbd>Ctrl+T</kbd> shows Details; <kbd>Ctrl+G</kbd> opens saved Markdown using <code>VISUAL</code> or <code>EDITOR</code> and rereads it on return; <code>/plan</code> alone lists recent gitignored plans. Build gets the checklist; the receipt reports each item from Steps (or First version in a spec): completed items as done, not-done items with reasons, labelled model report, not check proof;</li>
             <li><code>Next: 1 Show diff · 2 Undo</code> after each task (Enter runs nothing; not in a folder too big to compare);</li>
             <li>before the AI's shell reaches another machine, or writes outside the project;</li>
             <li>a shell command to a host the sandbox does not know;</li>

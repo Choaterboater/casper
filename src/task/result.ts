@@ -15,6 +15,7 @@ import { ROUND_MAX_TURNS, type RequirementsReview } from "./review";
 import { formatLimit } from "./spend";
 import { BRANCH_MOVED_LINE, GIT_MOVEMENT_UNKNOWN } from "./git-movement";
 import { formatCost, formatDuration, lineText } from "../tui/format";
+import { planReceipt, type PlanStepReport } from "../flows/plan-build";
 
 /** Tool-reported diagnostics, not process exit evidence or a reusable check pass. */
 export interface ObservedCheck {
@@ -92,6 +93,8 @@ export interface TaskResult {
   /** The cases the request states, listed by a separate model call before the model's turn
    * (verification.checklist) and handed to the model to test one by one. Not evidence. */
   checklist?: string[];
+  /** Accepted-plan progress reported by the model; never check evidence. */
+  planSteps?: PlanStepReport[];
   /** The session's managed services at the end of the task (the origin while starting or ready). */
   services?: Array<{ name: string; origin?: string; state: ServiceState }>;
   /** A known test-runner command the model ran without error while the project had no test command: only ever
@@ -261,7 +264,7 @@ const RECEIPT_PATH_LIMIT = 8;
 export function formatTaskResult(task: TaskResult): string {
   const report = task.verification;
   const safe = lineText;
-  const lines = [`[task] Execution ${task.execution}`];
+  const lines = [`[task] Execution ${task.execution}`, ...planReceipt(task.planSteps)];
   if (task.spendLimit) lines.push(receiptLine("spend", `stopped at ${formatCost(task.spendLimit.spent)}, the ${formatLimit(task.spendLimit.limit)} limit for one task (spend.pauseAt)`));
 
   if (task.observedEdits?.length) lines.push(receiptLine("tool edits", task.observedEdits.map(safe).join(", ")));
@@ -519,6 +522,7 @@ function receiptParts(task: TaskResult, options: ReceiptOptions): { lines: strin
   }
   if (task.changedDuringChecks?.length) lines.push(`– Changed while checking: ${pathList(task.changedDuringChecks, safe, false)}`);
   if (task.changedWhilePlanning?.length) lines.push(`– Changed while planning: ${pathList(task.changedWhilePlanning, safe, false)}`);
+  lines.push(...planReceipt(task.planSteps));
   if (task.branchChangesUnknown) lines.push(`– ${task.branchMoved ? "The branch moved during this task; " : ""}${GIT_MOVEMENT_UNKNOWN}; undo is unavailable`);
   else if (task.branchMoved) lines.push(BRANCH_MOVED_LINE);
 

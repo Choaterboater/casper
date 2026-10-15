@@ -385,6 +385,9 @@ export class TerminalSurface {
           this.editor.handleInput("\t"); this.render(); return { consume: true };
         }
       }
+      if (matchesKey(data, "ctrl+g") && this.planEdit && this.pendingAsk && Date.now() - this.askOpenedAt >= askDefaults.guardMs) {
+        this.pendingAsk([this.planEdit]); return { consume: true };
+      }
       if (matchesKey(data, "ctrl+c")) { this.interrupt(); return { consume: true }; }
       if (matchesKey(data, "ctrl+d") && !this.editor.getText()) { this.close(); return { consume: true }; }
       // Esc while typing an answer goes back to the list (the typed words go); Esc at the list skips.
@@ -1067,6 +1070,19 @@ export class TerminalSurface {
     const index = this.askOther ? -1 : typedChoice(text, this.askRows());
     if (index >= 0) { this.pickAsk(index); return; }
     if (text) this.pendingAsk?.([text]);
+  }
+
+  private planEdit?: string;
+  setPlanEdit(value?: string): void { this.planEdit = value; }
+
+  /** Release the full terminal, not just input, while the person's editor owns it. */
+  async externalEditor(run: () => Promise<void>): Promise<void> {
+    if (this.pendingAsk || this.pendingLine || this.slot || this.lending || this.closed) throw new Error("Terminal input is unavailable.");
+    this.lending = true;
+    this.terminal.suspendInput();
+    this.tui.stop();
+    try { await run(); }
+    finally { this.lending = false; if (!this.closed) { this.tui.start(); this.tui.setFocus(this.editor); this.tui.requestRender(true); } }
   }
 
   /** A picker that gives way: an approval or question that opens while it is mounted closes it first. So does a question

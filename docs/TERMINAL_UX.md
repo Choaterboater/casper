@@ -22,7 +22,8 @@ takes nothing after its name says so (`Usage: /theme, with nothing after it.`).
 | Esc | Stop the current work |
 | Ctrl+C | Cancel work; when idle, clear the draft; twice on an empty prompt exits |
 | Ctrl+D | Exit when the prompt is empty |
-| Ctrl+T | Show the last step in full: an edit's whole diff, what a command printed, the provider's own words after an `[error]`, or a plan's cases to test and details (works during work too) |
+| Ctrl+T | Show the last step in full: an edit's whole diff, what a command printed, the provider's own words after an `[error]`, or a plan's optional Details (works during work too) |
+| Ctrl+G | In a plan, open its saved Markdown in `VISUAL` or `EDITOR`; reread it and show the plan again on return |
 | Ctrl+L | Redraw the screen |
 | Ctrl+V (Alt+V on Windows) | Paste a picture from the clipboard; it shows as `[image 1]` and goes with the request. A file you copied in Finder, Explorer or a file manager goes in as its path, and a picture file goes with the request like a dropped one. With neither on the clipboard, its text is pasted |
 | Ctrl+O | Show the raw steps (every tool call on its own row) instead of plain ones, or plain ones again; as in Claude Code, Pi and omp (works during work too) |
@@ -49,7 +50,7 @@ over the network, and `/references add` downloads files after asking you.
 | `/diff [n\|list]` | The last task's changes (also outside git), task n's, or a list to pick from; before any task, git's view |
 | `/undo [n]`, `/redo [n]` | Put the last task's (or task n's) files back, or back again (no model; [UNDO.md](UNDO.md)) |
 | `/rewind [n]` | Back to just before an earlier prompt (a numbered list, newest first; `/rewind 1` is your last), its words back in the prompt to edit and send; when later tasks changed files, `2 Conversation and files` puts them back too. No model; nothing is deleted ([UNDO.md](UNDO.md#rewind-to-an-earlier-prompt)) |
-| `/plan <request>` | Numbered plan and cases; request changes in plain words, then choose Build |
+| `/plan [request]` | Optional plan or first-version spec; at most one round of questions; alone, reopen a recent saved plan |
 | `/btw <question>` | A side question, idle or during a task: your fast model answers with no tools, and the conversation never sees it (like a line you start with `?`; works with side questions off) |
 | `/suggestions [on\|off]` | List the suggested next steps, or turn them on or off |
 | `/details [quiet\|normal\|detailed]` | How much work shows, remembered like `/effort` (`--session` for this session only); alone, the level now; Ctrl+T shows the last step in full |
@@ -202,7 +203,7 @@ Bordered panels (`src/tui/presentation.ts`) are kept for what matters: the edits
 with the last six lines it printed as they were, secrets hidden and your home folder as `~`), `/output`
 replaying a tool result, `/diff` boxing `git status` and the colored unified diff, a failed check boxing the
 tail of its stderr and stdout (last 40 lines; the full output stays in the evidence), and exclusive input
-flows such as `/login`. Prose, notices and routine steps stay inline. Panels span the terminal's current width, like
+flows such as `/login`. Prose, notices and routine steps stay inline. Except for plans (at most 80 columns), panels span the terminal's current width, like
 the prompt rules and footer, and re-lay out at the new width when the window is resized. Color always accompanies a readable label; tool completion
 does not mean a check passed. `NO_COLOR` keeps the structure without color, while
 redirected output and `TERM=dumb` use plain text.
@@ -338,44 +339,120 @@ plan turn: the model may only read (read, grep, find, ls and look-only shell com
 `cat` or `git log`); every other tool, MCP and Casper's own tools included, is refused with "Planning
 only" and shown as `— not run`, not as a failed step (the receipt does not count it). A refused shell command
 names its first part that is not a look command (`npm is not one.`). This is Casper's gate, not a
-sandbox, and a file that changed anyway is named on the receipt (`– Changed while planning: …`). The plan is
-written for you, not for the code, and shown once by Casper (the model's answer is not streamed as well):
+sandbox, and a file that changed anyway is named on the receipt (`– Changed while planning: …`). Planning is optional, not a mode or a new gate on ordinary build requests.
 
+**One optional question round.** A clear request goes directly to a plan. Only when choices change the build
+may the initial answer ask at most 3 questions in one round. Each has 2-4 options with a label and a
+description; Casper uses the normal picker, including **Type your own**. The host parses the initial answer as
+JSON in this shape (not a tool call):
+
+```json
+{"questions":[{"question":"Where should tasks be kept?","options":[{"label":"This device","description":"Local storage, no sign-in"},{"label":"Shared","description":"Accounts and a shared database"}]}]}
 ```
+
+The next prompt contains the answers and must return a plan without more questions. Remaining unknowns go
+under Open questions, not into another interview. A plain-word change request also rewrites the plan directly.
+
+**A plan or a first-version spec.** For an existing project the sections are Title, Goal, What I found,
+What you'll see, numbered Steps, Done means, and Open questions only for genuine unknowns. Details is optional.
+What you'll see puts prose above a small dim box containing the mock-up (at most 60 columns and 12 lines).
+Bullets hang under their text when wrapped. Each numbered step shows its main file, when known, dimmed and
+right-aligned; narrow terminals wrap the file below rather than cut it. Frame edges use the theme's accent;
+paths and mock-up boxes stay explicitly faint even with the high-contrast theme (not with `NO_COLOR`).
+Open questions contains only questions;
+statements move to What I found, and no questions means no section.
+Done means lists concrete acceptance criteria including checks, not just a promise to test.
+
+For a new/empty folder or a request to make an app, site or game, the spec uses Goal, Screens, Data, Look
+(a named style), First version, Later and Done means, with a short Title. No implementation Steps are forced
+into a spec. Later stays out of the build; unknowns and optional Details can still be included.
+
+The plan is written for you, not for the code, and shown once by Casper (the model's answer is not streamed
+as well). For example, an existing-project plan on a rich terminal looks like this:
+
+```text
+╭─ Plan · A cleaner, animated header ──────────────────────────────────────────╮
+│                                                                              │
+│  Goal                                                                        │
+│    Make the name easy to read.                                               │
+│                                                                              │
+│  What I found                                                                │
+│    - One function draws the header.                                          │
+│                                                                              │
+│  What you'll see                                                             │
+│    Accent colour, brief fade-in:                                             │
+│    ┌────────────────┐                                                        │
+│    │ CASPER · ready │                                                        │
+│    └────────────────┘                                                        │
+│                                                                              │
+│  Steps                                                                       │
+│    1. Restyle the header.                                 src/tui/banner.ts  │
+│    2. Add a brief fade-in.                                src/tui/banner.ts  │
+│                                                                              │
+│  Done means                                                                  │
+│    1. Plain output stays readable.                                           │
+│    2. Fade respects reduced motion.                                          │
+│    3. Header checks pass.                                                    │
+│                                                                              │
+╰─────────────────────────────────────────────── Ctrl+T details · Ctrl+G edit ─╯
+```
+
+On a rich terminal the plan has an accent frame at most 80 columns wide (narrower when the window is), with
+paths dimmed. Plain terminals and `NO_COLOR` show the same sections, unframed and without colour:
+
+```text
 Casper plan · A cleaner, animated header
 
+Goal
+  Make the name easy to read.
+
+What I found
+  - One function draws the header.
+
 What you'll see
-  The ghost and the name in one colour, with a short fade-in.
+  Accent colour, brief fade-in:
+  ┌────────────────┐
+  │ CASPER · ready │
+  └────────────────┘
 
 Steps
-  1. Write the tests first, then the change.
-  2. Draw the header in the accent colour.
+  1. Restyle the header.                                       src/tui/banner.ts
+  2. Add a brief fade-in.                                      src/tui/banner.ts
 
-Tests: 3 cases
-  1. a plain terminal shows the one-line header
-  2. the header is drawn once
-  3. the name fades in at startup
+Done means
+  1. Plain output stays readable.
+  2. Fade respects reduced motion.
+  3. Header checks pass.
 
-Ctrl+T shows the details
+Ctrl+T details · Ctrl+G edit
 ```
 
-What you'll see has a small text mock-up when the change shows on screen. Steps and test cases are numbered
-separately, each starting at 1. Only the files, functions and exact assertions (Details) stay one key away:
-Ctrl+T on the rich terminal. Long lines wrap; nothing is cut. Both terminals then ask "Build this plan?":
-`1 Stop · 2 Build · 3 Change the plan`. Enter chooses Stop, never Build.
+Both have one blank row between sections and none inside a section. Long lines wrap; nothing is cut.
+Ctrl+T shows optional Details. Ctrl+G opens the saved Markdown using `VISUAL`, falling back to `EDITOR`;
+on return Casper rereads it and shows the plan again. This is separate from choice 3, which stays plain words.
+Both terminals ask "Build this plan?": `1 Stop · 2 Build · 3 Change the plan`. Enter chooses Stop, never Build.
 
 Choice 3 opens one empty line: type what to change in plain words, such as "drop steps 1 and 4" or "also test X".
 The model rewrites the whole plan under the same planning gate and shows it again with the same choices. You
 can ask for another change; only an explicit Build starts work. Empty Enter returns to the choices without
-calling the model; Esc stops without building. There is no raw multi-line plan editor. Build gives the model
-the whole revised plan, including its details and cases. On the plain terminal, `4 Show the details` is offered
-when there are details; it lists them and asks again. A run that cannot ask lists everything and stops.
+calling the model; Esc stops without building. Choice 3 is not a raw multi-line plan editor. On the plain
+terminal, `4 Show the details` is offered when there are details; it lists them and asks again. A run that
+cannot ask lists everything and stops.
+
+Casper saves Markdown in `.casper/plans/date-slug.md`, gitignored. This host-owned save does not let the
+model write during planning. `/plan` alone lists recent saved plans; selecting one reopens it for the same
+Stop/Build/Change choices, not an automatic build.
+
+Build gives the model the whole revised plan, including its Details and Done means checklist. While working,
+the status names the current step, for example `Step 2 of 4 · Draw the header`. The receipt reports each item
+from Steps (or First version in a spec): completed items as done, not-done items with reasons, labelled
+**model report**. This is not check proof: recorded checks still decide verification
+(see [VERIFICATION.md](VERIFICATION.md)).
+
 The planning guidance skips steps that only re-confirm known facts or an established cause (including reviewer
-agents re-checking it); it investigates only a specific unresolved question. An answer with only the older `Plan:` and
-`Tests:` sections reads as before, and anything outside the plan's sections (a `Risks:` list, say) goes with the
-details. When no plan comes of the answer (no numbered steps, Esc, a model failure) Casper prints what the model
-wrote, so nothing it said is lost. `/plan`
-on its own says what to type, with an example.
+agents re-checking it); it investigates only a specific unresolved question. Older `Plan:` and `Tests:` answers
+still read as before. A spec without numbered steps is a valid plan. If no usable plan comes of an answer,
+Casper prints what the model wrote, so nothing it said is lost.
 
 ### Layout stability
 

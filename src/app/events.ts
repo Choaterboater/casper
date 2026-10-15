@@ -223,6 +223,9 @@ export class RuntimeEventView {
 
   /** The work in progress: every step of the open group as a live row (with a running command's latest output), the
    * checks Casper runs itself, the builders working, and the status row's words. */
+  private planProgress?: string;
+  setPlanProgress(line?: string): void { this.planProgress = line; this.renderBox(); }
+
   private renderBox(): void {
     if (!this.terminal.rich) return;
     const now = performance.now();
@@ -242,7 +245,7 @@ export class RuntimeEventView {
       const tail = step.endedAt === undefined ? tailRow(step) : undefined;
       return { ...step, ...(tail ? { tailRow: tail } : {}) };
     }), now, { fit: this.fit(2), commands: this.callbacks.projectCommands?.() ?? {} });
-    const extra: string[] = [];
+    const extra: string[] = this.planProgress ? [terminalText(this.planProgress)] : [];
     // Checks Casper runs itself: a line each once they have run 10 s, with the last line they printed.
     for (const check of [...this.checks.values()].slice(0, BOX_CHECKS)) {
       const suffix = runningElapsed(now - check.startedAt);

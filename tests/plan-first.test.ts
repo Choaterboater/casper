@@ -1,13 +1,13 @@
 import { afterAll, expect, test } from "bun:test";
 import { EventEmitter } from "node:events";
-import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, writeFile, readFile, readdir } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { PassThrough } from "node:stream";
 import { CasperApp } from "../src/app";
 import { bundledFlows, findFlow } from "../src/flows/catalog";
 import { loadProjectContext } from "../src/project/context";
-import type { AgentRuntime, RuntimeEventListener, RuntimeStartOptions } from "../src/runtime/types";
+import type { RuntimeTool, AgentRuntime, RuntimeEventListener, RuntimeStartOptions } from "../src/runtime/types";
 import { SkillRegistry } from "../src/skills/registry";
 import { removeTempDir } from "./support/temp-dir";
 
@@ -20,15 +20,16 @@ const REQUEST = "add a rate limiter to the API, then add a /health endpoint, the
 const CASES = ["limit(0) throws", "the 6th call is rejected"];
 const PLAN = "Plan:\n1. Add a Limiter class in limiter.py\n2. Call it from app.py\n\nTests:\n- limit(0) throws\n- a /health request answers 200\n";
 
-/** A fake TTY that keeps the text without escape codes as it arrives. */
-function plainScreen() {
-  let output = "";
+/** A fake TTY that keeps both the original escape codes and plain text as they arrive. */
+function plainScreen(columns = 120) {
+  let output = "", raw = "";
   const waiters: Array<{ test: (output: string) => boolean; resolve: () => void }> = [];
-  const writer = Object.assign(new EventEmitter(), { isTTY: true, columns: 120, rows: 40, write(text: string) {
+  const writer = Object.assign(new EventEmitter(), { isTTY: true, columns, rows: 40, write(text: string) {
+    raw += text;
     output += Bun.stripANSI(text).replaceAll("\r\n", "\n");
     for (const waiter of [...waiters]) if (waiter.test(output)) { waiters.splice(waiters.indexOf(waiter), 1); waiter.resolve(); }
   } });
-  return { writer, get output() { return output; }, until(test: (output: string) => boolean): Promise<void> {
+  return { writer, get output() { return output; }, get raw() { return raw; }, until(test: (output: string) => boolean): Promise<void> {
     if (test(output)) return Promise.resolve();
     const { promise, resolve, reject } = Promise.withResolvers<void>();
     const timer = setTimeout(() => reject(new Error(`screen did not match; it ends with:\n${output.slice(-2500)}`)), 25_000);
@@ -39,11 +40,11 @@ function plainScreen() {
 
 /** The fake model: on a plan turn it tries an edit and two shell commands through Casper's gate, then answers
  * with PLAN; otherwise it writes a file. */
-async function fixture(tty = true, setup: { planWrites?: boolean; planCode?: boolean; answer?: string; rewrites?: string[]; rewriteFails?: boolean; rewriteWrites?: boolean; planFails?: boolean; homeConfig?: string } = {}) {
+async function fixture(tty = true, setup: { planWrites?: boolean; planCode?: boolean; answer?: string; rewrites?: string[]; rewriteFails?: boolean; rewriteWrites?: boolean; planFails?: boolean; homeConfig?: string; empty?: boolean; reportSteps?: boolean; columns?: number } = {}) {
   const root = await mkdtemp(path.join(os.tmpdir(), "casper-plan-first-"));
   const home = path.join(root, "home"); const project = path.join(root, "project");
   await mkdir(home, { recursive: true }); await mkdir(path.join(project, ".casper"), { recursive: true });
-  await writeFile(path.join(project, "app.py"), "print('app')\n");
+  if (!setup.empty) await writeFile(path.join(project, "app.py"), "print('app')\n");
   if (setup.homeConfig) { await mkdir(path.join(home, ".casper"), { recursive: true }); await writeFile(path.join(home, ".casper/config.yaml"), setup.homeConfig); }
   await writeFile(path.join(project, ".casper/project.yaml"), "verification:\n  checklist: true\n"
     + (setup.planCode ? `  mode: auto\nverify:\n  test: ${JSON.stringify(`"${process.execPath}" -e "process.exit(0)"`)}\n` : ""));
@@ -54,13 +55,14 @@ async function fixture(tty = true, setup: { planWrites?: boolean; planCode?: boo
   let checklistCalls = 0;
   let planCalls = 0;
   let options: RuntimeStartOptions | undefined;
+  let tools: RuntimeTool[] = [];
   const runtime: AgentRuntime = {
     start: async (started) => {
       options = started;
       return {
         getStatus: () => ({ provider: "fixture", model: "demo", auth: "configured" }),
         getState: () => ({ cwd: project, isStreaming: false }),
-        setTools: () => {}, abort: async () => {},
+        setTools: value => { tools = value; }, abort: async () => {},
         subscribe: (listener) => { listeners.add(listener); return () => listeners.delete(listener); },
         complete: async () => { checklistCalls++; return { text: JSON.stringify(CASES), usage: { tokens: 10, estimatedCost: 0 } }; },
         prompt: async (text) => {
@@ -79,7 +81,16 @@ async function fixture(tty = true, setup: { planWrites?: boolean; planCode?: boo
             emit({ type: "assistant_text_delta", delta: (planCalls > 1 ? setup.rewrites?.[planCalls - 2] : undefined) ?? setup.answer ?? PLAN });
             if (setup.planFails || (setup.rewriteFails && planCalls > 1)) { emit({ type: "assistant_response_end", stopReason: "error", errorMessage: "provider went away" }); return; }
           }
-          else { await writeFile(path.join(project, "limiter.py"), `# ${prompts.length}\n`); emit({ type: "assistant_text_delta", delta: "Built.\n" }); }
+          else {
+            if (setup.reportSteps) {
+              const tool = tools.find(tool => tool.name === "plan_step")!;
+              await tool.execute({ step: 1, status: "done" });
+              await tool.execute({ step: 2, status: "active" });
+              await Bun.sleep(80); // Give the real renderer a frame during this model/tool round-trip.
+              await tool.execute({ step: 2, status: "not-done", reason: "Needs an API decision" });
+            }
+            await writeFile(path.join(project, "limiter.py"), `# ${prompts.length}\n`); emit({ type: "assistant_text_delta", delta: "Built.\n" });
+          }
           emit({ type: "assistant_response_end", stopReason: "stop" });
         },
       };
@@ -87,7 +98,7 @@ async function fixture(tty = true, setup: { planWrites?: boolean; planCode?: boo
     dispose: async () => {},
   };
   const input = Object.assign(new PassThrough(), { isTTY: tty, setRawMode() {} });
-  const screen = plainScreen();
+  const screen = plainScreen(setup.columns);
   let plain = "";
   const app = new CasperApp({
     input, output: tty ? screen.writer : { write: (text: string) => { plain += text; } }, runtimeFactory: () => runtime, sessionHomeDir: home,
@@ -134,11 +145,13 @@ test("/plan: the plan turn refuses changes; 2 builds the plan", async () => {
     await f.screen.until(waiting("Build this plan?"));
     expect(f.screen.output).not.toContain("Big job");
     // Casper's plan screen, once: numbered steps and cases, not the raw answer too.
-    expect(f.screen.output).toContain("Casper plan");
-    expect(f.screen.output).toContain("  1. Add a Limiter class in limiter.py");
-    expect(f.screen.output).toContain("Tests: 2 cases\n  1. limit(0) throws\n  2. a /health request answers 200");
+    expect(f.screen.output).toContain("╭─ Plan");
+    expect(f.screen.output).toMatch(/  1\. Add a Limiter class +limiter\.py/);
+    expect(f.screen.output).toContain("Done means");
+    expect(f.screen.output).toContain("1. limit(0) throws");
+    expect(f.screen.output).toContain("2. a /health request answers 200");
     expect(f.screen.output).not.toContain("Esc stops without building");
-    expect(f.screen.output.split("Add a Limiter class in limiter.py").length - 1).toBe(1);
+    expect(f.screen.output.split("Add a Limiter class").length - 1).toBe(1);
     expect(f.prompts).toHaveLength(1);
     expect(f.prompts[0]).toContain(findFlow(bundledFlows(), "plan-first")!.body.trim());
     const reasons = Object.fromEntries(f.gate.map(({ tool, reason }) => [tool.split(" ")[0] + (tool.includes("rm ") ? " rm" : tool.includes("ls ") ? " ls" : ""), reason]));
@@ -280,10 +293,10 @@ test("/plan in a run that cannot ask shows the plan and builds nothing", async (
   try {
     await f.app.runOnce(`/plan ${REQUEST}`, f.project);
     expect(f.plain()).toContain("Casper plan\n");
-    expect(f.plain()).toContain("  1. Add a Limiter class in limiter.py");
-    expect(f.plain()).toContain("Tests: 2 cases\n  1. limit(0) throws\n  2. a /health request answers 200");
+    expect(f.plain()).toMatch(/  1\. Add a Limiter class +limiter\.py/);
+    expect(f.plain()).toContain("Done means\n  1. limit(0) throws\n  2. a /health request answers 200");
     // The answer is shown once, as Casper's plan, not also as the model streamed it.
-    expect(f.plain().split("Add a Limiter class in limiter.py").length - 1).toBe(1);
+    expect(f.plain().split("Add a Limiter class").length - 1).toBe(1);
     expect(f.plain()).toContain("[plan] This run can't ask you to build, so Casper stopped after the plan. Nothing was built.");
     expect(f.prompts).toHaveLength(1);
     expect(f.checklistCalls()).toBe(0);
@@ -325,8 +338,8 @@ test("the plain terminal asks Build this plan? with numbers: Enter stops and bui
       try {
         f.input.write(`/plan ${REQUEST}\n`);
         await f.screen.until((output) => output.includes("Build this plan?") && /Type [\d, ]*\d or \d:$/.test(output.trimEnd()));
-        expect(f.screen.output).toContain("  1. Add a Limiter class in limiter.py");
-        expect(f.screen.output).toContain("Tests: 2 cases\n  1. limit(0) throws\n  2. a /health request answers 200");
+        expect(f.screen.output).toMatch(/  1\. Add a Limiter class +limiter\.py/);
+        expect(f.screen.output).toContain("Done means\n  1. limit(0) throws\n  2. a /health request answers 200");
         expect(f.screen.output).toContain("  1 Stop · nothing is built");
         expect(f.screen.output).toContain("  2 Build · the model builds these steps and tests these cases\n");
         expect(f.screen.output).toContain("  3 Change the plan · tell the model what to change, then choose again\n");
@@ -350,7 +363,7 @@ test("empty Enter in Change the plan asks again without calling the model or bui
     f.input.write("\r");
     await f.screen.until(output => waiting("Build this plan?")(output.slice(from)));
     expect(f.prompts).toHaveLength(1);
-    expect(f.screen.output.slice(from)).toContain("  1. Add a Limiter class in limiter.py");
+    expect(f.screen.output.slice(from)).toMatch(/  1\. Add a Limiter class +limiter\.py/);
     f.input.write("\r");
     await f.screen.until(idleAfter("[plan] Stopped without building."));
     expect(f.prompts).toHaveLength(1);
@@ -519,12 +532,13 @@ test("the plan screen hides only details until Ctrl+T and Build gets the rewritt
     f.input.write(`/plan how would I change the Casper at the top to look cleaner and animated\r`);
     await f.screen.until(waiting("Build this plan?"));
     const screen = f.screen.output;
-    expect(screen).toContain("Casper plan · A cleaner, animated header");
+    expect(screen).toContain("╭─ Plan · A cleaner, animated header");
     expect(screen).toContain("What you'll see");
     expect(screen).toContain("  The ghost and the name in one colour, with a short fade-in.");
     expect(screen).toContain("  2. Draw the header in the accent colour.");
-    expect(screen).toContain("Tests: 1 case\n  1. the header is drawn once");
-    expect(screen).toContain("Ctrl+T shows the details");
+    expect(screen).toContain("Done means");
+    expect(screen).toContain("1. the header is drawn once");
+    expect(screen).toContain("Ctrl+T details · Ctrl+G edit");
     expect(screen).not.toContain("wordmarkHeader");
     expect(screen.split(art).length - 1).toBe(1);
     f.input.write("\x14");
@@ -557,7 +571,277 @@ test("a plan turn the model fails part way shows what it wrote before the failur
   } finally { await f.close(); }
 }, 60_000);
 
-test("/plan with no request says in one sentence what to type, with an example", async () => {
+test("clear requests go directly to a plan; saves Markdown and keeps incomplete progress honest", async () => {
+  const f = await fixture(true, { reportSteps: true });
+  try {
+    f.input.write("/plan Add a Limiter and call it from app.py\r");
+    await f.screen.until(waiting("Build this plan?"));
+    expect(f.prompts).toHaveLength(1);
+    const files = (await readdir(path.join(f.project, ".casper/plans"))).filter(file => file.endsWith(".md"));
+    expect(files).toHaveLength(1);
+    expect(files[0]).toMatch(/^\d{4}-\d\d-\d\d-.+\.md$/);
+    expect(await readFile(path.join(f.project, ".casper/plans", files[0]!), "utf8")).toContain("1. Add a Limiter class in limiter.py");
+    f.input.write("2");
+    await f.screen.until(idleAfter("Built."));
+    expect(f.screen.output).toContain("Step 2 of 2 · Call it from app.py");
+    expect(f.screen.output).toContain("Plan checklist (model report, not verification)");
+    expect(f.screen.output).toContain("1. Add a Limiter class in limiter.py — done");
+    expect(f.screen.output).toContain("2. Call it from app.py — not done: Needs an API decision");
+    expect(f.app.getLastTaskResult()?.planSteps?.map(step => step.status)).toEqual(["done", "not-done"]);
+    expect(f.prompts[1]).toContain("Use plan_step to keep this accepted checklist current");
+  } finally { await f.close(); }
+}, 60_000);
+
+const QUESTIONS = JSON.stringify({ questions: [
+  { question: "Which screens?", options: [{ label: "Board" }, { label: "Board and calendar" }] },
+  { question: "Sign-in?", options: [{ label: "None" }, { label: "Accounts" }] },
+  { question: "Which look?", options: [{ label: "Quiet" }, { label: "Playful" }] },
+] });
+const SPEC = "Title: A task board\nGoal: Find tasks\nScreens: Board and calendar\nData: Tasks on this device, no accounts\nLook: Like Linear: dark, quiet\nFirst version:\n- Add and move tasks\nLater: Shared accounts\nDone means:\n- Tasks survive reload\n";
+
+test("unclear requests ask 1–3 normal questions once, accept a typed answer, and use answers in the spec", async () => {
+  const f = await fixture(true, { answer: QUESTIONS, rewrites: [SPEC] });
+  try {
+    f.input.write("/plan make an app for tasks\r");
+    await f.screen.until(waiting("Which screens?"));
+    expect(f.screen.output).toContain("Other — type your own answer");
+    expect(f.screen.output).not.toContain("Build this plan?");
+    f.input.write("2");
+    await f.screen.until(waiting("Sign-in?"));
+    f.input.write("1");
+    await f.screen.until(waiting("Which look?"));
+    f.input.write("like Linear, dark and quiet\r");
+    await f.screen.until(waiting("Build this plan?"));
+    expect(f.prompts).toHaveLength(2);
+    expect(f.prompts[1]).toContain("Which screens?: Board and calendar");
+    expect(f.prompts[1]).toContain("Sign-in?: None");
+    expect(f.prompts[1]).toContain("Which look?: like Linear, dark and quiet");
+    expect(f.screen.output).toContain("Board and calendar");
+    expect(f.screen.output).toContain("Like Linear: dark, quiet");
+    f.input.write("2");
+    await f.screen.until(idleAfter("Built."));
+    expect(f.prompts[2]).toContain("Tasks on this device, no accounts");
+    expect(f.prompts[2]).toContain("Board and calendar");
+  } finally { await f.close(); }
+}, 60_000);
+
+test("a second question round is refused, and skipping a question never builds", async () => {
+  for (const skip of [false, true]) {
+    const one = JSON.stringify({ questions: [{ question: "Which screen?", options: [{ label: "Board" }, { label: "List" }] }] });
+    const f = await fixture(true, { answer: one, rewrites: [one] });
+    try {
+      f.input.write("/plan improve the app\r");
+      await f.screen.until(waiting("Which screen?"));
+      f.input.write(skip ? "\x1b" : "1");
+      await f.screen.until(skip ? idleAfter("Stopped without building.") : idleAfter("The answer had no numbered steps"));
+      expect(f.prompts).toHaveLength(skip ? 1 : 2);
+      expect(f.screen.output).not.toContain("Built.");
+    } finally { await f.close(); }
+  }
+}, 60_000);
+
+test("an empty project gets a spec without forced steps and nothing is created before Build", async () => {
+  const f = await fixture(true, { empty: true, answer: SPEC });
+  try {
+    f.input.write("/plan a task board\r");
+    await f.screen.until(waiting("Build this plan?"));
+    expect(f.prompts[0]).toContain("This is a new-project/spec request");
+    for (const heading of ["Goal", "Screens", "Data", "Look", "First version", "Later", "Done means"]) expect(f.screen.output).toContain(heading);
+    expect(f.screen.output).not.toContain("no numbered steps");
+    expect((await readdir(f.project)).filter(name => name !== ".casper")).toEqual([]);
+    f.input.write("\r");
+    await f.screen.until(idleAfter("Stopped without building."));
+    expect(f.prompts).toHaveLength(1);
+  } finally { await f.close(); }
+}, 60_000);
+
+test("Ctrl+G edits the saved Markdown, rereads it, shows it again, and Build uses the edit", async () => {
+  const f = await fixture();
+  let edited = "";
+  f.app.terminal.editPlan = async file => { edited = file; await writeFile(file, "Title: Edited locally\nSteps:\n1. Use the new limit\nDone means:\n- limit is 42\n"); };
+  try {
+    f.input.write("/plan add a limiter\r");
+    await f.screen.until(waiting("Build this plan?"));
+    const from = f.screen.output.length;
+    f.input.write("\x07");
+    await f.screen.until(output => waiting("Build this plan?")(output.slice(from)) && output.includes("Edited locally"));
+    expect(edited).toContain(`${path.sep}.casper${path.sep}plans${path.sep}`);
+    expect(f.prompts).toHaveLength(1);
+    f.input.write("2");
+    await f.screen.until(idleAfter("Built."));
+    expect(f.prompts[1]).toContain("Use the new limit");
+    expect(f.prompts[1]).toContain("limit is 42");
+  } finally { await f.close(); }
+}, 60_000);
+
+test("/plan lists recent saved plans and reopens without another model plan turn", async () => {
+  const f = await fixture();
+  try {
+    f.input.write("/plan add a limiter\r");
+    await f.screen.until(waiting("Build this plan?"));
+    f.input.write("\r");
+    await f.screen.until(idleAfter("Stopped without building."));
+    f.input.write("/plan\r");
+    await f.screen.until(waiting("Reopen a plan?"));
+    const from = f.screen.output.length;
+    f.input.write("2");
+    await f.screen.until(output => waiting("Build this plan?")(output.slice(from)));
+    expect(f.prompts).toHaveLength(1);
+    f.input.write("2");
+    await f.screen.until(idleAfter("Built."));
+    expect(f.prompts).toHaveLength(2);
+    expect(f.prompts[1]).toContain("Add a Limiter class");
+  } finally { await f.close(); }
+}, 60_000);
+
+test("NO_COLOR keeps the same plan sections without a frame", async () => {
+  const old = process.env.NO_COLOR;
+  process.env.NO_COLOR = "1";
+  const f = await fixture(true, { answer: SPEC });
+  try {
+    f.input.write("/plan make an app for tasks\r");
+    await f.screen.until(waiting("Build this plan?"));
+    expect(f.screen.output).toContain("Casper plan · A task board");
+    expect(f.screen.output).toContain("Done means");
+    expect(f.screen.output).not.toContain("╭─ Plan");
+    f.input.write("\r");
+    await f.screen.until(idleAfter("Stopped without building."));
+  } finally { await f.close(); if (old === undefined) delete process.env.NO_COLOR; else process.env.NO_COLOR = old; }
+}, 60_000);
+
+test("reopening rereads edits made while the recent-plan picker is open; invalid files cannot build", async () => {
+  const f = await fixture();
+  try {
+    f.input.write("/plan add a limiter\r");
+    await f.screen.until(waiting("Build this plan?"));
+    f.input.write("\r"); await f.screen.until(idleAfter("Stopped without building."));
+    const dir = path.join(f.project, ".casper/plans"), file = path.join(dir, (await readdir(dir)).find(file => file.endsWith(".md"))!);
+    f.input.write("/plan\r"); await f.screen.until(waiting("Reopen a plan?"));
+    await writeFile(file, "Title: External change\nSteps:\n1. Keep my external edit\nDone means: external case\n");
+    let from = f.screen.output.length;
+    f.input.write("2"); await f.screen.until(output => waiting("Build this plan?")(output.slice(from)));
+    expect(f.screen.output.slice(from)).toContain("External change");
+    expect(await readFile(file, "utf8")).toContain("Keep my external edit");
+    f.input.write("\r"); await f.screen.until(output => idleAfter("Stopped without building.")(output.slice(from)));
+    from = f.screen.output.length;
+    f.input.write("/plan\r"); await f.screen.until(output => waiting("Reopen a plan?")(output.slice(from)));
+    await writeFile(file, "Goal: undecided\n");
+    from = f.screen.output.length;
+    f.input.write("2"); await f.screen.until(output => idleAfter("Saved plan needs numbered Steps")(output.slice(from)));
+    expect(f.screen.output.slice(from)).not.toContain("Build this plan?");
+    expect(await readFile(file, "utf8")).toBe("Goal: undecided\n");
+    expect(f.prompts).toHaveLength(1);
+  } finally { await f.close(); }
+}, 60_000);
+
+test("an external edit at the Build picker requires review and a new explicit Build", async () => {
+  const f = await fixture();
+  try {
+    f.input.write("/plan add a limiter\r"); await f.screen.until(waiting("Build this plan?"));
+    const dir = path.join(f.project, ".casper/plans"), file = path.join(dir, (await readdir(dir)).find(file => file.endsWith(".md"))!);
+    await writeFile(file, "Title: External change\nSteps:\n1. Keep my external edit\nDone means: external case\n");
+    const from = f.screen.output.length;
+    f.input.write("2"); await f.screen.until(output => waiting("Build this plan?")(output.slice(from)));
+    expect(f.screen.output.slice(from)).toContain("review it before choosing Build again");
+    expect(f.screen.output.slice(from)).toContain("External change");
+    expect(f.prompts).toHaveLength(1);
+    f.input.write("2"); await f.screen.until(idleAfter("Built."));
+    expect(f.prompts[1]).toContain("Keep my external edit");
+  } finally { await f.close(); }
+}, 60_000);
+
+const COLOR_PLAN = "Title: Colour regression\nGoal: Keep the rendered plan readable.\nWhat you'll see:\nA header above the notes.\n```text\n[Notes]  [All tags v]\n```\nSteps:\n1. Draw the header — src/tui/banner.ts\nDone means:\n- The header is visible\n";
+
+/** Capture actual rich-terminal output, not a renderer with substitute styling callbacks. */
+async function capturedPlan(noColor = false): Promise<string[]> {
+  const previous = process.env.NO_COLOR;
+  if (noColor) process.env.NO_COLOR = "1"; else delete process.env.NO_COLOR;
+  let f: Awaited<ReturnType<typeof fixture>> | undefined;
+  try {
+    f = await fixture(true, { answer: COLOR_PLAN, columns: 202, homeConfig: "theme: high-contrast\n" });
+    f.input.write("/plan add tags to notes, with a filter\r");
+    await f.screen.until(waiting("Build this plan?"));
+    const rows = f.screen.raw.replace(/\r\n?/g, "\n").split("\n");
+    const start = rows.findIndex(row => Bun.stripANSI(row).startsWith(noColor ? "Casper plan · Colour regression" : "╭─ Plan · Colour regression"));
+    expect(start).toBeGreaterThanOrEqual(0);
+    const end = rows.findIndex((row, index) => index > start && Bun.stripANSI(row).startsWith(noColor ? "Build this plan?" : "╰"));
+    expect(end).toBeGreaterThan(start);
+    return rows.slice(start, noColor ? end : end + 1);
+  } finally {
+    try { await f?.close(); }
+    finally { if (previous === undefined) delete process.env.NO_COLOR; else process.env.NO_COLOR = previous; }
+  }
+}
+
+/** Track the effective SGR on each printed character, including resets within a framed row. */
+function styledCells(row: string) {
+  let color: number | undefined, dim = false;
+  const cells: { char: string; color: number | undefined; dim: boolean }[] = [];
+  for (const match of row.matchAll(/\x1b\][^\x07]*\x07|\x1b\[[0-?]*[ -/]*[@-~]|([^\x1b])/gu)) {
+    if (match[1]) cells.push({ char: match[1], color, dim });
+    else if (match[0].endsWith("m")) for (const code of match[0].slice(2, -1).split(";").map(Number)) {
+      if (code === 0) { color = undefined; dim = false; }
+      else if (code === 2) dim = true;
+      else if (code === 22) dim = false;
+      else if (code === 39) color = undefined;
+      else if (code >= 30 && code <= 37 || code >= 90 && code <= 97) color = code;
+    }
+  }
+  return cells;
+}
+
+test("rendered rich plan frame lines ╭ ─ │ ╰ use accent SGR 96, including after body resets", async () => {
+  const rows = await capturedPlan();
+  const seen = new Set<string>();
+  for (const [index, row] of rows.entries()) {
+    const cells = styledCells(row);
+    const edges = index === 0 || index === rows.length - 1
+      ? cells.filter(cell => /[╭╮╰╯─]/.test(cell.char)) : [cells[0]!, cells.at(-1)!];
+    for (const cell of edges) { seen.add(cell.char); expect(cell.color).toBe(96); }
+  }
+  for (const char of ["╭", "─", "│", "╰"]) expect(seen.has(char)).toBe(true);
+}, 60_000);
+
+test("rendered rich plan right-aligned file paths are dim even with the high-contrast theme", async () => {
+  const rows = await capturedPlan();
+  const row = rows.find(row => row.includes("Draw the header"))!;
+  expect(row).toContain("\x1b[2msrc/tui/banner.ts\x1b[0m");
+  expect(Bun.stripANSI(row)).toMatch(/Draw the header {2,}src\/tui\/banner.ts  │$/);
+  expect(Bun.stringWidth(row)).toBe(80);
+}, 60_000);
+
+test("rendered rich plan mock-up inner box borders and contents are dim", async () => {
+  const rows = await capturedPlan();
+  const art = rows.slice(rows.findIndex(row => row.includes("┌")), rows.findIndex(row => row.includes("└")) + 1);
+  expect(art).toHaveLength(3);
+  for (const row of art) {
+    const cells = styledCells(row);
+    const inner = cells.slice(3, -3).filter(cell => cell.char.trim());
+    expect(inner.length).toBeGreaterThan(0);
+    expect(inner.every(cell => cell.dim)).toBe(true);
+    expect(cells[0]!.dim).toBe(false);
+    expect(cells.at(-1)!.dim).toBe(false);
+  }
+}, 60_000);
+
+test("NO_COLOR keeps the actually rendered plan plain with no accent or dim escapes", async () => {
+  const rows = await capturedPlan(true);
+  const raw = rows.join("\n");
+  // The terminal may reset SGR at row boundaries, but the plan must set no text attributes.
+  expect(raw).not.toMatch(/\x1b\[(?!0m)[\d;]*m/);
+  expect(Bun.stripANSI(raw)).not.toMatch(/^[╭│╰]/m);
+  for (const text of ["Casper plan · Colour regression", "Goal", "What you'll see", "[Notes]  [All tags v]", "Steps", "src/tui/banner.ts", "Done means"]) expect(raw).toContain(text);
+}, 60_000);
+
+test("the rich plan regression captures real SGR escapes rather than only ANSI-stripped text", async () => {
+  const raw = (await capturedPlan()).join("\n");
+  expect(raw).not.toBe(Bun.stripANSI(raw));
+  expect(raw).toContain("\x1b[96mPlan · Colour regression\x1b[0m");
+  expect(raw).toContain("\x1b[96mSteps\x1b[0m");
+  expect(raw).toContain("\x1b[2msrc/tui/banner.ts\x1b[0m");
+}, 60_000);
+
+test("/plan with no saved plans says what to type, with an example", async () => {
   const f = await fixture(false);
   try {
     await f.app.runOnce("/plan", f.project);
