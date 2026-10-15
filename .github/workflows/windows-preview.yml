@@ -1,6 +1,6 @@
 name: Windows preview
 # Pushes to main, the nightly run and manual runs test everything. A pull request runs the fast tier of the
-# suite in four parts, and the heavy tier (real processes, ConPTY, the build and installers) too when it
+# suite in six parts, and the heavy tier (real processes, ConPTY, the build and installers) too when it
 # changes a path where OS behaviour matters (tools/test-tier.ts). Linux runs everything on every pull request.
 on:
   workflow_dispatch:
@@ -49,7 +49,7 @@ jobs:
           { echo "## Windows"; tail -n +2 "$RUNNER_TEMP/tier.txt"; } | tee -a "$GITHUB_STEP_SUMMARY"
 
   # The build, the real-console screen and both installers (heavy: whole-suite runs only). The suite runs
-  # beside it in four parts.
+  # beside it in six parts, with source terminals in a separate serial job.
   standalone:
     needs: changes
     # Runs unless the tier is "fast": if the changes job itself failed, the whole suite runs, and no check is
@@ -110,11 +110,6 @@ jobs:
         run: |
           bun tools/platform-report.ts 2>&1 | Tee-Object -FilePath .artifacts/windows-verification/platform-report.log
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-      - name: Screen in a real Windows console (ConPTY)
-        # Starts Casper in a pseudo-console, types keys as Windows Terminal sends them, resizes, and reads the screen.
-        run: |
-          bun test tests/windows-screen.test.ts 2>&1 | Tee-Object -FilePath .artifacts/windows-verification/conpty-screen.log
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Standalone compilation regressions
         run: |
           bun test tests/release-compile.test.ts 2>&1 | Tee-Object -FilePath .artifacts/windows-verification/release-compile.log
@@ -160,18 +155,58 @@ jobs:
           include-hidden-files: true
           if-no-files-found: warn
 
-  # The suite `bun run test` runs, split by tests/timings.json into four parts of about equal time
-  # (tools/test-shard.ts), each on its own runner at the same time.
+  # Source tmux/PTY/ConPTY users never share a worker with parallel regression files.
+  terminal:
+    needs: changes
+    if: ${{ !cancelled() && needs.changes.outputs.tier != 'fast' }}
+    runs-on: windows-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: '1.4.0'
+      - name: Turn off Defender's live scan for this run
+        run: |
+          try {
+            Set-MpPreference -DisableRealtimeMonitoring $true -ErrorAction Stop
+            Add-MpPreference -ExclusionPath $env:GITHUB_WORKSPACE, $env:TEMP, "$env:USERPROFILE\.bun" -ErrorAction Stop
+          } catch { "Defender unchanged: $($_.Exception.Message)" }
+      - name: Install locked dependencies
+        run: |
+          New-Item -ItemType Directory -Force .artifacts/windows-verification | Out-Null
+          bun install --frozen-lockfile
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Serial real-terminal lane (tmux, PTY and ConPTY, one retry per test)
+        timeout-minutes: 15
+        run: |
+          bun run test:terminal 2>&1 | Tee-Object -FilePath .artifacts/windows-verification/terminal.log
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Upload terminal evidence even on failure
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: windows-verification-terminal
+          path: .artifacts/windows-verification/
+          include-hidden-files: true
+          if-no-files-found: warn
+
+  # Greedy timing balance across six runners; terminals, real debugger and evals run separately.
   suite:
     needs: changes
     if: ${{ !cancelled() }}
     runs-on: windows-latest
-    # Normal job: 7.3 min p90 (standalone), 9.1 (suite part 1), of the last 40 successful runs. 20 is 2x p90 or more.
-    timeout-minutes: 20
+    # 18 minutes for the suite, 3 for debugger/evals, plus install and evidence upload headroom.
+    timeout-minutes: 25
     strategy:
       fail-fast: false
       matrix:
-        part: [1, 2, 3, 4]
+        part: [1, 2, 3, 4, 5, 6]
     defaults:
       run:
         shell: pwsh
@@ -197,25 +232,25 @@ jobs:
           New-Item -ItemType Directory -Force .artifacts/windows-verification | Out-Null
           bun install --frozen-lockfile
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-      - name: Regression suite (whole or fast tier), part ${{ matrix.part }} of 4 (files in parallel)
-        # Normal step: 5.0 min p90 (max 7.3) with one worker per core (4). Three workers leave a core for the
-        # Bun, git and language-server children the tests start, which hung silently at start under full load;
-        # the same work on 3 workers instead of 4 is about 9.7 min at the old max, still under 13.
-        timeout-minutes: 13
+      - name: Regression suite (whole or fast tier), part ${{ matrix.part }} of 6 (files in parallel)
+        # Two file workers leave room for each test's Bun, git and language-server children.
+        timeout-minutes: 18
         run: |
-          $files = @(bun tools/test-shard.ts 4 ${{ matrix.part }} $env:TIER)
+          $files = @(bun tools/test-shard.ts 6 ${{ matrix.part }} $env:TIER)
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           "Part ${{ matrix.part }} ($env:TIER): $($files.Count) files"
           "Part ${{ matrix.part }}: $env:TIER tier, $($files.Count) files" | Add-Content -Path $env:GITHUB_STEP_SUMMARY
-          bun test --parallel=3 --timings=tests/timings.json @files 2>&1 | Tee-Object -FilePath .artifacts/windows-verification/full-suite-${{ matrix.part }}.log
+          bun test --parallel=2 --timings=tests/timings.json @files 2>&1 | Tee-Object -FilePath .artifacts/windows-verification/full-suite-${{ matrix.part }}.log
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Real debugger test (runs alone, as in bun run test)
         if: matrix.part == 3 && env.TIER == 'full'
+        timeout-minutes: 3
         run: |
           bun test tests/phase10-debugger-real.test.ts 2>&1 | Tee-Object -FilePath .artifacts/windows-verification/debugger-real.log
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Eval bench tests
         if: matrix.part == 1
+        timeout-minutes: 3
         run: |
           bun run test:evals 2>&1 | Tee-Object -FilePath .artifacts/windows-verification/evals.log
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

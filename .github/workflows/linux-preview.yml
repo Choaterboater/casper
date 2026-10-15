@@ -24,7 +24,7 @@ jobs:
     # Draft PRs wait until "Ready for review"; pushes to main and manual runs always run.
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     runs-on: ubuntu-24.04
-    # Normal job: 8.4 min p90 of the last 40 successful runs (max 9.1). 15 is about 1.8x p90.
+    # The serial terminal lane has its own runner and budget.
     timeout-minutes: 18
     defaults:
       run:
@@ -89,7 +89,7 @@ jobs:
         # Normal step: 2.0 min p90 (max 2.1).
         timeout-minutes: 5
         run: |
-          bun test tests/sandbox-live.test.ts tests/sandbox-wiring.test.ts tests/platform-processes.test.ts tests/login-picker.test.ts tests/login.test.ts tests/terminal-review.test.ts tests/terminal-ux.test.ts tests/terminal-discovery.test.ts tests/daily-terminal.test.ts tests/model-routing.test.ts tests/auto-effort.test.ts tests/model-selection.test.ts tests/phase10-debugger-app.test.ts 2>&1 | tee "$RUNNER_TEMP/linux-preview/platform-terminal.log"
+          bun test tests/sandbox-live.test.ts tests/sandbox-wiring.test.ts tests/platform-processes.test.ts tests/login-picker.test.ts tests/terminal-review.test.ts tests/terminal-discovery.test.ts tests/model-routing.test.ts tests/auto-effort.test.ts 2>&1 | tee "$RUNNER_TEMP/linux-preview/platform-terminal.log"
       - name: Full regression suite (files in parallel)
         if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         # Normal step: 4.8 min p90 (max 5.0). tools/stall-guard.sh stops a run whose log has been silent for
@@ -97,7 +97,7 @@ jobs:
         # native stack for a worker on the CPU when the host has gdb or eu-stack, the test files that printed
         # and those that did not) next to the log, which the evidence upload below keeps. It then runs the
         # file(s) Bun was still running once more on their own (once per job) and the step gets that result.
-        # This is `bun run test` in two steps, so a retried stall still runs the real debugger test.
+        # Terminals have a separate job; the real debugger still runs after this guarded parallel suite.
         timeout-minutes: 12
         run: bash tools/stall-guard.sh "$RUNNER_TEMP/linux-preview/full-suite.log" 180 "$RUNNER_TEMP/linux-preview/stall-dump.txt" -- bun run test:suite
       - name: Real debugger test (runs alone, as in bun run test)
@@ -113,5 +113,44 @@ jobs:
         with:
           name: linux-preview-evidence
           path: ${{ runner.temp }}/linux-preview/
+          if-no-files-found: warn
+          retention-days: 14
+
+  terminal:
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    defaults:
+      run:
+        shell: bash
+    env:
+      PI_OFFLINE: '1'
+      PI_TELEMETRY: '0'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: '1.4.0'
+      - name: Record host and install terminal prerequisites
+        timeout-minutes: 3
+        run: |
+          mkdir -p "$RUNNER_TEMP/linux-terminal"
+          if ! command -v tmux || ! command -v rg; then sudo apt-get update -q && sudo apt-get install -y -q tmux ripgrep; fi
+          { uname -a; bun --version; tmux -V; python3 -c 'import fcntl, pty, termios; print("POSIX PTY modules available")'; } 2>&1 | tee "$RUNNER_TEMP/linux-terminal/host.log"
+      - name: Install locked dependencies
+        id: install
+        run: bun install --frozen-lockfile 2>&1 | tee "$RUNNER_TEMP/linux-terminal/install.log"
+      - name: Serial real-terminal lane (tmux and PTY, one retry per test)
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        timeout-minutes: 15
+        run: bun run test:terminal 2>&1 | tee "$RUNNER_TEMP/linux-terminal/terminal.log"
+      - name: Retain terminal evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: linux-terminal-evidence
+          path: ${{ runner.temp }}/linux-terminal/
           if-no-files-found: warn
           retention-days: 14

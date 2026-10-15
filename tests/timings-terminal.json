@@ -1,0 +1,23 @@
+{
+  "version": 1,
+  "files": {
+    "tests/model-selection.test.ts": 152348,
+    "tests/login.test.ts": 81424,
+    "tests/terminal-ux.test.ts": 42142,
+    "tests/model-servers-terminal.test.ts": 18510,
+    "tests/phase10-debugger-app.test.ts": 14247,
+    "tests/private-tmux.test.ts": 10415,
+    "tests/daily-terminal.test.ts": 5287,
+    "tests/box-polish-tmux.test.ts": 4789,
+    "tests/plan-terminal.test.ts": 4413,
+    "tests/terminal-layout.test.ts": 3940,
+    "tests/side-pane.test.ts": 3640,
+    "tests/check-changes-terminal.test.ts": 1852,
+    "tests/one-line-records.test.ts": 1005,
+    "tests/update-tmux.test.ts": 786,
+    "tests/one-picker-style.test.ts": 755,
+    "tests/ask-other-row.test.ts": 393,
+    "tests/tmux-terminal.test.ts": 13,
+    "tests/windows-screen.test.ts": 2
+  }
+}

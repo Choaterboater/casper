@@ -23,9 +23,10 @@ jobs:
     # Draft PRs wait until "Ready for review"; pushes to main and manual runs always run.
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     runs-on: macos-15
-    # Normal job: 8.7 min p90 of the last 40 successful runs (max 9.1). 25 leaves room for the 18-minute
-    # suite step plus the browser test's own step after it.
+    # Terminals have a separate job; retain the existing suite/browser/debugger budget.
     timeout-minutes: 25
+    outputs:
+      tier: ${{ steps.tier.outputs.tier }}
     defaults:
       run:
         shell: bash
@@ -81,8 +82,7 @@ jobs:
         # tools/stall-guard.sh stops a run silent for 180 s and writes stall-dump.txt next to the log (every
         # process, each test worker's children, and a `sample` of where a worker on the CPU is stuck), then
         # runs the file(s) Bun was still running once more on their own (once per job). This is `bun run test`
-        # in three steps: the browser test, which grew to 300 s here under load and finished last, and the
-        # real debugger test each run on their own after it.
+        # with a separate terminal job; browser (which grew to 300 s under load) and debugger retain their own steps.
         timeout-minutes: 18
         run: bash tools/stall-guard.sh "$RUNNER_TEMP/macos-preview/full-suite.log" 180 "$RUNNER_TEMP/macos-preview/stall-dump.txt" -- bun run test:suite --path-ignore-patterns='tests/phase10-browser.test.ts'
       - name: Fast tier of the suite (files in parallel; a pull request that leaves OS behaviour alone)
@@ -108,5 +108,47 @@ jobs:
         with:
           name: macos-preview-evidence
           path: ${{ runner.temp }}/macos-preview/
+          if-no-files-found: warn
+          retention-days: 14
+
+  terminal:
+    needs: source
+    # Reuse the tier decision; a failed/missing decision fails open to full coverage, never a green skip.
+    if: ${{ !cancelled() && (github.event_name != 'pull_request' || github.event.pull_request.draft == false) && needs.source.outputs.tier != 'fast' }}
+    runs-on: macos-15
+    timeout-minutes: 20
+    defaults:
+      run:
+        shell: bash
+    env:
+      PI_OFFLINE: '1'
+      PI_TELEMETRY: '0'
+      HOMEBREW_NO_AUTO_UPDATE: '1'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: '1.4.0'
+      - name: Record host and install terminal prerequisites
+        timeout-minutes: 3
+        run: |
+          mkdir -p "$RUNNER_TEMP/macos-terminal"
+          if ! command -v tmux || ! command -v rg; then brew install tmux ripgrep; fi
+          { sw_vers; uname -a; bun --version; tmux -V; python3 -c 'import fcntl, pty, termios; print("POSIX PTY modules available")'; } 2>&1 | tee "$RUNNER_TEMP/macos-terminal/host.log"
+      - name: Install locked dependencies
+        id: install
+        run: bun install --frozen-lockfile 2>&1 | tee "$RUNNER_TEMP/macos-terminal/install.log"
+      - name: Serial real-terminal lane (tmux and PTY, one retry per test)
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        timeout-minutes: 15
+        run: bun run test:terminal 2>&1 | tee "$RUNNER_TEMP/macos-terminal/terminal.log"
+      - name: Retain terminal evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: macos-terminal-evidence
+          path: ${{ runner.temp }}/macos-terminal/
           if-no-files-found: warn
           retention-days: 14

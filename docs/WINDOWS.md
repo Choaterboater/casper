@@ -133,7 +133,7 @@ the owner merges only after it is green. Its steps:
 | `bun run build:release` | Builds the release files; publishes nothing |
 | `scripts/test-install-windows.ps1` under PowerShell 5.1 and 7 | Installs from a local copy of the release files: `PATH` (saved and current), `--version`, `--help`, `--licenses`, `/project`, an inline diagram, that a bad checksum or wrong version leaves the old program untouched, and that the installer waits for a `casper.exe` or staged download another process holds for a moment |
 | `scripts/test-install-signature-windows.ps1` under PowerShell 5.1 and 7 | The release signature check, with throwaway keys made for the run: a list signed with the pinned key installs; another key, a changed list or a broken signature is refused and the old program stays; a missing signature is refused from the release address and said from another; an old `ssh-keygen` is named; a 32-bit Windows PowerShell checks too |
-| `bun run test` | The full suite, files in parallel, as on Linux and macOS. Tests that need a PTY, POSIX signals or file modes, or a tool that is not installed, skip |
+| `bun run test` | The full suite: non-terminal files in parallel, then serial terminals and the real debugger, as on Linux and macOS. Tests that need a PTY, POSIX signals or file modes, or a tool that is not installed, skip |
 | `bun run test:evals` | The evaluation bench's own tests, as on Linux |
 
 To run the same focused tests from a checkout (after `bun install --frozen-lockfile`):
@@ -146,10 +146,22 @@ These use fake providers, temporary folders and local-only services. They need n
 real credentials and make no paid model calls. The platform probe must exit 0; any
 failed step fails the job.
 
-CI runs the full suite in four parts on four runners at once (split by
-`tests/timings.json` into parts of about equal time; `bun tools/test-shard.ts 4 1` prints
-part 1), each running 3 files at a time so the tests' own child processes have a core to start on,
-beside a fifth runner that builds, checks the screen and tests the installers.
+CI balances the non-terminal suite across six runners using `tests/timings.json`
+(`bun tools/test-shard.ts 6 1` prints part 1). Slow-file weights were raised from test-duration
+totals in green Windows main run `38781548444`; higher existing cross-OS estimates were kept.
+Each runs two files at a time, leaving room
+for their spawned CLIs and servers, with an 18-minute suite step inside a 25-minute job.
+Source tmux/PTY/ConPTY users run in a separate serial job (`bun run test:terminal`, one retry
+per test, a 120 s default per-test limit, and separate `tests/timings-terminal.json`).
+The build/installer runner retains its serial check of the compiled executable's console.
+Linux/macOS use the same separation: source terminals have their own 20-minute job with a 15-minute
+test step, without extending the 18/25-minute source-job limits. No files are dropped: each OS's parallel
+files plus the terminal lane are the original suite, with real debugger and evals still run separately.
+
+To record proof, use `bun tools/windows-ci-proof.ts <run-id> <commit-sha>`. It reads GitHub
+metadata and requires a full push/nightly/manual Windows run on that exact commit, attempt 1,
+with all six shards, source terminals and the build green. A rerun, skipped job or fast-tier
+PR run cannot count. This is workflow-attempt evidence, not a claim that OS-skipped tests ran.
 Each uploads a `windows-verification-*` artifact, even after a failure. They hold
 the Windows build and CPU type, Bun and PowerShell versions, the commit, each step's
 output, and the installer logs for the steps that ran. The `windows-preview` artifact

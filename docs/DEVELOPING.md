@@ -59,9 +59,18 @@ another helper), or one that takes over 5 s in `tests/timings.json`. Fast: every
 `git` through Casper's own project checks. Each suite file is in exactly one tier, and
 `tests/test-tier.test.ts` checks that none is left out.
 
+The parallel runner uses the host's available CPU count, capped at four (three on a three-core macOS runner).
+On every OS, real-terminal users (tmux, PTY and ConPTY, including support imports and terminal filenames)
+are excluded from the parallel file list and run in their own serial CI job: one retry per test, a 120 s
+default per-test deadline, a 15-minute test step and a 20-minute job. Linux/macOS source-job limits stay
+18/25 minutes. macOS reuses the source job's tier output, so its terminal job follows the source job
+and skips only for a fast-tier PR. `bun run test` runs parallel files, then terminals, then the real
+debugger locally; `bun run test:timings` updates the two lanes' timings separately. The exact partition
+and all three workflows are checked by `tests/windows-ci.test.ts`.
+
 | Run | Linux | macOS | Windows |
 | --- | --- | --- | --- |
-| Pull request | whole suite | fast tier; whole suite when it changes a path where OS behaviour matters | the same as macOS, in 4 parts; the build, ConPTY and installer job only with the whole suite |
+| Pull request | whole suite | fast tier; whole suite when it changes a path where OS behaviour matters | the same as macOS, in 6 parts with 2 file workers each; a separate serial source-terminal lane and the build/installer job only with the whole suite |
 | Push to `main`, nightly (03:17 UTC), manual run | whole suite | whole suite | whole suite, build and installers |
 
 A release (`publish-release.yml`) stops unless Linux, macOS, Windows and Windows ARM64 each passed a push,

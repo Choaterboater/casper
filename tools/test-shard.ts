@@ -1,21 +1,23 @@
 /**
  * Splits the suite `bun run test` runs into N groups of about equal time, so a slow CI host (Windows) can run
  * them on N machines at once. Times come from tests/timings.json (`bun run test:timings`); a file with no time
- * yet counts as an average one. Same files as `bun run test`: no tests/eval-*, and the real debugger test runs
- * on its own after the suite.
+ * yet counts as an average one. Parallel lanes exclude real-terminal files (their own serial job),
+ * tests/eval-* and the real debugger test. The all-files view retains terminals for coverage checks.
  *
  *   bun tools/test-shard.ts <count> <index> [full|fast]   prints shard <index> (1-based), one file per line, of the
  *                                                         whole suite (full, the default) or its fast tier
  *                                                         (tools/test-tier.ts)
  */
 import { readdir, readFile } from "node:fs/promises";
+import { terminalReason } from "./test-terminal";
 
 const LEFT_OUT = [/^tests\/eval-/, /^tests\/phase10-debugger-real\.test\.ts$/];
 
-export async function suiteFiles(root = "tests"): Promise<string[]> {
+export async function suiteFiles(root = "tests", lane: "all" | "parallel" | "terminal" = "all"): Promise<string[]> {
   const names = await readdir(root);
   return names.filter((name) => name.endsWith(".test.ts")).map((name) => `${root}/${name}`)
-    .filter((file) => !LEFT_OUT.some((pattern) => pattern.test(file))).sort();
+    .filter((file) => !LEFT_OUT.some((pattern) => pattern.test(file)))
+    .filter(file => lane === "all" || Boolean(terminalReason(file)) === (lane === "terminal")).sort();
 }
 
 /** Slowest first, each file to the shard with the least time so far: every file lands in exactly one shard. */
@@ -43,6 +45,7 @@ if (import.meta.main) {
   if (tier !== "full" && tier !== "fast") throw new Error(`tier ${tier}: must be full or fast`);
   let timings: Record<string, number> = {};
   try { timings = (JSON.parse(await readFile("tests/timings.json", "utf8")) as { files?: Record<string, number> }).files ?? {}; } catch {}
-  const files = tier === "fast" ? (await (await import("./test-tier")).tiers("tests", timings)).fast : await suiteFiles();
+  const files = tier === "fast" ? (await (await import("./test-tier")).tiers("tests", timings)).fast.filter(file => !terminalReason(file))
+    : await suiteFiles("tests", "parallel");
   for (const file of shardFiles(files, timings, count ?? 0, index ?? 0)) console.log(file);
 }

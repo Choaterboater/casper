@@ -11,9 +11,10 @@
     "dev": "bun run src/cli.ts",
     "typecheck": "tsc --noEmit",
     "lint": "oxlint",
-    "test": "bun run test:suite && bun test tests/phase10-debugger-real.test.ts",
-    "test:suite": "bun test --parallel --timings=tests/timings.json --path-ignore-patterns='tests/eval-*' --path-ignore-patterns='tests/phase10-debugger-real.test.ts'",
-    "test:timings": "bun test --parallel --timings=tests/timings.json --update-timings --path-ignore-patterns='tests/eval-*' --path-ignore-patterns='tests/phase10-debugger-real.test.ts'",
+    "test": "bun run test:suite && bun run test:terminal && bun test tests/phase10-debugger-real.test.ts",
+    "test:suite": "bun tools/test-suite.ts",
+    "test:terminal": "bun tools/test-terminal.ts",
+    "test:timings": "bun tools/test-suite.ts --update-timings && bun tools/test-terminal.ts --update-timings",
     "test:evals": "bun test --parallel tests/eval-",
     "build:release": "bun run scripts/build-release.ts",
     "check": "bun run typecheck && bun run lint && bun run test"
