@@ -27,7 +27,7 @@ Never paste keys or tokens into chat.
 `;
 
 /** The keys, in /help all and /hotkeys. */
-export const KEYS_HELP = "Esc stops work. Ctrl+C cancels work; idle, it clears a draft; twice on empty exits. Shift+Tab cycles effort. Ctrl+O shows the raw steps (every tool call) or plain ones again. Ctrl+T shows the last step in full (an edit's diff, a command's output). Ctrl+X turns MCP writes off and refuses an open change box. Ctrl+L redraws the screen. Ctrl+V (Alt+V on Windows) pastes a picture from the clipboard as [image 1], or the path of a file you copied in Finder, Explorer or a file manager (a picture file goes with the request); a dropped picture file works too. Shift+Enter (when supported) or Ctrl+J inserts a newline; Up/Down recalls history. Tab completes commands and file paths (@). Enter during work sends your line to the AI (it reads it at its next step) or queues it for after the task; Esc gives queued lines back. A queued line never answers an approval.";
+export const KEYS_HELP = "Esc stops work. Ctrl+C cancels work; idle, it clears a draft; twice on empty exits. Shift+Tab cycles effort. Ctrl+O shows the raw steps (every tool call) or plain ones again. Ctrl+T shows the last step in full (an edit's diff, a command's output, a plan's Details). Ctrl+G in a plan opens its saved Markdown using VISUAL or EDITOR, then rereads and shows it again. Ctrl+X turns MCP writes off and refuses an open change box. Ctrl+L redraws the screen. Ctrl+V (Alt+V on Windows) pastes a picture from the clipboard as [image 1], or the path of a file you copied in Finder, Explorer or a file manager (a picture file goes with the request); a dropped picture file works too. Shift+Enter (when supported) or Ctrl+J inserts a newline; Up/Down recalls history. Tab completes commands and file paths (@). Enter during work sends your line to the AI (it reads it at its next step) or queues it for after the task; Esc gives queued lines back. A queued line never answers an approval.";
 
 /** /hotkeys: the keys, one sentence a line. */
 export const HOTKEYS_TEXT = `Keys:\n${KEYS_HELP.split(/(?<=\.) (?=[A-Z])/).map((sentence) => `  ${sentence}`).join("\n")}\n`;
@@ -84,7 +84,8 @@ Local commands:
   /model roles                      Show fast/build/reason/review role mappings
   /model role <fast|build|reason|review> <selector|clear>  Save or clear a role mapping
   /model big <selector|clear>       Set or clear your big model (the reason role); asked for when repairs run out
-  /plan <request>                   Numbered plan and test cases; 1 Stop, 2 Build, 3 Change the plan in plain words; blocks changes while planning
+  /plan <request>                   Plan or first-version spec; at most 3 questions in one round only if choices change the build; 1 Stop, 2 Build, 3 Change the plan in plain words; Enter stops; blocks changes while planning
+  /plan                             List recent saved plans to reopen (.casper/plans/date-slug.md, gitignored)
   /btw <question>                   A side question, idle or during a task, like a line you start with ? (works with side questions off)
   /suggestions                      List suggested next steps: on, off or faded (hidden after 3 ignores, 14 days)
   /suggestions on|off [name]        Turn every suggestion, or one, on or off (suggestions: false in config.yaml too)
@@ -209,6 +210,7 @@ Local commands:
   /exit, /quit                      Exit interactive mode (during a task it stops the task first, like Ctrl+C twice); no-op in one-shot mode
 
 Unknown slash commands are rejected locally, never sent to a model.
+Plans: a clear request gets a plan directly. Questions use 2-4 options and Type your own; after the answers, a plan without more questions. Existing projects get Goal, What I found, What you'll see, numbered Steps and Done means (criteria including checks); new apps/sites/games get Screens, Data, Look (a named style), First version and Later, without forced steps. Open questions holds only unknowns; Details is optional. Ctrl+T shows Details; Ctrl+G opens saved Markdown in VISUAL or EDITOR and rereads it on return. The accent frame is at most 80 columns, paths dim; no frame in plain terminals or NO_COLOR. Build gets the accepted checklist; work names Step 2 of 4 · title. The receipt lists every item done or not done with reasons, labelled model report, not check proof.
 /model opens on the providers (Up/Down picks whose models show; Enter, Tab or Right goes to the list). Enter selects and saves ~/.casper/settings.json; Ctrl+S selects for this session only. Exact IDs are remembered too; /model --session <id> opts out.
 During a task, /model and /effort apply from the model's next step; the step already running and helpers already working keep their model and effort.
 During a task every command runs at once, with whatever follows it (/permissions all, /settings, /login, /memory remember ...); a picker or question it opens closes when the task asks you something. Only the ones that would change the task's conversation, workspace or files, or start model work of their own, wait for it: /clear, /new, /resume, /compact, /undo, /redo, /rewind, /branch <name>, /switch, /project <name>, /project new, /plan, /verify, /review, /security-review, /delegate, /crew. Esc stops the task.

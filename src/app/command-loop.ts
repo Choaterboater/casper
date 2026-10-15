@@ -32,6 +32,7 @@ import { handledHere, modelChangeRequest, namesModel } from "./model-words";
 import { reloadProject } from "./project-file";
 import { pagesCommand } from "./pages";
 import { rewind } from "./rewind";
+import { readPlan, recentPlans } from "../flows/plan-store";
 
 export async function runInteractive(app: CasperApp, cwd = process.cwd()): Promise<void> {
   // Own the terminal before the banner so startup output is transcript, not
@@ -229,10 +230,32 @@ export function handleSlashCommand(app: CasperApp, typed: string): Promise<Verif
   }
   if (/^\/plan(?:\s|$)/.test(prompt)) {
     const request = prompt.slice(5).trim();
-    if (!request) { app.output.write("Type /plan and then what you want, for example /plan add a --verbose flag to the CLI; the model plans first and nothing is built until you choose Build.\n"); return Promise.resolve(undefined); }
+    if (!request) return reopenPlan(app);
     return runModelTask(app, request, { planFirst: true });
   }
   return runSlashCommand(app, prompt);
+}
+
+async function reopenPlan(app: CasperApp): Promise<VerificationReport | undefined> {
+  let plans;
+  try { plans = await recentPlans(app.activeWorkspaceRoot()); }
+  catch { app.output.write("[plan] Could not read recent plans.\n"); return; }
+  if (!plans.length) {
+    app.output.write("Type /plan and then what you want, for example /plan add a --verbose flag to the CLI; the model plans first and nothing is built until you choose Build.\n"); return;
+  }
+  app.output.write("Recent plans\n");
+  if (!app.interactive || !app.terminal.canAsk) {
+    plans.forEach((saved, i) => app.output.write(`${i + 1}. ${terminalText(saved.plan.title ?? saved.request)} · ${terminalText(saved.file.split(/[\\/]/).at(-1)!)}\n`));
+    return;
+  }
+  const choice = await app.terminal.pick("Reopen a plan?", [{ label: "Stop", description: "nothing is built" }, ...plans.map((saved, i) => ({ label: `${i + 1}. ${saved.plan.title ?? saved.request}`, description: saved.file.split(/[\\/]/).at(-1) }))], app.commandAbort?.signal);
+  const picked = plans.find((saved, i) => choice === `${i + 1}. ${saved.plan.title ?? saved.request}`);
+  if (picked) {
+    try {
+      const current = await readPlan(app.activeWorkspaceRoot(), picked.file);
+      return runModelTask(app, current.request, { planFirst: true, savedPlan: current });
+    } catch { app.output.write("[plan] Could not reopen the saved plan; nothing was built.\n"); }
+  }
 }
 
 /** /undo, /redo, /diff and /receipt. With no task in this folder yet, /diff shows git's view and /receipt the

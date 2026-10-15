@@ -13,7 +13,7 @@
 import os from "node:os";
 import { visibleWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
 import { remoteTargets } from "../sandbox/remote";
-import { formatChecklistPrompt, normalizeCases } from "../task/checklist";
+import { formatChecklistPrompt } from "../task/checklist";
 import { lineText } from "../tui/format";
 
 /** Pi's built-in tools that only look at files, and the web lookups, which only read. Every other tool
@@ -190,17 +190,26 @@ export function planToolGate(toolName: string, input: Record<string, unknown> | 
   return `${NOT_RUN}${PLANNING_BLOCKED}. While planning it allows only read, grep, find, ls and web lookups, not ${toolName}.`;
 }
 
-/** A plan for a person first: a title, what they will see, plain steps and the cases to test. `details` (files,
- * functions, exact assertions) is for the build and shown only when asked for; `note` is the model's one line before
- * the plan (an unclear request, say). Only steps and tests are always
- * there: an answer in the older "Plan:"/"Tests:" shape has nothing else. */
+/** A person-facing plan. Designed specs need no implementation steps; `tests` also holds "Done means".
+ * The optional blocks keep their lines (including mock-ups). Legacy Plan/Tests answers still work.
+ * `details` holds implementation notes, hidden on the screen unless requested. */
 export interface ParsedPlan {
   steps: string[];
   tests: string[];
   title?: string;
   see?: string[];
+  /** Fenced What you'll see art, kept separate from its prose across save/edit/build. */
+  mockup?: string[];
   details?: string[];
   note?: string[];
+  goal?: string[];
+  found?: string[];
+  openQuestions?: string[];
+  screens?: string[];
+  data?: string[];
+  look?: string[];
+  firstVersion?: string[];
+  later?: string[];
 }
 
 /** Tidy one step: no Markdown emphasis or code marks, one line, never cut.
@@ -213,79 +222,179 @@ function cleanLine(text: string): string {
     .trim();
 }
 
-const HEADER = (name: string) => `^\\s*(?:#{1,6}\\s*)?\\*{0,2}(?:${name}):?\\*{0,2}:?\\s*$`;
-const SEE = "What you(?:'|’| wi)ll see";
-/** "What you'll see:" alone on its line, or with its first words after the colon (captured). */
-const SEE_HEADER = `^[ \\t]*(?:#{1,6}[ \\t]*)?\\*{0,2}${SEE}(?:\\*{0,2}:\\*{0,2}[ \\t]*(\\S.*)|:?\\*{0,2}:?[ \\t]*)$`;
-/** The headers of the plan's own sections: where the newer sections end, whatever lines they hold. */
-const KNOWN = new RegExp(`${HEADER("Steps|Plan|Tests|Details")}|${SEE_HEADER}`, "im");
-/** Any "Name:" header line: where "Plan:" and "Tests:" end, as they always have. */
-const ANY = new RegExp(`${HEADER("[A-Z][A-Za-z ]{1,30}")}|${SEE_HEADER}`, "m");
-const TITLE = /^[ \t]*(?:#{1,6}[ \t]*)?\*{0,2}Title:?\*{0,2}:?[ \t]*(\S.*)$/im;
+type BlockKey = Exclude<keyof ParsedPlan, "title" | "steps" | "tests" | "mockup">;
+type SectionKey = keyof ParsedPlan;
 
-/** Where a section is in the answer: from its header to the next header, its lines, and words written after the
- * header's colon. */
-type Span = { start: number; end: number; body: string; inline?: string };
+/** One vocabulary for parsing, editing and display. Unknown headings inside a mock-up or Details stay put. */
+const BLOCKS: readonly [BlockKey, string][] = [
+  ["goal", "Goal"], ["found", "What I found"], ["openQuestions", "Open questions"],
+  ["screens", "Screens"], ["data", "Data"], ["look", "Look"],
+  ["firstVersion", "First version"], ["later", "Later"], ["see", "What you'll see"],
+];
+const HEADINGS: readonly [SectionKey, string][] = [
+  ["title", "Title"], ...BLOCKS, ["steps", "Steps"], ["steps", "Plan"],
+  ["tests", "Done means"], ["tests", "Tests"], ["details", "Details"], ["note", "Note"],
+  ["found", "Found"], ["look", "Look and feel"], ["see", "What you’ll see"], ["see", "What you will see"],
+];
 
-function section(message: string, header: RegExp, end: "any" | "known"): Span | undefined {
-  const match = header.exec(message);
-  if (!match) return undefined;
-  const from = match.index + match[0].length;
-  const rest = message.slice(from);
-  // The newer sections end only at one of the plan's own headers, so a "Files:" line in Details or a "CASPER:" line
-  // in a mock-up stays in.
-  const next = (end === "known" ? KNOWN : ANY).exec(rest);
-  const to = next ? from + next.index : message.length;
-  return { start: match.index, end: to, body: message.slice(from, to), ...(match[1] ? { inline: match[1] } : {}) };
+/** Markdown hashes/emphasis are optional; a body may follow the colon on the same line. */
+function planHeader(line: string): { key: SectionKey; inline: string } | undefined {
+  const text = line.trim().replace(/^#{1,6}\s*/, "").replace(/\s+#+\s*$/, "")
+    .replace(/^\*{1,2}|^_{1,2}/, "");
+  for (const [key, heading] of HEADINGS) {
+    if (text.slice(0, heading.length).toLowerCase() !== heading.toLowerCase()) continue;
+    const rest = text.slice(heading.length).replace(/^(?:\*{1,2}|_{1,2})/, "");
+    if (rest && !/^\s*:/.test(rest) && rest.trim() !== "" && !(key === "title" && /^\s+/.test(rest))) continue;
+    return { key, inline: rest.replace(/^\s*:?\s*(?:\*{1,2}|_{1,2})?\s*/, "") };
+  }
+  return undefined;
 }
 
-/** A section's lines as written (a mock-up keeps its spacing), without code fences and the blank lines around them. */
+/** A section's lines as written (a mock-up keeps its spacing), without surrounding blank lines. */
 function blockLines(text: string | undefined): string[] | undefined {
   if (text === undefined) return undefined;
-  const lines = text.split(/\r?\n/).filter((line) => !/^\s*```/.test(line)).map((line) => lineText(line).trimEnd());
+  const lines = text.split(/\r?\n/).map((line) => lineText(line).trimEnd());
   while (lines.length && !lines[0]!.trim()) lines.shift();
   while (lines.length && !lines.at(-1)!.trim()) lines.pop();
   return lines.length ? lines : undefined;
 }
 
-/** The plan in the model's answer: "Title:", "What you'll see:", the numbered "Steps:" (or "Plan:"), the "Tests:"
- * cases and "Details:". Missing sections give empty lists or nothing; an answer with only "Plan:" and "Tests:" reads
- * as it always has. A few plain lines before the first section are the model's note; anything longer, and anything
- * outside the plan's sections (a "Risks:" after the tests, say), goes with the details, so nothing it wrote is lost. */
-export function extractPlan(message: string): ParsedPlan {
-  const plan = section(message, new RegExp(HEADER("Plan|Steps"), "im"), "any");
-  const tests = section(message, new RegExp(HEADER("Tests"), "im"), "any");
-  const steps = [...(plan?.body ?? "").matchAll(/^\s*\d+[.)]\s+(.+)$/gm)]
-    .map((match) => cleanLine(match[1]!))
-    .filter((text) => text.length > 3);
-  const cases = [...(tests?.body ?? "").matchAll(/^\s*(?:[-*•]|\d+[.)])\s+(.+)$/gm)]
-    .map((match) => cleanLine(match[1]!))
-    .filter((text) => text.length > 3);
-  const titleLine = TITLE.exec(message);
-  const title = titleLine ? cleanLine(titleLine[1]!) : undefined;
-  const seen = section(message, new RegExp(SEE_HEADER, "im"), "known");
-  const seeLines = [...seen?.inline ? [cleanLine(seen.inline)] : [], ...blockLines(seen?.body) ?? []];
-  const see = seeLines.length ? seeLines : undefined;
-  const written = section(message, new RegExp(HEADER("Details"), "im"), "known");
-  const first = KNOWN.exec(message);
-  const lead = first ? message.slice(0, first.index).replace(TITLE, "") : "";
-  const before = blockLines(lead);
-  const short = before !== undefined && before.length <= 3 && !/^\s*```/m.test(lead);
-  // What lies outside every section, the title line and the lead.
-  const spans = [plan, tests, seen, written, ...first ? [{ start: 0, end: first.index }] : [],
-    ...titleLine ? [{ start: titleLine.index, end: titleLine.index + titleLine[0].length }] : []]
-    .filter((span): span is { start: number; end: number } => span !== undefined).sort((a, b) => a.start - b.start);
-  const outside: string[] = [];
-  let at = 0;
-  for (const span of spans) {
-    if (span.start > at) outside.push(...blockLines(message.slice(at, span.start)) ?? []);
-    at = Math.max(at, span.end);
+/** List markers start items; wrapped lines continue them (including Markdown's lazy, unindented
+ * continuation). After a blank line, only indented text continues a list item. Other prose stands alone.
+ * Keep the whole requirement here; checklist storage limits do not belong to the accepted plan. */
+function planItems(lines: readonly string[]): string[] {
+  const items: string[] = [];
+  let listIndent: number | undefined;
+  let separated = false;
+  for (const line of lines) {
+    if (!line.trim()) { separated = true; continue; }
+    const marker = /^(\s*)(?:[-*+•]|\d+[.)])\s+(.+)$/.exec(line);
+    const indent = /^\s*/.exec(line)![0].length;
+    if (!marker && listIndent !== undefined && (!separated || indent > listIndent)) {
+      items[items.length - 1] += ` ${line}`;
+    } else {
+      items.push(marker ? marker[2]! : line);
+      listIndent = marker ? indent : undefined;
+    }
+    separated = false;
   }
-  if (first && at < message.length) outside.push(...blockLines(message.slice(at)) ?? []);
-  const details = [...(before && !short ? before : []), ...(blockLines(written?.body) ?? []), ...outside];
-  return { steps, tests: normalizeCases(cases),
-    ...(title ? { title } : {}), ...(see ? { see } : {}), ...(short ? { note: before!.map(cleanLine).filter(Boolean) } : {}),
-    ...(details.length ? { details } : {}) };
+  return items.map(cleanLine).filter(Boolean);
+}
+
+/** Join Markdown bullet continuations without losing their marker. Prose keeps its original lines. */
+function blockItems(lines: readonly string[]): string[] {
+  const items: string[] = [];
+  let bullet = false;
+  for (const line of lines) {
+    if (!line.trim()) { bullet = false; continue; }
+    if (/^\s*(?:[-*+•]|\d+[.)])\s+/.test(line)) { items.push(line); bullet = true; }
+    else if (bullet) items[items.length - 1] += ` ${line.trim()}`;
+    else items.push(line);
+  }
+  return items;
+}
+
+/** Questions must actually ask something. Keep statements as facts, also for hand-edited/older plans. */
+function questionsOnly(plan: ParsedPlan): ParsedPlan {
+  if (!plan.openQuestions?.length) return plan;
+  const items = blockItems(plan.openQuestions).flatMap(line => {
+    const marker = /^\s*(?:[-*+•]|\d+[.)])\s+/.exec(line)?.[0] ?? "";
+    // A question's explanatory continuation is not itself an unresolved question.
+    return line.slice(marker.length).split(/(?<=[?？])\s+|(?<=[?？]["'”’)])\s+/u).map(part => marker + part);
+  });
+  const questions = items.filter(line => /[?？]["'”’)]*$/.test(cleanLine(line)));
+  const facts = items.filter(line => !questions.includes(line));
+  const { openQuestions: _questions, ...rest } = plan;
+  return { ...rest, ...(facts.length ? { found: [...plan.found ?? [], ...facts] } : {}),
+    ...(questions.length ? { openQuestions: questions } : {}) };
+}
+
+/** Read both designed specs and older Plan/Tests answers. Fenced mock-ups keep their spacing and
+ * cannot introduce sections. Unknown sections after legacy lists are retained as implementation details. */
+export function extractPlan(message: string): ParsedPlan {
+  // Some models wrap the entire answer as Markdown, rather than fencing just a diagram.
+  const wrapper = /^\s*(`{3,}|~{3,})(?:markdown|md)?[ \t]*\r?\n([\s\S]*)\r?\n\1[ \t]*\s*$/i.exec(message);
+  if (wrapper) message = wrapper[2]!;
+  const blocks: Partial<Record<SectionKey, string[]>> = {};
+  const lead: string[] = [];
+  let current: SectionKey | undefined;
+  let found = false;
+  let fence: { char: string; length: number } | undefined;
+  let leadFence = false;
+  for (const line of message.split(/\r?\n/)) {
+    const mark = /^\s*(`{3,}|~{3,})(.*)$/.exec(line);
+    if (mark && (!fence || (mark[1]![0] === fence.char && mark[1]!.length >= fence.length && !mark[2]!.trim()))) {
+      if (!found) leadFence = true;
+      if (!fence && current === "see" && blocks.mockup?.length) blocks.mockup.push("");
+      fence = fence ? undefined : { char: mark[1]![0]!, length: mark[1]!.length };
+      continue;
+    }
+    const header = !fence ? planHeader(line) : undefined;
+    if (header) {
+      found = true;
+      current = header.key;
+      const lines = blocks[current] ??= [];
+      // A repeated section/alias starts fresh prose, not a continuation of its previous list.
+      if ((current === "steps" || current === "tests") && lines.length) lines.push("");
+      if (header.inline) lines.push(header.inline);
+      continue;
+    }
+    // Preserve the older lists' boundary at an unknown "Risks:" heading, without swallowing it.
+    if (!fence && (current === "steps" || current === "tests")
+      && /^\s*(?:#{1,6}\s*)?\*{0,2}[A-Z][A-Za-z ]{1,30}(?::\*{0,2}|\*{1,2}:)\s*$/.test(line)) current = "details";
+    if (current) (blocks[current === "see" && fence ? "mockup" : current] ??= []).push(line);
+    else lead.push(line);
+  }
+  if (!found) return { steps: [], tests: [] };
+  const result: ParsedPlan = { steps: [], tests: [] };
+  for (const [key, lines] of Object.entries(blocks) as [SectionKey, string[]][]) {
+    const body = blockLines(lines.join("\n"));
+    if (!body) continue;
+    if (key === "title") result.title = cleanLine(body.join(" "));
+    else if (key === "steps" || key === "tests") result[key] = planItems(body);
+    else result[key] = body;
+  }
+  const before = blockLines(lead.join("\n"));
+  if (before) {
+    const key = before.length <= 3 && !leadFence ? "note" : "details";
+    result[key] = [...(key === "note" ? before.map(cleanLine) : before), ...result[key] ?? []];
+  }
+  return questionsOnly(result);
+}
+
+/** A designed spec is useful without a numbered implementation recipe. Goal/facts alone aren't a spec. */
+export function isSpecPlan(plan: ParsedPlan): boolean {
+  return [plan.screens, plan.data, plan.look, plan.firstVersion, plan.later]
+    .some((lines) => lines?.some((line) => line.trim()));
+}
+
+/** Lossless, editable section text shared by save, revise and build. Empty sections are omitted. */
+export function planMarkdown(plan: ParsedPlan): string {
+  plan = questionsOnly(plan);
+  const sections: string[] = [];
+  if (plan.title) sections.push(`Title: ${plan.title}`);
+  const block = (heading: string, lines: string[] | undefined) => {
+    if (!lines?.some((line) => line.trim())) return;
+    // Protect literal headers in diagrams/notes when saving and parsing again.
+    const needsFence = lines.some((line) => planHeader(line) || /^\s*(?:`{3,}|~{3,})/.test(line));
+    const fence = "~".repeat(Math.max(3, ...lines.map((line) => (/^\s*(~+)/.exec(line)?.[1]?.length ?? 0) + 1)));
+    sections.push(`${heading}:\n${needsFence ? `${fence}\n` : ""}${lines.join("\n")}${needsFence ? `\n${fence}` : ""}`);
+  };
+  block("Note", plan.note);
+  for (const [key, heading] of BLOCKS) {
+    const before = sections.length;
+    block(heading, plan[key]);
+    if (key === "see" && plan.mockup?.length) {
+      const fence = "~".repeat(Math.max(3, ...plan.mockup.map(line => (/^\s*(~+)/.exec(line)?.[1]?.length ?? 0) + 1)));
+      const art = `${fence}\n${plan.mockup.join("\n")}\n${fence}`;
+      if (sections.length > before) sections[sections.length - 1] += `\n\n${art}`;
+      else sections.push(`${heading}:\n${art}`);
+    }
+  }
+  if (plan.steps.length) sections.push(`Steps:\n${plan.steps.map((step, index) => `${index + 1}. ${step}`).join("\n")}`);
+  if (plan.tests.length) sections.push(`Done means:\n${plan.tests.map((item, index) => `${index + 1}. ${item}`).join("\n")}`);
+  block("Details", plan.details);
+  return sections.join("\n\n");
 }
 
 /** A change request, with the whole current plan and its visible numbering. The flow and original request are
@@ -295,43 +404,124 @@ export function formatPlanChangePrompt(plan: ParsedPlan, change: string): string
     "Rewrite the current plan to apply the user's change. Keep unaffected requirements. Return the whole revised plan in the same shape, not a diff or commentary. Do not build.",
     `User's change: ${change}`,
     "Current plan:",
-    ...plan.title ? [`Title: ${plan.title}`] : [],
-    ...plan.see?.length ? [`What you'll see:\n${plan.see.join("\n")}`] : [],
-    `Steps:\n${plan.steps.map((step, index) => `${index + 1}. ${step}`).join("\n")}`,
-    `Tests:\n${plan.tests.map((item, index) => `${index + 1}. ${item}`).join("\n")}`,
-    ...plan.details?.length ? [`Details:\n${plan.details.join("\n")}`] : [],
+    planMarkdown(plan),
+    "Keep Done means / Tests as concrete checklist cases: handle every case and write one test per case that asserts exactly that case.",
   ].join("\n\n");
 }
 
-const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
-
-/** Text wrapped to the width under a marker ("1. "), later rows indented to line up with the first. Never cut. */
+/** Text wrapped under a marker, with continuation rows aligned. Even unbroken words are wrapped, never cut. */
 function hang(marker: string, text: string, width: number): string[] {
-  const inner = Math.max(10, width - visibleWidth(marker));
+  // At tiny widths, content takes precedence over indentation and list markers.
+  if (visibleWidth(marker) > width - 2) marker = "";
+  const inner = Math.max(1, width - visibleWidth(marker));
   return wrapTextWithAnsi(text, inner).map((row, index) => `${index ? " ".repeat(visibleWidth(marker)) : marker}${row}`);
 }
 
-/** The plan screen: title, what they will see, numbered steps and numbered cases. Only the build details stay
- * one key away (`more`), or are listed with `full` in a run that cannot ask. Wrapped, never cut. */
-export function planScreenRows(plan: ParsedPlan, width: number, options: { more?: string; full?: boolean } = {}): string[] {
-  const rows: string[] = [...hang("", `Casper plan${plan.title ? ` · ${plan.title}` : ""}`, width)];
-  for (const line of plan.note ?? []) rows.push(...hang("  ", line, width));
-  if (plan.see?.length) {
-    rows.push("", "What you'll see");
-    for (const line of plan.see) rows.push(...hang("  ", line, width));
+const FILE_PATH = /(?:[\w.@()[\]$-]+[\\/])+[\w.@()[\]$/-]+(?::\d+(?::\d+)?)?|\b[\w.-]+\.(?:[cm]?[jt]sx?|py|md|json|ya?ml|toml|css|html|vue|svelte|rs|go|java|rb|sh)\b|\b(?:Dockerfile|Makefile)\b/g;
+
+export interface PlanScreenOptions {
+  more?: string;
+  full?: boolean;
+  framed?: boolean;
+  accent?: (text: string) => string;
+  dim?: (text: string) => string;
+}
+
+/** The same sections in plain and framed terminals. Only implementation Details stay one key away.
+ * A frame is at most 80 cells wide, with breathing room inside; no centering or terminal state required. */
+export function planScreenRows(plan: ParsedPlan, width: number, options: PlanScreenOptions = {}): string[] {
+  plan = questionsOnly(plan);
+  const available = Number.isFinite(width) ? Math.max(1, Math.floor(width)) : 80;
+  const framed = Boolean(options.framed && available >= 6);
+  const outer = framed ? Math.min(80, available) : available;
+  const gutter = outer >= 10 ? "  " : "";
+  const inner = framed ? outer - 2 - gutter.length * 2 : outer;
+  const accent = options.accent ?? ((text: string) => text);
+  const dim = options.dim ?? ((text: string) => text);
+  // Sanitize model content before trusted theme functions add ANSI codes. Keep mock-up spacing.
+  const body = (text: string) => lineText(text).replace(/`([^`]+)`/g, "$1")
+    .replace(FILE_PATH, (path) => {
+      const name = path.replace(/[.,]+$/, "");
+      return dim(name) + path.slice(name.length);
+    });
+  const title = `Plan${plan.title ? ` · ${cleanLine(plan.title)}` : ""}`;
+  const titleRows = hang("", accent(title), framed ? Math.max(1, outer - 6) : inner);
+  const rows: string[] = framed ? [] : [...hang("", accent(`Casper ${title.toLowerCase().startsWith("plan") ? "plan" + title.slice(4) : title}`), inner)];
+  if (framed && titleRows.length > 1) rows.push(...titleRows);
+  for (const line of plan.note ?? []) rows.push(...hang("  ", body(line), inner));
+  const add = (heading: string, lines: string[] | undefined, numbered = false) => {
+    if (!lines?.some((line) => line.trim())) return;
+    if (rows.length) rows.push("");
+    rows.push(...hang("", accent(heading), inner));
+    (numbered ? lines.filter(line => line.trim()) : blockItems(lines)).forEach((line, index) => {
+      const bullet = !numbered ? /^(\s*(?:[-*+•]|\d+[.)])\s+)(.*)$/.exec(line) : null;
+      rows.push(...hang(numbered ? `  ${index + 1}. ` : `  ${bullet?.[1] ?? ""}`, body(bullet?.[2] ?? line), inner));
+    });
+  };
+  const addSee = () => {
+    // Older saved plans did not retain fences. Recognisable art still gets the same inner box.
+    const legacy = !plan.mockup ? plan.see?.findIndex(line => /^\s*[┌╭│└╰|]|^\s{2,}\S|^\s*\[[^\]]+\]/.test(line)) ?? -1 : -1;
+    const prose = legacy >= 0 ? plan.see!.slice(0, legacy) : plan.see;
+    const art = plan.mockup ?? (legacy >= 0 ? plan.see!.slice(legacy) : undefined);
+    add("What you'll see", prose);
+    if (!art?.length) return;
+    if (!prose?.some(line => line.trim())) {
+      if (rows.length) rows.push("");
+      rows.push(...hang("", accent("What you'll see"), inner));
+    }
+    const artWidth = Math.max(...art.map(line => visibleWidth(lineText(line))));
+    const enclosed = /^\s*[┌╭]─+[┐╮]\s*$/.test(art[0]!) && /^\s*[└╰]─+[┘╯]\s*$/.test(art.at(-1)!)
+      && art.every(line => visibleWidth(line) === artWidth);
+    if (enclosed && artWidth <= inner - 2) { rows.push(...art.map(line => dim(`  ${lineText(line)}`))); return; }
+    const boxWidth = Math.min(artWidth + 4, inner - 2);
+    if (boxWidth < 5) { for (const line of art) rows.push(...hang("  ", dim(lineText(line)), inner)); return; }
+    const contents = art.flatMap(line => wrapTextWithAnsi(lineText(line), boxWidth - 4));
+    rows.push(dim(`  ┌${"─".repeat(boxWidth - 2)}┐`));
+    rows.push(...contents.map(line => dim(`  │ ${line}${" ".repeat(Math.max(0, boxWidth - 4 - visibleWidth(line)))} │`)));
+    rows.push(dim(`  └${"─".repeat(boxWidth - 2)}┘`));
+  };
+  for (const [key, heading] of BLOCKS) {
+    if (key === "see") addSee();
+    else if (key !== "openQuestions") add(heading, plan[key]);
   }
-  rows.push("", "Steps");
-  plan.steps.forEach((step, index) => rows.push(...hang(`  ${index + 1}. `, step, width)));
-  rows.push("");
-  const cases = plan.tests.length ? `Tests: ${plural(plan.tests.length, "case", "cases")}` : "Tests: none listed";
-  rows.push(cases);
-  plan.tests.forEach((item, index) => rows.push(...hang(`  ${index + 1}. `, item, width)));
-  if (plan.details?.length) {
-    rows.push("");
-    if (options.full) { rows.push("Details"); for (const line of plan.details) rows.push(...hang("  ", line, width)); }
-    else if (options.more) rows.push(...hang("", options.more, width));
+  if (plan.steps.length) {
+    if (rows.length) rows.push("");
+    rows.push(...hang("", accent("Steps"), inner));
+    plan.steps.forEach((step, index) => {
+      const text = cleanLine(step);
+      const paths = [...text.matchAll(FILE_PATH)];
+      const last = paths.at(-1);
+      const main = last && /^\s*[.,;)]?$/.test(text.slice(last.index! + last[0].length)) ? last : paths[0];
+      const marker = `  ${index + 1}. `;
+      if (!main) { rows.push(...hang(marker, body(text), inner)); return; }
+      const file = main[0].replace(/[.,]+$/, "");
+      const label = `${text.slice(0, main.index)}${text.slice(main.index! + main[0].length)}`
+        .replace(/\s*[—–|:-]\s*$/, "").replace(/\b(?:in|to|from|at)\s*$/, "").replace(/\s+/g, " ").trim();
+      const column = inner - visibleWidth(file) - 2;
+      if (column - visibleWidth(marker) >= Math.min(20, visibleWidth(label))) {
+        const left = hang(marker, body(label), column);
+        rows.push(...left.map((row, line) => line ? row : `${row}${" ".repeat(Math.max(2, inner - visibleWidth(row) - visibleWidth(file)))}${dim(file)}`));
+      } else {
+        rows.push(...hang(marker, body(label), inner));
+        for (const row of wrapTextWithAnsi(file, Math.max(1, inner - 2))) rows.push(`${" ".repeat(Math.max(0, inner - visibleWidth(row)))}${dim(row)}`);
+      }
+    });
   }
-  return rows;
+  add("Done means", plan.tests, true);
+  add("Open questions", plan.openQuestions);
+  if (options.full) add("Details", plan.details);
+  if (options.more && !framed && !options.full) rows.push("", ...hang("", dim(lineText(options.more)), inner));
+  if (!framed) return rows;
+  // Paint each edge separately: title/body/dim resets must not leave the frame uncoloured.
+  const edge = (left: string, right: string, text = "") => `${accent(`${left}─`)}${text}${accent(`${"─".repeat(Math.max(0, outer - 3 - visibleWidth(text)))}${right}`)}`;
+  const footer = dim(" Ctrl+T details · Ctrl+G edit ");
+  if (options.more && visibleWidth(footer) > outer - 4) rows.push("", ...hang("", footer.trim(), inner));
+  const side = accent("│");
+  const blank = `${side}${" ".repeat(outer - 2)}${side}`;
+  return [edge("╭", "╮", titleRows.length === 1 ? ` ${titleRows[0]} ` : ""), blank,
+    ...rows.map((row) => `${side}${gutter}${row}${" ".repeat(Math.max(0, inner - visibleWidth(row)))}${gutter}${side}`),
+    blank, options.more && visibleWidth(footer) <= outer - 4
+      ? `${accent(`╰${"─".repeat(outer - 3 - visibleWidth(footer))}`)}${footer}${accent("─╯")}` : edge("╰", "╯")];
 }
 
 /** The build details for Ctrl+T or the plain terminal's "Show the details". Cases already appear on the screen. */
@@ -339,15 +529,17 @@ export function planDetailsText(plan: ParsedPlan): string | undefined {
   return plan.details?.length ? `Details:\n${plan.details.join("\n")}` : undefined;
 }
 
-/** The plan as the build turn reads it: the steps the user accepted, then everything else the plan said (title,
- * what the user will see, and the details the screen kept one key away). The cases go separately. */
+/** The accepted spec, facts, unresolved questions and scope all reach the build, not only its steps. */
 export function formatPlanBlock(plan: ParsedPlan): string {
+  plan = questionsOnly(plan);
+  const prefix = "Casper plan (the user read and accepted it).";
   return [
-    `Casper plan (the user read and accepted it). Follow these steps in order:\n${plan.steps.map((step, index) => `${index + 1}. ${step}`).join("\n")}`,
-    ...plan.title ? [`Title: ${plan.title}`] : [],
-    ...plan.see?.length ? [`What the user will see:\n${plan.see.join("\n")}`] : [],
-    ...plan.details?.length ? [`Details from your plan (where they differ from the steps above, the steps win):\n${plan.details.join("\n")}`] : [],
-  ].join("\n\n");
+    plan.steps.length ? `${prefix} Follow these steps in order:\n${plan.steps.map((step, index) => `${index + 1}. ${step}`).join("\n")}`
+      : `${prefix} Build the first version described below.`,
+    planMarkdown({ ...plan, steps: [] }),
+    "Keep the first version in scope; Later is not part of this build. Treat What I found as established facts and Open questions as unresolved, not decisions. The accepted requirements take precedence over implementation Details.",
+    ...plan.tests.length ? ["Handle every Done means / Tests case and write one test per case that asserts exactly that case."] : [],
+  ].filter(Boolean).join("\n\n");
 }
 
 /** The build turn's prompt: the request, the plan the user accepted and the cases to test. This

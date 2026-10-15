@@ -11,7 +11,7 @@ import path from "node:path";
 import { realpathSync } from "node:fs";
 import { stat } from "node:fs/promises";
 import { SmokeChecks } from "../services/smoke";
-import { lineText, terminalText } from "../tui/format";
+import { lineText, paint, terminalText, tint } from "../tui/format";
 import { ProjectMemory, type TaskOutcome } from "../memory/store";
 import type { ChildProject } from "../project/child";
 import type { RuntimeImage, RuntimeSession } from "../runtime/types";
@@ -40,7 +40,9 @@ import { autoDetectedChecks } from "../verify/migrations-check";
 import { buildNextRow, type NextItem } from "../tui/next-row";
 import { findFlow, formatFlowPrompt, loadFlowCatalog, type Flow, type FlowRule } from "../flows/catalog";
 import { suggestBeforeWork } from "../flows/suggest";
-import { extractPlan, formatPlanBlock, formatPlanChangePrompt, planDetailsText, planScreenRows, type ParsedPlan } from "../flows/plan";
+import { extractPlan, formatPlanBlock, formatPlanChangePrompt, isSpecPlan, planDetailsText, planMarkdown, planScreenRows, type ParsedPlan } from "../flows/plan";
+import { planQuestions, readPlan, savePlan, updatePlan, wantsSpec, type SavedPlan } from "../flows/plan-store";
+import { PlanBuild } from "../flows/plan-build";
 import { PROJECT_YAML, saveProjectCommand } from "../project/config-write";
 import type { TaskClassification } from "../task/classify";
 import { planAutoChecks } from "../verify/mode";
@@ -64,7 +66,7 @@ import { reportSkillWarnings } from "./wiring";
 import { ensureRuntime } from "./runtime-start";
 import { reloadProject, writeProjectFile } from "./project-file";
 
-export async function runModelTask(app: CasperApp, prompt: string, options: { flow?: Flow; planFirst?: boolean; words?: RequestWords } = {}): Promise<VerificationReport | undefined> {
+export async function runModelTask(app: CasperApp, prompt: string, options: { flow?: Flow; planFirst?: boolean; savedPlan?: SavedPlan; words?: RequestWords } = {}): Promise<VerificationReport | undefined> {
   if (app.closing) return;
   // The person's words ("think hard:", "big model:", "plan first:"): this task only, said in a line, then put back.
   const { words, ...rest } = options;
@@ -90,7 +92,9 @@ export async function runModelTask(app: CasperApp, prompt: string, options: { fl
   prompt = attached.text;
   // A flow the user picked, or /plan, is already this task's one choice before work: no other panel.
   app.beforeWorkAsked = Boolean(options.flow || options.planFirst);
-  if (await offerNewProject(app, prompt) === "stop" || app.closing || app.commandAbort?.signal.aborted) return;
+  if ((!options.planFirst && await offerNewProject(app, prompt) === "stop") || app.closing || app.commandAbort?.signal.aborted) return;
+  app.planBuild = undefined;
+  app.events.setPlanProgress(undefined);
   await offerNetworkServer(app, prompt);
   if (app.closing || app.commandAbort?.signal.aborted) return;
   const previous = app.observations.spent();
@@ -213,12 +217,14 @@ export async function runModelTask(app: CasperApp, prompt: string, options: { fl
   let planBlock = "";
   let changedWhilePlanning: string[] | undefined;
   if (planFirst) {
-    const planned = await runPlanTurn(app, session, prompt, checklist, workspaceRoot);
+    const planned = await runPlanTurn(app, session, prompt, checklist, workspaceRoot, options.savedPlan);
     if (planned === "stop" || app.closing || app.commandAbort?.signal.aborted) return;
     changedWhilePlanning = planned.changed;
     checklist = planned.plan.tests.length ? planned.plan.tests : undefined;
     // The whole plan, the details the screen kept one key away included.
-    planBlock = formatPlanBlock(planned.plan);
+    planBlock = `${formatPlanBlock(planned.plan)}\n\nUse plan_step to keep this accepted checklist current: active before each step, done after it, or not-done with the reason. These reports are not verification evidence.`;
+    app.planBuild = new PlanBuild(planned.plan, line => app.events.setPlanProgress(line));
+    await prepareCapabilities(app, prompt);
   }
   // A code change in auto mode is reviewed and proven: the tests must fail without it. Only requests
   // that are clearly not behavior changes are exempt; the keyword intent is too coarse to decide more
@@ -519,6 +525,7 @@ export async function runModelTask(app: CasperApp, prompt: string, options: { fl
       ...(notReviewed.length ? { partsNotReviewed: notReviewed } : {}), ...(crewChecks ? { crewChecks } : {}),
       ...(app.taskTurnLimit !== undefined ? { turnLimit: app.taskTurnLimit } : {}), ...(app.taskSpendStop ? { spendLimit: { ...app.taskSpendStop } } : {}), ...(proof ? { proof } : {}), ...(proofSkipped && !proof ? { proofSkipped } : {}), ...(review ? { review } : {}),
       ...(acceptance ? { acceptance } : {}), ...(checklist ? { checklist } : {}), ...bigModelReceipt(app),
+      ...(app.planBuild ? { planSteps: app.planBuild.finish(execution) } : {}),
       ...(changedWhilePlanning?.length ? { changedWhilePlanning } : {}), ...(app.sandbox ? { sandbox: sandboxReceipt(app.sandbox)! } : {}),
       ...outsideWrites };
     app.lastFinishedTask = app.lastTaskResult;
@@ -534,7 +541,7 @@ export async function runModelTask(app: CasperApp, prompt: string, options: { fl
         && !app.lastTaskResult.testRunner;
       // A stop at --max-turns or at the spend limit is always said on a receipt.
       if ((classification.intent !== "general" && !answeredOnly) || execution !== "completed" || wroteToolCall || app.taskTurnLimit !== undefined || app.taskSpendStop !== undefined || verification || browser?.checks.length || observations.possibleMutations || observations.changedPaths?.length || observations.changedDuringChecks?.length || observations.observedEdits.length || observations.observedChecks.length
-        || branchMoved || observations.remoteChanges?.length || observations.remoteNotRun?.length || observations.secretInCommand) {
+        || app.planBuild || branchMoved || observations.remoteChanges?.length || observations.remoteNotRun?.length || observations.secretInCommand) {
         // A folder the task made too big to compare is not a project folder either: no undo, for the same reason.
         if (!changedPaths && app.snapshotFailure && tooManyFiles(app.snapshotFailure)) undoStart.snapshot = { unavailable: UNDO_NOT_PROJECT };
         // The second copy and the saved receipt; the change summary lists only this task's files.
@@ -568,7 +575,7 @@ export async function runModelTask(app: CasperApp, prompt: string, options: { fl
 
 /** Plan, or rewrite a plan from a plain-word change, under the same planning gate. Both terminals always
  * ask Stop / Build / Change the plan; a run that cannot ask stops after showing everything. */
-export async function runPlanTurn(app: CasperApp, session: RuntimeSession, request: string, cases: readonly string[] | undefined, root: string):
+export async function runPlanTurn(app: CasperApp, session: RuntimeSession, request: string, cases: readonly string[] | undefined, root: string, reopened?: SavedPlan):
   Promise<{ plan: ParsedPlan; changed?: string[] } | "stop"> {
   const signal = app.commandAbort?.signal;
   const flow = await loadFlow(app, "plan-first");
@@ -576,7 +583,9 @@ export async function runPlanTurn(app: CasperApp, session: RuntimeSession, reque
   app.events.ensureLineBreak();
   app.output.write("• Casper planning first: the model reads and writes a plan; Casper blocks the file changes it can see until you choose Build\n");
   const changed = new Set<string>();
-  const flowPrompt = formatFlowPrompt(flow, request);
+  const spec = await wantsSpec(root, request);
+  const flowPrompt = `${formatFlowPrompt(flow, request)}${spec ? "\n\nThis is a new-project/spec request. Use Goal, Screens, Data, Look, First version, Later, Done means; no implementation Steps required." : ""}`;
+  let questionRound = false;
   const writePlan = async (prompt: string): Promise<ParsedPlan | undefined> => {
     const before = await app.snapshotWorkspace(root, signal);
     app.lastAnswer = "";
@@ -599,21 +608,47 @@ export async function runPlanTurn(app: CasperApp, session: RuntimeSession, reque
     for (const file of files) changed.add(file);
     if (files.length) app.output.write(`– Changed while planning: ${files.map((file) => terminalText(file)).join(", ")}\n`);
     if (app.taskRuntimeFailed) { showWritten(); app.output.write("[plan] The model failed while planning; nothing was built.\n"); return undefined; }
+    const questions = planQuestions(app.lastAnswer) ?? planQuestions(written);
+    if (questions && !questionRound) {
+      questionRound = true;
+      const answers: string[] = [];
+      for (const q of questions) {
+        if (!app.interactive || !app.terminal.canAsk) { answers.push(`${q.question}: unanswered (cannot ask here)`); continue; }
+        const answer = await app.terminal.pick(q.question, q.options, signal, { typed: true });
+        if (answer === undefined || signal?.aborted || app.closing) { app.output.write("[plan] Stopped without building.\n"); return undefined; }
+        answers.push(`${q.question}: ${answer}`);
+      }
+      return writePlan(`${prompt}\n\nQuestion round finished. Use these answers in the plan. Do not ask again; leave remaining unknowns under Open questions.\n${answers.join("\n")}`);
+    }
     const last = extractPlan(app.lastAnswer);
-    const parsed = last.steps.length ? last : extractPlan(written);
-    if (!parsed.steps.length) {
+    const parsed = last.steps.length || isSpecPlan(last) ? last : extractPlan(written);
+    if (!parsed.steps.length && !isSpecPlan(parsed)) {
       showWritten();
       app.output.write("[plan] The answer had no numbered steps, so nothing was built. Ask again, or send the request without /plan.\n");
       return undefined;
     }
     return parsed;
   };
-  const parsed = await writePlan([
+  if (reopened) {
+    try { reopened = await readPlan(root, reopened.file); }
+    catch { app.output.write("[plan] Could not reopen the saved plan; nothing was built.\n"); return "stop"; }
+    if (!reopened.plan.steps.length && !isSpecPlan(reopened.plan)) { app.output.write("[plan] Saved plan needs numbered Steps or spec sections; nothing was built.\n"); return "stop"; }
+  }
+  const parsed = reopened?.plan ?? await writePlan([
     flowPrompt,
     ...(cases?.length ? [`Cases the user listed (put each under Tests:):\n${cases.map((item) => `- ${item}`).join("\n")}`] : []),
   ].join("\n\n"));
   if (!parsed) return "stop";
   let plan: ParsedPlan = { ...parsed, tests: parsed.tests.length ? parsed.tests : normalizeCases([...(cases ?? [])]) };
+  let saved = reopened;
+  const keep = async () => {
+    try {
+      if (saved) { saved = { ...saved, plan }; await updatePlan(root, saved); }
+      else saved = await savePlan(root, request, plan);
+    } catch { app.output.write("[plan] Could not save the plan; nothing was built.\n"); return false; }
+    return true;
+  };
+  if (!reopened && !await keep()) return "stop";
   app.events.ensureLineBreak();
   if (!app.interactive || !app.terminal.canAsk) {
     app.terminal.writeRows((width) => planScreenRows(plan, width, { full: true }));
@@ -623,7 +658,13 @@ export async function runPlanTurn(app: CasperApp, session: RuntimeSession, reque
   const rich = app.terminal.rich;
   const showPlan = () => {
     app.events.ensureLineBreak();
-    app.terminal.writeRows((width) => planScreenRows(plan, width, { more: rich ? "Ctrl+T shows the details" : "choose 4 to see the details" }));
+    app.terminal.writeTrusted({ render: width => planScreenRows(plan, width, {
+      framed: rich && app.terminal.color,
+      accent: text => tint(text, "accent", app.terminal.color),
+      // These plan details are explicitly faint, even when a theme's muted colour is default.
+      dim: text => paint(text, "2", app.terminal.color),
+      more: rich ? "Ctrl+T details · Ctrl+G edit" : planDetailsText(plan) ? "choose 4 to see the details" : undefined,
+    }), invalidate() {} });
     const body = planDetailsText(plan);
     app.events.showOnExpand({ title: "Plan: details", body: body ?? "No build details listed.", diff: false });
   };
@@ -632,17 +673,40 @@ export async function runPlanTurn(app: CasperApp, session: RuntimeSession, reque
   for (;;) {
     const choices = !rich && planDetailsText(plan) ? PLAN_CHOICES_DETAILS : PLAN_CHOICES;
     app.events.ensureLineBreak();
-    answer = await app.terminal.pick(PLAN_QUESTION, choices.map((choice) => ({ ...choice })), signal);
+    answer = await app.terminal.pickPlan(PLAN_QUESTION, choices.map((choice) => ({ ...choice })), signal);
     if (app.closing || signal?.aborted) return "stop";
     if (answer === "Show the details") { app.output.write(`${terminalText(planDetailsText(plan) ?? "")}\n`); continue; }
+    if (answer === "Build") {
+      try {
+        const current = await readPlan(root, saved!.file);
+        if (!current.plan.steps.length && !isSpecPlan(current.plan)) { app.output.write("[plan] Saved plan needs numbered Steps or spec sections. Edit it before building.\n"); continue; }
+        if (planMarkdown(current.plan) !== planMarkdown(plan)) {
+          plan = current.plan; saved = current;
+          app.output.write("[plan] The Markdown changed; review it before choosing Build again.\n");
+          showPlan(); continue;
+        }
+      } catch { app.output.write("[plan] Could not read the saved plan; nothing was built.\n"); return "stop"; }
+    }
+    if (answer === "Edit Markdown") {
+      try {
+        await app.terminal.editPlan(saved!.file);
+        const edited = await readPlan(root, saved!.file);
+        if (!edited.plan.steps.length && !isSpecPlan(edited.plan)) app.output.write("[plan] The edited file needs numbered Steps or spec sections; keeping the previous plan.\n");
+        else { saved = edited; plan = edited.plan; }
+      } catch (error) { app.output.write(`[plan] ${lineText(error instanceof Error ? error.message : "Editor failed")}\n`); }
+      showPlan();
+      continue;
+    }
     if (answer !== "Change the plan") break;
     const change = await app.terminal.askLine(PLAN_CHANGE_QUESTION, PLAN_CHANGE_HINT, signal);
     if (app.closing || signal?.aborted) return "stop";
     if (change === undefined) { app.output.write("[plan] Stopped without building.\n"); return "stop"; }
     if (change.trim()) {
+      questionRound = true;
       const rewritten = await writePlan(`${flowPrompt}\n\n${formatPlanChangePrompt(plan, change)}`);
       if (!rewritten) return "stop";
       plan = rewritten;
+      if (!await keep()) return "stop";
     }
     showPlan();
   }

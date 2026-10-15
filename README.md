@@ -103,9 +103,15 @@ Ctrl+D on an empty prompt exits. [Keys and commands](docs/TERMINAL_UX.md#quick-r
   4 Yes, always for this project`, and network boxes add `Yes to everything on <product> this session`;
   each box shows only the answers that fit. Nothing asks you to type `yes`. For a shell command, 3 and 4 remember
   that exact command, never a prefix: a yes to `rm -rf build` never covers `rm -rf ~`. [Terminal guide](docs/TERMINAL_UX.md)
-- **Plans you change in words.** `/plan <request>` shows numbered steps and test cases, then
+- **Plans you change in words.** `/plan <request>` is optional: a clear request gets a plan directly;
+  only choices that change the build get up to 3 questions in one round. Existing projects get numbered steps
+  and Done means checks; new apps, sites and games get a first-version spec, not forced steps. Then
   `1 Stop · 2 Build · 3 Change the plan`: say what to change ("drop step 2") and the model rewrites it. Enter never
-  builds. [Plans](docs/TERMINAL_UX.md)
+  builds. Ctrl+T shows Details; Ctrl+G opens saved Markdown in `VISUAL` or `EDITOR` and rereads it on return.
+  `/plan` alone reopens recent gitignored plans. Build gets the checklist; progress is a **model report**.
+  The receipt reports each item from Steps (or First version in a spec): completed items as done, not-done
+  items with reasons, labelled **model report**, not check proof. These plan additions are built, not released yet.
+  [Plans](docs/TERMINAL_UX.md)
 - **Work you can follow.** While Casper works, the steps read in plain words (`Looking through the code: 14 searches,
   9 files read`, `Ran the tests`); Ctrl+O shows every raw tool call, Ctrl+T the last step in full.
 - **Crews for big jobs.** For a job with separate parts the AI starts builders, each in its own copy of your folder;

@@ -56,6 +56,7 @@ export async function prepareCapabilities(app: CasperApp, task: string): Promise
     }),
     offered: app.offeredTools,
   });
+  if (app.planBuild) nextTools.push(app.planBuild.tool());
   if (app.closing) return;
   if (app.session) {
     if ((nextTools.length || app.runtimeTools.length) && !app.session.setTools) throw new Error("Runtime does not support custom capabilities");

@@ -1,6 +1,6 @@
 ---
 name: plan-first
-description: Write a short plan and the cases to test before changing any file. Loads only from /plan or a request that starts with "plan first:".
+description: Design a plan or first-version spec before building, with one optional question round. Loads only from /plan or a request that starts with "plan first:".
 disable-model-invocation: true
 casper-flow:
   when: before-work
@@ -14,42 +14,42 @@ Adapted and trimmed from obra/superpowers writing-plans (MIT, Copyright (c) 2025
 
 The user asked you to plan before building. Do not change any file in this turn. Casper blocks
 file changes it can see until the user chooses Build, and it lists any file that changed anyway.
+Read named files, nearby code and tests. Follow project patterns.
 
-Read what you need first: the files the request names, the code around them, and the tests
-that already cover it. Follow the patterns the project already uses.
+A clear request gets a plan directly. Only if a choice changes what you build, ask at most 3
+questions in ONE round, on the initial answer only. Return only JSON, no fences or prose:
+{"questions":[{"question":"Where should tasks be kept?","options":[{"label":"This device","description":"No sign-in; local storage"},{"label":"Shared","description":"Accounts and a shared database"}]}]}
+Each question needs 2-4 options with label and description. Casper parses this JSON and uses
+its normal picker with Type your own. Do not call a tool to ask. The next prompt contains the
+answers: return the plan, never more questions. Put remaining unknowns under Open questions.
+A change request rewrites the whole plan without another question round.
 
-The plan is for a person deciding whether this is what they want, not for the code. Answer in
-exactly this shape, with nothing after Details:
+Write for a person deciding what they want, not for the code. For an existing project use:
 
 Title: the change in a few plain words
-
-What you'll see:
-One to three plain sentences: what the person will notice when it is done.
-When the change shows on screen (terminal output, a page, a message), add a small text mock-up
-of the result in a ``` block, at most 60 columns and 12 lines. Show only the new result; do not
-copy what is there now.
-
+Goal: what this achieves
+What I found: relevant established facts from the project
+What you'll see: 1-3 plain sentences about the result. For an on-screen change include a new
+result mock-up in a ``` block, at most 60 columns and 12 lines; do not copy the old screen.
 Steps:
-1. One action per line, in plain words, with a result someone can check.
-2. No escape codes, function names or test names; name a file only when a person needs it.
-3. Tests go under Tests: only. If they come first, say so once as a step.
+1. One checkable action per line. Append — path/to/file for its main file when known.
+Done means:
+- Concrete acceptance criteria, including checks: input and expected output, each case once.
+Open questions: only genuine unknowns as questions ending in ?; omit when none; move facts to What I found
+Details: optional build notes; keep last
 
-Tests:
-- One line per case the change must pass: the input, and what must come out. Each case once.
-- Quote the request's own names, values and messages.
-- Add an edge case only when the request implies it.
+For a new/empty folder or a request to make an app, site or game, write a first-version spec:
+Title, Goal, Screens, Data, Look, First version, Later, Done means.
+Use those section headings with colons. Screens describes pages and interactions; Data names
+what is stored; Look names a style suited to the request. Separate First version from Later.
+Done means includes checkable criteria and checks. Do not force implementation Steps into a
+spec. Open questions (unknowns only) and Details are optional here too.
 
-Details:
-For the build: the exact files, functions, values and assertions each step touches. Casper
-keeps this one key away on the screen and gives all of it to you when the user chooses Build.
-
-Rules for a good plan:
-- Keep it small: the fewest steps that do what was asked. No extra features.
+Rules:
+- Keep scope small. Quote the request's names, values and messages; no extra features or cases.
 - Do not add steps just to re-confirm known facts or an established cause (including reviewer agents
   re-checking it). Use what is already known; investigate only a specific unresolved question.
-- A step that decides nothing ("handle edge cases", "add validation") is a gap. Say what exactly.
-- If the request is unclear, say so in one line before "Title:" and plan for the most likely reading.
-- If the request covers several separate parts, keep them in order, one after the other.
+- Decide what "validation" means; avoid vague steps. Keep separate requested parts in order.
+- No escape codes. Technical notes go in Details (Ctrl+T).
 
-The user reads your plan, can ask you to change it in plain words, and then chooses Build.
-For a change request, rewrite the whole plan in this same shape. Only Build lets you change files.
+The user can ask to Change the plan in plain words. Only an explicit Build starts work.

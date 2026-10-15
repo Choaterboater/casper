@@ -13,6 +13,7 @@ import type { NextRow } from "./next-row";
 import { bellSequence, hostCommand, prepareTmuxPane, titleSequence, TITLE_RESTORE, TITLE_SAVE, type HostCommand, type HostTerminal } from "./host-terminal";
 import { SidePane, type ActivityPane } from "./side-pane";
 import { answerRecordText, MODEL_REASON_PREFIX, numberPrompt, OTHER_CHOICE, type PickRecord } from "./choices";
+import { editPlanFile } from "./plan-editor";
 
 export { numberPrompt } from "./choices";
 
@@ -382,6 +383,17 @@ export class InteractiveTerminal {
     // Rich: a picker takes keys only (a paste waits for after it), unless `typed` says a typed answer means something here.
     if (this.surface) return (await this.surface.ask(question, options, false, signal, "casper", settings.typed ?? false, settings.record))?.[0];
     return this.plainPick(question, options, signal, false, settings.typed ?? false, settings.record);
+  }
+
+  /** Ctrl+G is bound only while the accepted-plan picker is on screen. */
+  async pickPlan(question: string, options: { label: string; description?: string }[], signal?: AbortSignal): Promise<string | undefined> {
+    this.surface?.setPlanEdit("Edit Markdown");
+    try { return await this.pick(question, options, signal); }
+    finally { this.surface?.setPlanEdit(undefined); }
+  }
+  async editPlan(file: string): Promise<void> {
+    if (this.surface) await this.surface.externalEditor(() => editPlanFile(file));
+    else await editPlanFile(file);
   }
 
   /** How many closed boxes have left their one-line record ("Pick a server → lab"), on either terminal. */

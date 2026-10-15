@@ -417,6 +417,7 @@ export class CasperApp {
   readonly suggestions = new SuggestionController((text) => { if (!this.closing) this.output.write(text); }, () => this.homeDir());
   /** A plan turn is running: every tool but reading is refused (see src/flows/plan.ts). */
   planning = false;
+  planBuild?: import("./flows/plan-build").PlanBuild;
   /** Flow warnings (a user's flow that could not be used) are said once. */
   readonly flowWarnings = new Set<string>();
   /** The session's shell sandbox (src/sandbox): every shell path runs in it when it can run here. */

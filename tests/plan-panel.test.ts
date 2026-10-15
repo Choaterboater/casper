@@ -1,0 +1,95 @@
+import { describe, expect, test } from "bun:test";
+import { stripVTControlCharacters } from "node:util";
+import { visibleWidth } from "@earendil-works/pi-tui";
+import { extractPlan, planScreenRows, type ParsedPlan, type PlanScreenOptions } from "../src/flows/plan";
+
+const plan: ParsedPlan = {
+  title: "A calmer project board", goal: ["Find the next task quickly."],
+  found: ["The route already exists in src/pages/board.ts."],
+  openQuestions: ["Should the board include archived tasks?"],
+  screens: ["Board: grouped cards, task form and an empty state."],
+  data: ["Task: title, group and due date."], look: ["Like Linear: dark, quiet."],
+  firstVersion: ["Create, edit and move a task."], later: ["Shared boards."],
+  steps: [], tests: ["a newly added task appears", "an empty title is rejected"],
+  details: ["src/pages/board.ts owns the route."],
+};
+const headings = ["Goal", "What I found", "Screens", "Data", "Look", "First version", "Later", "Done means", "Open questions"];
+const plain = (rows: string[]) => rows.map(row => stripVTControlCharacters(row));
+const inside = (rows: string[]) => rows.slice(2, -2).map(row => row.slice(1, -1).trim());
+
+describe("the designed plan panel", () => {
+  test.each([80, 160])("a framed panel at %i columns: title in the top edge, footer in bottom edge, even spacing", width => {
+    const rows = planScreenRows(plan, width, { framed: true, more: "details" });
+    expect(rows[0]).toStartWith("╭─ Plan · A calmer project board ─");
+    expect(rows.at(-1)).toContain("Ctrl+T details · Ctrl+G edit");
+    expect(rows.at(-1)).toEndWith("─╯");
+    expect(rows.every(row => visibleWidth(row) === 80)).toBe(true);
+    expect(rows[1]).toBe(`│${" ".repeat(78)}│`);
+    expect(rows.at(-2)).toBe(rows[1]);
+    const content = inside(rows);
+    for (const heading of headings) {
+      expect(content).toContain(heading);
+      if (heading !== "Goal") expect(content[content.indexOf(heading) - 1]).toBe("");
+      expect(content[content.indexOf(heading) + 1]).not.toBe("");
+    }
+    expect(content).not.toContain("Steps");
+  });
+  test("plain/NO_COLOR sections are identical, unframed, and empty sections omitted", () => {
+    const unframed = planScreenRows(plan, 80);
+    for (const heading of headings) expect(unframed).toContain(heading);
+    expect(unframed[0]).toBe("Casper plan · A calmer project board");
+    expect(unframed.join("\n")).not.toContain("╭");
+    expect(unframed.join("\n")).not.toContain("owns the route");
+    expect(planScreenRows({ steps: [], tests: [], found: [" "], goal: [] }, 80)).toEqual(["Casper plan"]);
+    expect(planScreenRows(plan, 80, { full: true }).join("\n")).toContain("owns the route");
+  });
+  test("theme accents headings and dims paths after sanitizing model text", () => {
+    const headingsSeen: string[] = [], pathsSeen: string[] = [];
+    const options: PlanScreenOptions = { framed: true,
+      accent: text => { headingsSeen.push(text); return `\x1b[36m${text}\x1b[0m`; },
+      dim: text => { pathsSeen.push(text); return `\x1b[2m${text}\x1b[0m`; },
+    };
+    const rows = planScreenRows(plan, 80, options);
+    for (const heading of headings) expect(headingsSeen).toContain(heading);
+    expect(pathsSeen).toContain("src/pages/board.ts");
+    expect(rows.every(row => visibleWidth(row) === 80)).toBe(true);
+    expect(plain(rows)).toEqual(planScreenRows(plan, 80, { framed: true }));
+    const attack = planScreenRows({ steps: ["Do \x1b[2Jnot clear"], tests: [] }, 80, options);
+    expect(attack.join("\n")).not.toContain("\x1b[2J");
+  });
+  test.each([6, 8, 10, 20, 40, 80, 160])("long words, paths and titles wrap without cuts at %i", width => {
+    const title = "Project".repeat(35), word = "abcdefghij".repeat(35), file = `src/${"folder/".repeat(30)}board.ts`;
+    for (const framed of [false, true]) {
+      const rows = planScreenRows({ title, screens: [word], found: [file], steps: [], tests: [] }, width, { framed, more: "Ctrl+T details · Ctrl+G edit" });
+      expect(rows.every(row => visibleWidth(row) <= width)).toBe(true);
+      const content = (framed ? inside(rows) : rows).join("").replace(/\s/g, "");
+      for (const text of [title, word, file]) expect(content).toContain(text);
+      expect(rows.join("").replace(/\s|[│─╰╯]/g, "")).toContain("Ctrl+Tdetails·Ctrl+Gedit");
+      expect(content).not.toContain("…");
+    }
+  });
+  test("blank lines inside sections are omitted while mock-up indentation stays", () => {
+    const rows = planScreenRows({ steps: [], tests: [], see: ["A board", "", "  ┌──┐", "  │hi│", "  └──┘"] }, 80, { framed: true });
+    expect(rows).toContain(`│    A board${" ".repeat(67)}│`);
+    const text = rows.join("\n");
+    expect(text).toContain("      ┌──┐");
+    expect(inside(rows).filter(row => !row)).toHaveLength(0);
+  });
+  test("criteria keep every qualifier, even beyond normal checklist limits", () => {
+    const long = `The form ${"must preserve every supplied field and qualifier ".repeat(8)}until saved.`;
+    const tests = [long, ...Array.from({ length: 84 }, (_, i) => `Criterion ${i + 2} remains visible.`)];
+    const parsed = extractPlan(`Screens: a board\nDone means:\n${tests.map(item => `- ${item}`).join("\n")}`);
+    for (const framed of [false, true]) {
+      const rows = planScreenRows(parsed, 40, { framed });
+      expect(rows.every(row => visibleWidth(row) <= 40)).toBe(true);
+      const content = (framed ? inside(rows) : rows).join(" ").replace(/\s+/g, " ");
+      for (const item of tests) expect(content).toContain(item);
+    }
+  });
+  test("Unicode graphemes and combining sequences remain whole", () => {
+    const title = "界面👩‍💻é".repeat(15);
+    const rows = planScreenRows({ title, steps: [], tests: [] }, 20, { framed: true });
+    expect(rows.every(row => visibleWidth(row) === 20)).toBe(true);
+    expect(inside(rows).join("").replace(/\s/g, "")).toContain(title);
+  });
+});

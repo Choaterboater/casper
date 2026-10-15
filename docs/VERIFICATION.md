@@ -418,10 +418,31 @@ did not pass or did not run. `/receipt` lists every case.
 – 26 cases from your request not confirmed: the checks did not pass (/receipt lists them)
 ```
 
-**Editing the list.** Nothing waits before work: the list goes to the model as made. To read and
-correct the cases first, use `/plan <request>`: the plan numbers its steps and test cases. On both terminals,
-`3 Change the plan` opens one line for plain words such as "also test X". The model rewrites the plan and shows
-it again with `1 Stop · 2 Build · 3 Change the plan`; Enter stops without building. There is no raw plan editor.
+**Planning first (optional).** Nothing waits before ordinary work: the list goes to the model as made.
+To read and correct the cases first, use `/plan <request>`. A clear request returns a plan directly; only
+choices that change the build get at most 3 questions in one round, with 2-4 options, each labelled and described,
+and the normal picker's Type your own. The next prompt includes the answers and must return a plan without
+more questions. The read-only planning gate is unchanged: the model may only look, not edit or run checks.
+
+An existing-project plan has Title, Goal, What I found, What you'll see (an on-screen mock-up at most 60
+columns), numbered Steps, Done means (acceptance criteria including checks), Open questions only for unknowns,
+and optional Details. For a new/empty folder or a request to make an app, site or game, it is a first-version
+spec: Goal, Screens, Data, Look (a named style), First version, Later and Done means, with no forced Steps.
+Later is not part of the build. The accepted Done means cases become the build checklist, without a separate
+checklist-generation call; Build gets the whole plan, not just the numbered steps.
+
+On both terminals, `3 Change the plan` opens one line for plain words such as "also test X". The model
+rewrites the plan and shows it again with `1 Stop · 2 Build · 3 Change the plan`; Enter stops without building. Choice 3
+is not a raw plan editor. Ctrl+T shows Details; Ctrl+G opens the saved Markdown using `VISUAL` or `EDITOR`,
+rereads it on return and shows it again. Plans are gitignored at `.casper/plans/date-slug.md`; `/plan` alone
+lists recent plans to reopen. The rich plan's accent frame is at most 80 columns, with dim paths; plain
+terminals and `NO_COLOR` show no frame.
+
+**Plan progress is a model report, not check proof.** During the build the working line can read
+`Step 2 of 4 · Draw the header`. The receipt reports each item from Steps (or First version in a spec):
+completed items as done, not-done items with reasons, labelled **model report**.
+These are the model's claims, not proof that a check ran or passed.
+They do not replace recorded check results, change the verification verdict, or make unchecked work Verified.
 
 If the call fails or its answer has no list of cases, Casper prints one line
 (`– Checklist not made: <reason>`) and the task runs unchanged. The checklist is guidance, not
