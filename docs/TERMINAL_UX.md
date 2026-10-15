@@ -143,8 +143,14 @@ Words never grant permission: approvals still ask as always.
 
 ## Current interface
 
-Run `casper` in your project. The interactive terminal uses Pi's main-screen
-renderer/editor: ordinary scrollback above an anchored multiline prompt and a
+Run `casper` in your project. **Built, not released (next preview):** `casper "your request"`
+starts the same persistent session with that first request when stdin and stdout are both TTYs
+(terminals), no forcing flags are given and `CI` is unset. It stays open for follow-ups.
+Use `casper -p "your request"` (or `--print`) to run once and exit; use `-p` explicitly in scripts.
+Either stream being non-TTY, `--json`, a lone `-` prompt, `--require-verification`, `--max-turns`,
+or `CI` set still forces one-shot mode. Receipts and exit codes are unchanged.
+
+The interactive terminal uses Pi's main-screen renderer/editor: ordinary scrollback above an anchored multiline prompt and a
 persistent footer, with no alternate-screen takeover. Casper owns the terminal
 before it prints the startup banner, so the banner, model status and diagnostics
 are transcript lines like everything else. A model is not started just to paint
@@ -163,6 +169,11 @@ or gives an example, and a second line says `casper new` starts a new project. T
 (`C:\Users\alex\Projects`) where macOS and Linux show `~/Projects`. Any other folder opens exactly there,
 even one that only holds projects (such as `~/Projects`); when it holds two or more, one line
 names them (up to four) and the command to open one, such as `casper aibot`.
+
+In the next preview, a lone command-line word that isn't a folder, from home or a drive root
+(`casper myapp`, for example), asks whether you meant a request or a new project of that name.
+A new project is not created without your choice. Existing folders still open directly; elsewhere,
+or with two or more words, there is no such question. Explicit one-shot runs never ask it.
 
 An empty folder opens the same way, quietly: no question and no kind menu. A first request that fits a
 template (a NOC dashboard, an MCP server) builds it there after one `[new]` line; any other request goes to
@@ -875,7 +886,7 @@ Plain answers stay in the terminal, and so does a Mermaid diagram from the diagr
   the link only (the address is on that computer: forward the port to see it). **Open pages in
   the browser** in `/settings` (`open_pages: off`) prints the link only everywhere.
 - **The page server** starts with the first page of a session: `127.0.0.1` only, on a free port,
-  and it stops when Casper quits. A one-shot run (`casper "<request>"`) starts no server: the page
+  and it stops when Casper quits. A one-shot run (`casper -p "<request>"`) starts no server: the page
   is saved and its file address printed; `/pages open <name>` in a session shows it.
 - **`/pages`** lists this project's pages with their links; `/pages open <name>` shows one (also
   with opening turned off: you asked); `/pages remove <name>` deletes one, and its open tab says

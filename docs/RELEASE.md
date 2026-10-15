@@ -15,6 +15,15 @@ new version.
 **Not released yet.** The version number and the installers still say v0.2.35; the release step
 sets them and removes this line.
 
+- `casper "words"` at a terminal now starts a persistent session with those words as its first request,
+  then stays open for follow-ups. This needs both stdin and stdout to be TTYs, no forcing flags and `CI` unset.
+  Use `-p` / `--print` to run once and exit; use `-p` explicitly in scripts. Existing scripts stay one-shot
+  when either stream is non-TTY, or with `--json`, a lone `-` prompt, `--require-verification`, `--max-turns`,
+  or `CI` set. Exit codes, JSON events and receipt semantics are unchanged.
+- An interactive lone word that isn't a folder, from home or a drive root, asks whether you meant a
+  request or a new project of that name. No project is created without your choice. Existing folders
+  still open directly; elsewhere, or with two or more words, there is no such question. One-shot runs
+  never ask it; `casper new <name>` stays the explicit way to start a named project.
 - `casper new <name>` makes an empty project in `~/Projects/<name>` and opens Casper there, with no questions; an
   existing folder of that name is opened instead. `casper new` with no name uses the first free `my-project` name.
   The "What are you building?" kinds and the name question are gone, as in other coding tools: make the folder,
@@ -2509,8 +2518,8 @@ below.
 4. Verify uploaded assets/checksums, then publish the prerelease. Draft assets cannot
    serve the anonymous one-liner. Do not put executable binaries in Git history.
 5. Run the published-release workflow and verify the anonymous installer URLs; on a
-   clean machine, `casper --version` and `casper /visualize repo` inside a small
-   source project. On Windows, verify the PowerShell installer and inline
+   clean machine, `casper --version` and `casper -p /visualize repo` inside a small
+   source project (`-p` from the next preview; omit it for v0.2.35). On Windows, verify the PowerShell installer and inline
    visualization separately on that host.
 
 ## The release key

@@ -77,6 +77,16 @@ started as Casper's own detached child; on a real Windows machine it never ran (
 so updating from 0.2.34 or older still needs the `irm ... | iex` line once. `scripts/windows-handoff-check.ps1` checks,
 on a PC, which way of starting a helper outlives its parent.
 
+### Starting a session or running once
+
+**Built, not released (next preview):** in PowerShell with stdin and stdout both attached to the
+terminal, no forcing flags and `CI` unset, `casper "Explain this project"` starts a session with that first request
+and stays open. `casper -p "Explain this project"` (or `--print`) runs once and exits; use `-p`
+explicitly in scripts. Redirecting either stream, `--json`, a lone `-` prompt,
+`--require-verification`, `--max-turns`, or `CI` set still forces one-shot mode. Exit codes and
+receipts are unchanged. At home or a drive root, a lone word that isn't a folder first asks
+whether you meant a request or a new named project; elsewhere, or with two or more words, it does not.
+
 ## Windows with WSL (Linux inside Windows)
 
 WSL is Linux running inside Windows. If you open a WSL terminal (Ubuntu, for example), you
@@ -266,7 +276,7 @@ In the disposable project above (a git repository, with Git for Windows installe
   `1 Cancel`, and Enter changes nothing.
 - `/diff`, `/receipt list`, then restart Casper and `/receipt 1`: the old receipt shows.
 - Ask the AI to run a shell command: `Run this command?` shows, Enter says no.
-- `casper --json "/undo 1"` and `casper "/security-review"` in one-shot runs end without
+- `casper --json "/undo 1"` and `casper -p "/security-review"` in one-shot runs end without
   waiting for an answer.
 
 ## Report a failure

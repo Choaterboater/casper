@@ -158,6 +158,13 @@
         key needed). Everything Casper does after the AI's edit is the real code.</p>
 
         <h3>A script gets the verdict, not just text</h3>
+        <p><strong>Built, not released:</strong> use <code>casper -p "your request"</code> (or
+        <code>--print</code>) to run once and exit; use <code>-p</code> explicitly in scripts.
+        <code>casper "your request"</code> now stays open for follow-ups when stdin and stdout are
+        both TTYs, no forcing flags are given and <code>CI</code> is unset. Existing scripts stay
+        one-shot with either stream non-TTY, <code>--json</code>, a lone <code>-</code> prompt,
+        <code>--require-verification</code>, <code>--max-turns</code>, or <code>CI</code> set.
+        Exit codes and receipts are unchanged; the captured <code>--json</code> example still works.</p>
         <figure class="capture">
           <pre class="term" tabindex="0" data-title="shell — ~/project"><span class="dim"># (the model here is the scripted stand-in; checks, proof and receipt are real)</span>
 
@@ -381,7 +388,7 @@ Make this change? → No
               <tr>
                 <th scope="row">Scripting</th>
                 <td class="yes"><code>-p</code> print mode, <code>--mode json</code> events, RPC mode, SDK</td>
-                <td class="yes"><code>--json</code> events ending in a receipt object, plus exit codes: 1 failed, 2 incomplete, 3 not verified (with <code>--require-verification</code>).</td>
+                <td class="yes"><code>-p</code> / <code>--print</code> for one-shot runs (built, not released); <code>--json</code> events ending in a receipt object, plus exit codes: 1 failed, 2 incomplete, 3 not verified (with <code>--require-verification</code>).</td>
               </tr>
               <tr>
                 <th scope="row">Undo a task's file changes</th>

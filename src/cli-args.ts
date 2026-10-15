@@ -12,6 +12,8 @@ export type InfoFlag = "help" | "version" | "licenses";
 export interface CliOptions {
   /** An informational flag: print and exit, nothing else runs and no conflict is checked. */
   info?: InfoFlag;
+  /** -p/--print: run the prompt once and exit, even at an interactive terminal. */
+  print?: boolean;
   verify: boolean;
   noVerify: boolean;
   /** --no-sandbox: shell commands and checks run with your own permissions for this run (said on the receipt). */
@@ -45,7 +47,7 @@ export interface CliOptions {
    * prompt argument stays readable in the process list, and a model's `pkill -f <text from the prompt>` would
    * match Casper itself. */
   promptFromStdin?: boolean;
-  /** One-shot prompt, a subcommand (`casper learn …`, `casper mcp check …`, `casper new …`,
+  /** Initial prompt (session or one-shot), a subcommand (`casper learn …`, `casper mcp check …`, `casper new …`,
    * `casper security …`, `casper update`), or an interactive session. */
   command: "prompt" | "interactive" | SubcommandName;
   /** Prompt words, or the subcommand's full argument list (starting with its own words). */
@@ -78,7 +80,7 @@ const USAGES: Record<SubcommandName, () => string> = {
 };
 
 /** Every leading option the parser accepts; /help all must document each one. */
-export const CLI_OPTIONS = ["--json", "--max-turns", "--cd", "--continue", "--resume", "--model", "--effort", "--verify", "--no-verify", "--no-sandbox", "--allow-host", "--allow-write", "--allow-reach", "--verbose", "--require-verification", "--mcp", "--lsp",
+export const CLI_OPTIONS = ["-p", "--print", "--json", "--max-turns", "--cd", "--continue", "--resume", "--model", "--effort", "--verify", "--no-verify", "--no-sandbox", "--allow-host", "--allow-write", "--allow-reach", "--verbose", "--require-verification", "--mcp", "--lsp",
   "--help", "--version", "--licenses"] as const;
 
 /** Options that take a value, as `--name value` or `--name=value`. */
@@ -107,7 +109,8 @@ export function parseCliArgs(argv: readonly string[]): CliOptions {
       flag = flag.slice(0, equals);
       args.splice(0, 1, flag, value);
     } else if (flag && VALUE_OPTIONS.has(flag)) value = args[1];
-    if (flag === "--verify") options.verify = true;
+    if (flag === "-p" || flag === "--print") options.print = true;
+    else if (flag === "--verify") options.verify = true;
     else if (flag === "--no-verify") options.noVerify = true;
     else if (flag === "--no-sandbox") options.noSandbox = true;
     else if (flag === "--verbose") options.verbose = true;
@@ -173,12 +176,13 @@ export function parseCliArgs(argv: readonly string[]): CliOptions {
     }
   }
   if (options.requireVerification && options.noVerify) throw new UsageError("--require-verification cannot be combined with --no-verify");
+  if (options.print && options.command !== "prompt") throw new UsageError('-p/--print needs a prompt: casper -p "fix the failing test"');
   if (options.json && options.command !== "prompt") throw new UsageError("--json needs a prompt: casper --json \"fix the failing test\"");
   if (options.requireVerification && options.command !== "prompt") throw new UsageError("--require-verification needs a prompt: casper --require-verification \"fix the failing test\"");
   return options;
 }
 
-/** A known long option at the end of the prompt (`casper fix the bug --verify`) is a mistake, found before anything
+/** A known option at the end of the prompt (`casper fix the bug --verify`) is a mistake, found before anything
  * runs. Short -v/-h and unknown dashes inside a prompt stay words ("explain the -v flag"). */
 function trailingOption(args: readonly string[]): void {
   const last = args.at(-1)!;

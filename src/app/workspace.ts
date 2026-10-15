@@ -16,10 +16,10 @@ import { VerifierRegistry } from "../verify/registry";
 import { workFolderChoices } from "./safe-choices";
 import { isOutside } from "../platform/inside";
 import { planAutoChecks } from "../verify/mode";
-import { NEW_USAGE, parseNewArgs } from "../cli-args";
+import { NEW_USAGE, parseNewArgs, type NewCommand } from "../cli-args";
 import { askBuildRequest, buildInEmptyFolder, buildRequestNote, isEmptyFolder, newProjectFromQuestions, offerMissingFolder, opened, type NewProjectFlow } from "./new-project";
 import { listLines } from "../new/command";
-import { defaultNameFor } from "../new/templates";
+import { defaultNameFor, EMPTY_TEMPLATE, projectSlug, validName } from "../new/templates";
 import { tildePath } from "../new/scaffold";
 import type { NoiseOptions } from "../project/noise";
 import { updateFooter, phase } from "./footer";
@@ -56,6 +56,23 @@ export async function newProjectFlowWithAbort<T>(app: CasperApp, work: (flow: Ne
 }
 
 export { isDriveRoot } from "../project/inspect";
+
+/** A lone CLI word at home or a drive root could be a question or a project name. Ask before either runs. */
+export async function initialProjectRequest(app: CasperApp, cwd: string, prompt: string): Promise<NewCommand | undefined> {
+  if (!app.terminal.canAsk || !broadFolder(cwd, app.sessionHomeDir ?? os.homedir())
+    || /\s/.test(prompt) || prompt.startsWith("/")) return undefined;
+  if (await stat(path.resolve(cwd, prompt)).then((entry) => entry.isDirectory(), () => false)) return undefined;
+  return newProjectFlowWithAbort(app, async (flow) => {
+    const question = `${JSON.stringify(terminalText(prompt))} isn't a folder here.`;
+    const name = validName(prompt) ? prompt : projectSlug(prompt) || defaultNameFor(EMPTY_TEMPLATE);
+    const choices = [{ label: "Ask it as a question" }, { label: `Start a new project named ${name}` }];
+    const answer = await app.terminal.pick(question, choices, flow.signal);
+    if (answer === choices[0]!.label) return undefined;
+    // Esc cancels the initial request, not the session. Choosing a project never also sends its name to the AI.
+    app.queuedPrompt = undefined;
+    return answer === choices[1]!.label ? { name, template: EMPTY_TEMPLATE, list: false } : undefined;
+  });
+}
 
 /** The one plain line for a folder that holds projects: the count, up to four names, and the command to open the
  * most recent. Nothing for fewer than two. */

@@ -81,11 +81,23 @@ Casper works, runs the checks, and ends with a receipt:
 From the shell:
 
 ```sh
-casper "Explain this project"
+casper "Explain this project"  # start a session with this first request (built, not released)
 casper --no-verify   # no Casper-run checks this run
 casper --version     # casper 0.2.35 (/absolute/path/of/the/binary/or/cli.ts)
 casper doctor        # check Casper's own setup and fix what it can (no model)
 ```
+
+**Built, not released (next preview):** when stdin and stdout are both terminals, no forcing flags are given and `CI` is unset,
+`casper "Explain this project"` sends the first request and stays open for follow-ups. A lone word that
+isn't a folder, at home or a drive root, asks whether you meant a request or a new project of that name;
+elsewhere, or with two or more words, there is no such question.
+
+### One-shot runs and scripts
+
+Use `casper -p "Explain this project"` (or `--print`) to run once and exit in the next preview.
+Use `-p` explicitly in scripts. Existing scripts stay one-shot when either stdin or stdout is not
+a terminal, or with `--json`, a lone `-` prompt, `--require-verification`, `--max-turns`, or `CI` set.
+Exit codes and receipts are unchanged. [Scripting](docs/SCRIPTING.md).
 
 A check runs your project's own command without asking, inside the sandbox when you have turned it on.
 Use `--no-verify` for code you don't trust.

@@ -18,6 +18,11 @@ then either apply the result or throw it away after you look at the diff.
 
 ## Commands
 
+**Built, not released (next preview):** `casper "your request"` opens an interactive session
+with that first request when stdin and stdout are both TTYs, no forcing flags are given and `CI`
+is unset. Use `-p` / `--print` for a one-shot run, as in the examples below; v0.2.35 still runs a
+command-line prompt once. See [SCRIPTING.md](SCRIPTING.md) for the modes and script compatibility.
+
 Interactive commands:
 
 ```text
@@ -40,7 +45,7 @@ says to isolate experiments (the default) and the project is a Git repo, it also
 creates a clean worktree from the main folder's current commit.
 
 You typed the command, so Casper doesn't ask again: it makes the branch and says
-where it is. In one-shot mode (`casper "<prompt>"`) it refuses, because there is no one to
+where it is. In one-shot mode (`casper -p "<prompt>"`) it refuses, because there is no one to
 answer.
 
 ### `/switch <branch>`
@@ -58,7 +63,7 @@ of its own: it starts on its own `main`, and its saved conversation is kept
 apart from the main folder's. Isolated experiments still start from the main
 folder: `/branch` there says so and names the folder to start Casper in.
 
-A one-shot run (`casper "<prompt>"`, `casper --json ...`) starts a new conversation
+A one-shot run (`casper -p "<prompt>"`, `casper --json ...`) starts a new conversation
 unless you give it `--continue` or `--resume`, even in a folder where a session left one
 open. Its `/clear` or `/resume` lasts for that run only and says so: it does not change
 what the next session opens.
@@ -81,7 +86,7 @@ An experiment in its own worktree cannot use plain `/switch main`. Pick one:
 - **`discard`**: Casper captures and shows the full diff, then (typing `discard` is the yes)
   cleans up the worktree and branch and does not apply anything.
 
-A one-shot run (`casper "/switch main apply"`) refuses: an experiment is for a session.
+A one-shot run (`casper -p "/switch main apply"`) refuses: an experiment is for a session.
 If a check fails or is blocked, `apply` stops before showing the diff. Checks that are
 not configured show as `incomplete`. If files change while Casper applies, the experiment
 stays open.

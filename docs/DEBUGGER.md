@@ -21,7 +21,7 @@ One explicitly configured, human-started stdio DAP session per active workspace.
 no second box. It prints one line (`[debug] Not sandboxed: the adapter and your program
 run as you; debug values may hold secrets.`) and the resolved adapter, arguments,
 debuggee, working directory and initial breakpoints, then launches. A one-shot
-`casper "/debug start <target>"` does the same. Only a person types it: the model has no
+`casper -p "/debug start <target>"` (`-p` in the next preview) does the same. Only a person types it: the model has no
 debugger tool. No adapter installation or personal account use.
 
 Configuration is only `<project>/.casper/debug.json` (lazy, at most 64 KiB), with

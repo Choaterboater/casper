@@ -177,7 +177,7 @@ test("informational flags are honored after the verify/integration options", asy
   expect(version.stdout).toMatch(/^casper \S+ \([^\n]*\)\n$/);
   const help = await run([cli, "--verify", "--verbose", "--help"], root);
   expect(help.code).toBe(0);
-  expect(help.stdout).toContain("casper <prompt>");
+  expect(help.stdout).toContain('casper "first request"');
   expect(help.stdout).toContain("--verbose");
 }, childTestLimit(2));
 
@@ -202,6 +202,57 @@ test("parseCliArgs reads leading options only; the rest is the prompt", () => {
   expect(parseCliArgs(["--verify", "--no-verify", "--help"])).toMatchObject({ info: "help" });
   expect(parseCliArgs(["learn", "list", "/repo"])).toMatchObject({ command: "learn", rest: ["learn", "list", "/repo"] });
 });
+
+test("plain requests keep the initial prompt without forcing print mode", () => {
+  expect(parseCliArgs([])).toMatchObject({ command: "interactive", rest: [] });
+  const options = parseCliArgs(["first request"]);
+  expect(options).toMatchObject({ command: "prompt", rest: ["first request"] });
+  expect(options.print).toBeUndefined();
+});
+
+test("-p and --print force one-shot mode and compose with leading options", () => {
+  for (const flag of ["-p", "--print"]) {
+    expect(parseCliArgs([flag, "first request"])).toMatchObject({ print: true, command: "prompt", rest: ["first request"] });
+    expect(parseCliArgs(["--cd", "./project", "--continue", flag, "--verify", "--model=x/y", "fix", "it"])).toMatchObject({
+      print: true, cd: "./project", continueConversation: true, verify: true, model: "x/y", command: "prompt", rest: ["fix", "it"],
+    });
+    expect(parseCliArgs([flag, "--json", "--require-verification", "--max-turns=2", "-"])).toMatchObject({
+      print: true, json: true, requireVerification: true, maxTurns: 2, command: "prompt", promptFromStdin: true, rest: [],
+    });
+    expect(parseCliArgs([flag, "--", "--request"])).toMatchObject({ print: true, command: "prompt", rest: ["--request"] });
+    expect(parseCliArgs(["explain", "the", flag, "flag"]).print).toBeUndefined();
+    for (const info of ["--help", "-h", "--version", "-v", "--licenses"]) {
+      expect(parseCliArgs([flag, "--verify", "--no-verify", info]).info).toBeDefined();
+    }
+    expect(() => parseCliArgs([flag, "learn", "./project"])).toThrow("learn cannot be combined with options");
+  }
+});
+
+test("-p and --print require a prompt before starting Casper", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "casper-cli-print-"));
+  tempDirs.push(root);
+  for (const flag of ["-p", "--print"]) {
+    for (const rest of [[], [""], ["   "], ["--"], ["--cd", "."]]) {
+      expect(() => parseCliArgs([flag, ...rest])).toThrow(UsageError);
+      expect(() => parseCliArgs([flag, ...rest])).toThrow("-p/--print needs a prompt");
+    }
+    const result = await run([cli, flag], root);
+    expect({ code: result.code, stdout: result.stdout }).toEqual({ code: 64, stdout: "" });
+    expect(result.stderr).toContain("-p/--print needs a prompt");
+  }
+  expect(await readdir(root)).not.toContain(".casper");
+}, childTestLimit(2));
+
+test("print mode preserves informational CLI flags without creating state", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "casper-cli-print-"));
+  tempDirs.push(root);
+  for (const [flag, info] of [["-p", "--help"], ["--print", "--version"]] as const) {
+    const result = await run([cli, flag, info], root);
+    expect({ code: result.code, stderr: result.stderr }).toEqual({ code: 0, stderr: "" });
+    expect(result.stdout).toContain(info === "--help" ? "--print" : `casper ${CASPER_VERSION}`);
+  }
+  expect(await readdir(root)).not.toContain(".casper");
+}, childTestLimit(2));
 
 test("parseCliArgs rejects every usage mistake with a UsageError", () => {
   const cases: Array<[string[], string]> = [
@@ -297,7 +348,8 @@ test("mcp check usage mistakes are UsageErrors that print the usage", () => {
 
 test("a known option after the prompt is a usage mistake (64) found before anything runs; -v inside words and -- stay prompts", async () => {
   for (const [args, shown] of [[["fix", "it", "--verify"], 'casper --verify "fix it"'], [["fix", "it", "--model", "x/y"], 'casper --model x/y "fix it"'],
-    [["fix", "--json"], 'casper --json "fix"'], [["fix", "it", "--model=x/y"], 'casper --model=x/y "fix it"']] as const) {
+    [["fix", "--json"], 'casper --json "fix"'], [["fix", "it", "--model=x/y"], 'casper --model=x/y "fix it"'],
+    [["fix", "it", "--print"], 'casper --print "fix it"'], [["fix", "it", "-p"], 'casper -p "fix it"']] as const) {
     let error: unknown;
     try { parseCliArgs([...args]); } catch (caught) { error = caught; }
     expect(error).toBeInstanceOf(UsageError);

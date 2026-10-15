@@ -187,6 +187,12 @@ export function terminalNewProject(options: CliOptions, stdinTTY: boolean): NewC
   return command && !command.list && !command.help ? command : undefined;
 }
 
+/** A terminal request stays in the session; automation retains the original one-shot contract. */
+export function terminalPrompt(options: CliOptions, stdinTTY: boolean, stdoutTTY: boolean, env: NodeJS.ProcessEnv = process.env): boolean {
+  return options.command === "prompt" && stdinTTY && stdoutTTY && env.CI === undefined
+    && !options.print && !options.json && !options.promptFromStdin && !options.requireVerification && options.maxTurns === undefined;
+}
+
 /** Subcommands that run with no app, no model and no saved state, in one place. `learn` needs Casper's agent store
  * and runs after it is set up. */
 const STANDALONE: Partial<Record<SubcommandName, (rest: string[]) => Promise<void>>> = {
@@ -239,7 +245,10 @@ export async function runCli(): Promise<void> {
     const isFolder = await stat(expanded).then((entry) => entry.isDirectory(), () => false);
     if (isFolder) {
       if (options.cd) throw new UsageError(`Give the folder once: casper ${word}, or casper --cd <folder> "<prompt>"`);
-      if (options.json || options.requireVerification) throw new UsageError(`${options.json ? "--json" : "--require-verification"} needs a prompt: casper --cd ${word} ${options.json ? "--json" : "--require-verification"} "fix the failing test"`);
+      if (options.print || options.json || options.requireVerification) {
+        const flag = options.print ? "-p/--print" : options.json ? "--json" : "--require-verification";
+        throw new UsageError(`${flag} needs a prompt: casper --cd ${word} ${options.print ? "-p" : flag} "fix the failing test"`);
+      }
       options.cd = expanded;
       options.command = "interactive";
       options.rest = [];
@@ -313,7 +322,7 @@ export async function runCli(): Promise<void> {
   try {
     for (const server of options.servers) await app.runOnce(`/mcp connect ${server}`);
     for (const server of options.languageServers) await app.runOnce(`/lsp connect ${server}`);
-    if (prompt) {
+    if (prompt && !terminalPrompt(options, Boolean(process.stdin.isTTY), Boolean(process.stdout.isTTY))) {
       const report = await app.runOnce(prompt);
       const task = app.getLastTaskResult();
       const exitCode = taskExitCode(report, task, { requireVerification: options.requireVerification });
@@ -322,7 +331,7 @@ export async function runCli(): Promise<void> {
       return;
     }
 
-    await app.runInteractive();
+    await app.runInteractive(process.cwd(), prompt || undefined);
     if (app.newProjectExitCode !== undefined) process.exitCode = app.newProjectExitCode;
   } catch (error) {
     // A run ends with a receipt or, when Casper itself stopped, an error event.

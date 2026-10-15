@@ -17,9 +17,37 @@ test("help names Casper's own credential store and model routing, not Pi's", () 
 });
 
 test("/help all lists the model role commands and every CLI flag", () => {
-  for (const entry of ["/model roles", "/model role <fast|build|reason|review> <selector|clear>", "/model @role[:effort]", "casper --licenses", "casper --help, -h",
-    ...CLI_OPTIONS.map((option) => `casper ${option}`)]) {
+  for (const entry of ["/model roles", "/model role <fast|build|reason|review> <selector|clear>", "/model @role[:effort]", "casper --licenses", "casper --help, -h"]) {
     expect(FULL_HELP_TEXT).toContain(entry);
+  }
+  // Aliases can share a usage row (for example, -p and --print).
+  const usageRows = CLI_HELP_TEXT.split("\n").filter((line) => line.trimStart().startsWith("casper "));
+  for (const option of CLI_OPTIONS) {
+    expect(usageRows.some((row) => row.split(/[\s,]+/).includes(option)), option).toBe(true);
+  }
+});
+
+test("short, CLI and full help distinguish a session's first request from print mode", () => {
+  for (const text of [HELP_TEXT, CLI_HELP_TEXT, FULL_HELP_TEXT]) {
+    expect(text).toContain('casper "first request"  Open a session and start this request');
+    expect(text).toContain('casper -p "request"');
+    expect(text).toContain("Run one request and exit");
+    expect(text).toContain("--print");
+    expect(text).not.toContain("casper <prompt>      Run one prompt and exit");
+  }
+  expect(CLI_HELP_TEXT).toContain("casper               Start an interactive session");
+  expect(CLI_OPTIONS).toContain("-p");
+  expect(CLI_OPTIONS).toContain("--print");
+});
+
+test("CLI and full help explain every fallback to once semantics", () => {
+  for (const text of [CLI_HELP_TEXT, FULL_HELP_TEXT]) {
+    const fallback = text.split("\n").find((line) => line.startsWith("With an initial request,"));
+    expect(fallback).toContain("runs once and exits instead");
+    for (const reason of ["either stdin or stdout is not a TTY", "CI is set", "--json", "a lone - (prompt from stdin)", "--require-verification", "--max-turns"]) {
+      expect(fallback).toContain(reason);
+    }
+    expect(fallback).toContain("-p/--print always runs once and needs a prompt");
   }
 });
 
