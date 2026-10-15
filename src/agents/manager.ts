@@ -1,3 +1,4 @@
+import { addUsage, zeroUsage, type ModelUsage } from "../runtime/model-usage";
 import { boundCapabilityResult } from "../capabilities/result";
 import path from "node:path";
 import os from "node:os";
@@ -86,7 +87,10 @@ export interface BuilderRunOptions {
 }
 
 /** What the provider reported for a child's model responses (the SDK's catalog cost estimate). */
-export interface SubagentUsage { tokens: number; estimatedCost: number }
+export type SubagentUsage = ModelUsage;
+export interface HelperUsage { role: SubagentRole; goal: string; part?: number }
+type UsageReporter = (usage: SubagentUsage | null, known?: SubagentUsage, helper?: HelperUsage, automatic?: boolean) => void;
+export interface DelegateTool extends RuntimeTool { reviewPending(signal?: AbortSignal): Promise<void> }
 
 export interface SubagentResult {
   role: SubagentRole;
@@ -174,6 +178,7 @@ export interface DelegateBuilders {
     reviewFailed(n: number, status: string, version: number): void;
     /** The landed parts no reviewer has finished. */
     unreviewed(): number[];
+    pendingReviews(): number[];
   };
   /** A line for the person ("[crew] ..."): a reviewer starts, or a builder starts fixing what it found. */
   say?(line: string): void;
@@ -182,7 +187,7 @@ export interface DelegateBuilders {
 export type HelperActivity =
   | { kind: "start"; run: HelperRun }
   | { kind: "tool"; run: HelperRun; event: Extract<RuntimeEvent, { type: "tool_start" | "tool_end" }> }
-  | { kind: "usage"; run: HelperRun }
+  | { kind: "usage"; run: HelperRun; event?: Extract<RuntimeEvent, { type: "assistant_response_end" }> }
   | { kind: "end"; run: HelperRun; status: SubagentStatus; response?: string };
 
 /** What the security review's child gets: its own prompt, a read gate and the full scrubber (the caller's). */
@@ -385,17 +390,24 @@ export class SubagentManager {
 
   /** Each prepared parent task gets one tool with its own non-resettable dispatch budget. With `builders`, the
    * role builder starts a helper that edits in its own copy of the project (its own slots and budget). */
-  createTool(getContext: () => { cwd: string; projectContext: string }, onUsage?: (usage: SubagentUsage | null, known?: SubagentUsage) => void,
-    builders?: DelegateBuilders): RuntimeTool {
+  createTool(getContext: () => { cwd: string; projectContext: string }, onUsage?: UsageReporter,
+    builders?: DelegateBuilders): DelegateTool {
     let dispatched = 0;
     const tally = { built: 0, fixes: 0 };
     const offered = Boolean(builders && !builders.off);
     const buildText = !builders ? "" : offered
-      ? ` Role builder: only substantial independent parts (several files each, different areas); small/coupled work stays with one Casper. Own copy; lands unless touched files changed here; have a reviewer check it unless a few lines: reviewer "of" = part number gets its diff, outside the ${SUBAGENT_LIMITS.maxDelegationsPerTask}; builder "of" fixes it once. Up to ${BUILDER_LIMITS.maxConcurrent} at once.`
+      ? ` Role builder: only substantial independent parts (several files each, different areas); small/coupled work stays with one Casper; start independent builders in the same turn. Own copy; lands unless touched files changed here. Review unless a few lines: reviewer "of" = part number gets its diff, outside the ${SUBAGENT_LIMITS.maxDelegationsPerTask}; builder "of" fixes it once. Max ${BUILDER_LIMITS.maxConcurrent} at once.`
       : ` No builders here: ${builders.off}.`;
     return {
+      reviewPending: async (signal) => {
+        for (const n of builders?.parts?.pendingReviews() ?? []) {
+          if (signal?.aborted || this.closed) break;
+          try { await this.reviewPart(builders, n, "Review this landed part for actionable defects; read the surrounding code.", undefined, signal, getContext, (usage, known, helper) => onUsage?.(usage, known, helper, true)); }
+          catch { /* A review that cannot start stays unreviewed in the receipt. */ }
+        }
+      },
       name: "delegate",
-      description: `Delegate only when an independent read-only explorer (locate files) or reviewer (find defects in specified code/plan) adds value, with one narrow goal per call; a broad audit gives a partial report. Goals must be self-contained; children do not inherit the conversation. Only read/grep/find/ls, no shell, edits, MCP/LSP, or recursion. At most ${SUBAGENT_LIMITS.maxDelegationsPerTask} per task, ${SUBAGENT_LIMITS.maxConcurrent} at once, each with a small budget. Results are advisory, capped at 16 KiB.${buildText}`,
+      description: `Narrow independent goals only: explorer locates files; reviewer finds defects in specified code/plan. Broad audits give partial reports. Self-contained: no shared chat. Read/grep/find/ls only; no shell/edits/MCP/LSP/recursion. Max ${SUBAGENT_LIMITS.maxDelegationsPerTask}/task, ${SUBAGENT_LIMITS.maxConcurrent} at once; small budgets. Advisory, 16 KiB.${buildText}`,
       inputSchema: {
         type: "object", additionalProperties: false, required: ["role", "goal"],
         properties: {
@@ -428,7 +440,7 @@ export class SubagentManager {
           // spent, so a third parallel delegate turned away as busy can be sent again later.
           try { result = await this.run({ ...getContext(), role, goal, context, signal }); }
           catch (error) { dispatched--; throw error; }
-          onUsage?.(result.usage, result.known);
+          onUsage?.(result.usage, result.known, { role, goal });
           const isError = result.status !== "completed";
           // The caller already has the goal. Put outcome first so even a byte-
           // bounded preview retains it instead of spending its budget echoing input.
@@ -436,7 +448,7 @@ export class SubagentManager {
           return { text: JSON.stringify(boundCapabilityResult({ isError, status, reason, ...report })), ...(isError ? { isError: true } : {}) };
         } catch (error) {
           // run() throws only before it creates a child runtime: no model call was made.
-          onUsage?.({ tokens: 0, estimatedCost: 0 });
+          onUsage?.(zeroUsage());
           return { text: JSON.stringify(boundCapabilityResult({ isError: true, error: prefix(error instanceof Error ? error.message : "Delegation failed", 1024) })), isError: true };
         }
       },
@@ -446,7 +458,7 @@ export class SubagentManager {
   /** A reviewer on a part a builder landed: it is handed the part's goal, files and diff, then the lead's own context.
    * It has its own budget (src/crew/parts.ts: one review per part, one more after a fix), not the shared delegations. */
   private async reviewPart(builders: DelegateBuilders | undefined, n: number, goal: string, context: string | undefined, signal: AbortSignal | undefined,
-    getContext: () => { cwd: string; projectContext: string }, onUsage?: (usage: SubagentUsage | null, known?: SubagentUsage) => void) {
+    getContext: () => { cwd: string; projectContext: string }, onUsage?: UsageReporter) {
     if (!builders?.parts) throw new Error("No parts here: no builder has landed one this task. Give the reviewer the files in its goal instead.");
     const part = builders.parts.reviewContext(n);
     if ("refusal" in part) throw new Error(part.refusal);
@@ -461,7 +473,7 @@ export class SubagentManager {
       result = await this.run({ ...getContext(), role: "reviewer", goal, signal,
         context: context ? `${given}\n\nThe lead's own context:\n${context}` : given, contextBytes: SUBAGENT_LIMITS.partContextBytes });
     } catch (error) { builders.parts.release(n, part.version); throw error; }
-    onUsage?.(result.usage, result.known);
+    onUsage?.(result.usage, result.known, { role: "reviewer", goal, part: n });
     // Reviewed only when the reviewer ended `completed`: a timeout, a failure or a cutoff leaves the part not reviewed.
     if (result.status === "completed") builders.parts.markReviewed(n, result.response, part.version);
     else builders.parts.reviewFailed(n, result.status, part.version);
@@ -474,7 +486,7 @@ export class SubagentManager {
   private autoBuilds = 0;
 
   private async dispatchBuilder(builders: DelegateBuilders | undefined, args: Record<string, unknown>, signal: AbortSignal | undefined,
-    tally: { built: number; fixes: number }, onUsage?: (usage: SubagentUsage | null, known?: SubagentUsage) => void) {
+    tally: { built: number; fixes: number }, onUsage?: UsageReporter) {
     if (!builders) throw new Error("role must be explorer or reviewer");
     if (builders.off) throw new Error(`No builders here: ${builders.off}. Do the work yourself, or use an explorer or reviewer.`);
     const refused = builders.refuse?.();
@@ -516,7 +528,8 @@ export class SubagentManager {
     }
     catch (error) { count(-1); if (of !== undefined) builders.parts!.releaseFix(of); throw error; }
     finally { this.autoBuilds--; }
-    onUsage?.(outcome.usage, outcome.known);
+    onUsage?.(outcome.usage, outcome.known, { role: "builder", goal,
+      ...(typeof outcome.report.part === "number" ? { part: outcome.report.part } : of !== undefined ? { part: of } : {}) });
     // The last builder to end says which landed parts no reviewer has finished: a nudge, never a gate. While another
     // builder still works it would be early, so it stays quiet.
     const left = this.autoBuilds === 0 ? builders.parts?.unreviewed() ?? [] : [];
@@ -585,7 +598,7 @@ export class SubagentManager {
         : "Subagent concurrency limit reached; wait for an active run");
     }
     const result: SubagentResult = { role: options.role, goal: options.goal, cwd: options.cwd, status: "completed", response: "", toolsUsed: [], toolErrors: [], truncated: false,
-      usage: { tokens: 0, estimatedCost: 0 } };
+      usage: zeroUsage() };
     if (options.signal?.aborted) return { ...result, status: "cancelled", reason: "Delegation cancelled before startup" };
 
     const controller = new AbortController();
@@ -639,11 +652,11 @@ export class SubagentManager {
         streaming = false;
         turns++;
         if (!event.usage) result.usage = null;
-        else if (result.usage) result.usage = { tokens: result.usage.tokens + event.usage.tokens, estimatedCost: result.usage.estimatedCost + event.usage.estimatedCost };
+        else if (result.usage) result.usage = addUsage(result.usage, event.usage);
         if (event.usage) {
-          info.spent = { tokens: (info.spent?.tokens ?? 0) + event.usage.tokens, estimatedCost: (info.spent?.estimatedCost ?? 0) + event.usage.estimatedCost };
-          report({ kind: "usage", run: info });
+          info.spent = addUsage(info.spent ?? zeroUsage(), event.usage);
         }
+        report({ kind: "usage", run: info, event });
       }
       if (controller.signal.aborted) return;
       if (event.type === "assistant_response_start") {

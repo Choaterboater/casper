@@ -55,11 +55,11 @@ const response = (usage?: { tokens: number; estimatedCost: number }) => ({ type:
 
 test("usage counts every model response and totals its reported tokens and cost", () => {
   const observations = new TaskObservations();
-  expect(observations.snapshot([]).usage).toEqual({ turns: 0, tokens: 0, estimatedCost: 0 });
+  expect(observations.snapshot([]).usage).toMatchObject({ turns: 0, tokens: 0, estimatedCost: 0 });
   observations.observeUsage(response({ tokens: 100, estimatedCost: 0.25 }));
   observations.observeUsage({ type: "tool_start", toolName: "bash" });
   observations.observeUsage(response({ tokens: 50, estimatedCost: 0.5 }));
-  expect(observations.snapshot([]).usage).toEqual({ turns: 2, tokens: 150, estimatedCost: 0.75 });
+  expect(observations.snapshot([]).usage).toMatchObject({ turns: 2, tokens: 150, estimatedCost: 0.75 });
 });
 
 test("a delegated subagent's reported usage is added to the task's tokens and cost, but not its turns", () => {
@@ -70,10 +70,10 @@ test("a delegated subagent's reported usage is added to the task's tokens and co
   // The children report in either order relative to the parent's events; an invalid call that
   // started no child reports zero.
   delegated.recordDelegatedUsage({ tokens: 40, estimatedCost: 0.125 });
-  expect(delegated.snapshot([]).usage).toEqual({ turns: 1, tokens: null, estimatedCost: null });
+  expect(delegated.snapshot([]).usage).toMatchObject({ turns: 1, tokens: null, estimatedCost: null });
   delegated.recordDelegatedUsage({ tokens: 0, estimatedCost: 0 });
   delegated.observeUsage(response({ tokens: 50, estimatedCost: 0.5 }));
-  expect(delegated.snapshot([]).usage).toEqual({ turns: 2, tokens: 190, estimatedCost: 0.875 });
+  expect(delegated.snapshot([]).usage).toMatchObject({ turns: 2, tokens: 190, estimatedCost: 0.875 });
 });
 
 test("usage is unknown, never an undercount, when a response has none or a subagent made model calls", () => {
@@ -81,30 +81,30 @@ test("usage is unknown, never an undercount, when a response has none or a subag
   unreported.observeUsage(response({ tokens: 100, estimatedCost: 0.25 }));
   unreported.observeUsage(response());
   unreported.observeUsage(response({ tokens: 50, estimatedCost: 0.5 }));
-  expect(unreported.snapshot([]).usage).toEqual({ turns: 3, tokens: null, estimatedCost: null });
+  expect(unreported.snapshot([]).usage).toMatchObject({ turns: 3, tokens: null, estimatedCost: null });
 
   // A delegation whose child never reported, or reported no usage, leaves the totals unknown.
   const unreportedChild = new TaskObservations();
   unreportedChild.observeUsage(response({ tokens: 100, estimatedCost: 0.25 }));
   unreportedChild.observeUsage({ type: "tool_start", toolName: "delegate" });
-  expect(unreportedChild.snapshot([]).usage).toEqual({ turns: 1, tokens: null, estimatedCost: null });
+  expect(unreportedChild.snapshot([]).usage).toMatchObject({ turns: 1, tokens: null, estimatedCost: null });
   const unknownChild = new TaskObservations();
   unknownChild.observeUsage({ type: "tool_start", toolName: "delegate" });
   unknownChild.recordDelegatedUsage(null);
-  expect(unknownChild.snapshot([]).usage).toEqual({ turns: 0, tokens: null, estimatedCost: null });
+  expect(unknownChild.snapshot([]).usage).toMatchObject({ turns: 0, tokens: null, estimatedCost: null });
 
   // What an unknown child's reported responses cost still counts toward the task's spend.
   const partlyKnown = new TaskObservations();
   partlyKnown.observeUsage(response({ tokens: 100, estimatedCost: 0.25 }));
   partlyKnown.observeUsage({ type: "tool_start", toolName: "delegate" });
   partlyKnown.recordDelegatedUsage(null, { tokens: 4000, estimatedCost: 2 });
-  expect(partlyKnown.snapshot([]).usage).toEqual({ turns: 1, tokens: null, estimatedCost: null });
+  expect(partlyKnown.snapshot([]).usage).toMatchObject({ turns: 1, tokens: null, estimatedCost: null });
   expect(partlyKnown.spent()).toEqual({ tokens: 4100, cost: 2.25 });
 
   const classified = new TaskObservations();
   classified.recordUntrackedModelUse();
   classified.observeUsage(response({ tokens: 100, estimatedCost: 0.25 }));
-  expect(classified.snapshot([]).usage).toEqual({ turns: 1, tokens: null, estimatedCost: null });
+  expect(classified.snapshot([]).usage).toMatchObject({ turns: 1, tokens: null, estimatedCost: null });
 });
 
 test("the task result carries this task's usage; automatic-effort classification makes tokens unknown", async () => {
@@ -139,11 +139,11 @@ test("the task result carries this task's usage; automatic-effort classification
     });
     try {
       await app.runOnce("explain the project", root);
-      expect(app.getLastTaskResult()?.usage).toEqual({ turns: 1, tokens: 120, estimatedCost: 0.5 });
+      expect(app.getLastTaskResult()?.usage).toMatchObject({ turns: 1, tokens: 120, estimatedCost: 0.5 });
       // Each task counts only its own responses.
       classify = true;
       await app.runOnce("explain the project again", root);
-      expect(app.getLastTaskResult()?.usage).toEqual({ turns: 1, tokens: null, estimatedCost: null });
+      expect(app.getLastTaskResult()?.usage).toMatchObject({ turns: 1, tokens: null, estimatedCost: null });
     } finally { await app.close(); }
   } finally { await removeTempDir(root); }
 });

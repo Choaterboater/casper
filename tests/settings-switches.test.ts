@@ -136,12 +136,12 @@ test("Suggestions row: 1 keeps them on, a pick writes suggestions: false, and it
 
 test("/settings typed during a task says when the change reaches it: its next step, the next task, or nothing to add", async () => {
   const { home, project } = await folders();
-  const host = { ...fakeHost(home, project, ["Private ssh passwords", "Turn it off", "Helpers that build", "Turn them off", "Web lookups", "Turn them off",
+  const host = { ...fakeHost(home, project, ["Private ssh passwords", "Turn it off", "Helpers that build", "Turn them on", "Web lookups", "Turn them off",
     "Suggestions", "Turn them off", "Prompt cache", "Off", "Done"]), duringTask: true };
   await runSettings(host);
   expect(host.text()).toContain("[settings] Private ssh passwords: off. Saved in ~/.casper/config.yaml. The running task uses it from its next step.\n");
   // Tools made once per task (helpers, web, the reader): the running task keeps them.
-  expect(host.text()).toContain("[settings] Helpers that build: off. Saved in ~/.casper/config.yaml. The running task keeps what it had; your next request uses it.\n");
+  expect(host.text()).toContain("[settings] Helpers that build: on. Saved in ~/.casper/config.yaml. The running task keeps what it had; your next request uses it.\n");
   expect(host.text()).toContain("[settings] Web lookups: off. Saved in ~/.casper/config.yaml. The running task keeps what it had; your next request uses it.\n");
   // Applies now, outside the task; and one whose question already says the next start.
   expect(host.text()).toContain("[settings] Suggestions: off. Saved in ~/.casper/config.yaml.\n");

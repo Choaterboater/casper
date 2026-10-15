@@ -1,3 +1,6 @@
+import { addUsage, tokenFields, zeroUsage, type ModelUsage } from "../runtime/model-usage";
+import type { HelperUsage } from "../agents/manager";
+import { redactPreview } from "../tui/format";
 import type { ProjectCommand, ProjectModel } from "../project/model";
 import { boundObservationText, type ToolObservationInput } from "../runtime/observation";
 import type { RuntimeEvent } from "../runtime/types";
@@ -56,6 +59,8 @@ export class TaskObservations {
   /** The last known test-runner command the model ran without error while the project had no test command. */
   private testRunner?: string;
   private turns = 0;
+  private split: ModelUsage | null = zeroUsage();
+  private readonly helpers: NonNullable<import("./result").TaskUsage["helpers"]> = [];
   private toolStarts = 0;
   private tokens: number | null = 0;
   private estimatedCost: number | null = 0;
@@ -81,6 +86,7 @@ export class TaskObservations {
     if (event.type !== "assistant_response_end") return;
     this.turns++;
     if (!event.usage) { this.recordUntrackedModelUse(); return; }
+    this.split = this.split && addUsage(this.split, event.usage);
     this.addKnown(event.usage);
     if (this.tokens !== null) this.tokens += event.usage.tokens;
     if (this.estimatedCost !== null) this.estimatedCost += event.usage.estimatedCost;
@@ -88,8 +94,11 @@ export class TaskObservations {
 
   /** One delegate call's child usage (zero when no child ran); null when the child's is unknown. `known` is what
    * the child's reported responses add up to: it counts toward spent() even when the exact totals are unknown. */
-  recordDelegatedUsage(usage: { tokens: number; estimatedCost: number } | null, known?: { tokens: number; estimatedCost: number }): void {
-    this.delegationReports++;
+  recordDelegatedUsage(usage: ModelUsage | null, known?: ModelUsage, helper?: HelperUsage, automatic = false): void {
+    if (!automatic) this.delegationReports++;
+    if (helper) this.helpers.push({ ...helper, goal: redactPreview(helper.goal).replace(/\s+/g, " ").slice(0, 120),
+      tokens: usage?.tokens ?? null, estimatedCost: usage?.estimatedCost ?? null, ...tokenFields(usage) });
+    this.split = this.split && usage && addUsage(this.split, usage);
     if (!usage) { if (known) this.addKnown(known); this.recordUntrackedModelUse(); return; }
     this.addKnown(usage);
     if (this.tokens !== null) this.tokens += usage.tokens;
@@ -97,7 +106,8 @@ export class TaskObservations {
   }
 
   /** A Casper-made model call outside the conversation (the acceptance check); null when unreported. */
-  recordModelCall(usage: { tokens: number; estimatedCost: number } | null): void {
+  recordModelCall(usage: ModelUsage | null): void {
+    this.split = this.split && usage && addUsage(this.split, usage);
     if (!usage) { this.recordUntrackedModelUse(); return; }
     this.addKnown(usage);
     if (this.tokens !== null) this.tokens += usage.tokens;
@@ -116,6 +126,7 @@ export class TaskObservations {
   recordUntrackedModelUse(): void {
     this.tokens = null;
     this.estimatedCost = null;
+    this.split = null;
   }
 
   recordEdit(path: string): void {
@@ -209,7 +220,8 @@ export class TaskObservations {
       ...(this.remoteStopped.size ? { remoteNotRun: [...this.remoteStopped.values()].map((entry) => ({ ...entry })) } : {}),
       ...(this.secretInCommand ? { secretInCommand: true as const } : {}),
       possibleMutations: (this.mutationToolRan || this.edits.size > 0) && !changedPaths,
-      usage: { turns: this.turns, ...(this.delegationReports < this.delegations ? { tokens: null, estimatedCost: null }
+      usage: { turns: this.turns, ...tokenFields(this.delegationReports < this.delegations ? null : this.split),
+        ...(this.helpers.length ? { helpers: structuredClone(this.helpers) } : {}), ...(this.delegationReports < this.delegations ? { tokens: null, estimatedCost: null }
         : { tokens: this.tokens, estimatedCost: this.estimatedCost }) } };
   }
 }

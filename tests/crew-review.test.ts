@@ -25,6 +25,8 @@ async function repository() {
   cleanup.push(() => removeTempDir(root));
   const home = path.join(root, "home"); const repo = path.join(root, "repo");
   await mkdir(home); await mkdir(repo);
+  await mkdir(path.join(home, ".casper"));
+  await writeFile(path.join(home, ".casper", "config.yaml"), "delegate:\n  build: true\n");
   for (const name of ["a.txt", "b.txt", "c.txt"]) await writeFile(path.join(repo, name), `${name}\n`);
   await git(repo, "init", "-b", "main");
   await git(repo, "config", "core.autocrlf", "false");
@@ -97,7 +99,7 @@ let written: string[] = [];
 async function app(repo: string, home: string, main: Main, children: () => AgentRuntime = () => new Children(), config: object = {}) {
   Children.builders = []; Children.readers = []; Children.builderPrompts = []; Children.seenB = []; Children.readerReply = undefined; written = [];
   await mkdir(path.join(repo, ".casper"), { recursive: true });
-  await writeFile(path.join(repo, ".casper", "project.yaml"), stringify({ name: "review-app", ...config }));
+  await writeFile(path.join(repo, ".casper", "project.yaml"), stringify({ name: "review-app", delegate: { build: true }, ...config }));
   const casper = new CasperApp({ runtimeFactory: () => main, subagentRuntimeFactory: children, noSandbox: true,
     output: { write: (text: string) => { written.push(text); } }, sessionHomeDir: home,
     loadProjectContext: (info) => loadProjectContext(info, { homeDir: home }),
@@ -684,6 +686,27 @@ test("existing builder, reviewer and fix-round behaviour remains unchanged with 
   expect(await readFile(path.join(repo, ".casper/full-runs"), "utf8")).toBe("x");
   await casper.runOnce("/undo");
   expect(await readFile(path.join(repo, "b.txt"), "utf8")).toBe("b.txt\n");
+}, 30_000);
+
+test("a substantial builder part the model forgot is reviewed before the receipt and combined checks", async () => {
+  const { home, repo } = await repository();
+  const casper = await app(repo, home, new Main(async delegate => { await build(delegate, "big.txt"); }), undefined,
+    scopedCrewChecks({ test: checkCommand("append:.casper/full-runs") }));
+  await casper.runOnce("Split this up", repo);
+  expect(Children.builders).toHaveLength(1);
+  expect(Children.readers).toHaveLength(1);
+  expect(Children.readers[0]!.prompt).toContain("+a line of the builder's work");
+  expect(casper.getLastTaskResult()!.partsNotReviewed).toBeUndefined();
+  expect(casper.getLastTaskResult()!.usage?.tokens).toBe(1500);
+  expect(casper.getLastTaskResult()!.usage?.helpers?.map(helper => [helper.role, helper.part])).toEqual([["builder", 1], ["reviewer", 1]]);
+  expect(await readFile(path.join(repo, ".casper/full-runs"), "utf8")).toBe("x");
+}, 30_000);
+
+test("a failed fallback review stays unreviewed in the receipt", async () => {
+  const { home, repo } = await repository();
+  const casper = await app(repo, home, new Main(async delegate => { await build(delegate, "big.txt"); }), () => new FailingReader());
+  await casper.runOnce("Split this up", repo);
+  expect(casper.getLastTaskResult()!.partsNotReviewed).toEqual([{ part: 1, files: ["big.txt"], why: "the reviewer failed" }]);
 }, 30_000);
 
 test("a fix with no review on file says a builder is fixing the part, without a count", async () => {

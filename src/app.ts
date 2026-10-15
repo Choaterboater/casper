@@ -467,6 +467,9 @@ export class CasperApp {
     // Inside tmux or iTerm2 each helper's steps show in the view-only steps pane; nowhere else.
     onActivity: (activity) => {
       this.terminal.updateCrew(activity);
+      if (activity.kind === "usage" && activity.event && this.onEvent) {
+        for (const mapped of new RuntimeEventMapper().map(activity.event)) if (mapped.type === "usage") this.onEvent({ ...mapped, helper: activity.run.id });
+      }
       if (!this.closing && this.terminal.rich && activity.kind === "end" && activity.run.role === "reviewer") {
         this.events.ensureLineBreak();
         const summary = activity.status === "completed" ? redactPreview(activity.response?.trim().split(/\r?\n/, 1)[0] ?? "Review completed").replace(/\s+/g, " ").slice(0, 180)
@@ -830,7 +833,7 @@ export class CasperApp {
   /** The delegate tool carries the per-task dispatch budget, so it is rebuilt only at task
    * boundaries (a new request, or an explicit /verify repair task) — never for repair rounds
    * of the current task. */
-  delegateToolForTask?: RuntimeTool;
+  delegateToolForTask?: import("./agents/manager").DelegateTool;
   /** The parts builders landed this task (src/crew/parts.ts); lives and ends with the task's delegate tool. */
   crewParts?: PartRecord;
   /** A whole selected-check batch already run after the crew, tied to the tree and part revision it checked. */

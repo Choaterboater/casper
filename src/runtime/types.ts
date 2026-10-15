@@ -322,7 +322,7 @@ export type RuntimeEvent =
   | { type: "assistant_response_start"; provider?: string; model?: string }
   /** `usage` is what the provider reported for this response (the SDK's catalog cost estimate,
    * never an invoice); absent when the runtime has no report. */
-  | { type: "assistant_response_end"; stopReason: string; errorMessage?: string; usage?: { tokens: number; estimatedCost: number };
+  | { type: "assistant_response_end"; stopReason: string; errorMessage?: string; usage?: import("./model-usage").ModelUsage;
       /** A provider error the runtime is about to retry: not the outcome, and not shown as an error. */
       retrying?: boolean }
   /** The provider failed and the runtime tries again after `delayMs` (attempt `attempt` of `maxAttempts`). */
@@ -403,7 +403,7 @@ export interface RuntimeSession {
    * asks for another (mapped to what the model supports); `maxTokens` caps the answer. Nothing is added
    * to the transcript. `usage` is null when the provider reported none; `model` names the model that answered. `role: "fast"` uses your fast model when it
    * is set and signed in, else the conversation's model; unset, the review model when set. */
-  complete?(input: { systemPrompt: string; user: string; signal?: AbortSignal; effort?: string; maxTokens?: number; role?: "fast" }): Promise<{ text: string; error?: string; usage: { tokens: number; estimatedCost: number } | null;
+  complete?(input: { systemPrompt: string; user: string; signal?: AbortSignal; effort?: string; maxTokens?: number; role?: "fast" }): Promise<{ text: string; error?: string; usage: import("./model-usage").ModelUsage | null;
     /** The model that answered (`provider/id`), when one was called. */
     model?: string }>;
   listConversations?(): Promise<RuntimeConversation[]>;

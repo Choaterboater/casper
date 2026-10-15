@@ -1,4 +1,6 @@
 import type { RuntimeEvent, RuntimeStatus } from "../runtime/types";
+import { tokenFields } from "../runtime/model-usage";
+import { observationInput, type ToolObservationInput } from "../runtime/observation";
 import type { SmokeReport } from "../services/smoke";
 import type { PageReport } from "../services/page-report";
 import { formatTerminalJSON } from "../tui/json";
@@ -114,12 +116,20 @@ export interface ReceiptEvent {
   text: string;
 }
 
+function delegateFields(input?: ToolObservationInput): DelegateEventFields {
+  const safe = observationInput(input);
+  return { ...(safe.role ? { role: safe.role } : {}), ...(safe.goal !== undefined ? { goal: safe.goal } : {}), ...(safe.of !== undefined ? { part: safe.of } : {}) };
+}
+
+interface DelegateEventFields { role?: "explorer" | "reviewer" | "builder"; goal?: string; part?: number }
+
 export type CasperEvent =
   | { type: "session_start"; casper: string; cwd: string; session: string | null; provider: string | null; model: string | null; effort: string | null }
   | { type: "assistant_delta"; text: string }
   | { type: "assistant_message"; text: string }
-  | { type: "tool_start"; tool: string; id: string | null; target: string | null }
-  | { type: "tool_end"; tool: string; id: string | null; ok: boolean; ms: number | null }
+  | ({ type: "tool_start"; tool: string; id: string | null; target: string | null } & DelegateEventFields)
+  | ({ type: "tool_end"; tool: string; id: string | null; ok: boolean; ms: number | null } & DelegateEventFields)
+  | { type: "usage"; input: number | null; cacheRead: number | null; cacheWrite: number | null; output: number | null; tokens: number | null; estimatedCost: number | null; helper?: number }
   | CheckEvent
   | PhaseEvent
   | ReceiptEvent
@@ -295,6 +305,7 @@ export function receiptEvent(report: VerificationReport | undefined, task: TaskR
 export class RuntimeEventMapper {
   private text = "";
   private readonly started = new Map<string, number>();
+  private readonly delegates = new Map<string, DelegateEventFields>();
 
   constructor(private readonly now: () => number = () => performance.now()) {}
 
@@ -306,6 +317,7 @@ export class RuntimeEventMapper {
         const text = this.text;
         this.text = "";
         const events: CasperEvent[] = text ? [{ type: "assistant_message", text }] : [];
+        events.push({ type: "usage", ...tokenFields(event.usage), tokens: event.usage?.tokens ?? null, estimatedCost: event.usage?.estimatedCost ?? null });
         // A provider failure (quota, retired model, rejected credential) ends the response.
         // One that is about to be retried is not the outcome.
         if (!event.retrying && !["stop", "toolUse", "aborted"].includes(event.stopReason) && event.errorMessage) events.push({ type: "error", message: redactPreview(event.errorMessage) });
@@ -314,14 +326,24 @@ export class RuntimeEventMapper {
       case "tool_start": {
         if (event.toolCallId) this.started.set(event.toolCallId, this.now());
         const input = event.input;
+        const delegate = event.toolName === "delegate" ? delegateFields(input) : {};
+        if (event.toolCallId && event.toolName === "delegate") this.delegates.set(event.toolCallId, delegate);
         const target = input?.pattern ?? input?.path ?? input?.command ?? input?.operation ?? input?.check;
-        return [{ type: "tool_start", tool: event.toolName, id: event.toolCallId ?? null, target: target === undefined ? null : redactPreview(target) }];
+        return [{ type: "tool_start", tool: event.toolName, id: event.toolCallId ?? null, target: target === undefined ? null : redactPreview(target), ...delegate }];
       }
       case "tool_end": {
         const started = event.toolCallId ? this.started.get(event.toolCallId) : undefined;
-        if (event.toolCallId) this.started.delete(event.toolCallId);
+        const delegate = event.toolName === "delegate" ? { ...(event.toolCallId ? this.delegates.get(event.toolCallId) : {}), ...delegateFields(event.input) } : {};
+        if (event.toolName === "delegate" && delegate.role === "builder") {
+          try {
+            const report = JSON.parse(event.output?.text ?? "");
+            const part = report.data?.part ?? report.part;
+            if (Number.isSafeInteger(part) && part > 0) delegate.part = part;
+          } catch { /* A failed or empty builder has no landed part. */ }
+        }
+        if (event.toolCallId) { this.started.delete(event.toolCallId); this.delegates.delete(event.toolCallId); }
         return [{ type: "tool_end", tool: event.toolName, id: event.toolCallId ?? null, ok: !event.isError,
-          ms: started === undefined ? null : Math.round(this.now() - started) }];
+          ms: started === undefined ? null : Math.round(this.now() - started), ...delegate }];
       }
       case "error": return [{ type: "error", message: redactPreview(event.message) }];
       default: return [];

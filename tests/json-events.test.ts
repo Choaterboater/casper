@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
 import { formatJsonEvent, receiptEvent, RuntimeEventMapper } from "../src/app/json-events";
+const unknownUsage = { type: "usage" as const, input: null, cacheRead: null, cacheWrite: null, output: null, tokens: null, estimatedCost: null };
 
 test("tool targets and error messages are redacted; a provider failure becomes an error event", () => {
   let clock = 0;
@@ -12,13 +13,14 @@ test("tool targets and error messages are redacted; a provider failure becomes a
   mapper.map({ type: "assistant_text_delta", delta: "partial" });
   expect(mapper.map({ type: "assistant_response_end", stopReason: "error", errorMessage: "quota for sk-abcdefghijkl exceeded" })).toEqual([
     { type: "assistant_message", text: "partial" },
+    unknownUsage,
     { type: "error", message: "quota for <redacted> exceeded" },
   ]);
-  // A cancel is not an error; a tool-use turn with no text emits nothing.
-  expect(mapper.map({ type: "assistant_response_end", stopReason: "aborted", errorMessage: "aborted" })).toEqual([]);
-  expect(mapper.map({ type: "assistant_response_end", stopReason: "toolUse" })).toEqual([]);
+  // Even a cancel or tool-use turn with no text records its unknown usage.
+  expect(mapper.map({ type: "assistant_response_end", stopReason: "aborted", errorMessage: "aborted" })).toEqual([unknownUsage]);
+  expect(mapper.map({ type: "assistant_response_end", stopReason: "toolUse" })).toEqual([unknownUsage]);
   // A provider error Pi is about to retry is not the outcome: no error event for it.
-  expect(mapper.map({ type: "assistant_response_end", stopReason: "error", errorMessage: "429", retrying: true })).toEqual([]);
+  expect(mapper.map({ type: "assistant_response_end", stopReason: "error", errorMessage: "429", retrying: true })).toEqual([unknownUsage]);
 });
 
 test("each event is one line with v:1, and terminal controls stay escaped", () => {

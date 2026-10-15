@@ -87,9 +87,11 @@ but can't turn the reader on or off. See [READER.md](READER.md).
 ### Helpers that build
 
 For a big job with separate parts the AI may start builders: each works in its own copy of the
-project and its change lands in your folder when it ends (see [CREWS.md](CREWS.md)). They are on;
-turn them off with `/settings` (it writes `delegate: { build: false }`). A project file may turn them
-off for itself, never back on for you.
+project and its change lands in your folder when it ends (see [CREWS.md](CREWS.md)). They are off by default;
+turn them on with `/settings` → Helpers that build (`delegate: { build: true }` in your user settings),
+or a user-selected user profile. Like spend limits, only user settings or a user profile may enable them.
+A project file may only turn builders off: `delegate: { build: true }` there does not enable them.
+Read-only explorers and reviewers stay on; `/crew` is unchanged.
 
 ### Browser tool
 

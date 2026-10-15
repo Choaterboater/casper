@@ -163,7 +163,7 @@ describe("Phase 8 bounded subagents", () => {
     expect((await tool.execute({ role: "explorer", goal: "inspect" })).text).not.toContain("estimatedCost");
     // A call rejected before any child ran made no model calls.
     expect((await tool.execute({ role: "writer", goal: "inspect" })).isError).toBe(true);
-    expect(seen).toEqual([{ tokens: 7, estimatedCost: 0.125 }, { tokens: 0, estimatedCost: 0 }]);
+    expect(seen).toEqual([{ tokens: 7, estimatedCost: 0.125 }, { tokens: 0, estimatedCost: 0, input: 0, cacheRead: 0, cacheWrite: 0, output: 0 }]);
   });
 
   test("a helper whose exact usage is unknown still adds what its reported responses cost to the task's spend", async () => {
@@ -196,7 +196,7 @@ describe("Phase 8 bounded subagents", () => {
       expect(agents.runs()).toHaveLength(child === cut ? 1 : 0);
       expect(agents.runs().reduce((sum, run) => sum + (run.spent?.estimatedCost ?? 0), 0)).toBe(0);
       // The exact totals stay unknown rather than an undercount.
-      expect(observations.snapshot([]).usage).toEqual({ turns: 0, tokens: null, estimatedCost: null });
+      expect(observations.snapshot([]).usage).toMatchObject({ turns: 0, tokens: null, estimatedCost: null });
     }
   });
 
@@ -226,7 +226,7 @@ describe("Phase 8 bounded subagents", () => {
       emit({ type: "assistant_response_end", stopReason: "stop", usage: { tokens: 30, estimatedCost: 0.125 } });
     }) });
     await app.runOnce("Where is the entry point?", project);
-    expect(app.getLastTaskResult()?.usage).toEqual({ turns: 2, tokens: 180, estimatedCost: 0.875 });
+    expect(app.getLastTaskResult()?.usage).toMatchObject({ turns: 2, tokens: 180, estimatedCost: 0.875 });
   });
 
   test("unsupported runtimes fail closed instead of ignoring a read-only hint", async () => {
