@@ -27,7 +27,6 @@ import {
   createBashToolDefinition,
   createFindToolDefinition,
   createGrepToolDefinition,
-  createLocalBashOperations,
   createLsToolDefinition,
   createReadToolDefinition,
   CredentialSynchronizationError,
@@ -49,6 +48,8 @@ import { Type } from "typebox";
 import { gitGuardReason } from "./git-guard";
 import { classifyPath, fileToolGate, gitInternalsCommand, privatePathCommand, realpathLongest, resolveToolPath } from "../platform/project-paths";
 import { withoutProviderKeys } from "../platform/environment";
+import { createOwnedBashOperations } from "./local-bash";
+import { ProcessCleanupError } from "../platform/processes";
 import { cacheRetentionFor, type PromptCacheSetting } from "./cache";
 import { LoopGuard } from "./loop-guard";
 import { ToolHistory, TOOL_HISTORY_ENTRY } from "./tool-history";
@@ -1225,7 +1226,7 @@ function readSmallText(file: string): string | undefined | null {
  * Such a command that stalls (no output and no CPU for a while, src/runtime/stalled-commands.ts) is ended, in the
  * foreground or the background, with the reason added to its output.
  */
-export function casperBashOperations(shell: RuntimeShell | undefined, local: BashOperations = createLocalBashOperations(), checkChanges?: CheckChangeGuard): BashOperations {
+export function casperBashOperations(shell: RuntimeShell | undefined, local: BashOperations = createOwnedBashOperations(), checkChanges?: CheckChangeGuard): BashOperations {
   return {
     async exec(command, cwd, options) {
       const checkReason = await checkChanges?.shellReason(command);
@@ -1272,6 +1273,10 @@ export function casperBashOperations(shell: RuntimeShell | undefined, local: Bas
           try {
             result = await local.exec(pid ? pid.run(wrapped.command) : wrapped.command, cwd, { ...options, signal: stop.signal, timeout: background ? undefined : limit, ...(env ? { env } : {}), onData });
           } catch (error) {
+            if (error instanceof ProcessCleanupError) {
+              shell?.onCleanupFailure?.(error);
+              throw error;
+            }
             if (!stalled) throw error;
             watch?.stop();
             onData(Buffer.from(stalled));
@@ -1303,7 +1308,7 @@ export function casperBashOperations(shell: RuntimeShell | undefined, local: Bas
         : background.adopt({ command, startedAt, output: seen, done: run, stop: () => stop.abort(), ...(logDir ? { logDir } : {}) });
       if (!handed) {
         stop.abort();
-        await run.catch(() => {});
+        await run.catch(error => { if (error instanceof ProcessCleanupError) throw error; });
         if (options.signal?.aborted) throw new Error("aborted");
         onData(Buffer.from(`\n[Stopped at the limit: ${background.max} slow commands already run in the background.]\n`));
         throw new Error(`timeout:${limit}`);

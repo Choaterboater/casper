@@ -5,7 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { loadConfiguration } from "../src/config/load";
 import { removeTempDir } from "./support/temp-dir";
-import { createBashToolDefinition, createLocalBashOperations } from "@earendil-works/pi-coding-agent";
+import { createBashToolDefinition } from "@earendil-works/pi-coding-agent";
 import { BackgroundCommands } from "../src/runtime/background-commands";
 import { casperBashOperations } from "../src/runtime/pi";
 import type { RuntimeShell } from "../src/runtime/types";
@@ -18,7 +18,7 @@ function setup(options: { max?: number } = {}) {
   const notes: string[] = [];
   const commands = new BackgroundCommands({ notify: (note) => { notes.push(note); }, limitSeconds: 6, ...options });
   const shell: RuntimeShell = { wrap: async (command) => ({ command }), background: () => commands };
-  const bash = createBashToolDefinition(process.cwd(), { operations: casperBashOperations(shell, createLocalBashOperations()) });
+  const bash = createBashToolDefinition(process.cwd(), { operations: casperBashOperations(shell) });
   const run = async (command: string, timeout?: number) => {
     try {
       const result = await bash.execute("call", { command, ...(timeout ? { timeout } : {}) }, new AbortController().signal, undefined, undefined as never);
@@ -80,11 +80,11 @@ test.skipIf(!unix)("ending the session stops the whole process tree, with no not
 
 test.skipIf(!unix)("Casper ending without closing the session (a crash, process.exit, the terminal closing) still kills every background tree", async () => {
   const script = `
-    import { createBashToolDefinition, createLocalBashOperations } from "@earendil-works/pi-coding-agent";
+    import { createBashToolDefinition } from "@earendil-works/pi-coding-agent";
     import { BackgroundCommands } from ${JSON.stringify(path.resolve("src/runtime/background-commands"))};
     import { casperBashOperations } from ${JSON.stringify(path.resolve("src/runtime/pi"))};
     const commands = new BackgroundCommands({ notify: () => {}, limitSeconds: 1 });
-    const bash = createBashToolDefinition(process.cwd(), { operations: casperBashOperations({ wrap: async (command) => ({ command }), background: () => commands }, createLocalBashOperations()) });
+    const bash = createBashToolDefinition(process.cwd(), { operations: casperBashOperations({ wrap: async (command) => ({ command }), background: () => commands }) });
     const result = await bash.execute("call", { command: "sleep 44.6 & sleep 44.7; wait" }, new AbortController().signal, undefined, undefined);
     console.log(commands.list().length);
     if (process.argv.includes("hangup")) process.kill(process.pid, "SIGHUP"); else process.exit(0);`;

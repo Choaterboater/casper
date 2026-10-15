@@ -8,7 +8,8 @@ import type { VerificationReport } from "../verify/evidence";
 import { ProcessCleanupError } from "../platform/processes";
 import { SUGGESTION_COMMAND } from "./suggestions";
 import { runSlashCommand } from "./commands";
-import { canonicalLine, findCommand, runsAfterCleanupError } from "../tui/commands";
+import { canonicalLine, findCommand } from "../tui/commands";
+import { finishTaskCleanup } from "./cleanup";
 import { commandProblem } from "../tui/help";
 import { newProjectFromQuestions, opened } from "./new-project";
 import { runSettings } from "./settings";
@@ -123,17 +124,12 @@ export async function runInteractive(app: CasperApp, cwd = process.cwd(), firstR
 export async function handlePrompt(app: CasperApp, prompt: string, typed?: { pasted: readonly string[] }): Promise<VerificationReport | undefined> {
   if (app.closing) return;
   if (app.commandActive) throw new Error("Another command is active; wait for active subagents or workspace transition");
-  // Keep what only shows something, /doctor and cleanup available, but never forget an uncertain
-  // tree just because its originating command or model tool has finished.
-  if (!runsAfterCleanupError(prompt)) {
-    if (app.cleanupError) throw app.cleanupError;
-    app.browser?.assertCleanup(); app.mcp?.assertCleanup(); app.lsp?.assertCleanup(); app.services?.assertCleanup();
-  }
   // Bare /branch only lists them.
   const transition = /^\/(?:branch\s+\S|switch(?:\s|$))/.test(prompt);
   if (transition && app.subagents.isBusy) throw new Error("Wait for active subagents before changing workspaces");
   // /receipt, /undo, /redo and /diff read the last task; every other command starts without it.
   if (!/^\/(?:receipt|undo|redo|diff)(?:\s|$)/.test(prompt)) app.lastTaskResult = undefined;
+  const retainedTaskResult = app.lastTaskResult;
   app.taskRuntimeFailed = false;
   app.taskTurnLimit = undefined;
   app.taskSpendStop = undefined;
@@ -145,10 +141,17 @@ export async function handlePrompt(app: CasperApp, prompt: string, typed?: { pas
   updateFooter(app);
   app.workspaceTransition = transition;
   let command = prompt.startsWith("/");
+  let report: VerificationReport | undefined;
+  app.cleanupReports = [];
   try {
     // Reserve the command first so an updater still checking cannot begin an install. An install already in
     // progress finishes before any task/check begins; it never restarts or reloads this process.
     if (app.updateWork) await app.updateWork;
+    if (app.cleanupError) { app.cleanupRecovery.queue(app.cleanupError); app.cleanupError = undefined; }
+    for (const source of [app.browser, app.mcp, app.lsp, app.services]) {
+      if (source) app.cleanupRecovery.preflight(source);
+    }
+    if (app.cleanupRecovery.hasPending) await app.cleanupRecovery.resolve(app);
     // A Shift+Tab that arrived with this submit still applies; new presses see commandActive and wait.
     while (app.effortSteps > 0) await app.effortCycle;
     if (app.closing) return;
@@ -169,33 +172,29 @@ export async function handlePrompt(app: CasperApp, prompt: string, typed?: { pas
       if (!mine.text.trim()) throw new Error(`/${mine.command.name} has no text to send: ${commandFileShown(mine.command.file, app.homeDir())} is empty after its frontmatter.`);
       command = false;
       app.output.write(`[command] /${terminalText(mine.command.name)} sends ${terminalText(commandFileShown(mine.command.file, app.homeDir()))}.\n`);
-      return await runModelTask(app, mine.text);
+      return report = await runModelTask(app, mine.text);
     }
-    if (command) return await handleSlashCommand(app, prompt);
+    if (command) return report = await handleSlashCommand(app, prompt);
     // "change model to opus 5.5": Casper changes it as /model would, with no model call (src/app/model-words.ts).
     const target = typed && !app.pastedImages?.size ? modelChangeRequest(prompt, typed.pasted) : undefined;
     if (target && await namesModel(await ensureRuntime(app), target)) {
       app.output.write(handledHere(target));
-      return await handleSlashCommand(app, `/model ${target}`);
+      return report = await handleSlashCommand(app, `/model ${target}`);
     }
     const words = typed ? parseRequestWords(prompt, typed.pasted) : undefined;
-    return await runModelTask(app, words?.text ?? prompt, words ? { words } : {});
+    return report = await runModelTask(app, words?.text ?? prompt, words ? { words } : {});
   } catch (error) {
-    if (error instanceof ProcessCleanupError) app.cleanupError = error;
-    throw error;
+    if (error instanceof ProcessCleanupError) app.cleanupRecovery.queue(error);
+    else throw error;
   } finally {
     try {
-      await app.checkTask?.close();
-      if (!command) await app.browser?.close();
-      const opener = app.taskPageOpener;
-      app.taskPageOpener = undefined;
-      await opener?.close().catch(() => {});
-    } catch (error) {
-      if (error instanceof ProcessCleanupError) app.cleanupError = error;
-      // A cleanup that failed wins over the request's own result: the next command must not start on it.
-      // oxlint-disable-next-line no-unsafe-finally
-      throw error;
+      await finishTaskCleanup(app, !command);
     } finally {
+      // Recovery belongs to this command, not a historical task it only read or restored.
+      if (app.cleanupReports.length && (!retainedTaskResult || app.lastTaskResult !== retainedTaskResult)) {
+        app.lastTaskResult ??= { execution: "completed", ...(report ? { verification: report } : {}) };
+        app.lastTaskResult.cleanup = [...app.cleanupReports];
+      }
       // With the task's checks: the service tool must not record into them from a later, non-task prompt.
       app.checkTask = undefined;
       app.smokeTask = undefined;

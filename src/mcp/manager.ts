@@ -358,7 +358,7 @@ export class MCPManager {
     return { connectMs, callMs, hardMs: Math.max(this.defaults.hardCapMs, callMs) };
   }
 
-  assertCleanup(): void { if (this.cleanupError) throw this.cleanupError; }
+  assertCleanup(): void { if (this.cleanupError && !this.cleanupError.acknowledged) throw this.cleanupError; }
 
   status(): MCPStatus[] {
     return [...this.entries.values()].map((entry) => {
@@ -1171,7 +1171,7 @@ export class MCPManager {
       try { await (client ? client.close() : transport?.close())?.catch(() => {}); }
       finally { clearTimeout(term); clearTimeout(force); await held?.close(); }
       if (await ownedStop === "unknown") {
-        this.cleanupError = new ProcessCleanupError();
+        this.cleanupError = new ProcessCleanupError(owner);
         entry.error = this.cleanupError.message;
         entry.state = "failed"; entry.approved = false;
         throw this.cleanupError;

@@ -3,7 +3,7 @@ import path from "node:path";
 import { isSecretName, scrubExactValues } from "../secrets/assignments";
 import { SECRET_MARKER } from "../secrets/scrub";
 import { onPath } from "../security/install";
-import { runCommandCheck, type CommandWrap } from "./command";
+import { runCommandCheck, type CommandCheckOptions, type CommandWrap } from "./command";
 import type { VerificationResult } from "./evidence";
 import type { VerificationScope } from "./scope";
 
@@ -126,7 +126,7 @@ export interface ComposeRunOptions {
   root: string;
   timeoutMs: number;
   signal?: AbortSignal;
-  onCleanupFailure?: () => void;
+  onCleanupFailure?: CommandCheckOptions["onCleanupFailure"];
   wrap?: CommandWrap;
   /** The environment docker gets and is looked for in; unset: Casper's own. */
   env?: NodeJS.ProcessEnv;

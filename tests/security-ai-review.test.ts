@@ -1,4 +1,4 @@
-import { afterEach, expect, test } from "bun:test";
+import { afterEach, beforeAll, expect, test } from "bun:test";
 import { mkdir, mkdtemp, readFile, realpath, rm, stat, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -12,9 +12,11 @@ import {
 } from "../src/security/review";
 import { approvalsPath } from "../src/security/suppressions";
 import type { SecurityFinding } from "../src/security/types";
-import { fakeTools, fixtureRepo, gitIn } from "./fixtures/security-tools/setup";
+import { FAKE_PROGRAM_SETUP_MS, fakeTools, fixtureRepo, gitIn, prepareFakePrograms } from "./fixtures/security-tools/setup";
 import { posixOnly } from "./support/platform";
 import { removeTempDir } from "./support/temp-dir";
+
+beforeAll(prepareFakePrograms, FAKE_PROGRAM_SETUP_MS);
 
 const temps: string[] = [];
 afterEach(async () => { for (const dir of temps.splice(0)) await removeTempDir(dir); });

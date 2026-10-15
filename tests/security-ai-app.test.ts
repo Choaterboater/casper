@@ -1,4 +1,4 @@
-import { afterEach, expect, test } from "bun:test";
+import { afterEach, beforeAll, expect, test } from "bun:test";
 import { mkdtemp, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -10,8 +10,10 @@ import { loadProjectContext } from "../src/project/context";
 import { MODEL_FINDING_LABEL } from "../src/security/review";
 import { SkillRegistry } from "../src/skills/registry";
 import type { AgentRuntime, RuntimeEvent, RuntimeEventListener, RuntimeReadOnlyStartOptions, RuntimeSession, RuntimeStartOptions } from "../src/runtime/types";
-import { fakeTools, fixtureRepo, gitIn } from "./fixtures/security-tools/setup";
+import { FAKE_PROGRAM_SETUP_MS, fakeTools, fixtureRepo, gitIn, prepareFakePrograms } from "./fixtures/security-tools/setup";
 import { removeTempDir } from "./support/temp-dir";
+
+beforeAll(prepareFakePrograms, FAKE_PROGRAM_SETUP_MS);
 
 const cleanup: Array<() => Promise<unknown>> = [];
 afterEach(async () => { for (const close of cleanup.splice(0).reverse()) await close(); });

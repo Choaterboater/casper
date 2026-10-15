@@ -1,4 +1,4 @@
-import { afterEach, expect, test } from "bun:test";
+import { afterEach, beforeAll, expect, test } from "bun:test";
 import { mkdtemp, readFile, realpath, stat, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -11,8 +11,10 @@ import { SkillRegistry } from "../src/skills/registry";
 import { approvalsPath } from "../src/security/suppressions";
 import { COMMANDS } from "../src/tui/commands";
 import { FULL_HELP_TEXT, HELP_TEXT } from "../src/tui/help";
-import { fakeTools, fixtureRepo, gitIn } from "./fixtures/security-tools/setup";
+import { FAKE_PROGRAM_SETUP_MS, fakeTools, fixtureRepo, gitIn, prepareFakePrograms } from "./fixtures/security-tools/setup";
 import { removeTempDir } from "./support/temp-dir";
+
+beforeAll(prepareFakePrograms, FAKE_PROGRAM_SETUP_MS);
 
 const temps: string[] = [];
 afterEach(async () => { for (const dir of temps.splice(0)) await removeTempDir(dir); });

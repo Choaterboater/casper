@@ -246,7 +246,7 @@ export class ManagedProcess {
       const last = kill("SIGKILL");
       if ((await first) === "unknown" || (await last) === "unknown") {
         this.child?.stdout?.destroy(); this.child?.stderr?.destroy(); this.child?.unref();
-        throw new ProcessCleanupError();
+        throw new ProcessCleanupError(this.owner);
       }
       if (this.exited) await Promise.race([this.exited, new Promise(resolve => setTimeout(resolve, 150))]);
       if (this.home) await rm(this.home, { recursive: true, force: true });

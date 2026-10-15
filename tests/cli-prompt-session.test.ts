@@ -73,7 +73,7 @@ async function dispatch(args: string[], streams = [true, true], CI?: string, tas
       constructor(options) { console.error("OPTIONS " + JSON.stringify({model:options.model,effort:options.effort,conversation:options.conversation})); }
       async runOnce(prompt) { console.error("ONCE " + JSON.stringify(prompt)); }
       async runInteractive(cwd, prompt) { console.error("SESSION " + JSON.stringify(prompt)); }
-      getLastTaskResult() { return ${JSON.stringify(task) ?? "undefined"}; } sandboxReceipt() {} commandUsage() {} async close() {}
+      getCommandTaskResult() { return ${JSON.stringify(task) ?? "undefined"}; } sandboxReceipt() {} commandUsage() {} async close() {}
     } }));
     Object.defineProperty(process.stdin, "isTTY", {value:${streams[0]}});
     Object.defineProperty(process.stdout, "isTTY", {value:${streams[1]}});

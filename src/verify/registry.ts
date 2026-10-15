@@ -1,7 +1,8 @@
 import type { ProjectModel } from "../project/model";
 import type { NetworkCheckContext } from "../network/checks";
 import { JUNOSER_NOTE, type NetworkCheckResult } from "../network/spec";
-import { runCommandCheck, type CommandWrap } from "./command";
+import { DEFAULT_CHECK_TIMEOUT_MS, runCommandCheck, type CommandCheckOptions, type CommandWrap } from "./command";
+import { ProcessCleanupError } from "../platform/processes";
 import { CHECK_NAMES, type CheckName, type VerificationResult } from "./evidence";
 import { isBuiltinCheck, labOnlyByYou, modelNamedChecks, type NamedCheckSpec } from "./named";
 import { detectedMigrations, MIGRATIONS_CHECK, migrationsRunnable, runDetectedMigrations } from "./migrations-check";
@@ -117,14 +118,15 @@ export class VerifierRegistry {
     return results;
   }
 
-  static forProject(model: ProjectModel, timeoutMs = 120_000, onCleanupFailure?: () => void, options: ForProjectOptions = {}): VerifierRegistry {
+  static forProject(model: ProjectModel, timeoutMs = DEFAULT_CHECK_TIMEOUT_MS, onCleanupFailure?: CommandCheckOptions["onCleanupFailure"], options: ForProjectOptions = {}): VerifierRegistry {
     const registry = new VerifierRegistry();
     registry.labAsks = Boolean(options.runLab);
     const cwd = model.project.root;
-    let cleanupFailed = false;
-    const blocked = (name: CheckName): VerificationResult => ({ name, cwd, status: "fail", ...nothing, reason: "Owned process cleanup is unconfirmed; no further checks started" });
+    let cleanupError: ProcessCleanupError | undefined;
+    const cleanupFailed = () => cleanupError && !cleanupError.acknowledged;
+    const blocked = (name: CheckName): VerificationResult => ({ name, cwd, status: "fail", ...nothing, reason: "Owned process cleanup is unconfirmed; no further checks started", repair: "never" });
     const limit = (given?: number) => given ? Math.min(Math.max(given, timeoutMs), 3_600_000) : timeoutMs;
-    const onCleanup = () => { cleanupFailed = true; onCleanupFailure?.(); };
+    const onCleanup = (error = new ProcessCleanupError()) => { cleanupError = error; onCleanupFailure?.(error); };
     const wrap = options.wrap ? { wrap: options.wrap } : {};
     for (const name of CHECK_NAMES) {
       // Freeze the command contract for this task, including throughout repairs.
@@ -133,7 +135,7 @@ export class VerifierRegistry {
         name,
         scope: model.verificationScopes?.[name],
         ...(command?.trim() ? { command } : { runnable: false as const }),
-        run: async (signal, runOptions) => cleanupFailed ? blocked(name)
+        run: async (signal, runOptions) => cleanupFailed() ? blocked(name)
           : command?.trim()
           ? runCommandCheck({ name, command, cwd, timeoutMs: limit(runOptions?.timeoutMs), signal, onCleanupFailure: onCleanup, ...wrap })
           : { name, cwd, status: "skip", ...nothing, reason: "No command configured or detected" },
@@ -149,7 +151,7 @@ export class VerifierRegistry {
         ...(kind ? { kind } : {}),
         ...(frozen.run ? { command: frozen.run } : {}),
         run: async (signal, runOptions) => {
-          if (cleanupFailed) return blocked(name);
+          if (cleanupFailed()) return blocked(name);
           if (frozen.kind === "lab") {
             // Only a registry that can ask a person has a lab runner; nothing reaches a device without their answer.
             if (!options.runLab) return { name, cwd, status: "skip", ...nothing, kind: "lab", reason: labOnlyByYou(name), repair: "never" };
@@ -167,14 +169,14 @@ export class VerifierRegistry {
       const plan = structuredClone(migrations);
       // Ones Casper can't apply only skip: /verify migrations says why, the AI isn't offered them.
       registry.register({ name: MIGRATIONS_CHECK, scope: migrationsScope(plan), ...(migrationsRunnable(plan) ? {} : { runnable: false as const }),
-        run: async (signal) => cleanupFailed ? blocked(MIGRATIONS_CHECK) : runDetectedMigrations(cwd, plan, signal) });
+        run: async (signal) => cleanupFailed() ? blocked(MIGRATIONS_CHECK) : runDetectedMigrations(cwd, plan, signal) });
     }
     // The project's own Playwright tests (unless it named its own `e2e`). Not installed: it only skips and says why.
     const e2e = detectedE2e(model);
     if (e2e) {
       const { command, installed } = e2e;
       registry.register({ name: E2E_CHECK, command, ...(installed ? {} : { runnable: false as const }),
-        run: async (signal, runOptions) => cleanupFailed ? blocked(E2E_CHECK)
+        run: async (signal, runOptions) => cleanupFailed() ? blocked(E2E_CHECK)
           : !installed ? { name: E2E_CHECK, cwd, status: "skip", ...nothing, reason: e2eNotInstalled(model.packageManager), repair: "never" }
           : e2eResult(await runCommandCheck({ name: E2E_CHECK, command, cwd, timeoutMs: limit(runOptions?.timeoutMs), signal, onCleanupFailure: onCleanup, ...wrap })) });
     }
@@ -185,7 +187,7 @@ export class VerifierRegistry {
       const plan = structuredClone(compose);
       const env = options.network?.path ? { env: { ...process.env, PATH: options.network.path } } : {};
       registry.register({ name: COMPOSE_CHECK, command: COMPOSE_COMMAND, scope: composeScope(plan), ...(plan.docker ? {} : { runnable: false as const }),
-        run: async (signal, runOptions) => cleanupFailed ? blocked(COMPOSE_CHECK)
+        run: async (signal, runOptions) => cleanupFailed() ? blocked(COMPOSE_CHECK)
           : !plan.docker ? { name: COMPOSE_CHECK, cwd, status: "skip", ...nothing, reason: DOCKER_MISSING, repair: "never" }
           : runComposeCheck({ root: cwd, timeoutMs: limit(runOptions?.timeoutMs), signal, onCleanupFailure: onCleanup, ...wrap, ...env }) });
     }

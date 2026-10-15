@@ -2,7 +2,7 @@ import type { RuntimeEvent, RuntimeStatus } from "../runtime/types";
 import type { SmokeReport } from "../services/smoke";
 import type { PageReport } from "../services/page-report";
 import { formatTerminalJSON } from "../tui/json";
-import { redactPreview, terminalText } from "../tui/format";
+import { lineText, redactPreview, terminalText } from "../tui/format";
 import type { VerificationReport, VerificationResult } from "../verify/evidence";
 import type { ChangeProof } from "../verify/proof";
 import type { RequirementsReview } from "../task/review";
@@ -69,6 +69,8 @@ export interface ReceiptEvent {
   remoteNotRun: Array<{ host: string; commands: number }>;
   /** A secret appeared in a command the AI sent: change it after this task. */
   secretInCommand: boolean;
+  /** Acknowledged owned-process incidents, including live PID and scrubbed command previews. */
+  cleanup?: NonNullable<TaskResult["cleanup"]>;
   /** This task's model use; null when no model task ran (a local command). */
   usage: TaskUsage | null;
   /** Whether the tests fail without the change and pass with it; null when Casper did not compare. */
@@ -203,6 +205,7 @@ export function redactPages(pages: PageReport): PageReport {
 /** A task result that is safe to keep on disk (a saved receipt): the rules above, applied to a copy. */
 export function storedTaskResult(task: TaskResult): TaskResult {
   const copy = structuredClone(task);
+  if (copy.cleanup) copy.cleanup = redactCleanup(copy.cleanup);
   if (copy.verification) {
     const strip = (result: VerificationResult): VerificationResult => ({ ...result, stdout: "", stderr: "",
       ...(result.reason ? { reason: redactPreview(result.reason) } : {}), ...(result.command ? { command: redactPreview(result.command) } : {}),
@@ -231,6 +234,11 @@ export function storedTaskResult(task: TaskResult): TaskResult {
   return copy;
 }
 
+function redactCleanup(cleanup: NonNullable<TaskResult["cleanup"]>): NonNullable<TaskResult["cleanup"]> {
+  return cleanup.map(incident => ({ ...incident, processes: incident.processes.map(process => ({ ...process,
+    command: lineText(redactPreview(process.command)) })) }));
+}
+
 /** Exactly one per one-shot run: what changed, what Casper proved, and the exit code it implies. */
 export function receiptEvent(report: VerificationReport | undefined, task: TaskResult | undefined, exitCode: number,
   /** The session's sandbox, for a run with no task (`casper --json /verify`): its checks ran held or not too. */
@@ -256,6 +264,7 @@ export function receiptEvent(report: VerificationReport | undefined, task: TaskR
     remoteChanges: (task?.remoteChanges ?? []).map((remote) => ({ host: terminalText(remote.host), changes: remote.changes.map((change) => terminalText(change)) })),
     remoteNotRun: (task?.remoteNotRun ?? []).map((remote) => ({ host: terminalText(remote.host), commands: remote.commands })),
     secretInCommand: task?.secretInCommand === true,
+    ...(task?.cleanup?.length ? { cleanup: redactCleanup(task.cleanup) } : {}),
     usage: task?.usage ? { ...task.usage } : commandUsage ? { ...commandUsage } : null,
     proof: task?.proof ? redactProof(task.proof) : null,
     proofSkipped: task?.proofSkipped ?? null,

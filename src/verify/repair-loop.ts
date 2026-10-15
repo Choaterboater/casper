@@ -71,6 +71,26 @@ async function gitStatus(cwd: string, signal?: AbortSignal): Promise<string> {
   const pending = execFileAsync("git", safeGitArgs(["status", "--short", "--untracked-files=normal"]),
     { cwd, maxBuffer: 16_384, killSignal: "SIGKILL", signal: stop });
   const child = pending.child;
+  // Bun can miss ChildProcess's aggregate `close` event even after exit and both
+  // streams' EOF. execFile then never calls back: a successful snapshot becomes
+  // unknown at the deadline and spends another repair. Accept only fully drained,
+  // bounded output from a successful exit; exit alone must not accept partial output.
+  const chunks: string[] = [];
+  let bytes = 0;
+  let errorBytes = 0;
+  let drained = () => {};
+  const completed = new Promise<{ stdout: string }>((resolve) => {
+    drained = () => {
+      if (child.exitCode === 0 && child.stdout?.readableEnded && child.stderr?.readableEnded && bytes <= 16_384 && errorBytes <= 16_384) {
+        resolve({ stdout: chunks.join("") });
+      }
+    };
+  });
+  const output = (chunk: string) => { bytes += Buffer.byteLength(chunk); if (bytes <= 16_384) chunks.push(chunk); };
+  const errors = (chunk: string) => { errorBytes += Buffer.byteLength(chunk); };
+  child.stdout?.on("data", output).on("end", drained);
+  child.stderr?.on("data", errors).on("end", drained);
+  child.on("exit", drained);
   const kill = () => {
     onStop();
     child.stdout?.destroy();
@@ -80,13 +100,16 @@ async function gitStatus(cwd: string, signal?: AbortSignal): Promise<string> {
   if (stop.aborted) kill();
   else stop.addEventListener("abort", kill, { once: true });
   try {
-    const { stdout } = await Promise.race([pending, stopped]);
+    const { stdout } = await Promise.race([pending, completed, stopped]);
     // trimEnd only: each line starts with two status columns, and the first may be a space (" M app.ts").
     return stdout.trimEnd() || "No Git changes reported.";
   } catch {
     return "Git changed-file context unavailable (not a repository or output limit exceeded).";
   } finally {
     stop.removeEventListener("abort", kill);
+    child.stdout?.off("data", output).off("end", drained);
+    child.stderr?.off("data", errors).off("end", drained);
+    child.off("exit", drained);
   }
 }
 

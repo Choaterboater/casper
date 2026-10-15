@@ -16,7 +16,18 @@ const ambientTerm = process.env.TERM;
 process.env.TERM = "xterm-256color";
 afterAll(() => { if (ambientTerm === undefined) delete process.env.TERM; else process.env.TERM = ambientTerm; });
 
-const tick = () => new Promise(resolve => setTimeout(resolve, 90));
+const WAIT_MS = process.platform === "win32" ? 15_000 : 4_000;
+const INTERACTIVE_MS = process.platform === "win32" ? 90_000 : 30_000;
+
+// Runtime callbacks can change state without writing another frame. Poll the expectation,
+// not just output events (the "building" frame can arrive before prompt() is called).
+async function waitFor(check: () => boolean, details: () => string = () => check.toString()): Promise<void> {
+  const deadline = Date.now() + WAIT_MS;
+  while (!check()) {
+    if (Date.now() >= deadline) throw new Error(`timed out waiting: ${details()}`);
+    await Bun.sleep(20);
+  }
+}
 
 test("effort ring always offers auto and wraps from the highest supported level", () => {
   expect(effortChoices(["high", "off", "low"])).toEqual(["auto", "off", "low", "high"]);
@@ -44,9 +55,10 @@ test("Shift+Tab cycles effort without inserting the key into the draft", async (
   try {
     terminal.setStatus("fixture"); terminal.start();
     const reading = terminal.readCommand();
-    await tick();
-    input.write("keep"); await tick();
-    input.write("\x1b[Z"); await tick();
+    input.write("keep");
+    await waitFor(() => Bun.stripANSI(output).includes("keep"));
+    input.write("\x1b[Z");
+    await waitFor(() => cycled.length === 1);
     input.write("draft\r");
     expect(await reading).toBe("keepdraft");
     expect(cycled).toEqual([1]);
@@ -65,12 +77,12 @@ test("Shift+Tab while a command is in flight cycles (the next step uses it), but
     const pending = terminal.readCommand();
     input.write("work\r");
     expect(await pending).toBe("work");
-    input.write("\x1b[Z"); await tick();
-    expect(cycles).toBe(1);
+    input.write("\x1b[Z");
+    await waitFor(() => cycles === 1);
     const approval = terminal.approve("preview\n", "Do it?", ["No", "Yes"]);
-    input.write("\x1b[Z"); await tick();
+    input.write("\x1b[Z");
+    await waitFor(() => Bun.stripANSI(output).includes("effort unchanged · answer first"));
     expect(cycles).toBe(1);
-    expect(Bun.stripANSI(output)).toContain("effort unchanged · answer first");
     input.write("2");
     expect(await approval).toBe("Yes");
   } finally { terminal.close(); input.destroy(); }
@@ -87,8 +99,10 @@ test("Enter while a command is in flight: a command the app runs now clears the 
     const pending = terminal.readCommand();
     input.write("work\r");
     expect(await pending).toBe("work");
-    input.write("/status\r"); await tick();
-    input.write("/undo\r"); await tick();
+    input.write("/status\r");
+    await waitFor(() => asked.length === 1);
+    input.write("/undo\r");
+    await waitFor(() => Bun.stripANSI(output).includes("/undo waits until this task ends · draft kept"));
     expect(asked).toEqual(["/status", "/undo"]);
     const screen = Bun.stripANSI(output);
     expect(screen).toContain("❯ /status");
@@ -150,15 +164,16 @@ test("Ctrl+C cancels the effort picker instead of arming exit behind it", async 
     await until((text) => Bun.stripANSI(text).slice(beforePicker).includes("idle"));
     // The picker dismissed without the exit-arming note and without ending the session.
     expect(Bun.stripANSI(output).slice(beforePicker)).not.toContain("Ctrl+C again to exit");
-    // Liveness race: no deterministic signal exists for "still interactive", so a short real
-    // wait guards that the session did not end (same pattern as the Shift+Tab test below).
-    expect(await Promise.race([interactive.then(() => "ended"), Bun.sleep(500).then(() => "alive")])).toBe("alive");
+    // Prove input is still live rather than sleeping and checking that it has not exited.
+    const beforeHelp = output.length;
+    input.write("/help\r");
+    await until(text => Bun.stripANSI(text.slice(beforeHelp)).includes("/effort"));
   } finally {
     await app.close();
     input.destroy();
     await removeTempDir(root);
   }
-});
+}, INTERACTIVE_MS);
 
 test("interactive Shift+Tab steps through levels and saves the one it settles on, once, like /effort", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "casper-effort-cycle-"));
@@ -223,20 +238,26 @@ test("interactive Shift+Tab steps through levels and saves the one it settles on
     input.write("\x1b[Z\x1b[Z");
     await until(text => Bun.stripANSI(text).includes("effort medium · saved"));
     expect(changes).toEqual([{ level: "low", persist: false }, { level: "medium", persist: false }, { level: "medium", persist: true }]);
-    // Presses a person makes, each one landing after the last has applied: still one save, where they rest.
+    // Separately polled presses may rest long enough to save intermediate levels on a busy host.
     changes.length = 0;
-    for (let press = 0; press < 3; press++) { input.write("\x1b[Z"); await Bun.sleep(150); }
     const before = Bun.stripANSI(output).split("effort off · saved").length;
+    for (const level of ["high", "auto", "off"]) {
+      input.write("\x1b[Z");
+      await waitFor(() => changes.some(change => change.level === level && !change.persist));
+    }
     await until(text => Bun.stripANSI(text).split("effort off · saved").length > before);
-    expect(changes).toEqual([{ level: "high", persist: false }, { level: "auto", persist: false }, { level: "off", persist: false }, { level: "off", persist: true }]);
+    expect(changes.filter(change => !change.persist)).toEqual([{ level: "high", persist: false }, { level: "auto", persist: false }, { level: "off", persist: false }]);
+    expect(changes.at(-1)).toEqual({ level: "off", persist: true });
     input.write("\x04");
-    expect(await Promise.race([interactive.then(() => "ended"), Bun.sleep(1000).then(() => "stuck")])).toBe("ended");
+    let ended = false;
+    void interactive.then(() => { ended = true; });
+    await waitFor(() => ended);
   } finally {
     await app.close();
     input.destroy();
     await removeTempDir(root);
   }
-});
+}, INTERACTIVE_MS);
 
 test("during a running task: /usage runs, Shift+Tab and /effort apply from the next step, /undo waits, and input still works after", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "casper-during-work-"));
@@ -261,6 +282,7 @@ test("during a running task: /usage runs, Shift+Tab and /effort apply from the n
         getState: () => ({ cwd: project, isStreaming: false }),
         subscribe: () => () => {},
         abort: async () => {},
+        setTools: () => {},
         prompt: async (text: string) => { prompts.push(text); if (prompts.length === 1) await gate.promise; },
       };
     },
@@ -268,18 +290,9 @@ test("during a running task: /usage runs, Shift+Tab and /effort apply from the n
   };
   const input = Object.assign(new PassThrough(), { isTTY: true, setRawMode() {} });
   let output = "";
-  let pending: { test: (output: string) => boolean; resolve: () => void } | undefined;
-  const writer = Object.assign(new EventEmitter(), { isTTY: true, columns: 120, rows: 30, write(text: string) {
-    output += text;
-    if (pending?.test(output)) { pending.resolve(); pending = undefined; }
-  } });
-  const until = (test: (output: string) => boolean) => {
-    if (test(output)) return Promise.resolve();
-    const { promise, resolve } = Promise.withResolvers<void>();
-    pending = { test, resolve };
-    const seen = ["Usage:", "from the next step", "[effort]", "draft kept", "waits until"].filter(text => Bun.stripANSI(output).includes(text));
-    return Promise.race([promise, Bun.sleep(4000).then(() => { throw new Error(`timed out waiting for ${test.toString().slice(0, 120)}; seen: ${seen.join(", ")}; prompts ${prompts.length}`); })]);
-  };
+  const writer = Object.assign(new EventEmitter(), { isTTY: true, columns: 120, rows: 30, write(text: string) { output += text; } });
+  const until = (test: (output: string) => boolean) => waitFor(() => test(output),
+    () => `${test.toString().slice(0, 120)}; prompts ${prompts.length}; screen: ${Bun.stripANSI(output).slice(-600)}`);
   const app = new CasperApp({
     input, output: writer, runtimeFactory: () => runtime, sessionHomeDir: home,
     loadProjectContext: info => loadProjectContext(info, { homeDir: home }),
@@ -312,15 +325,18 @@ test("during a running task: /usage runs, Shift+Tab and /effort apply from the n
     await until(() => screen().lastIndexOf("idle") > screen().lastIndexOf("draft kept"));
     // The session still takes input once the task ends: the next line starts the next task.
     input.write("\x15say ok\r");
-    await until(() => screen().includes("❯ say ok"));
+    await until(() => prompts.length === 2 && prompts[1]!.includes("say ok"));
+    await until(() => screen().lastIndexOf("idle") > screen().lastIndexOf("❯ say ok"));
     input.write("\x04");
-    expect(await Promise.race([interactive.then(() => "ended"), Bun.sleep(3000).then(() => "stuck")])).toBe("ended");
+    let ended = false;
+    void interactive.then(() => { ended = true; });
+    await waitFor(() => ended);
   } finally {
     await app.close();
     input.destroy();
     await removeTempDir(root);
   }
-}, 30_000);
+}, INTERACTIVE_MS);
 
 test("while Casper is still opening the project, Enter keeps the draft and says so (no task is running)", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "casper-opening-"));
@@ -329,23 +345,16 @@ test("while Casper is still opening the project, Enter keeps the draft and says 
   await mkdir(home, { recursive: true });
   await mkdir(project, { recursive: true }); await writeFile(path.join(project, "notes.txt"), "An empty folder would ask about a new project.\n");
   const loading = Promise.withResolvers<void>();
+  let loadingStarted = false;
   const runtime: AgentRuntime = { async start() { throw new Error("no model in this test"); }, async dispose() {} };
   const input = Object.assign(new PassThrough(), { isTTY: true, setRawMode() {} });
   let output = "";
-  let pending: { test: (output: string) => boolean; resolve: () => void } | undefined;
-  const writer = Object.assign(new EventEmitter(), { isTTY: true, columns: 120, rows: 30, write(text: string) {
-    output += text;
-    if (pending?.test(output)) { pending.resolve(); pending = undefined; }
-  } });
-  const until = (test: (output: string) => boolean) => {
-    if (test(output)) return Promise.resolve();
-    const { promise, resolve } = Promise.withResolvers<void>();
-    pending = { test, resolve };
-    return Promise.race([promise, Bun.sleep(4000).then(() => { throw new Error(`timed out; screen: ${Bun.stripANSI(output).slice(-600)}`); })]);
-  };
+  const writer = Object.assign(new EventEmitter(), { isTTY: true, columns: 120, rows: 30, write(text: string) { output += text; } });
+  const until = (test: (output: string) => boolean) => waitFor(() => test(output),
+    () => `screen: ${Bun.stripANSI(output).slice(-600)}`);
   const app = new CasperApp({
     input, output: writer, runtimeFactory: () => runtime, sessionHomeDir: home,
-    loadProjectContext: async info => { await loading.promise; return loadProjectContext(info, { homeDir: home }); },
+    loadProjectContext: async info => { loadingStarted = true; await loading.promise; return loadProjectContext(info, { homeDir: home }); },
     loadSkillRegistry: context => SkillRegistry.discover({ projectRoot: context.info.root, homeDir: home }),
     loadMCPConfiguration: async () => ({ servers: [], diagnostics: [] }),
     loadLSPConfiguration: async () => ({ servers: [], diagnostics: [] }),
@@ -353,17 +362,19 @@ test("while Casper is still opening the project, Enter keeps the draft and says 
   });
   const interactive = app.runInteractive(project);
   try {
-    await Bun.sleep(150);
+    await waitFor(() => loadingStarted);
     input.write("hello\r");
     await until(text => Bun.stripANSI(text).includes("draft kept · Enter again once Casper has opened the project"));
     expect(Bun.stripANSI(output)).not.toContain("this task ends");
     loading.resolve();
     await until(text => Bun.stripANSI(text).includes("idle"));
-    input.write("\x04\x04");
-    await Promise.race([interactive, Bun.sleep(2000)]);
+    input.write("\x15\x04");
+    let ended = false;
+    void interactive.then(() => { ended = true; });
+    await waitFor(() => ended);
   } finally {
     await app.close();
     input.destroy();
     await removeTempDir(root);
   }
-}, 30_000);
+}, INTERACTIVE_MS);

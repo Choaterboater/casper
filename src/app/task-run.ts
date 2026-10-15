@@ -4,6 +4,7 @@
 
 import { builderSteer, builderSteerLine } from "../crew/auto";
 import { finishCrewChecks } from "./crew-checks";
+import { finishTaskCleanup } from "./cleanup";
 import type { CasperApp } from "../app";
 import os from "node:os";
 import { riskyBaseline, riskyLinesIn } from "../network/risky-receipt";
@@ -34,6 +35,7 @@ import { definitionChangedReason, definitionChanges, testDefinition } from "../v
 import { parseChecklist, parseReview, requirementsReviewPrompt, ROUND_MAX_TURNS, type RequirementsReview } from "../task/review";
 import { extractChecklist, formatChecklistPrompt, normalizeCases } from "../task/checklist";
 import { isOutside } from "../platform/inside";
+import { ProcessCleanupError } from "../platform/processes";
 import { realpathLongest, within } from "../platform/project-paths";
 import { systemTempDirs } from "../sandbox/policy";
 import { autoDetectedChecks } from "../verify/migrations-check";
@@ -479,6 +481,7 @@ export async function runModelTask(app: CasperApp, prompt: string, options: { fl
       }
     }
   } catch (error) {
+    if (error instanceof ProcessCleanupError) app.cleanupRecovery.queue(error);
     app.taskRuntimeFailed = true;
     thrownError = error instanceof Error ? error.message : String(error);
     throw error;
@@ -487,7 +490,7 @@ export async function runModelTask(app: CasperApp, prompt: string, options: { fl
     await baseline?.dispose();
     // Last, after reviewers, fixes and late repairs: one full sweep before the receipt says done.
     ({ verification, crewChecks } = await finishCrewChecks(app, verificationMode, verification));
-    const execution = app.closing || app.commandAbort?.signal.aborted || app.taskRuntimeCancelled || app.checkTask?.signal.aborted ? "cancelled" : app.taskRuntimeFailed ? "failed" : "completed";
+    let execution: TaskResult["execution"] = app.closing || app.commandAbort?.signal.aborted || app.taskRuntimeCancelled || app.checkTask?.signal.aborted ? "cancelled" : app.taskRuntimeFailed ? "failed" : "completed";
     // Keep already-executed evidence on terminal error/cancellation, but never
     // launch another command or repair prompt after the task has stopped.
     if (!verification && app.checkTask?.checks.length) verification = {
@@ -505,6 +508,14 @@ export async function runModelTask(app: CasperApp, prompt: string, options: { fl
     if (classifiedBefore === undefined || classifiedAfter !== classifiedBefore) app.observations.recordUntrackedModelUse();
     const observations = app.observations.snapshot(changedPaths, changedDuringChecks);
     const browser = !app.closing && app.browser ? await app.browser.report() : undefined;
+    // Teardown and the person's recovery choice belong in the saved receipt, not after it.
+    let cleanupFailure: { error: unknown } | undefined;
+    try { await finishTaskCleanup(app, true); }
+    catch (error) {
+      // Keep executed evidence and save the receipt before propagating an unrelated teardown failure.
+      cleanupFailure = { error };
+      if (execution === "completed") execution = "failed";
+    }
     const outsideWrites = outsideWritesReceipt(app.sandbox);
     // Parts builders landed that no reviewer finished: one plain line, never a failure.
     const notReviewed = partsNotReviewed(app);
@@ -529,6 +540,7 @@ export async function runModelTask(app: CasperApp, prompt: string, options: { fl
       ...(app.planBuild ? { planSteps: app.planBuild.finish(execution) } : {}),
       ...(changedWhilePlanning?.length ? { changedWhilePlanning } : {}), ...(app.sandbox ? { sandbox: sandboxReceipt(app.sandbox)! } : {}),
       ...outsideWrites };
+    if (app.cleanupReports.length) app.lastTaskResult.cleanup = [...app.cleanupReports];
     app.lastFinishedTask = app.lastTaskResult;
     // The receipt is next: the steps fold and the Working box goes, even for a tool that ended late.
     app.events.reset();
@@ -542,7 +554,7 @@ export async function runModelTask(app: CasperApp, prompt: string, options: { fl
         && !app.lastTaskResult.testRunner;
       // A stop at --max-turns or at the spend limit is always said on a receipt.
       if ((classification.intent !== "general" && !answeredOnly) || execution !== "completed" || wroteToolCall || app.taskTurnLimit !== undefined || app.taskSpendStop !== undefined || verification || browser?.checks.length || observations.possibleMutations || observations.changedPaths?.length || observations.changedDuringChecks?.length || observations.observedEdits.length || observations.observedChecks.length
-        || app.planBuild || branchMoved || observations.remoteChanges?.length || observations.remoteNotRun?.length || observations.secretInCommand) {
+        || app.planBuild || branchMoved || observations.remoteChanges?.length || observations.remoteNotRun?.length || observations.secretInCommand || app.cleanupReports.length) {
         // A folder the task made too big to compare is not a project folder either: no undo, for the same reason.
         if (!changedPaths && app.snapshotFailure && tooManyFiles(app.snapshotFailure)) undoStart.snapshot = { unavailable: UNDO_NOT_PROJECT };
         // The second copy and the saved receipt; the change summary lists only this task's files.
@@ -570,6 +582,7 @@ export async function runModelTask(app: CasperApp, prompt: string, options: { fl
       modelStatus: execution, verification });
     // Last, once this folder has the task's outcome: the offer may move Casper to the project the work is in.
     if (workFolder && receiptShown && !app.closing) await offerWorkFolder(app, workFolder);
+    if (cleanupFailure) await Promise.reject(cleanupFailure.error);
   }
   return verification;
 }

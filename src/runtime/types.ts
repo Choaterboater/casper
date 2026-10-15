@@ -1,4 +1,5 @@
 import type { Readable } from "node:stream";
+import type { ProcessCleanupError } from "../platform/processes";
 import type { ModelServer } from "../config/model-servers";
 import type { Component, TUI } from "@earendil-works/pi-tui";
 import type { ToolObservationInput, ToolObservationOutput } from "./observation";
@@ -86,6 +87,8 @@ export interface RuntimeShell {
   /** The command as the sandbox runs it (`id` set), or as it is when nothing holds it. `env` is added to this command's
    * environment only (a git or gh command you allowed to use your GitHub login, outside the sandbox). */
   wrap(command: string, cwd: string): Promise<{ command: string; id?: string; ssh?: SshRun; env?: Record<string, string> }>;
+  /** An owned command could not be confirmed stopped; let the host offer Stop/Leave. */
+  onCleanupFailure?(error?: ProcessCleanupError): void;
   /** A held command has ended (the sandbox cleans up after it). */
   finished?(id: string): void;
   /** After a held command failed: what the sandbox refused, as one line the AI reads, or undefined. */

@@ -324,7 +324,7 @@ export async function runCli(): Promise<void> {
     for (const server of options.languageServers) await app.runOnce(`/lsp connect ${server}`);
     if (prompt && !terminalPrompt(options, Boolean(process.stdin.isTTY), Boolean(process.stdout.isTTY))) {
       const report = await app.runOnce(prompt);
-      const task = app.getLastTaskResult();
+      const task = app.getCommandTaskResult();
       const exitCode = taskExitCode(report, task, { requireVerification: options.requireVerification });
       process.exitCode = exitCode;
       emit?.(receiptEvent(report, task, exitCode, app.sandboxReceipt(), app.commandUsage()));

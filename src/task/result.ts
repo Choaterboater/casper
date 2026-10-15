@@ -14,7 +14,7 @@ import type { AcceptanceResult } from "../verify/acceptance";
 import { ROUND_MAX_TURNS, type RequirementsReview } from "./review";
 import { formatLimit } from "./spend";
 import { BRANCH_MOVED_LINE, GIT_MOVEMENT_UNKNOWN } from "./git-movement";
-import { formatCost, formatDuration, lineText } from "../tui/format";
+import { formatCost, formatDuration, lineText, redactPreview } from "../tui/format";
 import { planReceipt, type PlanStepReport } from "../flows/plan-build";
 
 /** Tool-reported diagnostics, not process exit evidence or a reusable check pass. */
@@ -37,9 +37,26 @@ export interface TaskUsage {
   estimatedCost: number | null;
 }
 
+/** One acknowledged cleanup incident; commands are safe display-only previews. */
+export interface CleanupReport {
+  state: "stopped" | "left-running" | "unconfirmed";
+  processes: Array<{ pid: number; group: number; command: string }>;
+  unattended?: true;
+}
+
+export function cleanupReceiptLines(reports: readonly CleanupReport[]): string[] {
+  return reports.flatMap(report => [
+    report.state === "stopped" ? "– Owned processes stopped; cleanup confirmed"
+      : report.state === "left-running" ? "⚠ Owned processes left running by your choice; cleanup unconfirmed"
+      : "⚠ Owned process cleanup unconfirmed",
+    ...report.processes.map(process => `– PID ${process.pid} · ${lineText(redactPreview(process.command))}`),
+  ]);
+}
+
 /** Execution completion is not behavioral acceptance or proof of correctness. */
 export interface TaskResult {
   execution: "completed" | "failed" | "cancelled";
+  cleanup?: CleanupReport[];
   /** The model's whole answer was a tool call written as text, and the task made no tool calls: nothing was done. */
   wroteToolCallAsText?: true;
   /** Why the model run failed, when the provider's error names a cause (bad key, no credits, rate limit …). */
@@ -161,6 +178,7 @@ export type TaskOutcome = "verified" | "failed" | "incomplete" | "not_verified" 
  * receipts and scripts that mean "the checks passed" read this (JSON `checksPassed`), not the outcome. */
 export function checksPassed(report?: VerificationReport, task?: TaskResult): boolean {
   if (task?.execution === "cancelled" || task?.execution === "failed" || task?.turnLimit !== undefined || task?.spendLimit !== undefined) return false;
+  if (task?.cleanup?.some(incident => incident.state !== "stopped")) return false;
   if (task?.browser?.status === "fail" || task?.browser?.status === "incomplete") return false;
   const verification = task?.verification ?? report;
   if (verification?.status !== "pass") return false;
@@ -189,6 +207,7 @@ export function taskOutcome(report?: VerificationReport, task?: TaskResult): Tas
   const status = verification?.status;
   if (status === "fail" || status === "blocked" || task?.browser?.status === "fail") return "failed";
   if (status === "incomplete" || task?.browser?.status === "incomplete") return "incomplete";
+  if (task?.cleanup?.some(incident => incident.state !== "stopped")) return "incomplete";
   // Commands to another machine that Casper stopped: whatever the AI said about that machine did not happen.
   if (task?.remoteNotRun?.length) return "incomplete";
   // The model only wrote a tool call as text: it did not act, which is not "unchanged and fine".
@@ -264,7 +283,7 @@ const RECEIPT_PATH_LIMIT = 8;
 export function formatTaskResult(task: TaskResult): string {
   const report = task.verification;
   const safe = lineText;
-  const lines = [`[task] Execution ${task.execution}`, ...planReceipt(task.planSteps)];
+  const lines = [`[task] Execution ${task.execution}`, ...planReceipt(task.planSteps), ...cleanupReceiptLines(task.cleanup ?? [])];
   if (task.spendLimit) lines.push(receiptLine("spend", `stopped at ${formatCost(task.spendLimit.spent)}, the ${formatLimit(task.spendLimit.limit)} limit for one task (spend.pauseAt)`));
 
   if (task.observedEdits?.length) lines.push(receiptLine("tool edits", task.observedEdits.map(safe).join(", ")));
@@ -477,7 +496,7 @@ function checklistLines(task: TaskResult, safe: (text: string) => string): strin
 function receiptParts(task: TaskResult, options: ReceiptOptions): { lines: string[]; undo: string[]; folds: Map<string, string>; short?: string } {
   const safe = lineText;
   const slash = (command: string) => options.surface === "one-shot" ? `casper "${command}"` : command;
-  const lines: string[] = [];
+  const lines: string[] = [...cleanupReceiptLines(task.cleanup ?? [])];
   const folds = new Map<string, string>();
   const fold = (line: string, short: string) => { lines.push(line); folds.set(line, short); };
   if (task.changedPaths?.length) fold(`✓ Changed ${pathList(task.changedPaths, safe)}`, changedShort(task.changedPaths, safe));
@@ -695,6 +714,7 @@ function withVerdict(task: TaskResult, body: string[], options: ReceiptOptions):
         ? `– Incomplete — stopped at ${formatCost(task.spendLimit.spent)}, the ${formatLimit(task.spendLimit.limit)} limit for one task (spend.pauseAt); changes so far are kept; ${options.surface === "one-shot" ? "casper --continue" : "send another request"} to go on`
         : task.turnLimit !== undefined
         ? `– Incomplete — stopped after ${task.turnLimit} ${task.turnLimit === 1 ? "turn" : "turns"} (--max-turns); changes so far are kept; ${options.surface === "one-shot" ? "casper --continue" : "send another request"} to go on`
+        : task.cleanup?.some(incident => incident.state !== "stopped") ? "– Incomplete — owned process cleanup is unconfirmed"
         : task.remoteNotRun?.length ? `– Incomplete — ${remoteNotRunVerdict(task.remoteNotRun, safe)}`
         : task.wroteToolCallAsText ? "– Did not act — the model wrote a tool call as text instead of using it"
         : report?.reason === NO_CHECKS_FOUND && !report.results.length ? NO_CHECKS_LINE

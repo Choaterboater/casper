@@ -1031,6 +1031,30 @@ file; the project file wins (see [CONFIGURATION.md](CONFIGURATION.md)).
   until you restart (`[project] .casper/project.yaml changed in a task; restart Casper to use it`).
 - Casper runs the checks one at a time, at the project root, with the platform shell and your
   environment (from v0.2.16, minus AI provider keys). It does not install dependencies or fall back to another tool when one is missing.
+- `verification.timeoutMs` is the overall wall-clock deadline for **each command check**,
+  not a per-test timeout or a silence timer: output does not extend it. The existing default
+  is 10 minutes; set a different value in the configuration above (1 ms to 1 hour). A named
+  check's `timeout:` overrides this default, in seconds. On timeout or cancellation Casper
+  stops the owned process tree (observed process groups on POSIX; observed descendants on Windows),
+  including workers in their own groups, escalating to a forced stop. Casper also attempts
+  to stop workers left behind when the command exits normally; cleanup it cannot confirm
+  is reported as described below. A timeout is unfinished verification, not a code failure
+  to repair automatically.
+- After 10 seconds since the latest output, recognized test-file headings (Bun's `tests/example.test.ts:`
+  or Jest's `RUNS tests/example.test.ts`) stay visible in the live check progress. This is the
+  last file announced by the runner, not an inventory of parallel workers; runners that
+  buffer their headings cannot identify a silent worker this way. Plain terminals include the
+  latest progress in their minute line. Open pipes that cannot be accounted for after root exit
+  report cleanup as unconfirmed instead of waiting forever. In a session, Casper lists the
+  verified live owned processes, one PID and command per line, and asks once: **Stop them** or
+  **Leave them running**. Stop them revalidates identities before retrying cleanup of the owned groups
+  (verified descendants on Windows), then rechecks: successful signals alone do not confirm cleanup
+  while verified live processes remain. An unavailable OS listing still means cleanup is unconfirmed.
+  Leave them running records that choice in the receipt and lets the session continue. Neither choice leaves a persistent block
+  on further work or proves that unobserved descendants have stopped. An unattended run records
+  unconfirmed cleanup in the receipt and exits nonzero, without a picker.
+  The AI shell uses the same tree ownership for its explicit timeouts and cancellation; its
+  configured slow-command background handoff is unchanged.
 - The model's `casper_check` tool takes only a check name (`typecheck`, `lint`, `test`, `build`,
   or from v0.2.16 a named check that is not a lab check), not a command, scope, folder or timeout.
   Check output the model reads (`casper_check` replies and repair prompts) has secret values

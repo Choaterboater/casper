@@ -39,6 +39,7 @@ import { toolReason } from "../runtime/tool-reason";
  * wait their turn in the approval queue, so two at once are both asked and a question nobody saw is never a No. */
 export function sandboxHost(app: CasperApp): SandboxHost {
   return {
+    onCleanupFailure: app.blockOnCleanupFailure,
     canAsk: () => app.interactive && app.terminal.canAsk && !app.closing,
     pick: (question, options, signal, settings) => {
       const stop = signal ?? app.commandAbort?.signal;
@@ -111,6 +112,7 @@ export async function loadWorkspace(app: CasperApp, cwd: string) {
     // run can't ask, so it keeps the sandbox where one runs, as before.
     offByDefault: app.interactive });
   app.shell = runtimeShell(host, sandbox, new SandboxStore(context.stateDirectory), { on: () => app.projectContext?.sshLogin !== false });
+  app.shell.onCleanupFailure = app.blockOnCleanupFailure;
   useSandbox(sandbox);
   app.lifecycle.add({ name: "sandbox", close: async () => {
     if (currentSandbox() === sandbox) useSandbox(undefined);

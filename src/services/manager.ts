@@ -72,7 +72,7 @@ const TAIL_LINES = 20;
 export class ServiceManager {
   private readonly slots = new Map<string, Slot>();
   private closing?: Promise<void>;
-  private cleanupUnknown = false;
+  private cleanupError?: ProcessCleanupError;
   private adhocCount = 0;
   /** Slots added by ensureSlot (host-detected), as opposed to declared in .casper/project.yaml. */
   private readonly detected = new Set<string>();
@@ -235,7 +235,7 @@ export class ServiceManager {
     return { restarted };
   }
 
-  assertCleanup(): void { if (this.cleanupUnknown) throw new ProcessCleanupError(); }
+  assertCleanup(): void { if (this.cleanupError && !this.cleanupError.acknowledged) throw this.cleanupError; }
 
   /** Stops every service. Idempotent; the manager is not reused afterwards. */
   close(): Promise<void> {
@@ -244,7 +244,7 @@ export class ServiceManager {
       await Promise.allSettled([...this.slots.values()].map(slot => slot.work));
       await Promise.allSettled(this.retired);
       const failure = results.find((result): result is PromiseRejectedResult => result.status === "rejected");
-      if (failure) throw failure.reason instanceof ProcessCleanupError ? new ProcessCleanupError() : failure.reason;
+      if (failure) throw failure.reason;
     })();
   }
 
@@ -319,7 +319,7 @@ export class ServiceManager {
         if (slot.process === managed && slot.state === "starting") { slot.state = "ready"; slot.readyMs = ready.readyMs; }
         return this.describe(slot);
       } catch (error) {
-        if (error instanceof ProcessCleanupError) { this.markUnknown(slot); throw error; }
+        if (error instanceof ProcessCleanupError) { this.markUnknown(slot, error); throw error; }
         const stopped = signal.aborted || slot.state === "stopped" || (error instanceof ManagedProcessError && (error.reason === "aborted" || error.reason === "closed"));
         slot.state = stopped ? "stopped" : "failed";
         slot.error = error instanceof Error ? error.message.split("\nLog tail:")[0] : String(error);
@@ -350,12 +350,12 @@ export class ServiceManager {
     const managed = slot.process;
     if (!managed) return Promise.resolve();
     return slot.stopping = managed.close().catch((error: unknown) => {
-      if (error instanceof ProcessCleanupError) this.markUnknown(slot);
+      if (error instanceof ProcessCleanupError) this.markUnknown(slot, error);
       throw error;
     });
   }
 
-  private markUnknown(slot: Slot): void { slot.cleanup = "unknown"; this.cleanupUnknown = true; }
+  private markUnknown(slot: Slot, error: ProcessCleanupError): void { slot.cleanup = "unknown"; this.cleanupError = error; }
 
   /** A ready service with an HTTP readiness path must still answer it; a log-ready one must still be running. */
   private async answers(slot: Slot, signal: AbortSignal): Promise<boolean> {
