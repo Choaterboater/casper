@@ -63,6 +63,19 @@ test("help lists casper <folder>, /undo, /redo, /diff n and /receipt n", () => {
   for (const entry of ["/undo [n]", "/redo [n]", "/rewind [n]", "/diff [n|list]", "/receipt <n>, /receipt list"]) expect(FULL_HELP_TEXT).toContain(entry);
 });
 
+test("help describes SGLang and MLX discovery without promising universal tools or MLX identity", () => {
+  expect(FULL_HELP_TEXT).toContain("five loopback ports: 11434, 1234, 8080, 8000 and 30000 (SGLang); MLX shares 8080");
+  expect(FULL_HELP_TEXT).toContain("(+ Add server)");
+  expect(FULL_HELP_TEXT).toContain("like 192.0.2.10");
+  expect(FULL_HELP_TEXT).toContain("With no port, detection tries the same five ports");
+  expect(FULL_HELP_TEXT).toContain("All kinds are offered as fallbacks: Ollama, LM Studio, llama.cpp, vLLM, SGLang, MLX (MLX LM / vllm-mlx), OpenAI-style server");
+  expect(FULL_HELP_TEXT).toContain("SGLang defaults to port 30000, MLX to 8080");
+  expect(FULL_HELP_TEXT).toContain("not new login providers; no API keys needed");
+  expect(FULL_HELP_TEXT).toContain("vllm-mlx's owned_by marker as MLX");
+  expect(FULL_HELP_TEXT).toContain("MLX LM without a reliable identity marker stays OpenAI-style");
+  expect(FULL_HELP_TEXT).toContain("when the model and server flags support them; SGLang may need --tool-call-parser");
+});
+
 test("/help lists setting up Casper's network server and its logins", () => {
   for (const text of [HELP_TEXT, FULL_HELP_TEXT]) expect(text).toContain("/mcp setup network");
   expect(HELP_TEXT).toContain("/mcp login ");

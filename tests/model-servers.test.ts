@@ -19,7 +19,7 @@ function serve(routes: Record<string, unknown | ((request: Request) => Response)
 }
 
 test("an address: a bare computer or http:// with no port tries the usual ports; a port, a path or https is that one", () => {
-  const usual = (host: string) => ({ roots: [11434, 1234, 8080, 8000].map((port) => `http://${host}:${port}`), host });
+  const usual = (host: string) => ({ roots: [11434, 1234, 8080, 8000, 30000].map((port) => `http://${host}:${port}`), host });
   expect(readAddress("192.0.2.10")).toEqual(usual("192.0.2.10"));
   expect(readAddress("  myserver ")).toEqual(usual("myserver"));
   expect(readAddress("http://myserver")).toEqual(usual("myserver"));
@@ -37,6 +37,65 @@ test("an address: a bare computer or http:// with no port tries the usual ports;
     ["", "Type an address"], ["http://user:pw@myserver", "Leave the name and password out"], ["http://myserver:8000/?key=abc", "Leave the ? or # part out"],
     ["ftp://myserver", "http:// or https://"], ["http://", "can't read that address"],
   ] as const) expect((readAddress(typed) as { problem: string }).problem).toContain(problem);
+});
+
+for (const [kind, port] of [["sglang", 30000], ["mlx", 8080]] as const) test(`${kind}: a selected backend uses its default port, respects explicit URLs and suggests its own name`, () => {
+  const expected = { roots: [`http://myserver:${port}`], host: "myserver" };
+  expect(readAddress("myserver", kind)).toEqual(expected);
+  expect(readAddress("http://myserver/v1/models", kind)).toEqual(expected);
+  expect(readAddress("myserver:9000", kind)).toEqual({ roots: ["http://myserver:9000"], host: "myserver:9000" });
+  expect(readAddress("http://myserver:80", kind)).toEqual({ roots: ["http://myserver"], host: "myserver" });
+  expect(readAddress("myserver:80/v1", kind)).toEqual({ roots: ["http://myserver"], host: "myserver" });
+  expect(readAddress("http://[::1]:80", kind)).toEqual({ roots: ["http://[::1]"], host: "[::1]" });
+  expect(readAddress("https://models.example.com/v1", kind)).toEqual({ roots: ["https://models.example.com"], host: "models.example.com" });
+  expect(readAddress("http://user:password@myserver", kind)).toHaveProperty("problem");
+  expect(readAddress("myserver?key=example", kind)).toHaveProperty("problem");
+  expect(serverAddress("myserver", kind)).toEqual({ address: `http://myserver:${port}` });
+  expect(autoName(kind, `http://myserver:${port}`)).toBe(`${kind}-myserver`);
+  expect(autoName(kind, "http://myserver:9000")).toBe(`${kind}-myserver-9000`);
+});
+
+test("SGLang's own info and owner markers outrank compatibility APIs and vLLM's max_model_len", async () => {
+  const models = { data: [{ id: "fixture-chat", max_model_len: 32768 }] };
+  const native = serve({ "GET /get_model_info": { model_path: "fixture-chat" }, "GET /v1/models": models,
+    "GET /api/tags": { models: [] }, "GET /api/version": { version: "compatible" } });
+  // An explicitly typed non-default port still identifies the backend.
+  const address = readAddress(native);
+  expect(address).toEqual({ roots: [native], host: new URL(native).host });
+  expect(await detectServer(native)).toMatchObject({ state: "found", kind: "sglang", models: [{ id: "fixture-chat", contextWindow: 32768 }] });
+  const owner = serve({ "GET /v1/models": { data: [{ id: "fixture-chat", owned_by: "sglang", max_model_len: 32768 }] } });
+  expect(await detectServer(owner)).toMatchObject({ state: "found", kind: "sglang" });
+});
+
+test("MLX requires a server marker, not its model's name, port, or generic Python/uvicorn header", async () => {
+  const marked = serve({ "GET /v1/models": { data: [{ id: "fixture-chat", owned_by: "vllm-mlx", max_model_len: 32768 }] } });
+  expect(await detectServer(marked)).toMatchObject({ state: "found", kind: "mlx" });
+  const generic = serve({ "GET /v1/models": () => Response.json({ data: [{ id: "mlx-community/fixture-chat", object: "model", created: 1 }] },
+    { headers: { server: "BaseHTTP/0.6 Python/3.12" } }) });
+  expect(await detectServer(generic)).toMatchObject({ state: "found", kind: "openai" });
+  expect(await detectServer(generic, { kind: "mlx" })).toMatchObject({ state: "found", kind: "mlx" });
+  const fetcher = (async () => Response.json({ data: [{ id: "fixture-chat" }] }, { headers: { server: "uvicorn" } })) as unknown as typeof fetch;
+  for (const port of [8080, 30000]) expect(await detectServer(`http://myserver:${port}`, { fetch: fetcher })).toMatchObject({ state: "found", kind: "openai" });
+});
+
+for (const status of [401, 403]) test(`SGLang public model info with protected model lists (${status}) still wants a key`, async () => {
+  const root = serve({ "GET /get_model_info": { model_path: "fixture-chat" },
+    "GET /v1/models": () => Response.json({ error: "unauthorized" }, { status }) });
+  expect(await detectServer(root)).toEqual({ state: "key", root, kind: "sglang" });
+  expect(await detectServer(root, { kind: "mlx" })).toEqual({ state: "key", root, kind: "mlx" });
+});
+
+test("explicit port 80 and bare IPv6 hosts survive detection and configuration normalization", () => {
+  for (const kind of [undefined, "mlx", "sglang"] as const) {
+    expect(readAddress("myserver:80", kind)).toEqual({ roots: ["http://myserver"], host: "myserver" });
+    expect(readAddress("[::1]:80", kind)).toEqual({ roots: ["http://[::1]"], host: "[::1]" });
+    const v6 = readAddress("[::1]", kind);
+    expect("roots" in v6 && v6.roots.every((root) => root.startsWith("http://[::1]:"))).toBe(true);
+  }
+  for (const kind of ["mlx", "sglang"] as const) {
+    expect(serverAddress("myserver:80", kind)).toEqual({ address: "http://myserver" });
+    expect(serverAddress("[::1]:80", kind)).toEqual({ address: "http://[::1]" });
+  }
 });
 
 test("the kind is told by what only that kind answers, whatever the port", async () => {
@@ -97,7 +156,7 @@ test("every provider Pi has built in is a name no server can take", () => {
 });
 
 test("a name can't be a provider's that holds a key, a fixed server's, or anything that breaks model names", () => {
-  for (const name of ["openai", "openrouter", "anthropic", "brave", "claude-subscription", "ollama", "lm-studio", "llama.cpp", "vllm"]) {
+  for (const name of ["openai", "openrouter", "anthropic", "brave", "claude-subscription", "ollama", "lm-studio", "llama.cpp", "vllm", "sglang", "mlx"]) {
     expect(serverNameProblem(name)).toContain("already a provider's name");
   }
   for (const name of ["Ollama-Box", "ollama/box", "ollama:box", "@fast", "1box", "box-", "a".repeat(33), "my box"]) {

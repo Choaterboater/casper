@@ -1,10 +1,10 @@
-import { addModelServer, KIND_NAMES, removeModelServer, serverNameProblem, type ModelServer } from "../config/model-servers";
+import { addModelServer, DEFAULT_PORT, KIND_NAMES, SERVER_KINDS, removeModelServer, serverNameProblem, type ModelServer } from "../config/model-servers";
 import { NOTHING_ANSWERED_CHOICES } from "../app/safe-choices";
 import type { LoginDisplay } from "../tui/login";
 import { SERVER_SIDE_TIP, wantsServerTip, type LocalModel } from "./local-models";
 import { alreadyAt, autoName, detectServer, readableOnTheWire, readAddress, serverLabel, type Detected } from "./model-servers";
 
-/** The add-a-model-server screens, the same from `/model` (`+ Add server`) and `/login`: the address, what answered
+/** The add-a-model-server screens, the same from `/model` (`+ Add server`) and `/login`: the kind, address, what answered
  * there, a name for each server found, then saved. No key is asked for or kept: a server that asks for one is skipped,
  * with where to set it up instead. Nothing is written before the last step, and Esc at any step writes nothing more. */
 
@@ -37,20 +37,27 @@ export async function addModelServers(display: LoginDisplay, deps: AddServerDeps
   const lines: string[] = [];
   const added: AddedServer[] = [];
   const note = "The address is kept in ~/.casper/config.yaml, which the AI can read. No key is asked for or sent.";
-  const look = (root: string) => detectServer(root, { signal: display.signal,
-    ...(deps.fetch ? { fetch: deps.fetch } : {}), ...(deps.timeoutMs ? { timeoutMs: deps.timeoutMs } : {}) });
   display.setNote(note);
   try {
+    const picked = await display.choose("Model server type", [
+      { id: "auto", label: "Detect automatically" },
+      ...SERVER_KINDS.map((id) => ({ id, label: `${KIND_NAMES[id]}${id === "mlx" ? " (MLX LM / vllm-mlx)" : ""} · port ${DEFAULT_PORT[id]}` })),
+    ]);
+    if (!picked) return { added, lines: ["No model server was added."] };
+    const kind = picked === "auto" ? undefined : picked;
+    const look = (root: string) => detectServer(root, { signal: display.signal,
+      ...(kind ? { kind } : {}), ...(deps.fetch ? { fetch: deps.fetch } : {}), ...(deps.timeoutMs ? { timeoutMs: deps.timeoutMs } : {}) });
     let typed = "";
     let found: Detected[] = [];
     for (;;) {
       typed = await display.textInput("Where is the server? Type its address.", display.signal, {
         title: "Add a model server",
-        hint: "Like 192.0.2.10, myserver:11434 or http://myserver:8000.\nNo port? Casper tries the usual ones: 11434 Ollama, 1234 LM Studio, 8080 llama.cpp, 8000 vLLM.",
+        hint: kind ? `Start your ${KIND_NAMES[kind]} server first, then type localhost or its computer's address.\nNo port? Casper uses ${DEFAULT_PORT[kind]}. Include :port if yours is different.`
+          : "Like 192.0.2.10, myserver:11434 or http://myserver:8000.\nNo port? Casper tries the usual ones: 11434 Ollama, 1234 LM Studio, 8080 llama.cpp / MLX, 8000 vLLM, 30000 SGLang.",
         initial: typed, editable: true,
-        check: (text) => { const read = readAddress(text); return "problem" in read ? read.problem : undefined; },
+        check: (text) => { const read = readAddress(text, kind); return "problem" in read ? read.problem : undefined; },
       });
-      const read = readAddress(typed);
+      const read = readAddress(typed, kind);
       if ("problem" in read) continue;
       const ports = read.roots.map((root) => new URL(root).port || (root.startsWith("https:") ? "443" : "80"));
       display.wait("Add a model server", `Checking ${read.host} on port${ports.length > 1 ? "s" : ""} ${ports.join(", ")}… (up to ${Math.round((deps.timeoutMs ?? 10_000) / 1000)} seconds)`);

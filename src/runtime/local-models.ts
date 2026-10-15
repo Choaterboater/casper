@@ -1,6 +1,7 @@
 import type { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { openAICompletionsApi } from "@earendil-works/pi-ai/api/openai-completions.lazy";
 import type { ModelServer, ServerKind } from "../config/model-servers";
+import { detectServer, type Detected } from "./model-servers";
 
 /** Model servers on this computer that Casper finds by itself, so their models show in /model with no models.json.
  * Each is probed at its usual loopback address, or where its variable points (which may be another computer). A
@@ -9,7 +10,7 @@ import type { ModelServer, ServerKind } from "../config/model-servers";
  * found one is not added. */
 export interface LocalServerKind {
   /** The provider name: the first half of the model name (ollama/qwen3:8b). */
-  id: "ollama" | "lm-studio" | "llama.cpp" | "vllm";
+  id: "ollama" | "lm-studio" | "llama.cpp" | "vllm" | "sglang" | "mlx";
   name: string;
   /** Variables that move it, first set wins. */
   variables: readonly string[];
@@ -23,6 +24,8 @@ export const LOCAL_SERVERS: readonly LocalServerKind[] = [
   { id: "lm-studio", name: "LM Studio", variables: ["LM_STUDIO_BASE_URL"], root: "http://127.0.0.1:1234", defaultPort: 1234 },
   { id: "llama.cpp", name: "llama.cpp", variables: ["LLAMA_CPP_BASE_URL", "LLAMA_BASE_URL"], root: "http://127.0.0.1:8080", defaultPort: 8080 },
   { id: "vllm", name: "vLLM", variables: ["VLLM_BASE_URL"], root: "http://127.0.0.1:8000", defaultPort: 8000 },
+  { id: "sglang", name: "SGLang", variables: [], root: "http://127.0.0.1:30000", defaultPort: 30000 },
+  { id: "mlx", name: "MLX", variables: [], root: "http://127.0.0.1:8080", defaultPort: 8080 },
 ];
 
 export interface LocalModel {
@@ -38,7 +41,7 @@ export interface LocalModel {
   servedLater?: true;
 }
 export interface LocalServer {
-  /** One of the four kinds' ids for a server Casper looks for; your own name for one you added. */
+  /** One of the local kinds' ids for a server Casper looks for; your own name for one you added. */
   provider: string;
   name: string;
   /** OpenAI-style address, ends in /v1. */
@@ -63,16 +66,20 @@ export interface LocalDiscovery {
   servers: LocalServer[];
   /** One per server whose variable is set, or that you added, that did not answer. */
   problems: LocalProblem[];
-  /** The providers this look was about (unset: the four kinds). A server not on it any more is dropped, not kept. */
+  /** The providers this look was about (unset: the local kinds). A server not on it any more is dropped, not kept. */
   looked?: string[];
 }
 /** One server's look, as soon as it ends. */
-export interface LocalFound { provider: string; server?: LocalServer; problem?: LocalProblem }
+export interface LocalFound {
+  provider: string; server?: LocalServer; problem?: LocalProblem;
+  /** Another kind positively answered at this slot's root; its previous identity must not survive a refresh. */
+  replaced?: true;
+}
 export interface DiscoverOptions {
   env?: Record<string, string | undefined>; timeoutMs?: number; signal?: AbortSignal; fetch?: typeof fetch;
   /** Called as each server's look ends, before the slowest one: a server on this computer is not held up by one far away. */
   each?: (found: LocalFound) => void;
-  /** Look for the four kinds on this computer and where their variables point (`localModels: false`: no). */
+  /** Look for the local kinds on this computer and where their variables point (`localModels: false`: no). */
   auto?: boolean;
   /** Servers you added. Each is looked at with its kind; a fixed look at the same address is skipped. */
   saved?: readonly ModelServer[];
@@ -94,7 +101,7 @@ export function serverRoot(raw: string, defaultPort: number, ollama = false): st
   if (url.protocol !== "http:" && url.protocol !== "https:") return undefined;
   if (url.hostname === "0.0.0.0") url.hostname = "127.0.0.1";
   if (url.hostname === "[::]") url.hostname = "[::1]";
-  if (bare && !url.port) url.port = String(defaultPort);
+  if (bare && !url.port && !/:\d+$/.test(value.split(/[/?#]/, 1)[0]!)) url.port = String(defaultPort);
   // A copied address may end in the API path (…/v1, or Ollama's own …/api): the root is what comes before it.
   const pathname = url.pathname.replace(/\/+$/, "").replace(ollama ? /\/(?:v1|api)$/ : /\/v1$/, "");
   return `${url.protocol}//${url.host}${pathname}`;
@@ -284,7 +291,7 @@ function lookingOff(env: Record<string, string | undefined>): boolean {
 }
 
 /** The display names of the kinds, for servers you added too. */
-const KIND_LABEL: Record<ServerKind, string> = { ollama: "Ollama", "lm-studio": "LM Studio", "llama.cpp": "llama.cpp", vllm: "vLLM", openai: "OpenAI-style server" };
+const KIND_LABEL: Record<ServerKind, string> = { ollama: "Ollama", "lm-studio": "LM Studio", "llama.cpp": "llama.cpp", vllm: "vLLM", sglang: "SGLang", mlx: "MLX", openai: "OpenAI-style server" };
 
 /** One server's models at its root, read the way its kind tells them. */
 function modelsAt(kind: ServerKind, fetcher: typeof fetch, root: string, signal: AbortSignal, env: DiscoverOptions["env"]): Promise<LocalModel[]> {
@@ -301,13 +308,23 @@ function fixedRoot(kind: LocalServerKind, env: Record<string, string | undefined
 }
 
 /** One server kind's look: at its variable's address when set, else its usual one on this computer. */
-async function lookAt(kind: LocalServerKind, env: Record<string, string | undefined>, fetcher: typeof fetch, options: DiscoverOptions): Promise<LocalFound> {
+async function lookAt(kind: LocalServerKind, env: Record<string, string | undefined>, fetcher: typeof fetch, options: DiscoverOptions,
+  automatic: (root: string) => Promise<Detected>): Promise<LocalFound> {
   const { root, variable } = fixedRoot(kind, env);
   if (!root) return { provider: kind.id, problem: { provider: kind.id, cause: "address", text: `${variable} is set to an address Casper can't use, so ${kind.name} isn't in /model.` } };
   const budget = options.timeoutMs ?? probeBudget(root);
   const timer = AbortSignal.timeout(budget);
   const signal = AbortSignal.any([timer, ...(options.signal ? [options.signal] : [])]);
   try {
+    // MLX shares 8080 with llama.cpp. One detection per root, never a second scan or a guess from its port.
+    // Explicit legacy variables keep their existing readers; unnamed local slots use the answering server's marker.
+    if (!variable && (kind.id === "llama.cpp" || kind.id === "mlx" || kind.id === "sglang")) {
+      const detected = await automatic(root);
+      if (detected.state !== "found") return { provider: kind.id };
+      const slot = detected.kind === "openai" ? "mlx" : detected.kind;
+      if (slot !== kind.id) return { provider: kind.id, replaced: true };
+      return { provider: kind.id, server: { provider: kind.id, name: KIND_LABEL[detected.kind], baseUrl: `${root}/v1`, models: detected.models } };
+    }
     const models = await modelsAt(kind.id, fetcher, root, signal, env);
     return { provider: kind.id, server: { provider: kind.id, name: kind.name, baseUrl: `${root}/v1`, models } };
   } catch (error) {
@@ -353,7 +370,7 @@ async function lookAtSaved(server: ModelServer, env: Record<string, string | und
   }
 }
 
-/** Probes the four servers at once. Each gets its own budget (`probeBudget`, or `timeoutMs`): a closed port answers at
+/** Probes the local ports at once (8080 is shared by llama.cpp and MLX). Each gets its own budget (`probeBudget`, or `timeoutMs`): a closed port answers at
  * once on macOS and Linux, after seconds on Windows, and another computer may be slow to reach. The runtime never
  * waits for this at its start, and `each` hears of every server as soon as its own look ends. */
 export async function discoverLocalServers(options: DiscoverOptions = {}): Promise<LocalDiscovery> {
@@ -364,16 +381,32 @@ export async function discoverLocalServers(options: DiscoverOptions = {}): Promi
   // A server you added at the address a fixed kind is looked for wins: that one is not looked at (no model twice).
   const fixed = options.auto === false ? [] : LOCAL_SERVERS.filter((kind) => {
     const { root } = fixedRoot(kind, env);
-    return !root || !saved.some((server) => sameAddress(server.address, root));
+    if (!root) return true;
+    if (saved.some((server) => sameAddress(server.address, root))) return false;
+    // A variable is an explicit choice of reader. It owns that root, even when another local kind shares its port.
+    return !LOCAL_SERVERS.some((other) => {
+      if (other.id === kind.id) return false;
+      const explicit = fixedRoot(other, env);
+      return explicit.variable && explicit.root && sameAddress(explicit.root, root) && !fixedRoot(kind, env).variable;
+    });
   });
-  const looks = [...fixed.map((kind) => () => lookAt(kind, env, fetcher, options)), ...saved.map((server) => () => lookAtSaved(server, env, fetcher, options))];
+  const probes = new Map<string, Promise<Detected>>();
+  const automatic = (root: string): Promise<Detected> => {
+    let probe = probes.get(root);
+    if (!probe) {
+      probe = detectServer(root, { fetch: fetcher, signal: options.signal, timeoutMs: options.timeoutMs ?? probeBudget(root) });
+      probes.set(root, probe);
+    }
+    return probe;
+  };
+  const looks = [...fixed.map((kind) => () => lookAt(kind, env, fetcher, options, automatic)), ...saved.map((server) => () => lookAtSaved(server, env, fetcher, options))];
   const found = await Promise.all(looks.map(async (look) => {
     const result = await look();
     try { options.each?.(result); } catch { /* a listener's failure is not the look's */ }
     return result;
   }));
   return { servers: found.flatMap((entry) => entry.server ? [entry.server] : []), problems: found.flatMap((entry) => entry.problem ? [entry.problem] : []),
-    looked: [...fixed.map((kind) => kind.id), ...saved.map((server) => server.name)] };
+    looked: [...fixed.filter((kind) => !found.some((entry) => entry.provider === kind.id && entry.replaced)).map((kind) => kind.id), ...saved.map((server) => server.name)] };
 }
 
 /** What the looks are about, set before the first one (src/app/runtime-start.ts) and again after you add or forget a
@@ -436,6 +469,7 @@ function startRound(signal?: AbortSignal): Round {
       seen.push(found.server);
       for (const listener of listeners) { try { listener(found.server); } catch { /* the runtime's own problem */ } }
     }
+    if (found.replaced) lastFound.delete(found.provider);
     waits.get(found.provider)?.resolve(found.server ?? lastFound.get(found.provider));
   };
   const none: LocalDiscovery = { servers: [], problems: [] };

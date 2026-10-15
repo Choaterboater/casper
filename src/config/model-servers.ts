@@ -17,8 +17,8 @@ import { USER_CONFIG } from "./user-write";
  * The address and name only, never a key: the AI can read this file, and Casper adds only servers that need no key
  * (one that does goes in models.json). A project or a profile can't add one. */
 
-/** `openai`: any other server that answers an OpenAI-style model list (LocalAI, SGLang, TabbyAPI…). */
-export const SERVER_KINDS = ["ollama", "lm-studio", "llama.cpp", "vllm", "openai"] as const;
+/** `openai`: any other server that answers an OpenAI-style model list (LocalAI, TabbyAPI…). */
+export const SERVER_KINDS = ["ollama", "lm-studio", "llama.cpp", "vllm", "sglang", "mlx", "openai"] as const;
 export type ServerKind = typeof SERVER_KINDS[number];
 
 export interface ModelServer {
@@ -29,12 +29,12 @@ export interface ModelServer {
   kind: ServerKind;
 }
 
-export const KIND_NAMES: Record<ServerKind, string> = { ollama: "Ollama", "lm-studio": "LM Studio", "llama.cpp": "llama.cpp", vllm: "vLLM", openai: "OpenAI-style server" };
-export const KIND_PREFIX: Record<ServerKind, string> = { ollama: "ollama", "lm-studio": "lm-studio", "llama.cpp": "llama-cpp", vllm: "vllm", openai: "server" };
-const DEFAULT_PORT: Record<ServerKind, number> = { ollama: 11434, "lm-studio": 1234, "llama.cpp": 8080, vllm: 8000, openai: 8000 };
+export const KIND_NAMES: Record<ServerKind, string> = { ollama: "Ollama", "lm-studio": "LM Studio", "llama.cpp": "llama.cpp", vllm: "vLLM", sglang: "SGLang", mlx: "MLX", openai: "OpenAI-style server" };
+export const KIND_PREFIX: Record<ServerKind, string> = { ollama: "ollama", "lm-studio": "lm-studio", "llama.cpp": "llama-cpp", vllm: "vllm", sglang: "sglang", mlx: "mlx", openai: "server" };
+export const DEFAULT_PORT: Record<ServerKind, number> = { ollama: 11434, "lm-studio": 1234, "llama.cpp": 8080, vllm: 8000, sglang: 30000, mlx: 8080, openai: 8000 };
 
 /** Names a server can never take: Pi's built-in providers (checked against Pi in tests/model-servers.test.ts), the web
- * search key's, Claude's plan's and the four servers Casper looks for on this computer. A server under one of them would
+ * search key's, Claude's plan's and the local servers Casper looks for on this computer. A server under one of them would
  * never be used. When you add one, the names in use right now (models.json, your sign-ins) are refused too. */
 export const RESERVED_NAMES: ReadonlySet<string> = new Set([
   "amazon-bedrock", "ant-ling", "anthropic", "azure", "baseten", "cerebras", "cloudflare-ai-gateway", "cloudflare-workers-ai", "deepseek",
@@ -42,7 +42,7 @@ export const RESERVED_NAMES: ReadonlySet<string> = new Set([
   "moonshotai", "moonshotai-cn", "nvidia", "openai", "openai-codex", "opencode", "opencode-go", "openrouter", "qwen-token-plan",
   "qwen-token-plan-cn", "qwen-token-plan-individual", "radius", "together", "typesafe", "vercel-ai-gateway", "xai", "xiaomi", "xiaomi-token-plan-ams",
   "xiaomi-token-plan-cn", "xiaomi-token-plan-sgp", "zai", "zai-coding-cn",
-  "brave", "claude-subscription", "ollama", "lm-studio", "llama.cpp", "vllm",
+  "brave", "claude-subscription", "ollama", "lm-studio", "llama.cpp", "vllm", "sglang", "mlx",
 ]);
 
 const NAME = /^[a-z][a-z0-9-]{0,31}$/;

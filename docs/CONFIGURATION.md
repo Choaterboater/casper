@@ -574,7 +574,7 @@ Any other `sandbox` or `shell` key in a project file is named at startup and ign
 | `CASPER_TUI_WRITE_LOG` | Optional log file of raw terminal output, or an existing folder for timestamped logs. It can contain sensitive output, so `/login` is refused while it is set. |
 | `CASPER_PROFILE` | Picks the profile; see [Profiles](#profiles). |
 | `CASPER_BROWSER_EXECUTABLE` | Absolute path to the Chrome/Chromium/Edge program for browser tasks, instead of auto-detection. See [BROWSER.md](BROWSER.md). |
-| `CASPER_LOCAL_MODELS` | `off` (or `0`, `false`, `no`) looks for no model server at all for this run: not on this computer (Ollama, LM Studio, llama.cpp, vLLM), and not the ones you added (`localModels: false` keeps those). See [Local models](#local-models). |
+| `CASPER_LOCAL_MODELS` | `off` (or `0`, `false`, `no`) looks for no model server at all for this run: not on this computer (Ollama, LM Studio, llama.cpp, vLLM, SGLang or MLX), and not the ones you added (`localModels: false` keeps those). See [Local models](#local-models). |
 | `CASPER_NETCONAN` | `off` turns the extra netconan secret check off; a path picks the netconan program. See [SECRETS.md](SECRETS.md). |
 
 Set these in your shell, not in a repository `.env` file (Casper does not read it). At startup
@@ -706,15 +706,22 @@ is not that approval.
 ## Local models
 
 Casper can use a model that runs on your own computer. Start the server and its models show in
-`/model`, with no sign-in and no file to edit. Casper looks for four servers at their usual addresses
-on this computer:
+`/model`, with no sign-in and no file to edit. Casper looks on loopback at five usual ports:
+11434, 1234, 8080, 8000 and 30000. SGLang adds port 30000; MLX shares the existing 8080 probe
+with llama.cpp, so it needs no extra port.
 
-| Server | Provider name | Address Casper tries | Variable that moves it |
+| Server | Provider name | Address Casper tries | Use another address |
 | --- | --- | --- | --- |
 | Ollama | `ollama` | `http://127.0.0.1:11434` | `OLLAMA_BASE_URL` or `OLLAMA_HOST` |
 | LM Studio | `lm-studio` | `http://127.0.0.1:1234/v1` | `LM_STUDIO_BASE_URL` |
 | llama.cpp (`llama-server`) | `llama.cpp` | `http://127.0.0.1:8080` | `LLAMA_CPP_BASE_URL` or `LLAMA_BASE_URL` |
 | vLLM | `vllm` | `http://127.0.0.1:8000/v1` | `VLLM_BASE_URL` |
+| SGLang | `sglang` | `http://127.0.0.1:30000/v1` | `+ Add server` in `/model` |
+
+MLX LM and vllm-mlx are servers built on MLX, not the MLX framework on its own. A server on
+8080 can appear through the existing OpenAI-style probe; use **MLX** in **`+ Add server`** if
+you want to name its kind explicitly. These are server kinds, not new `/login` providers;
+no API key or separate sign-in is needed.
 
 - **When.** In the background from the start, so the start never waits for it, and again each time you
   open `/model`, so a model you just pulled appears there. Each server is looked at on its own: one on this
@@ -791,23 +798,32 @@ nothing answers, `/model` and `casper doctor` say why and repeat these lines.
 The easy way: no variable and no file to edit. In `/model`, go to the last row of the list on the left,
 **`+ Add server`**, and press Enter. Or type `/login` and pick the last row, **Model server on another
 computer** (when `/login` first offers a sign-in it found on this computer, pick **Sign in separately** to
-see that list). Both open the same steps:
+see that list). This also works for a server on this computer: use `localhost`. Both open the same steps:
 
-1. **Where is the server?** Type its address: `192.0.2.10`, `myserver`, `myserver:11434` or
-   `http://myserver:8000` (a copied API address such as `…/v1/models` works too). With no port, Casper tries the usual ones (11434 Ollama, 1234 LM Studio,
-   8080 llama.cpp, 8000 vLLM) and finds every server that answers, waiting up to 10 seconds. It works out
+1. **Model server type.** Keep **Detect automatically**, or choose a kind: **Ollama**, **LM Studio**,
+   **llama.cpp**, **vLLM**, **SGLang**, **MLX (MLX LM / vllm-mlx)** or **OpenAI-style server**.
+   All kinds are offered as fallbacks when detection can't identify yours. Start that server separately first;
+   Casper doesn't install a backend or download a model. SGLang and MLX use the server's OpenAI-compatible API.
+2. **Where is the server?** Type its address: `192.0.2.10`, `myserver`, `myserver:11434` or
+   `http://myserver:8000` (a copied API address such as `…/v1/models` works too). With **Detect automatically**
+   and no port, Casper tries five usual ports (11434 Ollama, 1234 LM Studio, 8080 llama.cpp / MLX,
+   8000 vLLM, 30000 SGLang) and finds every server that answers, waiting up to 10 seconds. It works out
    which kind each one is; any other server with an OpenAI-style model list is added as one.
-2. **No model server there?** Casper says why for each port (refused, didn't answer in time, can't find
+   With **SGLang**, a bare address instead uses port **30000**; with **MLX**, **8080**. Include `:port` if
+   yours is different. An `https://` address still uses 443 by default. Add the server once and Casper remembers it.
+   In automatic remote detection, vllm-mlx's `owned_by` marker is recognized as **MLX**. MLX LM exposes no
+   reliable identity marker, so it stays **OpenAI-style server**; choose **MLX** explicitly to label it.
+3. **No model server there?** Casper says why for each port (refused, didn't answer in time, can't find
    that name, answered but isn't a model server…), and when nothing answered at all, what to set on that
    computer (above). It offers `1 Cancel · 2 Try another address`; the address stays in the box to fix.
-3. **A server that asks for a key** (llama-server or vLLM started with `--api-key`, or a proxy) is not
+4. **A server that asks for a key** (llama-server or vLLM started with `--api-key`, or a proxy) is not
    added: Casper says so and points to `~/.casper/agent/models.json` (below), where a server with a key is
    set up. Other servers on the same computer that need no key are still added.
-4. **Name it.** The box starts with a name made from the kind and the computer: `ollama-myserver`,
+5. **Name it.** The box starts with a name made from the kind and the computer: `ollama-myserver`,
    `ollama-192-0-2-10`. Enter keeps it; typing replaces it. The name is the first half of its models' names
    (`ollama-myserver/qwen3:8b`). Lowercase letters, numbers and dashes; a name a provider already uses
    (`openai`, `openrouter`, `brave`…, or one in your `models.json`) is refused.
-5. Saved, and its models show in `/model` at once. Nothing is picked for you: pick a model there. From
+6. Saved, and its models show in `/model` at once. Nothing is picked for you: pick a model there. From
    `/login`, `/model` opens on the new server.
 
 Each server is saved when its own steps end; Esc stops there and saves nothing more (with two found on one
@@ -827,7 +843,7 @@ keeping the rest of the file, its comments and your other entries as they are):
 modelServers:
   - name: ollama-myserver
     address: http://192.0.2.10:11434
-    kind: ollama        # ollama, lm-studio, llama.cpp, vllm, or openai (any other OpenAI-style server)
+    kind: ollama        # ollama, lm-studio, llama.cpp, vllm, sglang, mlx, or openai (other OpenAI-style servers)
 ```
 
 Only `~/.casper/config.yaml`: a project file can't add one, and a profile's list is ignored. A bad entry is
@@ -881,6 +897,10 @@ elsewhere does send it: Ollama's `:cloud` models run on Ollama's servers, and a 
 above that points at another machine goes there. Check what the model really is before you rely on this.
 
 **Know the limits.**
+- SGLang and MLX use streaming OpenAI-compatible chat completions, including tool calls when the model
+  and server support them. Tool support depends on the model and startup flags, not the server's name:
+  SGLang may need `--tool-call-parser <parser>` with a parser suited to the model. MLX LM / vllm-mlx
+  likewise need a tool-capable model and the appropriate server options; not every model can edit files.
 - Small models often can't use tools. Casper then says the model can't edit files or run commands;
   pick another with `/model`, or use it for questions only. Tool use needs a model made for it
   (look for "tools" on the model's page) and, on some servers, a switch to turn it on.

@@ -150,8 +150,8 @@ are transcript lines like everything else. A model is not started just to paint
 the footer. A saved default is shown as an advisory startup snapshot; after
 runtime initialization the footer uses the active conversation's model. Before any
 sign-in, the banner and footer say `not signed in · type a request to sign in`, and `/model`
-opens sign-in instead of an empty picker (with model servers you added, `/model` and a request open
-the picker on them instead). Where sign-in can't open (a plain or piped terminal,
+opens the model picker with `+ Add server`, even when no models are listed: adding a keyless server
+needs no sign-in. A request opens sign-in, or the picker when you already added model servers. Where sign-in can't open (a plain or piped terminal,
 a one-shot run) they say `not signed in · run casper in a terminal and type /login` instead.
 
 Casper opens the folder you started it in. A project, or a folder inside a git repository, opens

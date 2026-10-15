@@ -115,6 +115,34 @@ test("MCP.md and SECURITY.md give the lines only /mcp detail prints to /mcp deta
   expect(found).toEqual([]);
 });
 
+test("local model docs distinguish five discovery ports from explicit server-kind fallbacks", () => {
+  const config = readFileSync(path.join(ROOT, "docs", "CONFIGURATION.md"), "utf8");
+  const local = config.slice(config.indexOf("## Local models"), config.indexOf("## Model roles")).replace(/\s+/g, " ");
+  expect(local).toContain("11434, 1234, 8080, 8000 and 30000");
+  expect(local).toContain("SGLang adds port 30000; MLX shares the existing 8080 probe");
+  expect(local).toContain("`http://127.0.0.1:30000/v1`");
+  expect(local).toContain("**`+ Add server`**");
+  expect(local).toContain("**Detect automatically**");
+  expect(local).toContain("All kinds are offered as fallbacks");
+  expect(local).toContain("**SGLang**, a bare address instead uses port **30000**; with **MLX**, **8080**");
+  expect(local).not.toContain("These choices don't add automatic startup probes");
+});
+
+test("SGLang and MLX docs qualify identity and tool support and keep release notes unreleased", () => {
+  const config = readFileSync(path.join(ROOT, "docs", "CONFIGURATION.md"), "utf8").replace(/\s+/g, " ");
+  expect(config).toContain("vllm-mlx's `owned_by` marker is recognized as **MLX**");
+  expect(config).toContain("MLX LM exposes no reliable identity marker, so it stays **OpenAI-style server**");
+  expect(config).toContain("Tool support depends on the model and startup flags");
+  expect(config).toContain("`--tool-call-parser <parser>`");
+  expect(config).toContain("server kinds, not new `/login` providers");
+  const release = readFileSync(path.join(ROOT, "docs", "RELEASE.md"), "utf8");
+  const unreleased = release.slice(release.indexOf("## v0.2.36:"), release.indexOf("## v0.2.35:"));
+  expect(unreleased).toContain("### SGLang and MLX model servers");
+  expect(unreleased).toContain("even with no sign-ins or models");
+  expect(unreleased).toContain("these changes are not in v0.2.35");
+  expect(unreleased).toContain("no API keys or separate sign-ins are needed");
+});
+
 test("TERMINAL_UX.md describes the queue and steer instead of saying there is no queued prompt execution", () => {
   const terminal = readFileSync(path.join(ROOT, "docs", "TERMINAL_UX.md"), "utf8");
   const compatibility = terminal.slice(terminal.indexOf("## Compatibility"), terminal.indexOf("## Design references"));

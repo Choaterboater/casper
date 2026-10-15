@@ -116,6 +116,14 @@
           <ul>
             <li><code>casper new &lt;name&gt;</code> asks nothing: it makes an empty project in <code>~/Projects/&lt;name&gt;</code> (or opens it when it exists) and opens Casper there. No "what kind?" question; name a template only when you want one.</li>
           </ul>
+          <p><strong>SGLang and MLX model servers.</strong> Automatic local discovery adds SGLang on loopback
+          port 30000; MLX shares the existing 8080 probe. In <code>/model</code>, <code>+ Add server</code> with
+          an address such as <code>192.0.2.10</code> tries five usual ports; every server kind is also offered
+          explicitly, including SGLang (30000) and MLX (8080). No new login providers or API keys.</p>
+          <p>Streaming OpenAI-compatible chat and tool calls depend on the model and server flags
+          (SGLang may need <code>--tool-call-parser</code>). Remote detection recognizes vllm-mlx's
+          <code>owned_by</code> marker as MLX; MLX LM without a reliable identity marker stays OpenAI-style,
+          with an explicit MLX choice as the fallback. Built, not in v0.2.35; ships with the next preview.</p>
         </aside>
       </section>
 

@@ -5,6 +5,7 @@ import path from "node:path";
 import { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { clearLocalServers, configureLocalServers, discoverLocalServers, dropLocalServers, forgetLocalServer, localModelDefaults, localServerFound, localServers, localServerSettled, onLocalServer, onThisComputer, probeBudget, registerLocalServers, rememberLocalServer, sameAddress, servedWindowWarning, serverRoot, SERVER_SIDE_TIP, type LocalDiscovery, type LocalFound } from "../src/runtime/local-models";
 import { PiModels } from "../src/runtime/pi-models";
+import { detectServer, readAddress } from "../src/runtime/model-servers";
 import { isolatedEnvironment } from "../src/platform/environment";
 import { removeTempDir } from "./support/temp-dir";
 
@@ -85,6 +86,104 @@ test("finds Ollama, LM Studio, llama.cpp and vLLM where their variables point, w
   ]);
   // The probes carry no key of any kind.
   for (const server of [ollama, lmStudio, llama, vllm]) expect(server.seen.every((request) => request.authorization === null)).toBe(true);
+});
+
+test("automatic local discovery adds only loopback 30000, recognises SGLang there, and a typed bare host finds it too", async () => {
+  const seen: URL[] = [];
+  const box = serve({ "GET /get_model_info": { model_path: "fixture-chat" }, "GET /v1/models": { data: [{ id: "fixture-chat", max_model_len: 32768 }] } });
+  const fetcher = ((input: string | URL | Request, init?: RequestInit) => {
+    const url = new URL(input instanceof Request ? input.url : String(input));
+    seen.push(url);
+    expect(new Headers(init?.headers).get("authorization")).toBeNull();
+    expect(init?.redirect).toBe("error");
+    if (url.port === "30000") return fetch(`${box.url}${url.pathname}`, init);
+    return Promise.reject(new Error("refused"));
+  }) as typeof fetch;
+  const found = await discoverLocalServers({ env: {}, fetch: fetcher });
+  expect(found.servers).toEqual([{ provider: "sglang", name: "SGLang", baseUrl: "http://127.0.0.1:30000/v1", models: [{ id: "fixture-chat", contextWindow: 32768 }] }]);
+  expect(found.problems).toEqual([]);
+  expect([...new Set(seen.map((url) => url.hostname))]).toEqual(["127.0.0.1"]);
+  expect([...new Set(seen.map((url) => Number(url.port)))].sort((a, b) => a - b)).toEqual([1234, 8000, 8080, 11434, 30000]);
+  // No duplicate probe of the shared MLX/llama.cpp port.
+  expect(seen.filter((url) => url.port === "8080" && url.pathname === "/props")).toHaveLength(1);
+  seen.length = 0;
+  const address = readAddress("192.0.2.10");
+  if ("problem" in address) throw new Error(address.problem);
+  const detected = await Promise.all(address.roots.map((root) => detectServer(root, { fetch: fetcher })));
+  expect(detected.filter((result) => result.state === "found")).toMatchObject([{ state: "found", kind: "sglang", root: "http://192.0.2.10:30000" }]);
+  expect(seen.every((url) => url.hostname === "192.0.2.10")).toBe(true);
+  seen.length = 0;
+  await discoverLocalServers({ env: {}, auto: false, fetch: fetcher });
+  expect(seen).toEqual([]);
+});
+
+for (const [metadata, provider, name] of [
+  [{ owned_by: "vllm-mlx", max_model_len: 8192 }, "mlx", "MLX"],
+  [{}, "mlx", "OpenAI-style server"],
+  [{ owned_by: "llamacpp" }, "llama.cpp", "llama.cpp"],
+] as const) test(`shared local 8080: ${name}, exactly once with the correct model reader`, async () => {
+  const found = await discoverLocalServers({ env: {}, fetch: (async (input: string | URL | Request) => {
+    const url = new URL(input instanceof Request ? input.url : String(input));
+    if (url.port !== "8080") throw new Error("refused");
+    if (url.pathname === "/v1/models") return Response.json({ data: [{ id: "mlx-community/fixture-chat", ...metadata }] });
+    if (provider === "llama.cpp" && url.pathname === "/props") return Response.json({ default_generation_settings: { n_ctx: 4096 } });
+    return new Response("not here", { status: 404 });
+  }) as typeof fetch });
+  expect(found.servers).toEqual([{ provider, name, baseUrl: "http://127.0.0.1:8080/v1", models: [{ id: "mlx-community/fixture-chat",
+    ...("max_model_len" in metadata ? { contextWindow: 8192 } : provider === "llama.cpp" ? { contextWindow: 4096 } : {}) }] }]);
+});
+
+test("an explicit legacy variable owns the shared local root, with no MLX duplicate or second reader", async () => {
+  const paths: string[] = [];
+  const found = await discoverLocalServers({ env: { LLAMA_CPP_BASE_URL: "http://localhost:8080" }, fetch: (async (input: string | URL | Request) => {
+    const url = new URL(input instanceof Request ? input.url : String(input));
+    if (url.port !== "8080") throw new Error("refused");
+    paths.push(url.pathname);
+    if (url.pathname === "/v1/models") return Response.json({ data: [{ id: "fixture-chat", owned_by: "vllm-mlx" }] });
+    return new Response("not here", { status: 404 });
+  }) as typeof fetch });
+  expect(found.servers.map((server) => server.provider)).toEqual(["llama.cpp"]);
+  expect(found.looked).not.toContain("mlx");
+  expect(paths.sort()).toEqual(["/props", "/v1/models"]);
+});
+
+test("a shared local port changing kind invalidates its old cached identity, not its temporarily busy models", async () => {
+  let owner = "llamacpp";
+  const fetcher = (async (input: string | URL | Request) => {
+    const url = new URL(input instanceof Request ? input.url : String(input));
+    if (url.port !== "8080") throw new Error("refused");
+    return url.pathname === "/v1/models" ? Response.json({ data: [{ id: "fixture-chat", owned_by: owner }] }) : new Response("not here", { status: 404 });
+  }) as typeof fetch;
+  localModelDefaults.discover = (options) => discoverLocalServers({ ...options, env: {}, fetch: fetcher });
+  expect((await localServers()).servers.map((server) => server.provider)).toEqual(["llama.cpp"]);
+  owner = "vllm-mlx";
+  const refreshed = await localServers({ refresh: true });
+  expect(refreshed.servers.map((server) => server.provider)).toEqual(["mlx"]);
+  expect(refreshed.looked).not.toContain("llama.cpp");
+  expect(await localServerSettled("llama.cpp")).toBeUndefined();
+  owner = "llamacpp";
+  expect((await localServers({ refresh: true })).servers.map((server) => server.provider)).toEqual(["llama.cpp"]);
+});
+
+test("all automatic ports start together and retain the same 800ms local budget", async () => {
+  const ports = new Set<string>();
+  const starts: number[] = [];
+  const budgets: number[] = [];
+  const started = performance.now();
+  const pending = discoverLocalServers({ env: {}, fetch: ((input: string | URL | Request, init?: RequestInit) => {
+    const url = new URL(input instanceof Request ? input.url : String(input));
+    ports.add(url.port); starts.push(performance.now() - started);
+    return new Promise<Response>((_resolve, reject) => {
+      const signal = init!.signal!;
+      if (signal.aborted) { reject(signal.reason); return; }
+      signal.addEventListener("abort", () => { budgets.push(performance.now() - started); reject(signal.reason); }, { once: true });
+    });
+  }) as typeof fetch });
+  expect([...ports].sort()).toEqual(["11434", "1234", "30000", "8000", "8080"]);
+  expect(Math.max(...starts)).toBeLessThan(200);
+  expect(await pending).toMatchObject({ servers: [], problems: [] });
+  expect(Math.min(...budgets)).toBeGreaterThanOrEqual(700);
+  expect(Math.max(...budgets)).toBeLessThan(1600);
 });
 
 test("Ollama's window: a loaded model's, then its num_ctx, then OLLAMA_CONTEXT_LENGTH, never more than the model was trained for", async () => {
@@ -350,7 +449,7 @@ test("found once a day per process; /model probes again and keeps each server bu
   const again = await localServers({ refresh: true });
   expect(calls).toBe(2);
   expect(again).toEqual({ servers: [{ ...lmStudio, models: [{ id: "llava-7b" }] }, found("http://127.0.0.1:11434/v1")[0]!], problems: [busy],
-    looked: ["ollama", "lm-studio", "llama.cpp", "vllm"] });
+    looked: ["ollama", "lm-studio", "llama.cpp", "vllm", "sglang", "mlx"] });
   expect(await localServers({ cachedOnly: true })).toBe(again);
 });
 
@@ -430,17 +529,24 @@ test("an Ollama model gets its Modelfile's temperature and top_p, stays loaded 3
   expect((await look({ OLLAMA_KEEP_ALIVE: "-1" })).servers[0]!.models[0]!.request).toMatchObject({ keep_alive: -1 });
 });
 
-/** A real PiRuntime in a fresh Bun child whose probe answers after `delayMs` with one Ollama model; nothing signed in. */
-async function startWithSlowProbe(home: string, project: string, delayMs: number, body: string): Promise<Record<string, any>> {
+/** A real PiRuntime in a fresh Bun child: a delayed probe, or one held until `releaseProbe.resolve()` when null. */
+async function startWithSlowProbe(home: string, project: string, delayMs: number | null, body: string): Promise<Record<string, any>> {
   const repo = path.resolve(import.meta.dir, "..");
   const agent = path.join(home, ".pi/agent");
   const env = { ...isolatedEnvironment(home), TMPDIR: path.dirname(home), PI_CODING_AGENT_DIR: agent, CASPER_OFFLINE: "1", PI_OFFLINE: "1", PI_TELEMETRY: "0" };
   const child = Bun.spawn([process.execPath, "-e", `import { PiRuntime } from ${JSON.stringify(path.join(repo, "src/runtime/pi.ts"))};
     import { localModelDefaults } from ${JSON.stringify(path.join(repo, "src/runtime/local-models.ts"))};
-    localModelDefaults.discover = () => Bun.sleep(${delayMs}).then(() => ({ problems: [], servers: [{ provider: "ollama", name: "Ollama",
-      baseUrl: "http://127.0.0.1:11434/v1", models: [{ id: "qwen3:8b", contextWindow: 32768 }] }] }));
-    const began = performance.now(); const runtime = new PiRuntime(); const session = await runtime.start({ cwd: process.cwd() });
-    const startMs = performance.now() - began;
+    const releaseProbe = Promise.withResolvers(); let probeFinished = false;
+    // A regression that waits for the held probe must fail, not leave a child hanging.
+    const guard = setTimeout(() => releaseProbe.resolve(), 20_000);
+    localModelDefaults.discover = () => ${delayMs === null ? "releaseProbe.promise" : `Bun.sleep(${delayMs})`}.then(() => {
+      probeFinished = true;
+      return { problems: [], servers: [{ provider: "ollama", name: "Ollama",
+        baseUrl: "http://127.0.0.1:11434/v1", models: [{ id: "qwen3:8b", contextWindow: 32768 }] }] };
+    });
+    const runtime = new PiRuntime(); const session = await runtime.start({ cwd: process.cwd() });
+    const startBeforeProbe = !probeFinished;
+    clearTimeout(guard);
     try { ${body} } finally { await runtime.dispose(); }`], { cwd: project, env, stdout: "pipe", stderr: "pipe" });
   const [stdout, stderr, exit] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
   expect({ exit, stderr }).toEqual({ exit: 0, stderr: "" });
@@ -452,10 +558,10 @@ test("the start never waits for the probe; a first request with nothing signed i
   stops.push(() => removeTempDir(root));
   const home = path.join(root, "home"); const project = path.join(root, "project");
   await mkdir(path.join(home, ".pi/agent"), { recursive: true }); await mkdir(project);
-  const first = await startWithSlowProbe(home, project, 2000, `
-    const before = session.getStatus(); const selection = await session.selectDefaultModel();
-    console.log(JSON.stringify({ startMs, before, selection, after: session.getStatus() }));`);
-  expect(first.startMs).toBeLessThan(2000);
+  const first = await startWithSlowProbe(home, project, null, `
+    const before = session.getStatus(); releaseProbe.resolve(); const selection = await session.selectDefaultModel();
+    console.log(JSON.stringify({ startBeforeProbe, before, selection, after: session.getStatus() }));`);
+  expect(first.startBeforeProbe).toBe(true);
   expect(first.before.provider).toBeUndefined();
   expect(first.selection).toMatchObject({ selected: true, savedDefault: true });
   expect(first.after).toMatchObject({ provider: "ollama", model: "qwen3:8b", auth: "configured" });
@@ -590,6 +696,7 @@ async function startWithSlowRemote(home: string, project: string, lookMs: number
     localModelDefaults.discover = async (options) => {
       looks++;
       options?.each?.({ provider: "lm-studio" }); options?.each?.({ provider: "llama.cpp" }); options?.each?.({ provider: "vllm" });
+      options?.each?.({ provider: "sglang" }); options?.each?.({ provider: "mlx" });
       await Bun.sleep(${lookMs});
       return { servers: [], problems: [{ provider: "ollama", root: "http://192.0.2.10:11434", cause: "timeout", text: "Ollama at http://192.0.2.10:11434 (OLLAMA_HOST) didn't answer in 10 s." }] };
     };
@@ -633,7 +740,7 @@ test("a server you added is looked at with its kind, next to this computer's; no
     { name: "locked-box", address: locked.url, kind: "vllm" },
   ] });
   expect(found.servers.map((server) => [server.provider, server.saved ?? false])).toEqual([["ollama", false], ["vllm-box", true]]);
-  expect(found.looked).toEqual(["ollama", "lm-studio", "llama.cpp", "vllm", "vllm-box", "locked-box"]);
+  expect(found.looked).toEqual(["ollama", "lm-studio", "llama.cpp", "vllm", "sglang", "mlx", "vllm-box", "locked-box"]);
   expect(found.problems.find((problem) => problem.provider === "locked-box")).toMatchObject({ saved: true, cause: "key", text: `locked-box (vLLM at ${locked.url}) asked for a key.` });
   expect([...open.seen, ...locked.seen, ...ollama.seen].filter((entry) => entry.authorization)).toEqual([]);
 });
@@ -685,7 +792,7 @@ test("localModels: false looks only at the servers you added; one at a fixed kin
   expect([...new Set(asked)]).toEqual(["http://127.0.0.1:11434"]);
   asked = [];
   const on = await discoverLocalServers({ env: {}, saved, fetch: spy });
-  expect(on.looked).toEqual(["lm-studio", "llama.cpp", "vllm", "ollama-here"]);
+  expect(on.looked).toEqual(["lm-studio", "llama.cpp", "vllm", "sglang", "mlx", "ollama-here"]);
   asked = [];
   expect(await discoverLocalServers({ env: { CASPER_LOCAL_MODELS: "off" }, saved, fetch: spy })).toEqual({ servers: [], problems: [] });
   expect(asked).toEqual([]);
@@ -772,6 +879,7 @@ test("/login's last row adds a model server: the address, the name kept, no key;
     const host = { mount: () => { throw new Error("no picker here"); }, run: (operation) => withLoginSurface({ input, output: { write(text) { shown += text; } }, color: false, onEOF() {} }, operation) };
     const pending = runtime.authenticate({ terminalHost: host, others: false });
     await until("Model server on another computer"); input.write("8");
+    await until("Model server type"); input.write("1");
     await until("Where is the server?"); for (const key of ${JSON.stringify(ollama.replace("http://", ""))}) input.write(key); await Bun.sleep(30); input.write("\\r");
     await until("Name it."); await Bun.sleep(30); input.write("\\r");
     const result = await pending;

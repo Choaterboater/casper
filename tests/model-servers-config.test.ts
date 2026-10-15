@@ -39,7 +39,7 @@ test("a bad entry is skipped with a warning; Casper still starts, and a key in t
     "modelServers:",
     "  - name: ollama-ok", "    address: 192.0.2.10", "    kind: ollama",
     "  - name: openai", "    address: 192.0.2.11", "    kind: openai",
-    "  - name: sglang-box", "    address: 192.0.2.12", "    kind: sglang",
+    "  - name: unknown-box", "    address: 192.0.2.12", "    kind: unknown-backend",
     "  - name: with-key", "    address: 192.0.2.13", "    kind: vllm", "    key: token-abc123",
     "  - name: with-login", "    address: http://u:p@192.0.2.14:8000", "    kind: vllm",
     "  - name: ollama-ok", "    address: 192.0.2.15", "    kind: ollama",
@@ -50,7 +50,7 @@ test("a bad entry is skipped with a warning; Casper still starts, and a key in t
   expect(loaded.modelServers).toEqual([{ name: "ollama-ok", address: "http://192.0.2.10:11434", kind: "ollama" }]);
   const warnings = loaded.warnings.join("\n");
   expect(warnings).toContain("modelServers[1] (openai) skipped: openai is already a provider's name");
-  expect(warnings).toContain("modelServers[2] (kind sglang) skipped");
+  expect(warnings).toContain("modelServers[2] (kind unknown-backend) skipped");
   expect(warnings).toContain("modelServers[3] skipped: keys don't go in config.yaml");
   expect(warnings).toContain("modelServers[4] (with-login) skipped: Leave the name and password out");
   expect(warnings).toContain("modelServers[5] (ollama-ok) skipped: ollama-ok is already taken");

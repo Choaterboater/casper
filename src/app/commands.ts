@@ -251,18 +251,7 @@ export async function runSlashCommand(host: CommandHost, prompt: string): Promis
       if (!session.selectModel) throw new Error("This runtime does not support model selection.");
       // --session before or after the model: /model --session x and /model x --session are the same.
       const { rest: query, session: sessionOnly } = sessionFlag(argument);
-      // Nothing signed in: an empty picker helps no one, so /model opens sign-in (which then picks a model). With
-      // model servers you added, the picker opens anyway: it shows why they aren't there, and can forget or add one.
-      if (host.interactive && host.terminal.rich && !query && !savedLocalServers().length) {
-        const available = await session.selectModel({ signal: host.commandAbort?.signal }).catch(() => undefined);
-        if (available?.models && !available.models.length) {
-          // A model server Casper was told about (OLLAMA_HOST and the like) that didn't answer: say why first.
-          for (const line of session.localProblems?.() ?? []) host.output.write(`[model] ${terminalText(line)}\n`);
-          host.output.write("[model] Not signed in yet. Pick a way to sign in; Esc cancels.\n");
-          await runLogin(host);
-          return;
-        }
-      }
+      // Even with no sign-ins, /model offers + Add server: a keyless model server is not a provider login.
       const result = await session.selectModel({ query: query || undefined,
         persist: !sessionOnly, signal: host.commandAbort?.signal,
         picker: host.interactive ? host.terminal.modelPickerHost() : undefined,
