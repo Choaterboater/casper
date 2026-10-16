@@ -1,8 +1,9 @@
-import { appendFileSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, writeFileSync } from "node:fs";
 
 // A real development-server stand-in for the owned-process runner and service
 // tests. Env switches: SLOW_READY_MS delays listening, READY_LOG is printed once
-// listening, CRASH_AFTER_MS exits with code 3, NOISE_BYTES floods stdout first,
+// listening (READY_LOG_GATE waits for that file after HTTP starts), CRASH_AFTER_MS exits with code 3,
+// NOISE_BYTES floods stdout first,
 // SPAWN_CHILD names a file that receives a long-lived grandchild's PID, PRINT_ENV
 // (comma-separated names) prints those variables as one JSON line, PID_LOG names a
 // file that every started server appends its PID to. Paths: /health, /json (compact
@@ -25,7 +26,7 @@ if (env.NOISE_BYTES) for (let written = 0, line = 0; written < Number(env.NOISE_
   console.log(text); written += text.length + 1;
 }
 if (env.CRASH_AFTER_MS) setTimeout(() => { console.error("fatal: synthetic crash"); process.exit(3); }, Number(env.CRASH_AFTER_MS));
-setTimeout(() => {
+setTimeout(async () => {
   Bun.serve({ hostname: env.HOST ?? "127.0.0.1", port: Number(env.PORT ?? 0), fetch: async request => {
     const { pathname } = new URL(request.url);
     if (pathname === "/health") return Response.json({ ok: true });
@@ -34,5 +35,6 @@ setTimeout(() => {
     if (pathname === "/echo") return Response.json({ method: request.method, test: request.headers.get("x-test"), body: await request.text() }, { status: request.method === "POST" ? 201 : 200 });
     return new Response("hello from service");
   } });
+  while (env.READY_LOG_GATE && !existsSync(env.READY_LOG_GATE)) await Bun.sleep(10);
   console.log(env.READY_LOG ?? "listening");
 }, Number(env.SLOW_READY_MS ?? 0));

@@ -10,6 +10,7 @@ import { loadProjectContext } from "../src/project/context";
 import type { RuntimeTool, AgentRuntime, RuntimeEventListener, RuntimeStartOptions } from "../src/runtime/types";
 import { SkillRegistry } from "../src/skills/registry";
 import { removeTempDir } from "./support/temp-dir";
+import { ansiCells, cellsFor, cellSnapshot } from "./support/ansi-cells";
 
 // The rich-surface path is gated on `TERM !== "dumb"`.
 const ambientTerm = process.env.TERM;
@@ -774,31 +775,15 @@ async function capturedPlan(noColor = false): Promise<string[]> {
   }
 }
 
-/** Track the effective SGR on each printed character, including resets within a framed row. */
-function styledCells(row: string) {
-  let color: number | undefined, dim = false;
-  const cells: { char: string; color: number | undefined; dim: boolean }[] = [];
-  for (const match of row.matchAll(/\x1b\][^\x07]*\x07|\x1b\[[0-?]*[ -/]*[@-~]|([^\x1b])/gu)) {
-    if (match[1]) cells.push({ char: match[1], color, dim });
-    else if (match[0].endsWith("m")) for (const code of match[0].slice(2, -1).split(";").map(Number)) {
-      if (code === 0) { color = undefined; dim = false; }
-      else if (code === 2) dim = true;
-      else if (code === 22) dim = false;
-      else if (code === 39) color = undefined;
-      else if (code >= 30 && code <= 37 || code >= 90 && code <= 97) color = code;
-    }
-  }
-  return cells;
-}
 
 test("rendered rich plan frame lines ╭ ─ │ ╰ use accent SGR 96, including after body resets", async () => {
   const rows = await capturedPlan();
   const seen = new Set<string>();
   for (const [index, row] of rows.entries()) {
-    const cells = styledCells(row);
+    const cells = ansiCells([row])[0]!;
     const edges = index === 0 || index === rows.length - 1
       ? cells.filter(cell => /[╭╮╰╯─]/.test(cell.char)) : [cells[0]!, cells.at(-1)!];
-    for (const cell of edges) { seen.add(cell.char); expect(cell.color).toBe(96); }
+    for (const cell of edges) { seen.add(cell.char); expect(cell.foreground).toBe("96"); }
   }
   for (const char of ["╭", "─", "│", "╰"]) expect(seen.has(char)).toBe(true);
 }, 60_000);
@@ -806,7 +791,9 @@ test("rendered rich plan frame lines ╭ ─ │ ╰ use accent SGR 96, includin
 test("rendered rich plan right-aligned file paths are dim even with the high-contrast theme", async () => {
   const rows = await capturedPlan();
   const row = rows.find(row => row.includes("Draw the header"))!;
-  expect(row).toContain("\x1b[2msrc/tui/banner.ts\x1b[0m");
+  const paths = cellsFor(ansiCells([row]), "src/tui/banner.ts");
+  expect(paths.every(cell => cell.dim)).toBe(true);
+  expect(cellSnapshot([paths])).toBe('[dim]"src/tui/banner.ts"');
   expect(Bun.stripANSI(row)).toMatch(/Draw the header {2,}src\/tui\/banner.ts  │$/);
   expect(Bun.stringWidth(row)).toBe(80);
 }, 60_000);
@@ -816,7 +803,7 @@ test("rendered rich plan mock-up inner box borders and contents are dim", async 
   const art = rows.slice(rows.findIndex(row => row.includes("┌")), rows.findIndex(row => row.includes("└")) + 1);
   expect(art).toHaveLength(3);
   for (const row of art) {
-    const cells = styledCells(row);
+    const cells = ansiCells([row])[0]!;
     const inner = cells.slice(3, -3).filter(cell => cell.char.trim());
     expect(inner.length).toBeGreaterThan(0);
     expect(inner.every(cell => cell.dim)).toBe(true);
@@ -829,7 +816,7 @@ test("NO_COLOR keeps the actually rendered plan plain with no accent or dim esca
   const rows = await capturedPlan(true);
   const raw = rows.join("\n");
   // The terminal may reset SGR at row boundaries, but the plan must set no text attributes.
-  expect(raw).not.toMatch(/\x1b\[(?!0m)[\d;]*m/);
+  for (const cell of ansiCells(rows).flat()) expect(cell).toMatchObject({ foreground: "default", background: "default", dim: false, bold: false });
   expect(Bun.stripANSI(raw)).not.toMatch(/^[╭│╰]/m);
   for (const text of ["Casper plan · Colour regression", "Goal", "What you'll see", "[Notes]  [All tags v]", "Steps", "src/tui/banner.ts", "Done means"]) expect(raw).toContain(text);
 }, 60_000);
@@ -837,9 +824,9 @@ test("NO_COLOR keeps the actually rendered plan plain with no accent or dim esca
 test("the rich plan regression captures real SGR escapes rather than only ANSI-stripped text", async () => {
   const raw = (await capturedPlan()).join("\n");
   expect(raw).not.toBe(Bun.stripANSI(raw));
-  expect(raw).toContain("\x1b[96mPlan · Colour regression\x1b[0m");
-  expect(raw).toContain("\x1b[96mSteps\x1b[0m");
-  expect(raw).toContain("\x1b[2msrc/tui/banner.ts\x1b[0m");
+  const cells = ansiCells(raw.split("\n"));
+  for (const text of ["Plan · Colour regression", "Steps"]) expect(cellsFor(cells, text).every(cell => cell.foreground === "96")).toBe(true);
+  expect(cellsFor(cells, "src/tui/banner.ts").every(cell => cell.dim)).toBe(true);
 }, 60_000);
 
 test("/plan with no saved plans says what to type, with an example", async () => {

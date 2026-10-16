@@ -1,5 +1,5 @@
 import { constants } from "node:fs";
-import { access, realpath, stat } from "node:fs/promises";
+import { access, lstat, readlink, realpath, stat } from "node:fs/promises";
 import { openNoFollow } from "../platform/files";
 import path from "node:path";
 import { createHash } from "node:crypto";
@@ -62,6 +62,19 @@ export async function readTargets(root: string): Promise<{ targets: Record<strin
   finally { await file.close(); }
 }
 
+/** Resolve links without canonicalising a regular executable's basename. On macOS, Bun's
+ * realpath of a hard link can return another name for that inode (git and python3 are
+ * Apple shims sharing one inode); changing argv[0] then launches the wrong tool. */
+async function executablePath(input: string): Promise<string> {
+  let file = input;
+  for (let links = 0; links <= 40; links++) {
+    file = path.join(await realpath(path.dirname(file)), path.basename(file));
+    if (!(await lstat(file)).isSymbolicLink()) return file;
+    file = path.resolve(path.dirname(file), await readlink(file));
+  }
+  throw new Error("Adapter command has too many symbolic links");
+}
+
 export async function resolveTarget(root: string, name: string): Promise<DebugTarget> {
   const { targets, digest } = await readTargets(root);
   const entry = Object.hasOwn(targets, name) ? targets[name] : undefined;
@@ -70,7 +83,7 @@ export async function resolveTarget(root: string, name: string): Promise<DebugTa
     !text(entry.adapterID) || !/^[\w.-]{1,64}$/.test(entry.adapterID) || !text(entry.program) ||
     !text(entry.cwd ?? ".") || !strings(entry.programArgs ?? []) ||
     (entry.breakpoints !== undefined && !record(entry.breakpoints))) throw new Error("Invalid or unknown debugger target");
-  const command = await realpath(entry.command);
+  const command = await executablePath(entry.command);
   if (!(await stat(command)).isFile()) throw new Error("Adapter must be a regular executable file");
   await access(command, constants.X_OK);
   const program = await projectFile(root, entry.program);

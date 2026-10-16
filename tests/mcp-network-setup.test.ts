@@ -425,12 +425,16 @@ async function session(home: string, project: string, lines: string[], answers: 
   const input = new PassThrough();
   let output = "";
   const pending = [...lines];
+  const releaseRequests: string[] = [];
+  // All ordinary sessions are offline, including the background refresh after setup. Only the release-specific
+  // test below supplies its own loopback endpoint; never let unrelated setup cases ask GitHub.
+  const releases = options.releases ?? { fetch: async (url: string) => { releaseRequests.push(url); return Response.json([]); } };
   const app = new CasperApp({
     runtimeFactory: () => runtime, input, sessionHomeDir: home,
     loadProjectContext: (info) => loadProjectContext(info, { homeDir: home }),
     loadSkillRegistry: (context) => SkillRegistry.discover({ projectRoot: context.info.root, homeDir: home }),
     loadMCPConfiguration: () => discoverMCPConfiguration({ projectRoot: project, homeDir: home, platform: "linux" }),
-    networkSeams: { install: { env: install.env, run: install.run }, ...(options.releases ? { releases: options.releases } : {}) },
+    networkSeams: { install: { env: install.env, run: install.run }, releases },
     output: { write: (text) => {
       output += text;
       if (text === "> ") queueMicrotask(async () => { await options.onPrompt?.(); input.write(`${pending.shift() ?? "/exit"}\n`); });
@@ -444,7 +448,7 @@ async function session(home: string, project: string, lines: string[], answers: 
   } else {
     await app.runInteractive(project);
   }
-  return { output, app, turns: () => turns, installs: install.calls };
+  return { output, app, turns: () => turns, installs: install.calls, releaseRequests };
 }
 
 test("app: the first Mist question offers setup once; a 2 typed ahead is discarded; the AI's ask channel is never used; 1 is remembered across sessions", async () => {
@@ -529,6 +533,17 @@ test("app: an older installed server is asked about once, before the first reque
   const once = await session(other.home, other.project, ["add a test for parseConfig"], [], { interactive: false });
   expect(once.output).not.toContain(question);
   expect(await installedVersion(other.home, NETWORK_SERVER)).toBe("0.0.9");
+});
+
+test("app: ordinary setup fixtures fake the background release lookup instead of contacting GitHub", async () => {
+  const { home, project } = await appFixture();
+  const host = await fakeSetupHost({ homeDir: home });
+  await host.installer!(NETWORK_SERVER, { homeDir: home, ...host.install });
+  await writeMcp(home, { network: networkServerEntry(home) });
+  const result = await session(home, project, ["/status"]);
+  expect(await waitForFile(path.join(home, ".casper/network-releases.json"))).toBe(true);
+  expect(result.releaseRequests).toHaveLength(1);
+  expect(result.releaseRequests[0]).toStartWith("https://api.github.com/");
 });
 
 test("app: a session with Casper's entry asks GitHub for newer releases in the background; the next session offers one; network_updates: off asks nothing", async () => {

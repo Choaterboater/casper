@@ -27,7 +27,7 @@ test("an empty project needs only gitleaks, and says why each other tool is not 
   const root = await mkdtemp(path.join(os.tmpdir(), "casper-security-detect-empty-"));
   temps.push(root);
   await writeFile(path.join(root, "README.md"), "hello\n");
-  gitIn(root, "init", "-q");
+  await gitIn(root, "init", "-q");
   const needs = toolNeeds(await detectProject(root, await gitState(root)));
   expect(needs.gitleaks.needed).toBe(true);
   expect(needs["ansible-lint"]).toEqual({ needed: false, reason: "no Ansible files" });
@@ -46,7 +46,7 @@ test("fastapi imports turn on the FastAPI rules; git-ignored and linked-out file
   await writeFile(path.join(root, ".gitignore"), "build/\n");
   await writeFile(path.join(outside, "x.py"), "import fastmcp\n");
   await symlink(outside, path.join(root, "linked"));
-  gitIn(root, "init", "-q");
+  await gitIn(root, "init", "-q");
   const facts = await detectProject(root, await gitState(root));
   expect(facts.fastapi).toBe(true);
   expect(facts.mcpServer).toBe(false);

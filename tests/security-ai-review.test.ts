@@ -32,11 +32,11 @@ const flagged: SecurityFinding[] = [{ tool: "gitleaks", file: "app/settings.py",
 /** A fixture repo on a branch off main, with a changed Python file, a new .env and a new key file. */
 async function branchRepo(prefix: string): Promise<string> {
   const root = await fixtureRepo(prefix); temps.push(root);
-  gitIn(root, "checkout", "-qb", "feature");
+  await gitIn(root, "checkout", "-qb", "feature");
   await writeFile(path.join(root, "app", "extra.py"), EXTRA_PY);
   await writeFile(path.join(root, ".env"), "MIST_APITOKEN=abc123-live-token\n");
   await writeFile(path.join(root, "deploy.pem"), "-----BEGIN PRIVATE KEY-----\n");
-  gitIn(root, "add", "app/extra.py"); gitIn(root, "commit", "-qm", "extra");
+  await gitIn(root, "add", "app/extra.py"); await gitIn(root, "commit", "-qm", "extra");
   return root;
 }
 
@@ -216,9 +216,9 @@ test("with no model signed in, the AI review says so and spends nothing; a stopp
 test("the tools' findings and the diff reach the AI with secrets hidden", async () => {
   const root = await fixtureRepo("casper-ai-diff-"); temps.push(root);
   const home = await temp("casper-ai-home-");
-  gitIn(root, "checkout", "-qb", "feature");
+  await gitIn(root, "checkout", "-qb", "feature");
   await writeFile(path.join(root, "app", "extra.py"), `${EXTRA_PY}PASSWORD = "hunter2-very-secret"\n`);
-  gitIn(root, "add", "app/extra.py");
+  await gitIn(root, "add", "app/extra.py");
   const tools = await fakeTools(home);
   const fake = fakeAI("[]");
   const s = host(root, home, tools.find, "cannot-ask", fake.ai);
@@ -234,10 +234,10 @@ test("a secret this branch removed is hidden in the diff's removed lines too (gi
   const root = await fixtureRepo("casper-ai-removed-"); temps.push(root);
   const home = await temp("casper-ai-home-");
   await writeFile(path.join(root, "app", "extra.py"), `API_KEY = "q8Zr2LmN7vXk4TpW"\ndb_password: hunter2hunter2\n`);
-  gitIn(root, "add", "app/extra.py"); gitIn(root, "commit", "-qm", "key");
-  gitIn(root, "checkout", "-qb", "feature");
+  await gitIn(root, "add", "app/extra.py"); await gitIn(root, "commit", "-qm", "key");
+  await gitIn(root, "checkout", "-qb", "feature");
   await writeFile(path.join(root, "app", "extra.py"), `API_KEY = os.environ["API_KEY"]\n${EXTRA_PY}`);
-  gitIn(root, "add", "app/extra.py"); gitIn(root, "commit", "-qm", "no key");
+  await gitIn(root, "add", "app/extra.py"); await gitIn(root, "commit", "-qm", "no key");
   const tools = await fakeTools(home);
   const fake = fakeAI("[]");
   const s = host(root, home, tools.find, "cannot-ask", fake.ai);
@@ -253,10 +253,10 @@ test("a file gitleaks flagged stays kept from the AI when a committed ignore hid
   const home = await temp("casper-ai-home-");
   const server = await readFile(path.join(root, "app", "server.py"), "utf8");
   await writeFile(path.join(root, "app", "server.py"), server.replace(/^(GITHUB_TOKEN = .*)$/m, "$1  # gitleaks:allow"));
-  gitIn(root, "add", "-A"); gitIn(root, "commit", "-qm", "allow");
-  gitIn(root, "checkout", "-qb", "feature");
+  await gitIn(root, "add", "-A"); await gitIn(root, "commit", "-qm", "allow");
+  await gitIn(root, "checkout", "-qb", "feature");
   await writeFile(path.join(root, "app", "extra.py"), EXTRA_PY);
-  gitIn(root, "add", "-A"); gitIn(root, "commit", "-qm", "extra");
+  await gitIn(root, "add", "-A"); await gitIn(root, "commit", "-qm", "extra");
   const tools = await fakeTools(home);
   const fake = fakeAI("```json\n[{\"file\": \"app/server.py\", \"line\": 8, \"input\": \"GITHUB_TOKEN=x\", \"why\": \"a token in code\"}]\n```");
   const s = host(root, home, tools.find, "cannot-ask", fake.ai);
@@ -281,14 +281,14 @@ test("the review scope: the branch against main, else changes since the last com
   expect(branch.skipped).toBe(2);
   expect(branch.diff).toContain("+++ b/app/extra.py");
 
-  gitIn(root, "checkout", "-q", "main");
+  await gitIn(root, "checkout", "-q", "main");
   await rm(path.join(root, ".env")); await rm(path.join(root, "deploy.pem"));
   await writeFile(path.join(root, "site.yml"), "- hosts: all\n");
   const head = await reviewScope(root, []);
   expect(head.basis).toBe("changes since your last commit");
   expect(head.files).toEqual(["site.yml"]);
 
-  gitIn(root, "checkout", "-q", "--", "site.yml");
+  await gitIn(root, "checkout", "-q", "--", "site.yml");
   const clean = await reviewScope(root, [{ tool: "ruff", file: "app/extra.py", line: 1, rule: "S602", severity: "high", text: "x" }]);
   expect(clean.basis).toBe("the files the tools flagged and the MCP server code");
   // app/server.py is MCP server code (it imports mcp.server); app/extra.py is on the other branch only.

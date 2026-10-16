@@ -3,6 +3,8 @@ import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { removeTempDir } from "./support/temp-dir";
+import { cleanEnv } from "./support/env";
+import { processGone } from "./support/wait";
 
 // tools/stall-guard.sh is the watchdog on the Linux and macOS full-suite CI steps. It is bash, so these tests are for POSIX hosts.
 const SCRIPT = path.join(import.meta.dir, "..", "tools", "stall-guard.sh");
@@ -26,13 +28,11 @@ async function guard(root: string, stall: number, command: string[], env: Record
   const started = performance.now();
   const child = Bun.spawn(["bash", SCRIPT, path.join(root, "out", "run.log"), String(stall), path.join(root, "out", "dump.txt"), "--", ...command], {
     cwd: root, stdout: "pipe", stderr: "pipe",
-    env: { ...process.env, STALL_POLL: "1", STALL_GRACE: "1", STALL_WORKERS: `bun test --test-worker ${path.basename(root)}`, ...env },
+    env: cleanEnv({ STALL_POLL: "1", STALL_GRACE: "1", STALL_WORKERS: `bun test --test-worker ${path.basename(root)}`, ...env }),
   });
   const [stdout, stderr, code] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
   return { stdout, stderr, code, seconds: (performance.now() - started) / 1000, log: path.join(root, "out", "run.log"), dump: path.join(root, "out", "dump.txt") };
 }
-
-const alive = (pid: number) => { try { process.kill(pid, 0); return true; } catch { return false; } };
 
 test.skipIf(!posix)("a command that finishes keeps its own exit code and its output streams to the screen and the log", async () => {
   const root = await workdir();
@@ -72,9 +72,8 @@ test.skipIf(!posix)("a stalled command is cut off with a dump that names what wa
   if (hasSetsid) {
     // Everything the command started is stopped with it, not just the process the script launched.
     const [leader, background] = (await readFile(pids, "utf8")).trim().split(/\s+/).map(Number) as [number, number];
-    await Bun.sleep(300);
-    expect(alive(leader)).toBe(false);
-    expect(alive(background)).toBe(false);
+    expect(await processGone(leader)).toBe(true);
+    expect(await processGone(background)).toBe(true);
   }
 }, 60_000);
 
@@ -104,9 +103,11 @@ test.skipIf(!posix)("a worker stuck on the CPU is shown with its children and wh
 }, 60_000);
 
 // A stand-in for Bun's parallel run that goes silent: on the stop signal it prints what Bun prints, the
-// files it was still running (and, when asked, one that had not started). It sleeps in short steps, so the
-// trap runs whichever of it and its sleep the stop reaches first.
-const STALLS = `trap 'echo "Interrupted while still running:"; echo "  tests/a.test.ts (3s)"; if [ -n "\${NOT_STARTED:-}" ]; then echo "1 file(s) had not started:"; echo "  tests/b.test.ts"; fi; exit 143' TERM; echo "tests/c.test.ts:"; echo "\${FIRST_LINE:-(pass) one}"; while :; do sleep 1; done`;
+// files it was still running (and, when asked, one that had not started). Bash interrupts its wait
+// builtin for TERM immediately, unlike a foreground sleep, without needing extra grace.
+// Create the sleeper once, before announcing readiness. Re-spawning it in the loop can
+// race the watchdog's descendant snapshot and leave a new child holding stdout open.
+const STALLS = `trap 'kill "$sleeper" 2>/dev/null; echo "Interrupted while still running:"; echo "  tests/a.test.ts (3s)"; if [ -n "\${NOT_STARTED:-}" ]; then echo "1 file(s) had not started:"; echo "  tests/b.test.ts"; fi; exit 143' TERM; sleep "\${STALL_SLEEP:-300}" & sleeper=$!; echo "tests/c.test.ts:"; echo "\${FIRST_LINE:-(pass) one}"; while :; do wait "$sleeper"; done`;
 
 async function retryScript(root: string, body: string): Promise<string> {
   const file = path.join(root, "retry.sh");
@@ -125,6 +126,16 @@ test.skipIf(!posix)("after a stall, the files Bun was still running run once mor
   // The first run's dump is kept, and the retry has its own log next to the first one.
   expect(await readFile(result.dump, "utf8")).toContain("Stall dump: no output for 2s");
   expect(await readFile(path.join(root, "out", "run-retry.log"), "utf8")).toContain("(pass) again");
+}, 60_000);
+
+test.skipIf(!posix)("the TERM trap publishes interrupted files without waiting for the fixture's sleep", async () => {
+  const root = await workdir();
+  const retry = await retryScript(root, 'echo "retry got: $*"; exit 0\n');
+  // A foreground sleep would defer Bash's trap past the unchanged 1 s grace.
+  // The wait builtin is interruptible even when its background sleep lasts a minute.
+  const result = await guard(root, 2, ["bash", "-c", STALLS], { STALL_RETRY_CMD: retry, STALL_SLEEP: "60" });
+  expect(result.code).toBe(0);
+  expect(result.stdout).toContain("retry got: tests/a.test.ts\n");
 }, 60_000);
 
 test.skipIf(!posix)("a retry that stalls again fails the step, and there is no second retry", async () => {

@@ -95,10 +95,10 @@ CI runner, whatever the change. To tell which:
 
 1. Open the failed job and find the `(fail)` line: it names the test and its file.
 2. Run that file alone on your machine: `bun test tests/<name>.test.ts`. If it fails there too, it is real.
-3. If it passes alone and the test has nothing to do with your change, use **Re-run failed jobs** on the run
-   (or ask on the PR if you can't). A flake passes on the rerun; a real failure fails the same way again.
-4. A test that times out at its limit (`timed out after 30000ms`) on one OS only, and passes on the others,
-   is most often a flake. Say so on the PR.
+3. Use `.github/workflows/deflake.yml` for ten independent runs of the suspect file on the failing OS.
+   Inspect every log for skips; an isolated pass or a green rerun does not prove a flake.
+4. Fix the cause or record its owner, OS and reason in `tests/known-flaky.ts`. Never merge on a green rerun
+   when the PR's own new or changed tests failed. Keep assertion failures visible.
 
 The known flaky tests already get one more try on the OS they flake on, and only when the first try runs out
 of time. The list is in `tests/flaky-list.test.ts`. When the first try times out, the log shows a `(retry)`
@@ -120,7 +120,10 @@ Windows runners sometimes start a Bun child that hangs silently from the start. 
 `[test guard: child printed nothing for N s; started again once]`. A child that printed anything, or exited by
 itself with any code, is never started again, and this is not a test retry. Run fixture programs such as git or a shell line with `run` or `runOk` from
 `tests/support/run.ts`, not `spawnSync` or `execFileSync`. A Bun test worker sometimes never reaps a
-synchronous child and spins until CI's stall guard ends the job.
+synchronous child and spins until CI's stall guard ends the job. Its own test timer cannot fire while
+that event loop is blocked. The last announced file is not necessarily the stuck worker: capture `ps`
+and a native stack (`sample` on macOS) before stopping it. `tests/suite-liveness.test.ts` checks fixture
+responsiveness and completion of the suspect undo/security cohort without extending their deadlines.
 
 On Linux and macOS, `tools/stall-guard.sh` watches the suite (whole or fast tier). When the log has been silent for 180 s it
 writes `stall-dump.txt` (every process and what each test worker was doing), stops the run, and runs the
@@ -132,6 +135,15 @@ the dump.
 Never make a test pass by weakening what it checks or adding a fixed sleep. A test that waits for something
 should wait for the real signal with a deadline (`waitUntil`, `waitForFile` and `processGone` in
 `tests/support/wait.ts`).
+
+### Colour evidence
+
+`tests/support/ansi-cells.ts` renders ANSI rows into grapheme-width cells with SGR attributes.
+`cellsFor` selects an exact text span; `cellSnapshot` groups equal styles into compact text runs.
+Unsupported screen controls fail rather than silently discarding styling. `tests/ansi-cells.test.ts`
+checks resets, indexed/RGB colours, links, erasure and wide glyphs. The approval, plan and footer
+colour regressions (`approval-ansi.test.ts`, `plan-first.test.ts`, `footer-ansi.test.ts`) capture actual
+writer bytes before checking cells, including `NO_COLOR`; stripped text alone is not colour evidence.
 
 ## Reporting a problem
 

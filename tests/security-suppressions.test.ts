@@ -48,8 +48,8 @@ async function repo(files: Record<string, string>, commit = true): Promise<strin
   for (const [file, text] of Object.entries(files)) {
     await Bun.write(path.join(root, file), text);
   }
-  gitIn(root, "init", "-q");
-  if (commit) { gitIn(root, "add", "-A"); gitIn(root, "commit", "-qm", "init"); }
+  await gitIn(root, "init", "-q");
+  if (commit) { await gitIn(root, "add", "-A"); await gitIn(root, "commit", "-qm", "init"); }
   return root;
 }
 
@@ -112,7 +112,7 @@ test("approving writes only to ~/.casper/projects/<project>/security-approved.js
   expect(written).toBe(approvalsPath(await realpath(root), home));
   expect(written.startsWith(projectStateDirectory(await realpath(root), home))).toBe(true);
   expect(written.startsWith(root)).toBe(false);
-  expect(gitIn(root, "status", "--porcelain", "--untracked-files=all").split("\n").filter(Boolean)).toEqual([" M db.py"]);
+  expect((await gitIn(root, "status", "--porcelain", "--untracked-files=all")).split("\n").filter(Boolean)).toEqual([" M db.py"]);
   expect(JSON.parse(await readFile(written, "utf8")).markers).toHaveLength(1);
   const after = await applyIgnores([s608(12)], await context(root, home));
   expect(after.visible).toEqual([]);
