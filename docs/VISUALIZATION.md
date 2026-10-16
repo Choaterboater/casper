@@ -1,8 +1,8 @@
 # Visualization
 
 **What this is:** Casper can draw a diagram of code or a system, as Mermaid text
-(a plain-text diagram format that GitHub and many editors display) and as a
-MindMesh JSON file. **When you'd use it:** to see how a project's files import
+(a plain-text diagram format that GitHub and many editors display), as a
+MindMesh JSON file and as a draw.io file you can open and edit by hand. **When you'd use it:** to see how a project's files import
 each other, or to have the model sketch a flow, plan or troubleshooting tree.
 
 Try it:
@@ -46,6 +46,7 @@ Visualization is a capability category, not a special Casper mode. Casper reason
 | --- | --- | --- |
 | `mermaid` (default primary) | `.mmd` text | Always available; no external process. Flowchart syntax for every type except `mindmap`, which uses Mermaid mindmap syntax. |
 | `mindmesh` | `.json` document | MindMesh canonical map, schema version 6. Accepted unchanged by MindMesh's lossless `json` importer. **File output only** — Casper does not start, connect to, or authenticate with a MindMesh server. |
+| `drawio` | `.drawio` file | Uncompressed draw.io (diagrams.net) mxfile, laid out in layers: top-down, or left to right for architecture and dependency graphs. Groups are box colours, notes are box tooltips. Opens and edits in draw.io's desktop or web app; Casper starts nothing. |
 
 Providers implement `VisualizationProvider` (`supports(type)`, `render(graph)`); `CasperAppOptions.visualizationProviders` replaces the built-in set for tests or extensions.
 
@@ -71,11 +72,11 @@ Every result carries a `lossiness` list stating what the format could not draw. 
 ```yaml
 # ~/.casper/config.yaml or ~/.casper/profiles/<profile>/config.yaml
 visualize:
-  providers: [mermaid, mindmesh]   # preference order; first is primary
+  providers: [mermaid, mindmesh, drawio]   # preference order; first is primary
   outputDir: ~/diagrams            # path (~ expands) or false to keep results in-conversation only
 ```
 
-Defaults when nothing is set: `providers: [mermaid, mindmesh]` and
+Defaults when nothing is set: `providers: [mermaid, mindmesh, drawio]` and
 `outputDir: ~/.casper/visualizations/<project-name-slug>/`.
 
 Precedence: global → profile → project. `providers` may be set at any layer. `outputDir` accepts a path only from user-owned global/profile files; a project's `.casper/project.yaml` may only set `outputDir: false`. This prevents a checked-in configuration from redirecting writes. Unknown provider names are reported at startup and ignored; if none remain usable, startup fails.
@@ -96,7 +97,7 @@ Limits: 2000 files (partial graphs are flagged); more than 120 file nodes collap
 
 ## Limits
 
-- No Graphviz provider, no image rendering, and no interactive MindMesh session; opening the JSON in MindMesh is a manual import.
+- No Graphviz provider, no image rendering (draw.io exports PNG or SVG from its own menu), and no interactive MindMesh session; opening the JSON in MindMesh is a manual import.
 - Model-authored graphs describe the model's understanding; Casper validates shape, not truth. The repo graph is deterministic but regex-based.
 - Node notes are not drawn by Mermaid. Groups are not drawn in mindmaps or MindMesh.
 - The tool is exposed only when the request is classified as visualization; classification is lexical, not a general natural-language parser. Explicit modification requests such as “fix the chart export” retain verification, while “show me a diagram of the test flow” is read-only.

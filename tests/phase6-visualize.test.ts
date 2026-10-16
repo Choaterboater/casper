@@ -276,7 +276,7 @@ test("router keeps a disabled outputDir in-conversation, falls back past a provi
 test("visualization settings: defaults outside the workspace, tilde expansion, project may only disable", () => {
   const home = path.resolve("/tmp/casper-home");
   const base = { projectName: "My Repo!", homeDir: home };
-  expect(resolveVisualizationSettings({ ...base, layers: [] })).toEqual({ providers: ["mermaid", "mindmesh"], outputDir: path.join(home, ".casper/visualizations/my-repo") });
+  expect(resolveVisualizationSettings({ ...base, layers: [] })).toEqual({ providers: ["mermaid", "mindmesh", "drawio"], outputDir: path.join(home, ".casper/visualizations/my-repo") });
   expect(resolveVisualizationSettings({ ...base, layers: [
     { document: { visualize: { outputDir: "~/diagrams", providers: ["mermaid"] } }, source: "global" },
     { document: { visualize: { providers: [" mindmesh "] } }, source: "profile" },

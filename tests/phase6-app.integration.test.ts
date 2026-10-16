@@ -122,7 +122,7 @@ test("acceptance: 'map out the authentication flow' yields a visual, saves artif
   expect(result.data.primary.content).toContain("-->|verify()|");
   const outputDir = path.join(home, ".casper", "visualizations", "project");
   if (artifactFilesystemSupported) {
-    expect(result.data.artifacts.map((artifact: { provider: string }) => artifact.provider)).toEqual(["mermaid", "mindmesh"]);
+    expect(result.data.artifacts.map((artifact: { provider: string }) => artifact.provider)).toEqual(["mermaid", "mindmesh", "drawio"]);
     expect(result.data.notes).toEqual(["Visualization is read-only; it does not authorize code changes."]);
     for (const artifact of result.data.artifacts as Array<{ path: string; bytes: number }>) {
       expect(path.dirname(artifact.path)).toBe(await realpath(outputDir));

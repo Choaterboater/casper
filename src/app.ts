@@ -65,6 +65,7 @@ import type { RipgrepOptions, RipgrepResult } from "./security/ripgrep";
 import type { ChecksPlan, VerificationMode } from "./verify/mode";
 import { MermaidProvider } from "./visualize/mermaid";
 import { MindMeshProvider } from "./visualize/mindmesh";
+import { DrawioProvider } from "./visualize/drawio";
 import { VisualizationRouter } from "./visualize/router";
 import { WebLookup, type WebLookupOptions } from "./web/lookup";
 import type { VisualizationProvider } from "./visualize/types";
@@ -560,7 +561,7 @@ export class CasperApp {
     this.onEvent = options.onEvent;
     this.verificationFlag = options.verificationMode
       ?? (options.autoVerify === undefined ? undefined : options.autoVerify ? "offer" : "off");
-    this.visualizationProviders = options.visualizationProviders ?? [new MermaidProvider(), new MindMeshProvider()];
+    this.visualizationProviders = options.visualizationProviders ?? [new MermaidProvider(), new MindMeshProvider(), new DrawioProvider()];
     this.sessionHomeDir = options.sessionHomeDir;
     this.scrubber = options.scrubber ?? new Scrubber();
     this.runGit = options.runGit;
