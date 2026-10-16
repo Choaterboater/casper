@@ -295,6 +295,11 @@ function blockItems(lines: readonly string[]): string[] {
 }
 
 /** Questions must actually ask something. Keep statements as facts, also for hand-edited/older plans. */
+/** The plan's open questions, each one line without its list marker: what "Answer the question" asks. */
+export function openQuestions(plan: ParsedPlan): string[] {
+  return (questionsOnly(plan).openQuestions ?? []).map(line => cleanLine(line.replace(/^\s*(?:[-*+•]|\d+[.)])\s+/, ""))).filter(Boolean);
+}
+
 function questionsOnly(plan: ParsedPlan): ParsedPlan {
   if (!plan.openQuestions?.length) return plan;
   const items = blockItems(plan.openQuestions).flatMap(line => {
@@ -428,18 +433,23 @@ export interface PlanScreenOptions {
 }
 
 /** The same sections in plain and framed terminals. Only implementation Details stay one key away.
- * A frame is at most 80 cells wide, with breathing room inside; no centering or terminal state required. */
+ * A frame is at most PLAN_FRAME_WIDTH cells wide, with breathing room inside; no centering or terminal state required. */
+/** Wide enough to use a big screen, narrow enough to read: a step stays one comfortable line. */
+export const PLAN_FRAME_WIDTH = 120;
+
 export function planScreenRows(plan: ParsedPlan, width: number, options: PlanScreenOptions = {}): string[] {
   plan = questionsOnly(plan);
   const available = Number.isFinite(width) ? Math.max(1, Math.floor(width)) : 80;
   const framed = Boolean(options.framed && available >= 6);
-  const outer = framed ? Math.min(80, available) : available;
+  const outer = framed ? Math.min(PLAN_FRAME_WIDTH, available) : available;
   const gutter = outer >= 10 ? "  " : "";
   const inner = framed ? outer - 2 - gutter.length * 2 : outer;
   const accent = options.accent ?? ((text: string) => text);
   const dim = options.dim ?? ((text: string) => text);
   // Sanitize model content before trusted theme functions add ANSI codes. Keep mock-up spacing.
+  // Markdown the model writes reads as words: a link shows its text, bold and code lose their markers.
   const body = (text: string) => lineText(text).replace(/`([^`]+)`/g, "$1")
+    .replace(/\[([^\]\n]+)\]\((?:https?:\/\/|#)[^)\s]*\)/g, "$1").replace(/\*\*([^*\n]+)\*\*/g, "$1")
     .replace(FILE_PATH, (path) => {
       const name = path.replace(/[.,]+$/, "");
       return dim(name) + path.slice(name.length);
@@ -497,14 +507,9 @@ export function planScreenRows(plan: ParsedPlan, width: number, options: PlanScr
       const file = main[0].replace(/[.,]+$/, "");
       const label = `${text.slice(0, main.index)}${text.slice(main.index! + main[0].length)}`
         .replace(/\s*[—–|:-]\s*$/, "").replace(/\b(?:in|to|from|at)\s*$/, "").replace(/\s+/g, " ").trim();
-      const column = inner - visibleWidth(file) - 2;
-      if (column - visibleWidth(marker) >= Math.min(20, visibleWidth(label))) {
-        const left = hang(marker, body(label), column);
-        rows.push(...left.map((row, line) => line ? row : `${row}${" ".repeat(Math.max(2, inner - visibleWidth(row) - visibleWidth(file)))}${dim(file)}`));
-      } else {
-        rows.push(...hang(marker, body(label), inner));
-        for (const row of wrapTextWithAnsi(file, Math.max(1, inner - 2))) rows.push(`${" ".repeat(Math.max(0, inner - visibleWidth(row)))}${dim(row)}`);
-      }
+      // The file follows the step's words, dim, two spaces after them: no column to squeeze the words into, and no
+      // wide gap across a big frame. It wraps with the words when the line is full.
+      rows.push(...hang(marker, `${body(label)}  ${dim(file)}`, inner));
     });
   }
   add("Done means", plan.tests, true);

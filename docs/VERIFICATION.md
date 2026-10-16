@@ -512,7 +512,8 @@ On both terminals, `3 Change the plan` opens one line for plain words such as "a
 rewrites the plan and shows it again with `1 Stop · 2 Build · 3 Change the plan`; Enter stops without building. Choice 3
 is not a raw plan editor. Ctrl+T shows Details; Ctrl+G opens the saved Markdown using `VISUAL` or `EDITOR`,
 rereads it on return and shows it again. Plans are gitignored at `.casper/plans/date-slug.md`; `/plan` alone
-lists recent plans to reopen. The rich plan's accent frame is at most 80 columns, with dim paths; plain
+lists recent plans to reopen. A plan with an open question adds `2 Answer the question` before Build. The rich
+plan's accent frame is at most 120 columns, with dim paths; plain
 terminals and `NO_COLOR` show no frame.
 
 **Plan progress is a model report, not check proof.** During the build the working line can read

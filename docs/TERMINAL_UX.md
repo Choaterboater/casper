@@ -403,8 +403,8 @@ as well). For example, an existing-project plan on a rich terminal looks like th
 │    └────────────────┘                                                        │
 │                                                                              │
 │  Steps                                                                       │
-│    1. Restyle the header.                                 src/tui/banner.ts  │
-│    2. Add a brief fade-in.                                src/tui/banner.ts  │
+│    1. Restyle the header.  src/tui/banner.ts                                 │
+│    2. Add a brief fade-in.  src/tui/banner.ts                                │
 │                                                                              │
 │  Done means                                                                  │
 │    1. Plain output stays readable.                                           │
@@ -414,8 +414,9 @@ as well). For example, an existing-project plan on a rich terminal looks like th
 ╰─────────────────────────────────────────────── Ctrl+T details · Ctrl+G edit ─╯
 ```
 
-On a rich terminal the plan has an accent frame at most 80 columns wide (narrower when the window is), with
-paths dimmed. Plain terminals and `NO_COLOR` show the same sections, unframed and without colour:
+On a rich terminal the plan has an accent frame at most 120 columns wide (narrower when the window is), with
+paths dimmed. A step that fits on one line has its file at the right; a longer step keeps the full width and its
+file goes on the line under it. A link shows its text and bold loses its `**`. Plain terminals and `NO_COLOR` show the same sections, unframed and without colour:
 
 ```text
 Casper plan · A cleaner, animated header
@@ -433,8 +434,8 @@ What you'll see
   └────────────────┘
 
 Steps
-  1. Restyle the header.                                       src/tui/banner.ts
-  2. Add a brief fade-in.                                      src/tui/banner.ts
+  1. Restyle the header.  src/tui/banner.ts
+  2. Add a brief fade-in.  src/tui/banner.ts
 
 Done means
   1. Plain output stays readable.
@@ -448,6 +449,9 @@ Both have one blank row between sections and none inside a section. Long lines w
 Ctrl+T shows optional Details. Ctrl+G opens the saved Markdown using `VISUAL`, falling back to `EDITOR`;
 on return Casper rereads it and shows the plan again. This is separate from choice 3, which stays plain words.
 Both terminals ask "Build this plan?": `1 Stop · 2 Build · 3 Change the plan`. Enter chooses Stop, never Build.
+A plan with an open question puts it second, `2 Answer the question` with the question beside it: it opens one
+line for the answer (Esc goes back to the plan), and the model rewrites the plan with it. Build and Change the
+plan move to 3 and 4.
 
 Choice 3 opens one empty line: type what to change in plain words, such as "drop steps 1 and 4" or "also test X".
 The model rewrites the whole plan under the same planning gate and shows it again with the same choices. You

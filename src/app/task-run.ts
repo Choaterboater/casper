@@ -25,7 +25,7 @@ import { diffSnapshots, tooManyFiles, type TreeChanges } from "../task/changes";
 import { headMoved, taskHead } from "../task/git-movement";
 import type { CheckName, VerificationReport } from "../verify/evidence";
 import { VerifierRegistry } from "../verify/registry";
-import { PLAN_CHANGE_HINT, PLAN_CHANGE_QUESTION, PLAN_CHOICES, PLAN_CHOICES_DETAILS, PLAN_QUESTION } from "./safe-choices";
+import { PLAN_ANSWER, PLAN_ANSWER_HINT, PLAN_CHANGE_HINT, PLAN_CHANGE_QUESTION, PLAN_QUESTION, planChoices } from "./safe-choices";
 import { DEFAULT_SPEND_LIMITS, SpendGuard, requestSpendLimit } from "../task/spend";
 import { VerificationTask } from "../verify/task";
 import { evidenceForModel } from "../verify/model-output";
@@ -42,7 +42,7 @@ import { autoDetectedChecks } from "../verify/migrations-check";
 import { buildNextRow, type NextItem } from "../tui/next-row";
 import { findFlow, formatFlowPrompt, loadFlowCatalog, type Flow, type FlowRule } from "../flows/catalog";
 import { suggestBeforeWork } from "../flows/suggest";
-import { extractPlan, formatPlanBlock, formatPlanChangePrompt, isSpecPlan, planDetailsText, planMarkdown, planScreenRows, type ParsedPlan } from "../flows/plan";
+import { extractPlan, formatPlanBlock, formatPlanChangePrompt, isSpecPlan, openQuestions, planDetailsText, planMarkdown, planScreenRows, type ParsedPlan } from "../flows/plan";
 import { planQuestions, readPlan, savePlan, updatePlan, wantsSpec, type SavedPlan } from "../flows/plan-store";
 import { PlanBuild } from "../flows/plan-build";
 import { PROJECT_YAML, saveProjectCommand } from "../project/config-write";
@@ -695,9 +695,10 @@ export async function runPlanTurn(app: CasperApp, session: RuntimeSession, reque
   showPlan();
   let answer: string | undefined;
   for (;;) {
-    const choices = !rich && planDetailsText(plan) ? PLAN_CHOICES_DETAILS : PLAN_CHOICES;
+    const questions = openQuestions(plan);
+    const choices = planChoices(questions[0], !rich && Boolean(planDetailsText(plan)));
     app.events.ensureLineBreak();
-    answer = await app.terminal.pickPlan(PLAN_QUESTION, choices.map((choice) => ({ ...choice })), signal);
+    answer = await app.terminal.pickPlan(PLAN_QUESTION, choices, signal);
     if (app.closing || signal?.aborted) return "stop";
     if (answer === "Show the details") { app.output.write(`${terminalText(planDetailsText(plan) ?? "")}\n`); continue; }
     if (answer === "Build") {
@@ -721,10 +722,14 @@ export async function runPlanTurn(app: CasperApp, session: RuntimeSession, reque
       showPlan();
       continue;
     }
-    if (answer !== "Change the plan") break;
-    const change = await app.terminal.askLine(PLAN_CHANGE_QUESTION, PLAN_CHANGE_HINT, signal);
+    if (answer !== "Change the plan" && answer !== PLAN_ANSWER) break;
+    // An answer goes back as a change naming the question it answers; Esc there returns to the plan, not a stop.
+    const answering = answer === PLAN_ANSWER;
+    const typed = await app.terminal.askLine(answering ? questions[0]! : PLAN_CHANGE_QUESTION, answering ? PLAN_ANSWER_HINT : PLAN_CHANGE_HINT, signal);
     if (app.closing || signal?.aborted) return "stop";
-    if (change === undefined) { app.output.write("[plan] Stopped without building.\n"); return "stop"; }
+    if (typed === undefined && answering) { showPlan(); continue; }
+    if (typed === undefined) { app.output.write("[plan] Stopped without building.\n"); return "stop"; }
+    const change = answering && typed.trim() ? `Answer to the open question "${questions[0]}": ${typed.trim()}` : typed;
     if (change.trim()) {
       questionRound = true;
       const rewritten = await writePlan(`${flowPrompt}\n\n${formatPlanChangePrompt(plan, change)}`);

@@ -792,14 +792,14 @@ test("rendered rich plan frame lines ╭ ─ │ ╰ use accent SGR 96, includin
   for (const char of ["╭", "─", "│", "╰"]) expect(seen.has(char)).toBe(true);
 }, 60_000);
 
-test("rendered rich plan right-aligned file paths are dim even with the high-contrast theme", async () => {
+test("rendered rich plan file paths after the step are dim even with the high-contrast theme", async () => {
   const rows = await capturedPlan();
   const row = rows.find(row => row.includes("Draw the header"))!;
   const paths = cellsFor(ansiCells([row]), "src/tui/banner.ts");
   expect(paths.every(cell => cell.dim)).toBe(true);
   expect(cellSnapshot([paths])).toBe('[dim]"src/tui/banner.ts"');
-  expect(Bun.stripANSI(row)).toMatch(/Draw the header {2,}src\/tui\/banner.ts  │$/);
-  expect(Bun.stringWidth(row)).toBe(80);
+  expect(Bun.stripANSI(row)).toMatch(/1\. Draw the header  src\/tui\/banner.ts +│$/);
+  expect(Bun.stringWidth(row)).toBe(120);
 }, 60_000);
 
 test("rendered rich plan mock-up inner box borders and contents are dim", async () => {
@@ -839,5 +839,36 @@ test("/plan with no saved plans says what to type, with an example", async () =>
     await f.app.runOnce("/plan", f.project);
     expect(f.plain()).toContain("Type /plan and then what you want, for example /plan add a --verbose flag to the CLI; the model plans first and nothing is built until you choose Build.");
     expect(f.prompts).toHaveLength(0);
+  } finally { await f.close(); }
+}, 60_000);
+
+test("a plan's open question is a choice: 2 asks it, the answer revises the plan, and Esc there goes back to the plan", async () => {
+  const asking = `${PLAN}\nOpen questions:\n- Where are the limits kept?\n`;
+  const f = await fixture(true, { answer: asking, rewrites: [PLAN] });
+  try {
+    f.input.write(`/plan ${REQUEST}\r`);
+    await f.screen.until(waiting("Build this plan?"));
+    expect(f.screen.output).toMatch(/2\. Answer the question +type the answer; the model rewrites the plan/);
+    expect(f.screen.output).toContain("3. Build");
+    expect(f.screen.output).toContain("4. Change the plan");
+    // Esc at the question returns to the plan's choices; nothing stops or rewrites.
+    f.input.write("2");
+    await f.screen.until(waiting("Esc goes back to the plan"));
+    let from = f.screen.output.length;
+    f.input.write("\x1b");
+    await f.screen.until(output => waiting("Build this plan?")(output.slice(from)));
+    expect(f.prompts).toHaveLength(1);
+    f.input.write("2");
+    await f.screen.until(output => output.slice(from).includes("Esc goes back to the plan"));
+    f.input.write("in config.yaml\r");
+    from = f.screen.output.length;
+    await f.screen.until(output => waiting("Build this plan?")(output.slice(from)));
+    expect(f.prompts).toHaveLength(2);
+    expect(f.prompts[1]).toContain('Answer to the open question "Where are the limits kept?": in config.yaml');
+    // The rewritten plan has no open question, so the choices are back to Stop · Build · Change the plan.
+    expect(f.screen.output.slice(from)).toContain("3. Change the plan");
+    expect(f.screen.output.slice(from)).not.toContain("Answer the question");
+    f.input.write("\r");
+    await f.screen.until(idleAfter("[plan] Stopped without building."));
   } finally { await f.close(); }
 }, 60_000);

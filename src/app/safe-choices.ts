@@ -31,6 +31,15 @@ export const PLAN_CHOICES = [
   { label: "Change the plan", description: "tell the model what to change, then choose again" },
 ] as const satisfies readonly Choice[];
 
+/** A plan with an open question offers to answer it, second after Stop; the question is in the plan above and is
+ * asked again where the answer is typed. */
+export const PLAN_ANSWER = "Answer the question";
+export function planChoices(question: string | undefined, details: boolean): Choice[] {
+  const base: Choice[] = [...(details ? PLAN_CHOICES_DETAILS : PLAN_CHOICES)].map((choice) => ({ ...choice }));
+  return question ? [base[0]!, { label: PLAN_ANSWER, description: "type the answer; the model rewrites the plan" }, ...base.slice(1)] : base;
+}
+export const PLAN_ANSWER_HINT = "Type your answer · Enter sends · Esc goes back to the plan";
+
 export const PLAN_CHANGE_QUESTION = "What should change?";
 export const PLAN_CHANGE_HINT = 'Type a change, e.g. "drop steps 1 and 4" or "also test X" · Enter sends · Esc stops without building';
 

@@ -73,17 +73,15 @@ test("Open questions is omitted entirely when it contains no real questions, inc
   }
 });
 
-test.each([80, 160])("known main step paths are dim and right-aligned at %i columns; unknown paths stay absent", width => {
+test.each([80, 160])("known main step paths are dim, two spaces after the step's words, at %i columns; unknown paths stay absent", width => {
   const plan = extractPlan("Steps:\n1. Store tags — src/notes.ts\n2. Filter notes — src/components/Filter.tsx\n3. Confirm the design");
   for (const framed of [false, true]) {
     const styled = planScreenRows(plan, width, { framed, dim });
     const rows = content(styled);
-    const inner = framed ? 74 : width;
     for (const [label, file] of [["Store tags", "src/notes.ts"], ["Filter notes", "src/components/Filter.tsx"]]) {
       const index = rows.findIndex(row => row.includes(label!));
-      expect(rows[index]).toEndWith(file!);
-      expect(visibleWidth(rows[index]!)).toBe(inner);
-      expect(rows[index]).toMatch(/\S {2,}src\//);
+      // No column: the file follows the words, so a wide frame leaves no gap between them.
+      expect(rows[index]!.trimEnd()).toEndWith(`${label}  ${file}`);
       expect(styled[index]).toContain(dim(file!));
       expect(rows.filter(row => row.includes(file!))).toHaveLength(1);
     }
@@ -112,12 +110,11 @@ test("a question's factual continuation moves to facts without losing the questi
   expect(extractPlan(planMarkdown(plan))).toEqual(plan);
 });
 
-test("dynamic route paths stay whole in the dim right-hand file column", () => {
+test("dynamic route paths stay whole and dim after the step's words", () => {
   const file = "src/pages/(notes)/[id].tsx";
   const rows = planScreenRows({ steps: [`Update routing — ${file}`], tests: [] }, 80, { framed: true, dim });
   const line = content(rows).find(row => row.includes("Update routing"))!;
-  expect(line).toEndWith(file);
-  expect(visibleWidth(line)).toBe(74);
+  expect(line.trimEnd()).toEndWith(`Update routing  ${file}`);
   expect(rows.join("\n")).toContain(dim(file));
   expect(rows.filter(row => row.includes(file))).toHaveLength(1);
   const narrow = planScreenRows({ steps: [`Update routing — ${file}`], tests: [] }, 20, { framed: true, dim });
