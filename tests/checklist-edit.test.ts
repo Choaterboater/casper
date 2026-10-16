@@ -16,7 +16,7 @@ process.env.TERM = "xterm-256color";
 afterAll(() => { if (ambientTerm === undefined) delete process.env.TERM; else process.env.TERM = ambientTerm; });
 
 const HEADING = "What should change?";
-const HINT = 'Type a change, e.g. "drop steps 1 and 4" or "also test X" · Enter sends · Esc stops without building';
+const HINT = 'Type a change ("drop step 2") or ask ("why step 3?") · Enter sends · Esc stops without building';
 const CASES = ["limit(0) throws", "the 6th call is rejected"];
 
 test.each(["drop steps 1 and 4", "also test X"])("the change input is an empty line that accepts plain words: %s", async (change) => {

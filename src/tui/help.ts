@@ -88,6 +88,7 @@ Local commands:
   /model role <fast|build|reason|review> <selector|clear>  Save or clear a role mapping
   /model big <selector|clear>       Set or clear your big model (the reason role); asked for when repairs run out
   /plan <request>                   Plan or first-version spec; at most 3 questions in one round only if choices change the build; 1 Stop, 2 Build, 3 Change the plan in plain words; Enter stops; blocks changes while planning
+  /plan on, /plan off               Plan every request until /plan off (footer badge PLAN); a line ending in ? at Change the plan asks about the plan without rewriting it
   /plan                             List recent saved plans to reopen (.casper/plans/date-slug.md, gitignored)
   /btw <question>                   A side question, idle or during a task, like a line you start with ? (works with side questions off)
   /suggestions                      List suggested next steps: on, off or faded (hidden after 3 ignores, 14 days)

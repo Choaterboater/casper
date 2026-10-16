@@ -41,7 +41,7 @@ export function planChoices(question: string | undefined, details: boolean): Cho
 export const PLAN_ANSWER_HINT = "Type your answer · Enter sends · Esc goes back to the plan";
 
 export const PLAN_CHANGE_QUESTION = "What should change?";
-export const PLAN_CHANGE_HINT = 'Type a change, e.g. "drop steps 1 and 4" or "also test X" · Enter sends · Esc stops without building';
+export const PLAN_CHANGE_HINT = 'Type a change ("drop step 2") or ask ("why step 3?") · Enter sends · Esc stops without building';
 
 /** The plain terminal has no Ctrl+T: a fourth choice lists the build details, then asks again. */
 export const PLAN_CHOICES_DETAILS = [
