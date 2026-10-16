@@ -1,0 +1,25 @@
+{
+  "note": "Sample prompts for bundled design skill picking. No live calls.",
+  "pick": [
+    { "prompt": "design a ClearPass NAC for 3 sites with guest and IoT", "expect": ["design-clearpass-nac"] },
+    { "prompt": "we need a NAC design for 5 sites", "expect": ["design-clearpass-nac"] },
+    { "prompt": "clearpass design for a hospital with medical devices", "expect": ["design-clearpass-nac"] },
+    { "prompt": "design our clearpass deployment in azure", "expect": ["design-clearpass-nac"] },
+    { "prompt": "plan the NAC rollout with a pilot site", "expect": ["design-clearpass-nac"] },
+    { "prompt": "network access control for our offices, guests and printers", "expect": ["design-clearpass-nac"] },
+    { "prompt": "review our ClearPass cluster design for two regions", "expect": ["design-clearpass-nac", "network-clearpass-api"] }
+  ],
+  "skip": [
+    "write a python script to list ClearPass guests via the API",
+    "use pyclearpass to list guest accounts",
+    "disconnect a session through the clearpass api",
+    "design a NAC with Cisco ISE",
+    "design the database schema for orders",
+    "design the guest wifi for our office",
+    "add a dark mode toggle to the settings page",
+    "fix the failing unit test in the parser",
+    "plan the migration to the new billing service",
+    "review the architecture of this repo",
+    "configure radius on the aos-cx switch"
+  ]
+}

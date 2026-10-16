@@ -76,14 +76,33 @@ Picked and checked by the same code as a network skill; it shares the limit of t
   jellyfin.org, support.plex.tv, docs.docker.com, pve.proxmox.com, pbs.proxmox.com, man7.org, tcpdump.org, the nftables wiki, curl.se, RFCs, the projects'
   own GitHub repos), at least two under "Public docs".
 
+## Rules for a design skill (`skills/design/<platform>/SKILL.md`)
+
+A method for designing or reviewing a deployment (today: ClearPass NAC). Picked and checked by the same code as a
+network skill; it shares the limit of two per request. `tests/design-skills.test.ts` checks the rest.
+
+- `name` starts with `design-`; one-line `description` of at most 200 characters; body at most 6 KiB.
+- `casper-skill.platform`: clearpass-nac. Strong triggers are product-plus-topic phrases ("clearpass nac",
+  "network access control"). Never a common word (design, architecture, plan, review, guest, iot, byod, radius,
+  802.1x, certificate, policy …). "clearpass", "cppm" and "nac" may only be weak triggers: they need a design
+  word (design, architecture, rollout, deployment, migration, pilot, sizing …) in the same request. `unless`
+  keeps API work (api, python, script, pyclearpass) with the network skill.
+- Exactly these `##` sections, in this order: When to use · Intake questions · Design order · Diagrams · Common
+  traps · Public docs. No "Changing things": a design skill teaches the order of work and changes nothing. The
+  same overclaiming words are refused.
+- The method, not product facts the model already knows. Generic examples only: no customer, company, site,
+  host, SSID or person names. A trap you could not check against public docs is phrased without a number.
+- Diagrams go through Casper's `visualize` tool (see docs/VISUALIZATION.md for its input).
+- Links are `https://` on official vendor doc hosts, at least two under "Public docs".
+
 ## Changing a skill
 
 1. Edit the file and bump `casper-skill.version`.
-2. Put the new version and the file's SHA-256 in `skills/network/VERSIONS.json` or
-   `skills/homelab/VERSIONS.json` (`sha256sum skills/<family>/<name>/SKILL.md`).
+2. Put the new version and the file's SHA-256 in `skills/network/VERSIONS.json`,
+   `skills/homelab/VERSIONS.json` or `skills/design/VERSIONS.json` (`sha256sum skills/<family>/<name>/SKILL.md`).
 3. Run `bun test --parallel tests/network-skills-lint.test.ts tests/network-skills-pick.test.ts
-   tests/homelab-skills.test.ts`. Add a prompt to `tests/fixtures/network-skills/prompts.json` or
-   `tests/fixtures/homelab-skills/prompts.json` when you change triggers.
+   tests/homelab-skills.test.ts tests/design-skills.test.ts`. Add a prompt to `tests/fixtures/network-skills/prompts.json`,
+   `tests/fixtures/homelab-skills/prompts.json` or `tests/fixtures/design-skills/prompts.json` when you change triggers.
 
-A new platform also needs an import in `src/skills/bundled.ts` and a name in `NETWORK_PLATFORMS` or
-`HOMELAB_PLATFORMS`.
+A new platform also needs an import in `src/skills/bundled.ts` and a name in `NETWORK_PLATFORMS`,
+`HOMELAB_PLATFORMS` or `DESIGN_PLATFORMS`.

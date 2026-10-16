@@ -9,8 +9,9 @@ casper-skill:
   triggers:
     strong: ["clearpass", "pyclearpass", "cppm", "clearpass api", "clearpass policy manager"]
     weak: []
+    unless: ["nac design", "clearpass design", "cppm design", "design a clearpass", "design clearpass", "design our clearpass", "design the clearpass", "designing a clearpass", "designing clearpass"]
   frameworks: [clearpass]
-  version: 3
+  version: 4
 ---
 # ClearPass Policy Manager REST API
 
