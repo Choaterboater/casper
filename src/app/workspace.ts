@@ -286,7 +286,10 @@ export function namedProject(request: string, folders: readonly string[], root: 
 export async function offerNamedProject(app: CasperApp, request: string, planFirst?: boolean): Promise<"stop" | undefined> {
   if (!app.interactive || !app.terminal.canAsk) return undefined;
   const home = app.sessionHomeDir ?? os.homedir();
-  const folders = await recentlyUsedProjects({ base: home, agentDir: appAgentDir(app) }).catch(() => []);
+  // Only conversation folders ending in a word of the request ("--…-casper-tools--"), however old: not just the newest.
+  const words = [...new Set(request.toLowerCase().match(/[\w.-]{5,}/g) ?? [])];
+  const named = (folder: string) => words.some((word) => folder.toLowerCase().endsWith(`-${word}--`));
+  const folders = words.length ? await recentlyUsedProjects({ base: home, agentDir: appAgentDir(app), named }).catch(() => []) : [];
   const target = namedProject(request, folders, app.activeWorkspaceRoot());
   if (!target || app.stayedOutOf.has(target)) return undefined;
   const display = terminalText(tildePath(target, home));
