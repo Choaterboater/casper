@@ -23,8 +23,8 @@ describe("the designed plan panel", () => {
     expect(rows[0]).toStartWith("╭─ Plan · A calmer project board ─");
     expect(rows.at(-1)).toContain("Ctrl+T details · Ctrl+G edit");
     expect(rows.at(-1)).toEndWith("─╯");
-    // The frame follows the terminal up to PLAN_FRAME_WIDTH (120) columns.
-    const frame = Math.min(width, 120);
+    // The frame is as wide as the window.
+    const frame = width;
     expect(rows.every(row => visibleWidth(row) === frame)).toBe(true);
     expect(rows[1]).toBe(`│${" ".repeat(frame - 2)}│`);
     expect(rows.at(-2)).toBe(rows[1]);
@@ -109,7 +109,7 @@ test("on a wide screen a long step keeps the width with its file after the words
     "- The right tool is first.",
   ].join("\n"))!;
   const rows = plain(planScreenRows(wide, 200, { framed: true }));
-  expect(rows.every(row => visibleWidth(row) === 120)).toBe(true);
+  expect(rows.every(row => visibleWidth(row) === 200)).toBe(true);
   const body = inside(rows);
   expect(body.find(row => row.startsWith("- PR #10"))).toBe("- PR #10 is merged; the biggest gap is ranking.");
   expect(rows.join("\n")).not.toMatch(/\]\(|\*\*/);

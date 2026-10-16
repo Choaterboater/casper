@@ -799,7 +799,8 @@ test("rendered rich plan file paths after the step are dim even with the high-co
   expect(paths.every(cell => cell.dim)).toBe(true);
   expect(cellSnapshot([paths])).toBe('[dim]"src/tui/banner.ts"');
   expect(Bun.stripANSI(row)).toMatch(/1\. Draw the header  src\/tui\/banner.ts +│$/);
-  expect(Bun.stringWidth(row)).toBe(120);
+  // The frame is as wide as the 202-column window.
+  expect(Bun.stringWidth(row)).toBe(202);
 }, 60_000);
 
 test("rendered rich plan mock-up inner box borders and contents are dim", async () => {
