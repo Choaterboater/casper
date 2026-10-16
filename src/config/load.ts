@@ -93,9 +93,8 @@ export interface LoadedConfiguration {
   /** `showPages: ask|on|off`: whether a model that sees pictures is shown the page screenshots after a UI change
    * (user or profile only; it costs tokens). Unset: ask once a session. */
   showPages?: ShowPagesSetting;
-  /** `delegate.build: false`: the AI starts no builders (helpers that edit in their own copy). Yours (user or
-   * profile); a project file can turn them off for itself, never back on. Unset: on. */
-  delegate?: { build: false };
+  /** Builders are off by default. Only user settings or a user profile may opt in; a project may only turn them off. */
+  delegate?: { build: boolean };
   /** Per-task spend limits in dollars (a note, then a pause); unset turns one off. User or profile only. */
   spend: SpendLimits;
   visualize: VisualizationSettings;
@@ -839,8 +838,8 @@ export async function loadConfiguration(
       theme = document.theme.trim();
     }
   }
-  // Builders spend your tokens: on unless you turn them off; a project file may turn them off, never on for you.
-  let build = true;
+  // Builders spend the user's money: only user settings or a user profile may opt in; a project can only restrict.
+  let build = false;
   for (const [document, label] of [[globalDocument, labels.global], [userProfileDocument, labels.userProfile], [projectDocument, labels.project]] as const) {
     if (document.delegate === undefined || document.delegate === null) continue;
     if (!isMapping(document.delegate)) throw new Error(`${label}: delegate must be a mapping (delegate.build)`);
@@ -1043,7 +1042,7 @@ export async function loadConfiguration(
     ...(display ? { display } : {}),
     ...(theme ? { theme } : {}),
     ...(showPages ? { showPages } : {}),
-    ...(build ? {} : { delegate: { build: false } }),
+    delegate: { build: build === true },
     spend,
     services,
     smoke: parseSmoke(projectDocument.smoke, Object.keys(services), labels.project),

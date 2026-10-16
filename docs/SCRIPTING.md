@@ -128,8 +128,9 @@ A run ends with exactly one `receipt` event, or, when Casper stops before it can
 | `session_start` | `casper` (version), `cwd`, `session` (conversation ID or null), `provider`, `model`, `effort` | The model session starts (not for local `/` commands). |
 | `assistant_delta` | `text` | Streamed model text. |
 | `assistant_message` | `text` | One model response's complete text. |
-| `tool_start` | `tool`, `id`, `target` (path, command or pattern; redacted) | A tool call starts. |
-| `tool_end` | `tool`, `id`, `ok`, `ms` | A tool call ends. `ok` is the tool status, not a check result. |
+| `tool_start` | `tool`, `id`, `target` (path, command or pattern; redacted); delegate adds `role`, `goal`, `part` when known | A tool call starts. |
+| `tool_end` | `tool`, `id`, `ok`, `ms`; delegate adds `role`, `goal`, `part` when known | A tool call ends. `ok` is the tool status, not a check result. A builder's landed part number is known at its end; a part review or fix names it at its start too. Goal previews are redacted and capped at 120 characters. |
+| `usage` | `input`, `cacheRead`, `cacheWrite`, `output`, `tokens`, `estimatedCost`, `helper`? | Each model turn ends, even without text. Unknown fields are null. Helper turns carry their run id. |
 | `check` | `name`, `command`, `status` (`pass`/`fail`/`skip`), `exit`, `ms`, `recordedBy`, `reused`, `ended`?, `kind`?, `label`?, `hosts`?, `summary`? | Casper recorded a check. `recordedBy` is `casper` (auto mode, `/verify`, repair) or `casper_check` (the model asked for it). `ended` appears only on a failure that was not the code failing: `timeout`, `no_start` (could not execute, or the shell's exit 126/127), or (v0.2.17) `blocked` (the shell sandbox refused something the check tried; the receipt text says what). Named checks (`verify.checks.<name>`, v0.2.16) may add `kind` (`report`: a diff that never passes or fails; `lab`: your own lab devices), `label` (a few words such as `dry run not guaranteed`), `hosts` (lab checks) and `summary` (reports). |
 | `phase` | `phase` (`task`, `checklist`, `checks`, `smoke`, `pages`, `review`, `proof`, `acceptance`, `repair`), `state` (`start`/`end`), `atMs` | A stage of Casper's work starts or ends. `smoke` and `pages` (v0.2.16) run inside `checks`. |
 | `receipt` | `outcome`, `exitCode`, `execution`, `changed`, `changedDuringChecks`, `verificationMode`, `checks`, `repairAttempts`, `turnLimit`, `spendLimit`, `remoteChanges`, `remoteNotRun`, `secretInCommand`, `usage`, `proof`, `proofSkipped`, `review`, `acceptance`, `checklist`, `services`, `smoke`, `pages`, `checksPassed`, `repairModels`, `bigModel`, `security`, `task`, `undo`, `sandbox`, `changedWhilePlanning`, `pageNotes`, `verdict`, `text` | The run finished. |
@@ -178,6 +179,11 @@ estimate, not an invoice. Context compaction is not counted. Both totals are `nu
 model calls Casper does not total: a subagent whose usage is unknown (a response without a
 report, a run cut off mid-response or still cleaning up, or a child running the effort
 classifier), or automatic effort's classifier.
+
+Receipt `usage` also includes `input`, `cacheRead`, `cacheWrite` and `output`, summed over
+the main session and helpers. Each entry in `usage.helpers` has the same counts, `tokens`,
+`estimatedCost`, `role`, a redacted `goal` preview and `part` when known. Unreported counts
+stay null, not zero. Existing saved receipts may omit these added fields.
 
 **Proof.** `proof` says whether the tests prove the change (see
 [VERIFICATION.md](VERIFICATION.md#proving-the-change)):

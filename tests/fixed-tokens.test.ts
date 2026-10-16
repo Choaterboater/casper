@@ -60,6 +60,7 @@ async function firstRequest(task: string, options: { git?: boolean; model?: Guid
   await writeFile(path.join(project, "tsconfig.json"), "{}\n");
   await writeFile(path.join(project, "src/math.ts"), "export function add(a: number, b: number): number { return a + b; }\n");
   if (options.git) {
+    await writeFile(path.join(home, ".casper", "config.yaml"), `delegate:\n  build: true\n${options.guidance ? `lean_guidance: ${options.guidance}\n` : ""}`);
     // Builders start from a commit, so a repository with none doesn't offer them.
     execFileSync("git", ["init", "-q", "-b", "main"], { cwd: project });
     execFileSync("git", ["-c", "user.name=Casper Test", "-c", "user.email=casper@example.invalid", "add", "-A"], { cwd: project });
@@ -114,6 +115,7 @@ test("with builders offered (a Git repository) delegate stays within its budget"
   const { toolText } = await firstRequest("Add a sum function to src/math.ts", { git: true });
   const delegate = (JSON.parse(toolText) as Array<{ function: { name: string; description: string } }>).find((tool) => tool.function.name === "delegate")!;
   expect(delegate.function.description).toContain("Role builder");
+  expect(delegate.function.description).toContain("start independent builders in the same turn");
   expect(JSON.stringify(delegate).length).toBeLessThan(BUDGET.delegateWithBuilders);
 });
 

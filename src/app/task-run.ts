@@ -54,7 +54,7 @@ import { explainModelError } from "../runtime/model-errors";
 import { tildePath } from "../new/scaffold";
 import { offerNetworkServer } from "./network-host";
 import { updateFooter, nameConversation, phase, clearSteps } from "./footer";
-import { partsNotReviewed, prepareCapabilities, serviceManager, stopDebugger, planPages, pageNotesFor, pagePaths } from "./task-tools";
+import { reviewPendingParts, partsNotReviewed, prepareCapabilities, serviceManager, stopDebugger, planPages, pageNotesFor, pagePaths } from "./task-tools";
 import type { RequestWords } from "./request-words";
 import { applyWords, hasWords } from "./task-words";
 import { ensureModel, retryModelFailure, bigModelReceipt, bigModelNotice, imagesForModel, switchForPictures, restoreModel } from "./big-model";
@@ -493,6 +493,9 @@ export async function runModelTask(app: CasperApp, prompt: string, options: { fl
   } finally {
     app.taskBaseline = undefined;
     await baseline?.dispose();
+    if (!app.closing && !app.commandAbort?.signal.aborted && !app.taskRuntimeCancelled && !app.taskRuntimeFailed && !app.checkTask?.signal.aborted && app.taskTurnLimit === undefined && !app.taskSpendStop) {
+      await reviewPendingParts(app);
+    }
     // Last, after reviewers, fixes and late repairs: one full sweep before the receipt says done.
     ({ verification, crewChecks } = await finishCrewChecks(app, verificationMode, verification));
     verification = await finishConfiguredTest(app, verification);

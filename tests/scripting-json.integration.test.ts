@@ -20,7 +20,14 @@ shellCheckTest("--json streams v1 JSON Lines on stdout: session, text, tools, Ca
   expect(result.stderr).toContain("✓ Verified · test passed · changed sum.js\n");
   expect(result.stdout).not.toMatch(/[\x1b\u202e]/);
   const receiptText = "✓ Verified — the checks pass, and the tests fail without the change\n✓ Changed 1 file: sum.js\n✓ test passed (grep -q fixed sum.js";
-  const stream = events(result.stdout, await realpath(f.project));
+  const allEvents = events(result.stdout, await realpath(f.project));
+  const usageEvents = allEvents.filter(event => event.type === "usage");
+  expect(usageEvents).toHaveLength(3);
+  for (const event of usageEvents) {
+    expect(event).toMatchObject({ v: 1, type: "usage", input: 100, cacheRead: 0, cacheWrite: 0, output: 20, tokens: 120 });
+    expect(event.estimatedCost).toBeCloseTo(0.00014, 10);
+  }
+  const stream = allEvents.filter(event => event.type !== "usage");
   const receipt = stream.at(-1);
   // The check's time shows only from a second up, with no tenths when they are 0 (1s, 1.4s, 12s).
   expect(receipt.text).toMatch(new RegExp(`^${receiptText.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?:, \\d+(?:\\.\\d)?s)?\\)\\n`));
@@ -52,7 +59,7 @@ shellCheckTest("--json streams v1 JSON Lines on stdout: session, text, tools, Ca
     { v: 1, type: "phase", phase: "proof", state: "end", atMs: "<ms>" },
     { v: 1, type: "receipt", outcome: "verified", exitCode: 0, execution: "completed", changed: ["sum.js"], changedDuringChecks: [],
       verificationMode: "auto", checks: [{ name: "test", command: "grep -q fixed sum.js", status: "pass", exit: 0, ms: "<ms>", fresh: true }],
-      repairAttempts: 0, turnLimit: null, spendLimit: null, remoteChanges: [], remoteNotRun: [], secretInCommand: false, usage: { turns: 3, tokens: 360, estimatedCost: "<cost>" },
+      repairAttempts: 0, turnLimit: null, spendLimit: null, remoteChanges: [], remoteNotRun: [], secretInCommand: false, usage: { turns: 3, tokens: 360, estimatedCost: "<cost>", input: 300, cacheRead: 0, cacheWrite: 0, output: 60 },
       // The check fails on sum.js as it was, so it proves the fix.
       proof: { status: "proven", check: "test", command: "grep -q fixed sum.js", testsChanged: false, without: { exitCode: 1, ended: "fail" } },
       proofSkipped: null,

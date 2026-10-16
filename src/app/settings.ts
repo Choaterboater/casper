@@ -160,7 +160,7 @@ export function settingRows(context: ProjectContext): Setting[] {
   const display = context.display ?? "normal";
   const e2e = context.verification.e2e !== false;
   const compose = context.verification.compose !== false;
-  const build = context.delegate?.build !== false;
+  const build = context.delegate?.build === true;
   const amount = (dollars: number | undefined) => dollars === undefined ? "off" : `at ${formatLimit(dollars)} a task`;
   const money = (key: "noteAt" | "pauseAt", label: string, verbs: [off: string, on: string], about: string): Setting => {
     const now = spend[key];
@@ -248,7 +248,7 @@ export function settingRows(context: ProjectContext): Setting[] {
       keep: `Keep it ${reader.enabled ? "on" : "off"}`,
       choices: [reader.enabled ? { label: "Turn it off", keys: readerKeys, value: false, shown: "off" } : { label: "Turn it on", keys: readerKeys, value: true, shown: "on" }] },
     { label: "Helpers that build", value: build ? "on" : "off", applies: "task",
-      question: `Helpers that build are ${build ? "on" : "off"}. For a big job with separate parts the AI may start up to 3 builders; each works in its own copy of the project and its change lands in your folder when it ends. They use tokens.`,
+      question: `Helpers that build are ${build ? "on" : "off"}. Off by default. When enabled, the AI may start up to 3 independent builders together; each works in its own copy of the project and its change lands in your folder when it ends. They use tokens.`,
       keep: `Keep them ${build ? "on" : "off"}`,
       choices: [build ? { label: "Turn them off", keys: ["delegate", "build"], value: false, shown: "off" }
         : { label: "Turn them on", keys: ["delegate", "build"], value: true, shown: "on" }] },

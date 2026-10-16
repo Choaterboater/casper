@@ -1,10 +1,10 @@
 # Crews: builders in their own copy
 
-**What this is:** for a big job with separate parts, the AI splits the work
-itself. It starts builders, each in its own copy of the project (a Git
+**What this is:** with **Helpers that build** enabled in `/settings` (off by default),
+the AI splits a big job with separate parts itself. It starts builders, each in its own copy of the project (a Git
 worktree), and their changes land in your folder when they end. `/crew` is the
 manual way: you give one builder a job and decide what happens to its work.
-**When you'd use it:** you don't have to do anything; ask for the job as usual.
+**When you'd use it:** enable it once, then ask for the job as usual.
 Say "run a crew" or "split this up" to ask for builders, "by yourself" to keep
 the AI from using them.
 
@@ -35,7 +35,8 @@ This works the way Claude Code's agent tool and omp's task tool do: the main AI
 decides when a job has substantial independent parts (several files each, in different areas),
 and starts a builder for each one with its `delegate` tool. Small or coupled work stays with
 one Casper, rather than paying for builders and reviewers for tiny parts. This is model guidance,
-not a keyword complexity classifier or a hard file-count gate. Nothing asks you first.
+not a keyword complexity classifier or a hard file-count gate. Once enabled, nothing asks you first.
+Independent builders should start in the same turn, rather than one after another.
 
 1. Each builder gets its own copy of your folder as it is now: your unsaved
    and new files are in it, and so is what the AI and earlier builders changed
@@ -66,14 +67,21 @@ not a keyword complexity classifier or a hard file-count gate. Nothing asks you 
    back. A part gets one review before its fix and one after; the second sees
    the fix's own diff and stat. A file the fix touched that the part did not
    is named in the result. When the last builder ends, its result also lists
-the landed parts no reviewer has finished yet: a nudge, never a gate.
+   the landed parts no reviewer has finished yet. Before the receipt, Casper starts any
+   missing review of a substantial part within that same one-review-per-version budget.
+   Parts of at most six added/removed lines may stay unreviewed; binary changes are reviewed.
 
 Up to 3 builders work at once, and 6 per request, besides fix builders: those
 have their own count, and first builds and fixes together stop at 9. The
 live row under the AI's words names reviewers and builders while they work. The footer keeps one task state and one task cost figure. Casper
 also says in a `[crew]` line when a reviewer starts ("A reviewer is checking
 part 2 (3 files)") and when a builder starts fixing what it found. What each one spent
-joins the task's total (and the receipt) when it ends, and counts toward the
+joins the task's total (and the receipt) when it ends. Receipt `usage` includes
+`input`, `cacheRead`, `cacheWrite` and `output` totals, plus the same per helper;
+unreported counts are null, not guessed. The `-p --json` stream records a `usage`
+event per model turn, with a helper id for child turns. Delegate start/end events
+name the role, a redacted goal preview and the part number when known.
+Spend counts toward the
 spend pause while it works: at the pause their tool calls wait for the answer
 too, and "Stop here" stops them, each copy kept.
 
@@ -117,9 +125,11 @@ small or coupled work still stays with one Casper. Words about
 crews themselves ("the crew list", "run the crew tests") don't count.
 "no helpers" or "by yourself" means no builders for that request.
 
-**Turn it off.** `/settings` → Helpers that build (Enter or Space flips it; it writes
-`delegate: { build: false }` in `~/.casper/config.yaml`). A project file may
-turn builders off for itself, never back on for you. Read-only helpers
+**Turn it on.** Builders are off by default. `/settings` → Helpers that build
+(Enter or Space flips it; it writes `delegate: { build: true }` in `~/.casper/config.yaml`).
+Only user settings or a user-selected user profile may turn builders on, like spend limits.
+A project file may only turn them off; `delegate: { build: true }` there does not enable them.
+Read-only helpers
 ([DELEGATION.md](DELEGATION.md)) still work.
 
 **When builders are not offered.** Outside a Git repository, without a first

@@ -29,6 +29,8 @@ async function repository(init = true) {
   cleanup.push(() => removeTempDir(root));
   const home = path.join(root, "home"); const repo = path.join(root, "repo");
   await mkdir(home); await mkdir(repo);
+  await mkdir(path.join(home, ".casper"));
+  await writeFile(path.join(home, ".casper", "config.yaml"), "delegate:\n  build: true\n");
   for (const name of ["a.txt", "b.txt", "c.txt"]) await writeFile(path.join(repo, name), `${name}\n`);
   if (init) {
     await git(repo, "init", "-b", "main");
@@ -83,7 +85,7 @@ class Main implements AgentRuntime {
 
 async function app(repo: string, home: string, main: Main, builder: () => AgentRuntime = () => new Builder()) {
   await mkdir(path.join(repo, ".casper"), { recursive: true });
-  await writeFile(path.join(repo, ".casper", "project.yaml"), stringify({ name: "auto-app" }));
+  await writeFile(path.join(repo, ".casper", "project.yaml"), stringify({ name: "auto-app", delegate: { build: true } }));
   const output: string[] = [];
   const casper = new CasperApp({ runtimeFactory: () => main, subagentRuntimeFactory: builder, noSandbox: true,
     output: { write: (text) => { output.push(text); } }, sessionHomeDir: home,
@@ -435,7 +437,7 @@ class SpendingBuilder implements AgentRuntime {
 test("a builder that ended with its exact cost unknown still counts toward the task's pause", async () => {
   const { home, repo } = await repository();
   await mkdir(path.join(home, ".casper"), { recursive: true });
-  await writeFile(path.join(home, ".casper", "config.yaml"), "spend:\n  pauseAt: 5\n");
+  await writeFile(path.join(home, ".casper", "config.yaml"), "delegate:\n  build: true\nspend:\n  pauseAt: 5\n");
   SpendingBuilder.waits = [];
   const builders = [new SpendingBuilder(4, true), new SpendingBuilder(2)];
   const main = new Main(async (delegate) => { await build(delegate, "write b.txt"); await build(delegate, "write b.txt"); });
@@ -450,7 +452,7 @@ test("a builder that ended with its exact cost unknown still counts toward the t
 test("a running builder's spend counts toward the task's pause: crossing it stops the builder and keeps its copy", async () => {
   const { home, repo } = await repository();
   await mkdir(path.join(home, ".casper"), { recursive: true });
-  await writeFile(path.join(home, ".casper", "config.yaml"), "spend:\n  pauseAt: 5\n");
+  await writeFile(path.join(home, ".casper", "config.yaml"), "delegate:\n  build: true\nspend:\n  pauseAt: 5\n");
   SpendingBuilder.waits = [];
   let result: { text: string; isError?: boolean } | undefined;
   const main = new Main(async (delegate) => { result = await build(delegate, "write b.txt"); });
@@ -468,7 +470,7 @@ test("a running builder's spend counts toward the task's pause: crossing it stop
 test("under the pause a builder's tool calls are not held", async () => {
   const { home, repo } = await repository();
   await mkdir(path.join(home, ".casper"), { recursive: true });
-  await writeFile(path.join(home, ".casper", "config.yaml"), "spend:\n  pauseAt: 5\n");
+  await writeFile(path.join(home, ".casper", "config.yaml"), "delegate:\n  build: true\nspend:\n  pauseAt: 5\n");
   SpendingBuilder.waits = [];
   let result: { text: string; isError?: boolean } | undefined;
   const main = new Main(async (delegate) => { result = await build(delegate, "write b.txt"); });
@@ -496,10 +498,10 @@ test("delegate says a reviewer can check a landed part when builders are offered
   const { home, repo } = await repository();
   let offered = "";
   await (await app(repo, home, new Main(async (delegate) => { offered = delegate.description; }))).casper.runOnce("Change b.txt", repo);
-  expect(offered).toContain("have a reviewer check it");
+  expect(offered).toContain("Review unless a few lines");
   await mkdir(path.join(home, ".casper"), { recursive: true });
   await writeFile(path.join(home, ".casper", "config.yaml"), "delegate:\n  build: false\n");
   let off = "";
   await (await app(repo, home, new Main(async (delegate) => { off = delegate.description; }))).casper.runOnce("Change b.txt", repo);
-  expect(off).not.toContain("have a reviewer check it");
+  expect(off).not.toContain("Review unless a few lines");
 }, 30_000);

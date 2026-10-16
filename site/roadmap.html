@@ -137,12 +137,12 @@
             same sandbox, and your folder stays as it is. Then 1 Keep the copy · 2 Apply to my folder ·
             3 Throw it away. See <code>docs/CREWS.md</code>.</li>
             <li><strong>The AI starts builders itself</strong> <span class="badge">in v0.2.24</span>.
-            For a job with separate parts the AI starts up to 3 builders at once, each in its own copy of
+            Once enabled in <code>/settings</code> (off by default), the AI starts up to 3 independent builders together, each in its own copy of
             your folder as it is (unsaved files too); each
             change lands in your folder when its builder ends, uncommitted, and one <code>/undo</code> takes
             the task back. A change that touches a file changed after its copy started stays in its copy for
             <code>/crew</code>. "run a crew" or "split this up" asks for them, "by yourself" keeps them out; /settings
-            turns them off. The footer shows them (<code>2 builders · $0.12</code>).</li>
+            turns them on or off. The footer shows them (<code>2 builders · $0.12</code>).</li>
             <li><strong>Review, fix</strong> <span class="badge">in v0.2.25</span>. The AI can have a reviewer check each landed part and one
             builder fix what it finds. The footer shows <code>1 reviewer · 2 builders · $0.19</code>, and
             the receipt says in one line which landed parts were not reviewed.</li>

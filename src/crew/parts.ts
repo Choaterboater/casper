@@ -27,6 +27,7 @@ interface Part {
   /** Reviews started on this version (a review that did not run is given back). */
   started: number;
   reviewed: boolean;
+  tiny: boolean;
   /** Why the last review of this version did not finish (a timeout, a failure, a cutoff), in plain words. */
   notFinished?: string;
   /** The one fix round this part gets was started. */
@@ -67,6 +68,18 @@ function excerptOf(patch: Buffer): string {
   return `${whole}[The diff is cut here to ${PART_EXCERPT_BYTES / 1024} KiB; read the files for the rest.]\n`;
 }
 
+function fewLines(patch: Buffer): boolean {
+  const text = patch.toString("utf8");
+  if (/^(?:GIT binary patch|Binary files .* differ)$/m.test(text)) return false;
+  let inHunk = false, lines = 0;
+  for (const line of text.split(/\r?\n/)) {
+    if (line.startsWith("diff --git ")) inHunk = false;
+    else if (line.startsWith("@@")) inHunk = true;
+    else if (inHunk && /^[+-]/.test(line)) lines++;
+  }
+  return lines > 0 && lines <= 6;
+}
+
 export class PartRecord {
   private readonly parts: Part[] = [];
 
@@ -78,7 +91,7 @@ export class PartRecord {
   landed(input: { goal: string; files: string[]; stat: string; patch: Buffer }): number {
     this.revision++;
     this.parts.push({ goal: input.goal, files: [...input.files], stat: input.stat, excerpt: excerptOf(input.patch),
-      version: 0, started: 0, reviewed: false, fixed: false });
+      version: 0, started: 0, reviewed: false, fixed: false, tiny: fewLines(input.patch) });
     return this.parts.length;
   }
 
@@ -133,6 +146,11 @@ export class PartRecord {
     return this.parts.flatMap((part, index) => part.reviewed ? [] : [index + 1]);
   }
 
+  /** Only substantial parts whose current version has not had its one review attempt. */
+  pendingReviews(): number[] {
+    return this.parts.flatMap((part, index) => !part.tiny && !part.reviewed && part.started === 0 ? [index + 1] : []);
+  }
+
   /** The landed parts no reviewer finished, with the files and the reason (for the receipt and /crew). A part counts as
    * reviewed only when its reviewer ended `completed`; a timeout, a failure or a cutoff leaves it here. */
   notReviewed(): PartNotReviewed[] {
@@ -172,6 +190,7 @@ export class PartRecord {
     if (!part) return [];
     this.revision++;
     part.excerpt = `(The diff of the fix round, on top of the part's earlier change.)\n${excerptOf(patch)}`;
+    part.tiny = part.tiny && fewLines(patch);
     part.version++;
     part.started = 0;
     part.reviewed = false;

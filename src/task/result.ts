@@ -26,7 +26,7 @@ export interface ObservedCheck {
   truncated: boolean;
 }
 
-/** Model use by the main conversation during one task, repair prompts included. */
+/** Model use during one task, including repairs and helpers. Turns stay the main conversation's own. */
 export interface TaskUsage {
   /** Model responses (turns). */
   turns: number;
@@ -35,6 +35,11 @@ export interface TaskUsage {
    * classifier): unknown, never an undercount. The cost is a catalog estimate, never an invoice. */
   tokens: number | null;
   estimatedCost: number | null;
+  input?: number | null;
+  cacheRead?: number | null;
+  cacheWrite?: number | null;
+  output?: number | null;
+  helpers?: Array<Omit<TaskUsage, "turns" | "helpers"> & { role: "explorer" | "reviewer" | "builder"; goal: string; part?: number }>;
 }
 
 /** One acknowledged cleanup incident; commands are safe display-only previews. */

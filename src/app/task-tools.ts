@@ -86,7 +86,7 @@ export function delegateTool(app: CasperApp): RuntimeTool {
   app.delegateToolForTask ??= app.subagents.createTool(() => ({
     cwd: app.activeWorkspaceRoot(),
     projectContext: formatProjectContext(app.projectContext!),
-  }), (usage, known) => app.observations.recordDelegatedUsage(usage, known), autoBuilders({
+  }), (usage, known, helper, automatic) => app.observations.recordDelegatedUsage(usage, known, helper, automatic), autoBuilders({
     root: app.activeWorkspaceRoot(), homeDir: app.homeDir(),
     projectContext: formatProjectContext(app.projectContext!),
     // The task's spend pause sees a builder's spend while it works, and holds its tool calls too. The question
@@ -108,6 +108,11 @@ export function delegateTool(app: CasperApp): RuntimeTool {
   return app.delegateToolForTask;
 }
 
+/** Fill missing substantial-part reviews within their existing budget before the receipt. */
+export async function reviewPendingParts(app: CasperApp): Promise<void> {
+  await app.delegateToolForTask?.reviewPending(app.commandAbort?.signal);
+}
+
 /** The parts builders landed this task that no reviewer finished, for the receipt. */
 export function partsNotReviewed(app: CasperApp): PartNotReviewed[] { return app.crewParts?.notReviewed() ?? []; }
 
@@ -122,7 +127,7 @@ export function metadataQuestion(sessionYes: SessionYes): NonNullable<BrowserSes
 /** Why the AI can't start builders here now: turned off, no shell yet, or not a Git repository. */
 export async function buildersOff(app: CasperApp): Promise<string | undefined> {
   const sandbox = app.sandbox;
-  return builderAvailability({ root: app.activeWorkspaceRoot(), homeDir: app.homeDir(), off: app.projectContext?.delegate?.build === false,
+  return builderAvailability({ root: app.activeWorkspaceRoot(), homeDir: app.homeDir(), off: app.projectContext?.delegate?.build !== true,
     sandbox: !sandbox?.store ? "none" : sandbox.asksFirst ? "asks" : "ready" }).catch(() => "Casper could not read this folder's Git state");
 }
 

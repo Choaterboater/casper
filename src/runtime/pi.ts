@@ -502,11 +502,11 @@ class PiRuntimeSession implements RuntimeSession {
           break;
         case "message_end":
           if (event.message.role === "assistant") {
-            const { totalTokens, cost } = event.message.usage ?? {};
+            const { totalTokens, cost, input, cacheRead, cacheWrite, output } = event.message.usage ?? {};
             const reported = Number.isFinite(totalTokens) && Number.isFinite(cost?.total);
             const end = {
               type: "assistant_response_end" as const, stopReason: event.message.stopReason, errorMessage: event.message.errorMessage,
-              ...(reported ? { usage: { tokens: totalTokens, estimatedCost: cost.total } } : {}),
+              ...(reported ? { usage: { tokens: totalTokens, estimatedCost: cost.total, input, cacheRead, cacheWrite, output } } : {}),
             };
             // A provider error may be retried: Pi decides at agent_end, so the error waits until then.
             if (event.message.stopReason === "error") this.heldError = end; else this.emit(end);

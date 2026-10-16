@@ -1,3 +1,4 @@
+import { redactPreview } from "../tui/format";
 import { homedir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -6,7 +7,7 @@ import { hideCommandSecrets } from "../secrets/files";
 /** Native edit/write paths are literal filesystem paths, not tool-input syntax. `pattern` (grep/find),
  * `check` (casper_check), `url` (web_fetch) and `query` (web_search) are identities shown in tool
  * activity; never an edit body or an arbitrary argument. */
-export interface ToolObservationInput { path?: string; command?: string; operation?: string; pattern?: string; check?: string; url?: string; query?: string;
+export interface ToolObservationInput { role?: "explorer" | "reviewer" | "builder"; goal?: string; of?: number; path?: string; command?: string; operation?: string; pattern?: string; check?: string; url?: string; query?: string;
   /** The command held a secret the AI typed into it; `command` has it hidden. */
   secretHidden?: true }
 
@@ -37,6 +38,14 @@ export function observationInput(value: unknown): ToolObservationInput {
     const field = Reflect.get(value, key);
     // Omit oversized identities: truncating could match a different command/path.
     if (typeof field === "string" && Buffer.byteLength(field) <= 8192) result[key] = field;
+  }
+  const role = Reflect.get(value, "role");
+  if (["explorer", "reviewer", "builder"].includes(role)) {
+    result.role = role;
+    const goal = Reflect.get(value, "goal");
+    if (typeof goal === "string") result.goal = redactPreview(goal).replace(/\s+/g, " ").slice(0, 120);
+    const of = Reflect.get(value, "of");
+    if (role !== "explorer" && Number.isSafeInteger(of) && of > 0) result.of = of;
   }
   // A password or token the AI typed into a command is hidden before Casper shows or keeps the command.
   if (result.command !== undefined) {
