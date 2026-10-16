@@ -78,6 +78,7 @@
           </li>
           <li><a href="#released">Released</a>
             <ul>
+              <li><a href="#v0237">v0.2.37: builders opt-in</a></li>
               <li><a href="#v0236">v0.2.36: plans and updates</a></li>
               <li><a href="#v0235">v0.2.35: plain steps</a></li>
               <li><a href="#v0234">v0.2.34: Claude Code plan login</a></li>
@@ -113,7 +114,7 @@
         <h2 id="next-h">Next release</h2>
         <aside class="callout soon">
           <strong class="callout-title">Built, not released</strong>
-          <p>Nothing on the main branch is waiting: everything built so far is in v0.2.36. New work shows here before the next preview.</p>
+          <p>Nothing on the main branch is waiting: everything built so far is in v0.2.37. New work shows here before the next preview.</p>
         </aside>
       </section>
 
@@ -355,10 +356,24 @@
         and on the <a href="https://github.com/Choaterboater/casper/releases">Releases page</a>.</p>
         <div class="stack">
 
+        <details class="card release" id="v0237" aria-labelledby="v0237-h" open>
+          <summary class="release-heading">
+            <h3 id="v0237-h">v0.2.37 · Builders opt-in, reviewed parts and token usage</h3>
+            <span class="badge ok">current preview</span>
+          </summary>
+          <ul>
+            <li><strong>Helpers that build are off by default.</strong> Turn them on in <code>/settings</code> (Checks) or a user profile; a project file can only turn them off. Explorer and reviewer helpers, <code>/crew</code> and background builds are unchanged.</li>
+            <li>When builders are on, independent ones start together, and substantial landed parts get any missing review before the receipt, within the existing review budget.</li>
+            <li>Receipts show input, cached input, cache writes and output, overall and for each helper. <code>--json</code> runs add usage for each model turn and name each helper's role, a short redacted goal and its part.</li>
+            <li>Working rules say to keep behaviour the task did not ask about and to write code for every operating system the project targets.</li>
+            <li>A debugger target naming a macOS command shim such as <code>python3</code> launches that command, not another shim sharing its file.</li>
+          </ul>
+        </details>
+
         <details class="card release" id="v0236" aria-labelledby="v0236-h" open>
           <summary class="release-heading">
             <h3 id="v0236-h">v0.2.36 · Empty projects, designed plans, model servers, quieter commands and background updates</h3>
-            <span class="badge ok">current preview</span>
+            <span class="badge">previous preview</span>
           </summary>
           <ul>
             <li><code>casper new &lt;name&gt;</code> asks nothing: it opens an empty <code>~/Projects/&lt;name&gt;</code> or the existing folder; no name picks a free <code>my-project</code>. Explicit templates still work.</li>
@@ -382,7 +397,7 @@
         <details class="card release" id="v0235" aria-labelledby="v0235-h" open>
           <summary class="release-heading">
             <h3 id="v0235-h">v0.2.35 · Plain live steps, plans in words, a grouped /settings, Crews complete, Windows updates</h3>
-            <span class="badge">previous preview</span>
+            <span class="badge">released</span>
           </summary>
           <ul>
             <li>The live steps read in plain words (<code>Looking through the code: 14 searches, 9 files read</code>, <code>Edited roadmap.html</code>, <code>Ran the tests</code>); <kbd>Ctrl+O</kbd> shows the raw steps, as in Claude Code, Pi and omp. MCP writes off moves to <kbd>Ctrl+X</kbd>.</li>
@@ -396,7 +411,7 @@
           </ul>
         </details>
 
-        <details class="card release" id="v0234" aria-labelledby="v0234-h" open>
+        <details class="card release" id="v0234" aria-labelledby="v0234-h">
           <summary class="release-heading">
             <h3 id="v0234-h">v0.2.34 · Claude Code plan login and leaner conversation history</h3>
             <span class="badge">released</span>
@@ -1107,7 +1122,7 @@
   <footer class="site-footer">
     <div class="container footer-inner">
       <div>
-        <p><strong>Casper 0.2.36</strong> · early preview, unsigned</p>
+        <p><strong>Casper 0.2.37</strong> · early preview, unsigned</p>
         <p><a href="https://github.com/Choaterboater/casper/blob/main/LICENSE">MIT licence</a> · © 2026 Choaterboater</p>
         <p>Built on the <a href="https://github.com/earendil-works/pi">Pi SDK</a>. Other parts keep their own licences (<a href="https://github.com/Choaterboater/casper/blob/main/THIRD_PARTY_NOTICES.txt">notices</a>).</p>
       </div>

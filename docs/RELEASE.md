@@ -14,11 +14,28 @@ when releasing. Existing historical notes below stay as written; feature tests c
 reference docs, not a per-PR release-note or roadmap entry. Release-prep checks verify the version and
 installer targets (`tests/release-install.test.ts`, `tests/release-targets.test.ts`).
 
-Casper distributes an unsigned **v0.2.36 preview**, not a stable release. The installers
-download from `https://github.com/Choaterboater/casper/releases/download/v0.2.36`,
+Casper distributes an unsigned **v0.2.37 preview**, not a stable release. The installers
+download from `https://github.com/Choaterboater/casper/releases/download/v0.2.37`,
 because GitHub's `latest/download` link skips preview releases. The first published
 preview was **v0.1.0**. A published release is never changed; every fix ships under a
 new version.
+
+## v0.2.37: builders opt-in, reviewed parts and token usage
+
+### Added
+
+- Receipts show input, cached input, cache-write and output tokens, overall and for each helper.
+- `--json` runs report usage for each model turn and name each helper's role, goal and part.
+
+### Changed
+
+- Helpers that build are off by default; turn them on in `/settings`, and a project can only turn them off.
+- When builders are on, independent ones start together and substantial landed parts are reviewed before the receipt.
+- Casper's working rules now say to keep behaviour the task did not ask about and to support every target system.
+
+### Fixed
+
+- On macOS, a debugger target naming a command shim such as `python3` now launches that command.
 
 ## v0.2.36: empty projects, designed plans, model servers, quieter commands and background updates
 
