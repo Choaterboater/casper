@@ -162,5 +162,5 @@ test.each(["README.md", "site/tour.html", "site/faq.html"])("%s updates its plan
   expect(text).toContain("Ctrl+G");
   expect(text).toContain("model report");
   expect(text).toContain("not check proof");
-  expect(text).toMatch(/built, not released/i);
+  expect(text).not.toMatch(/built, not released/i);
 });

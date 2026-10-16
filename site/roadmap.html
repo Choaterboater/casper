@@ -78,6 +78,7 @@
           </li>
           <li><a href="#released">Released</a>
             <ul>
+              <li><a href="#v0236">v0.2.36: plans and updates</a></li>
               <li><a href="#v0235">v0.2.35: plain steps</a></li>
               <li><a href="#v0234">v0.2.34: Claude Code plan login</a></li>
               <li><a href="#v0233">v0.2.33: fewer interruptions</a></li>
@@ -112,29 +113,7 @@
         <h2 id="next-h">Next release</h2>
         <aside class="callout soon">
           <strong class="callout-title">Built, not released</strong>
-          <p>The v0.2.35 preview has everything up to the Windows update fix. Built since then, in the next one:</p>
-          <ul>
-            <li><strong>Background self-updates.</strong> On by default through the same verified <code>casper update</code> path; clean default-branch checkouts only fast-forward. No installs during task checks or one-shot/JSON runs, no restart or reload, at most one install attempt a day. A right-aligned success-colour row above the prompt says <code>✔ Update installed · restart to use it</code>, while idle or working; it shortens then hides on narrow screens. Windows installs after exit. Quiet failures go to <code>~/.casper/update.log</code>. <strong>Updates: auto / notify only / off</strong> replaces New-version notice; legacy booleans still work. Daily checks also get one extra probe a few minutes into a session.</li>
-            <li><code>casper "words"</code> starts a persistent session with those words as its first request when stdin and stdout are both TTYs, no forcing flags are given and <code>CI</code> is unset. Use <code>-p</code> / <code>--print</code> to run once and exit; use <code>-p</code> explicitly in scripts. Existing scripts stay one-shot when either stream is non-TTY, or with <code>--json</code>, a lone <code>-</code> prompt, <code>--require-verification</code>, <code>--max-turns</code>, or <code>CI</code> set. Receipts and exit codes are unchanged.</li>
-            <li>At home or a drive root, an interactive lone word that isn't a folder asks whether you meant a request or a new project of that name; no project is created without your choice. Existing folders still open directly; elsewhere, or with two or more words, there is no such question. One-shot runs never ask it; <code>casper new &lt;name&gt;</code> explicitly starts the named project.</li>
-            <li>Fewer command interruptions: individual public config reads, command lookup, process information (not environments), safe fetches and project-file redirects skip approval; builder checks use their own copy. A session yes for <code>bun test</code> covers other project test files and log tails. Boxes keep Casper's question first, then the dimmed reason labelled "The model says:", and keep command line breaks in a head/gap/tail preview; consequential middle lines stay visible. Literal project-path environment assignments, safe set prefixes and read-only test filters preserve routine/test approvals; existence tests and version-only invocations are reads.</li>
-            <li><strong>Readable footer.</strong> One state on the left, project/model/context/one task figure on the right. Narrow windows drop cost, context, then model. Matching folder and branch names appear once; empty working prompts say “type to queue a message”. Command-line requests use the typed request’s ❯ and colour. Session-only check edits leave a quiet kept-file note and do not ask again in that task. Coding-agent launches and unrelated tmux servers are refused unless the person explicitly asks; private named servers created this task remain usable.</li>
-            <li><strong>Terminal polish.</strong> Shared arrow-first pickers with <code>1.</code> shortcuts, no empty input row, inline No comments, dim one-sentence reasons and framed commands. One gap and left edge, 120-column boxes, twelve-line edit previews, failure-first diagnostics and quiet recovered errors. Live crew rows show activity, time and tokens above the prompt; Ctrl+O opens details. Built, not released.</li>
-            <li><strong>Build-observation fixes.</strong> Network skills require a real subject match. Configured-check rewrites ask with old → new, or use a session-only command without writing files. Receipts count task commits, amendments and cherry-picks; proof copies keep safe named ignored check inputs and explain unsupported ones. Read guidance favors <code>read</code>/<code>wc</code>/<code>tail</code>; crews are for substantial independent multi-file parts. Bundled playbook data no longer triggers check suggestions, and a lone suggestion starts at 1. <code>git rev-list</code>, <code>show-ref</code> and <code>for-each-ref</code> accept listed read options without approval, but not stdin or output-writing options.</li>
-            <li><code>casper new &lt;name&gt;</code> asks nothing: it makes an empty project in <code>~/Projects/&lt;name&gt;</code> (or opens it when it exists) and opens Casper there. No "what kind?" question; name a template only when you want one.</li>
-            <li><strong>Plans designed before building.</strong> Optional <code>/plan</code> returns a plan directly for a clear request. Only choices that change the build get at most 3 questions in one round, each with 2-4 options and the normal picker's Type your own. The host parses the initial question JSON; the next prompt contains the answers and must return a plan without more questions. The read-only planning gate is unchanged.</li>
-            <li>Existing-project plans have Title, Goal, What I found, What you'll see (a mock-up at most 60 columns), numbered Steps, Done means (criteria including checks), Open questions only for unknowns, and optional Details. A new/empty folder or a request to make an app, site or game gets a spec: Goal, Screens, Data, Look (a named style), First version, Later and Done means, without forced implementation steps.</li>
-            <li>The rich plan has an accent frame at most 80 columns, with dim paths, hanging bullets and small dim mock-up boxes below the prose. Known main step files align right; statements move from Open questions to What I found. Plain terminals and <code>NO_COLOR</code> have no frame. <kbd>Ctrl+T</kbd> shows Details; <kbd>Ctrl+G</kbd> opens the saved Markdown using <code>VISUAL</code> or <code>EDITOR</code>, then rereads it and shows the plan again. <strong>1 Stop · 2 Build · 3 Change the plan</strong> stays: choice 3 takes plain words and the model rewrites the whole plan. Enter stops, never builds.</li>
-            <li>Plans are gitignored at <code>.casper/plans/date-slug.md</code>; <code>/plan</code> alone lists recent plans to reopen. Build gets the accepted plan and its Done means checklist; work names the current step, such as <code>Step 2 of 4 · Draw the header</code>. The receipt reports each item from Steps (or First version in a spec): completed items as done, not-done items with reasons, labelled <strong>model report</strong>, not check proof. Recorded checks still decide verification.</li>
-          </ul>
-          <p><strong>SGLang and MLX model servers.</strong> Automatic local discovery adds SGLang on loopback
-          port 30000; MLX shares the existing 8080 probe. In <code>/model</code>, <code>+ Add server</code> with
-          an address such as <code>192.0.2.10</code> tries five usual ports; every server kind is also offered
-          explicitly, including SGLang (30000) and MLX (8080). No new login providers or API keys.</p>
-          <p>Streaming OpenAI-compatible chat and tool calls depend on the model and server flags
-          (SGLang may need <code>--tool-call-parser</code>). Remote detection recognizes vllm-mlx's
-          <code>owned_by</code> marker as MLX; MLX LM without a reliable identity marker stays OpenAI-style,
-          with an explicit MLX choice as the fallback. Built, not in v0.2.35; ships with the next preview.</p>
+          <p>Nothing on the main branch is waiting: everything built so far is in v0.2.36. New work shows here before the next preview.</p>
         </aside>
       </section>
 
@@ -376,10 +355,34 @@
         and on the <a href="https://github.com/Choaterboater/casper/releases">Releases page</a>.</p>
         <div class="stack">
 
+        <details class="card release" id="v0236" aria-labelledby="v0236-h" open>
+          <summary class="release-heading">
+            <h3 id="v0236-h">v0.2.36 · Empty projects, designed plans, model servers, quieter commands and background updates</h3>
+            <span class="badge ok">current preview</span>
+          </summary>
+          <ul>
+            <li><code>casper new &lt;name&gt;</code> asks nothing: it opens an empty <code>~/Projects/&lt;name&gt;</code> or the existing folder; no name picks a free <code>my-project</code>. Explicit templates still work.</li>
+            <li><code>casper "words"</code> starts a persistent session when both streams are TTYs, no forcing flags are given and <code>CI</code> is unset. Use <code>-p</code> / <code>--print</code> to run once; scripts, JSON, stdin prompts and explicit one-shot flags keep their receipts and exit codes.</li>
+            <li>At home or a drive root, an interactive lone word that is not a folder asks whether it means a request or a new project; no project is created without your choice. Existing folders still open; multi-word and one-shot requests never ask.</li>
+            <li><strong>Plans designed before building.</strong> Optional <code>/plan</code> answers clear requests directly; only build-changing choices get up to 3 questions in one round, with 2–4 options or your own answer, then a plan. Existing projects get findings, mock-ups, steps and Done means; new apps/sites/games get a first-version spec for screens, data, look and scope.</li>
+            <li>Plans are saved in gitignored <code>.casper/plans/</code>; <code>/plan</code> reopens recent ones, <kbd>Ctrl+G</kbd> edits Markdown with <code>VISUAL</code>/<code>EDITOR</code>, and <kbd>Ctrl+T</kbd> shows Details. Rich plans have dim paths and mock-ups; plain terminals and <code>NO_COLOR</code> have no frame. Change the plan still takes words; Enter stops, never builds.</li>
+            <li>Build gets the accepted plan and checklist and names the current step. Receipts report each step or first-version item as done or not done with a reason, labelled <strong>model report</strong>, not check proof.</li>
+            <li><strong>SGLang and MLX model servers.</strong> Local or remote detection tries five usual ports, including SGLang on 30000 and MLX on 8080; <code>/model</code> → <code>+ Add server</code> works without sign-ins. Explicit server choices remain fallbacks; streaming chat/tool calls depend on model/server flags, and MLX LM without an identity marker needs the explicit MLX choice. No new API keys.</li>
+            <li><strong>Background self-updates.</strong> On by default through the verified update path; clean default-branch checkouts only fast-forward. Installs wait for idle time, never task checks or one-shot/JSON runs, and try at most daily. The prompt notice says <code>✔ Update installed · restart to use it</code>; nothing restarts or reloads Casper. Windows waits for exit through WMI. Failures name <code>~/.casper/update.log</code>; <strong>Updates: auto / notify only / off</strong> replaces New-version notice. The 0.2.35 → 0.2.36 Windows upgrade is the first real WMI handoff test, not yet verified on a real PC.</li>
+            <li>Fewer command interruptions for public reads, safe fetches and project redirects; a session yes for <code>bun test</code> covers other project test files and log tails. Command boxes keep Casper's question first, then the dimmed model reason and a head/gap/tail preview with consequential middle lines visible. Sensitive reads, outside/private writes and forced fetches keep their gates.</li>
+            <li>Shared arrow-first pickers, inline refusal words, one gap and left edge, framed commands and twelve-line edit previews. Real failures retain diagnostics and test counts; lookup misses and recovered errors become quiet notes.</li>
+            <li>The footer keeps one state and one task figure, drops detail on narrow screens and separates waiting time; matching folder/branch names show once. Working prompts say <code>type to queue a message</code>, and command-line requests echo like typed ones. Live crew rows show activity, time and tokens; Ctrl+O opens details and Alt+O raw steps.</li>
+            <li>Configured-check rewrites ask with old → new; approved replacements apply now or can be session-only without a file write or repeated questions that task. Coding-agent launches and unowned tmux servers require your explicit request; task-created private servers remain usable. Builders are for substantial independent areas.</li>
+            <li>Network skills require a real subject match, and bundled playbook data no longer triggers check suggestions. Receipts count task commits, amendments and cherry-picks; proof copies keep safe named ignored check inputs and explain unsupported ones.</li>
+            <li>Checks enforce a wall-clock deadline even with output, retain the last announced test file during silence and attempt owned-worker cleanup. Unconfirmed cleanup offers <strong>Stop them</strong> or <strong>Leave them running</strong>, records the outcome and permits later work; unattended runs exit nonzero. Undo releases cancelled git pipes, and successful git snapshots do not wait for a missed close event.</li>
+            <li>Supported Bun commands use changed and import-related tests during work, then the unchanged configured test once at the end; a final green never erases unresolved targeted failures.</li>
+          </ul>
+        </details>
+
         <details class="card release" id="v0235" aria-labelledby="v0235-h" open>
           <summary class="release-heading">
             <h3 id="v0235-h">v0.2.35 · Plain live steps, plans in words, a grouped /settings, Crews complete, Windows updates</h3>
-            <span class="badge ok">current preview</span>
+            <span class="badge">previous preview</span>
           </summary>
           <ul>
             <li>The live steps read in plain words (<code>Looking through the code: 14 searches, 9 files read</code>, <code>Edited roadmap.html</code>, <code>Ran the tests</code>); <kbd>Ctrl+O</kbd> shows the raw steps, as in Claude Code, Pi and omp. MCP writes off moves to <kbd>Ctrl+X</kbd>.</li>
@@ -396,7 +399,7 @@
         <details class="card release" id="v0234" aria-labelledby="v0234-h" open>
           <summary class="release-heading">
             <h3 id="v0234-h">v0.2.34 · Claude Code plan login and leaner conversation history</h3>
-            <span class="badge">previous preview</span>
+            <span class="badge">released</span>
           </summary>
           <ul>
             <li><code>/login claude-subscription</code> reuses Claude Code's verified plan login or starts its own browser sign-in; no plan tokens are copied into Casper.</li>
@@ -405,7 +408,7 @@
           </ul>
           </details>
 
-        <details class="card release" id="v0233" aria-labelledby="v0233-h" open>
+        <details class="card release" id="v0233" aria-labelledby="v0233-h">
           <summary class="release-heading">
             <h3 id="v0233-h">v0.2.33 · Fewer interruptions, a browser the AI drives itself, slow commands that keep running</h3>
             <span class="badge">released</span>
@@ -1104,7 +1107,7 @@
   <footer class="site-footer">
     <div class="container footer-inner">
       <div>
-        <p><strong>Casper 0.2.35</strong> · early preview, unsigned</p>
+        <p><strong>Casper 0.2.36</strong> · early preview, unsigned</p>
         <p><a href="https://github.com/Choaterboater/casper/blob/main/LICENSE">MIT licence</a> · © 2026 Choaterboater</p>
         <p>Built on the <a href="https://github.com/earendil-works/pi">Pi SDK</a>. Other parts keep their own licences (<a href="https://github.com/Choaterboater/casper/blob/main/THIRD_PARTY_NOTICES.txt">notices</a>).</p>
       </div>

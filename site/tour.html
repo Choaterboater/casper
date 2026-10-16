@@ -38,7 +38,7 @@
       <div class="contents-layout">
       <header class="page-head">
         <h1>Feature tour</h1>
-        <p class="lead">Here are the big things Casper 0.2.35 does, one at a time, with the real text it prints. Newer parts that have no picture here are listed under <a href="#more">More in 0.2.35</a> and on the <a href="roadmap.html">roadmap</a>.</p>
+        <p class="lead">Here are the big things Casper 0.2.36 does, one at a time, with the real text it prints. Newer parts that have no picture here are listed under <a href="#more">More in 0.2.36</a> and on the <a href="roadmap.html">roadmap</a>.</p>
 
         <aside class="callout note">
           <strong class="callout-title">About the terminal boxes on this page</strong>
@@ -65,7 +65,7 @@
           <li><a href="#sessions">Sessions</a></li>
           <li><a href="#choices">Numbered choices</a></li>
           <li><a href="#terminal">Rich or plain terminal</a></li>
-          <li><a href="#more">More in 0.2.35</a></li>
+          <li><a href="#more">More in 0.2.36</a></li>
         </ul>
       </nav>
 
@@ -570,7 +570,7 @@ command output: on. Extra check: netconan not found (built-in only).</pre>
 
       <section id="scripting" aria-labelledby="scripting-h">
         <h2 id="scripting-h">Scripting: --json and exit codes</h2>
-        <p><strong>Built, not released:</strong> <code>casper "your request"</code> starts a persistent
+        <p><strong>Since 0.2.36:</strong> <code>casper "your request"</code> starts a persistent
         session with that first request when stdin and stdout are both TTYs, no forcing flags are given
         and <code>CI</code> is unset. Use <code>casper -p "your request"</code> (or <code>--print</code>)
         to run once and exit; use <code>-p</code> explicitly in scripts.</p>
@@ -745,7 +745,7 @@ on in ~/.casper/config.yaml)</pre>
             <h3>Plain</h3>
             <p><code>NO_COLOR</code> keeps the layout and drops the color. <code>TERM=dumb</code> or
             redirected output gives plain text lines, and a narrow window gets a one-line
-            <code>CASPER 0.2.35 · your coding companion</code> header instead of the art.</p>
+            <code>CASPER 0.2.36 · your coding companion</code> header instead of the art.</p>
           </article>
         </div>
         <details>
@@ -801,7 +801,7 @@ Ctrl+T shows the last step in full. Ctrl+V pastes a picture. Ctrl+C twice on an 
       </section>
 
       <section id="more" aria-labelledby="more-h">
-        <h2 id="more-h">More in 0.2.35</h2>
+        <h2 id="more-h">More in 0.2.36</h2>
         <p>These have no terminal picture on this page. Each card links to its guide.</p>
         <div class="grid">
           <a class="card" href="https://github.com/Choaterboater/casper/blob/main/docs/UNDO.md">
@@ -819,7 +819,7 @@ Ctrl+T shows the last step in full. Ctrl+V pastes a picture. Ctrl+C twice on an 
           <a class="card" href="https://github.com/Choaterboater/casper/blob/main/docs/TERMINAL_UX.md">
             <h3>Plans and live steps</h3>
             <p><code>/plan &lt;request&gt;</code> is optional. A clear request gets a plan directly; only choices that change the build get up to 3 questions in one round. Existing projects get numbered steps and Done means checks; new apps, sites and games get a first-version spec without forced steps. <code>1 Stop · 2 Build · 3 Change the plan</code>: say what to change in plain words and the model rewrites it; Enter never builds.</p>
-            <p><strong>Built, not released:</strong> the new plan view has an accent frame at most 80 columns, dim paths, and no frame in plain terminals or <code>NO_COLOR</code>. <kbd>Ctrl+T</kbd> shows Details; <kbd>Ctrl+G</kbd> opens saved Markdown using <code>VISUAL</code> or <code>EDITOR</code> and rereads it on return. <code>/plan</code> alone reopens recent gitignored plans. Build gets the checklist; work names the current step. The receipt reports each item from Steps (or First version in a spec): completed items as done, not-done items with reasons, labelled <strong>model report</strong>, not check proof.</p>
+            <p><strong>Since 0.2.36:</strong> the new plan view has an accent frame at most 80 columns, dim paths, and no frame in plain terminals or <code>NO_COLOR</code>. <kbd>Ctrl+T</kbd> shows Details; <kbd>Ctrl+G</kbd> opens saved Markdown using <code>VISUAL</code> or <code>EDITOR</code> and rereads it on return. <code>/plan</code> alone reopens recent gitignored plans. Build gets the checklist; work names the current step. The receipt reports each item from Steps (or First version in a spec): completed items as done, not-done items with reasons, labelled <strong>model report</strong>, not check proof.</p>
             <p>While Casper works, the steps read in plain words (<code>Looking through the code: 14 searches, 9 files read</code>, <code>Ran the tests</code>); <kbd>Ctrl+O</kbd> shows the raw tool calls, <kbd>Ctrl+T</kbd> the last step in full, and <kbd>Ctrl+X</kbd> turns MCP writes off.</p>
           </a>
           <a class="card" href="https://github.com/Choaterboater/casper/blob/main/docs/CREWS.md">
@@ -856,7 +856,7 @@ Ctrl+T shows the last step in full. Ctrl+V pastes a picture. Ctrl+C twice on an 
   <footer class="site-footer">
     <div class="container footer-inner">
       <div>
-        <p><strong>Casper 0.2.35</strong> · early preview, unsigned</p>
+        <p><strong>Casper 0.2.36</strong> · early preview, unsigned</p>
         <p><a href="https://github.com/Choaterboater/casper/blob/main/LICENSE">MIT licence</a> · © 2026 Choaterboater</p>
         <p>Built on the <a href="https://github.com/earendil-works/pi">Pi SDK</a>. Other parts keep their own licences (<a href="https://github.com/Choaterboater/casper/blob/main/THIRD_PARTY_NOTICES.txt">notices</a>).</p>
       </div>

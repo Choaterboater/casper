@@ -18,10 +18,10 @@ then either apply the result or throw it away after you look at the diff.
 
 ## Commands
 
-**Built, not released (next preview):** `casper "your request"` opens an interactive session
+**Since v0.2.36:** `casper "your request"` opens an interactive session
 with that first request when stdin and stdout are both TTYs, no forcing flags are given and `CI`
-is unset. Use `-p` / `--print` for a one-shot run, as in the examples below; v0.2.35 still runs a
-command-line prompt once. See [SCRIPTING.md](SCRIPTING.md) for the modes and script compatibility.
+is unset. Use `-p` / `--print` for a one-shot run, as in the examples below.
+See [SCRIPTING.md](SCRIPTING.md) for the modes and script compatibility.
 
 Interactive commands:
 

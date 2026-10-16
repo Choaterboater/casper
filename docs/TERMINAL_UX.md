@@ -144,7 +144,7 @@ Words never grant permission: approvals still ask as always.
 
 ## Current interface
 
-Run `casper` in your project. **Built, not released (next preview):** `casper "your request"`
+Run `casper` in your project. **Since v0.2.36:** `casper "your request"`
 starts the same persistent session with that first request when stdin and stdout are both TTYs
 (terminals), no forcing flags are given and `CI` is unset. It stays open for follow-ups.
 Use `casper -p "your request"` (or `--print`) to run once and exit; use `-p` explicitly in scripts.
@@ -171,7 +171,7 @@ or gives an example, and a second line says `casper new` starts a new project. T
 even one that only holds projects (such as `~/Projects`); when it holds two or more, one line
 names them (up to four) and the command to open one, such as `casper aibot`.
 
-In the next preview, a lone command-line word that isn't a folder, from home or a drive root
+A lone command-line word that isn't a folder, from home or a drive root
 (`casper myapp`, for example), asks whether you meant a request or a new project of that name.
 A new project is not created without your choice. Existing folders still open directly; elsewhere,
 or with two or more words, there is no such question. Explicit one-shot runs never ask it.
@@ -303,7 +303,7 @@ A narrow window shortens that to `✔ restart to update`, then hides it rather t
 Other update notices keep their text, dropping the detail after `·` when needed; they never become restart
 advice. `NO_COLOR` keeps the words and alignment without colour. The row yields to questions, pickers and
 screens too short to keep the prompt, live steps and footer visible; it never takes room from the footer's
-folder, model or state. Without an install it says `Casper 0.2.36 is out · casper update` (or
+folder, model or state. Without an install it says `Casper 0.2.37 is out · casper update` (or
 `Casper update ready · casper update` for a checkout); a quiet failure says `update failed · casper update`.
 Plain terminals print one `[update] …` line instead, once per session. **Updates: off** in `/settings`
 (`updates: off`, also legacy `updates: false`) hides the row

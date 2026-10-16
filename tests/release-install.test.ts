@@ -232,7 +232,7 @@ test("every place that names the release agrees on one version", async () => {
   expect(JSON.parse(await read("package.json")).version).toBe(CASPER_VERSION);
   const tag = `v${CASPER_VERSION}`;
   const pinned = /releases\/download\/(v\d+\.\d+\.\d+[\w.-]*)/g;
-  for (const file of ["README.md", "docs/SCRIPTING.md", "scripts/install.sh", "scripts/install.ps1"]) {
+  for (const file of ["README.md", "docs/SCRIPTING.md", "docs/WINDOWS.md", "docs/RELEASE.md", "site/index.html", "scripts/install.sh", "scripts/install.ps1"]) {
     const tags = [...(await read(file)).matchAll(pinned)].map((match) => match[1]);
     expect({ file, tags: [...new Set(tags)] }).toEqual({ file, tags: [tag] });
   }

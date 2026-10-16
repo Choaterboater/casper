@@ -435,7 +435,7 @@ Each row names the test that fails without it.
   from it. Without an `ssh-keygen` that can check signatures, the installers say so and go on (asked of
   `ssh-keygen` alone, never read from what the check printed). The programs are not code-signed or notarized, so macOS or Windows may warn
   ([RELEASE.md](RELEASE.md#paid-code-signing-owner-decision)).
-- **Background self-updates (built, not released)** default to `updates: auto`. They call the same
+- **Background self-updates (since v0.2.36)** default to `updates: auto`. They call the same
   `runUpdate` path as `casper update`: the pinned release key's SHA256SUMS signature, the installer's
   SHA-256, the binary digest passed to the installer, and GitHub build provenance when a capable,
   signed-in `gh` is available. No weaker background download or execution path exists. Windows uses

@@ -14,7 +14,7 @@ project's own checks once, and makes a first commit with your own git identity.
 | `casper` in any other folder | Opens exactly there, with no question. A folder that only holds projects prints one line, such as "This folder holds 5 projects (aibot, casper, and 3 more). To work in one: casper aibot", when it holds two or more. |
 | A build request in a folder that holds other things | In a folder that is not a project and not empty (Documents, say), "build a tool that lists Mist APs per site" asks once, before any model call: "Build this as a new Mist Python project in ~/Projects/mist-aps? 1 Use this folder · 2 Yes · 3 Other kind". Enter keeps this folder, and Other kind lists the kinds after "Use this folder". Typing a name instead of a number (or picking the last row, 4 Other — type your own answer, and typing it) uses that name; typing "yes" builds it and "no" keeps this folder, and a number that isn't a choice asks again. Yes builds it, opens it, and your request goes on there, so its checks and proof run in the new project. It is asked at most once a session, and only before the model has started: a conversation's folder is fixed once it exists. |
 
-**Built, not released (next preview):** `casper "build a todo app"` starts a persistent session
+**Since v0.2.36:** `casper "build a todo app"` starts a persistent session
 with that first request when stdin and stdout are both TTYs, no forcing flags are given and `CI`
 is unset. At home or a drive root, a lone word that isn't a folder (`casper myapp`) first asks
 whether you meant a request or a new project of that name. It does not create a project without

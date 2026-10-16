@@ -4,11 +4,10 @@
 in the terminal. **When you'd use it:** you want one task done with no human at the keyboard, and
 you want the script to know if it worked (by exit code or by JSON).
 
-**Built, not released (next preview):** use `casper -p "your request"` (or `--print`) to run one
+**Since v0.2.36:** use `casper -p "your request"` (or `--print`) to run one
 prompt, then exit. Use `-p` explicitly in scripts. With stdin and stdout both TTYs (terminals),
 no forcing flags and `CI` unset, `casper "your request"` instead starts a persistent session,
-sends that first request and stays open for follow-ups. The published v0.2.35 still runs a
-command-line prompt once; `-p` / `--print` arrives in the next preview.
+sends that first request and stays open for follow-ups.
 
 Existing scripts stay one-shot: either stdin or stdout being non-TTY, `--json`, a lone `-` prompt,
 `--require-verification`, `--max-turns`, or `CI` set forces one run. `--verify` and `--no-verify`
@@ -36,7 +35,7 @@ echo "exit ${PIPESTATUS[0]}"   # bash: Casper's exit code, not jq's
   (`casper ~/code/app`) opens that folder instead of sending its path as a prompt; a single word
   that can only be a path but is not a folder exits 64 with `Not a folder: <path>`. A quoted
   request such as `casper "fix src/app.py"` is still a prompt.
-- In the next preview, an interactive lone word that isn't a folder, from home or a drive root,
+- An interactive lone word that isn't a folder, from home or a drive root,
   asks whether it is a request or a new project name before sending it or creating a project.
   Elsewhere, or with two or more words, that question is not asked. Explicit one-shot runs never ask it.
 
@@ -46,7 +45,7 @@ echo "exit ${PIPESTATUS[0]}"   # bash: Casper's exit code, not jq's
 casper -p --json --verify - < task.md
 ```
 
-Prefer stdin in scripts (`-p` is available in the next preview; `--json --verify -` works today).
+Prefer stdin in scripts; use `-p` explicitly for one-shot runs.
 Casper runs on Bun, which cannot hide its command line the way Node
 programs such as Pi can. A prompt given as arguments stays visible in `ps` to other users of the
 machine, and a `pkill -f` with words from the prompt (a model stopping "src/server.ts", say)
@@ -59,7 +58,7 @@ pipe (a terminal on stdin) or an empty stdin is a usage error (exit 64).
 |---|---|
 | `--model <provider/model-id[:effort]>` | Use this model for this run only. Also accepts `@role` selectors (`@fast`, `@build`, `@reason`, `@review`, `@default`; see [CONFIGURATION.md](CONFIGURATION.md#model-roles-and-automatic-effort)). The saved default is never changed. |
 | `--effort <level\|auto>` | Reasoning effort for this run only: `auto`, `off`, `minimal`, `low`, `medium`, `high`, `xhigh` or `max`. Any level works on any model: a level the model lacks runs as the nearest level above it, else below (`medium` on a model with only low and high runs as high; a model without reasoning runs without it). Not remembered. Do not combine with an effort suffix in `--model`. |
-| `-p` / `--print` | Run one prompt, print the result and exit, even in a terminal (built, not released). |
+| `-p` / `--print` | Run one prompt, print the result and exit, even in a terminal. |
 | `--json` | Forces one-shot mode. JSON Lines events on stdout ([below](#json-events)). Everything a person would read (banner, transcript, receipt) goes to stderr. Needs a prompt. |
 | `--verify` / `--no-verify` | Casper runs the checks after this run's edits (`auto`), or runs none (`off`). Cannot be combined. See [VERIFICATION.md](VERIFICATION.md). |
 | `--require-verification` | Forces one-shot mode and implies `--verify`. Changes Casper did not verify exit **3** instead of 0. Needs a prompt. Cannot be combined with `--no-verify`. |
@@ -298,7 +297,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Install Casper
-        run: curl -fsSL https://github.com/Choaterboater/casper/releases/download/v0.2.35/install.sh | sh
+        run: curl -fsSL https://github.com/Choaterboater/casper/releases/download/v0.2.36/install.sh | sh
       - name: Fix the failing test
         env:
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
