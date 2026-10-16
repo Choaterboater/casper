@@ -10,23 +10,23 @@ casper-skill:
     strong: ["mist api", "juniper mist", "mistapi", "api.mist.com", "mist org", "mist site", "mist webhook", "mist websocket"]
     weak: ["mist"]
   frameworks: [mist]
-  version: 3
+  version: 4
 ---
 # Juniper Mist cloud API
 
 ## When to use
 Code that talks to the Mist cloud (APs, switches and gateways managed by Mist), with the
-`mistapi` Python package, `requests` or curl. For CLI or NETCONF on one Junos box, use the Junos
-skill instead. Base URL: `https://<mist_host>/api/v1/`.
+`mistapi` Python package, `requests` or curl; CLI/NETCONF on one Junos box: the Junos skill.
+Base URL: `https://<mist_host>/api/v1/`. With casper-network-mcp connected, use its tools (find_tool, then the tool) before writing code.
 
 ## Sign-in and tokens
-- Token from the environment only: `MIST_APITOKEN` (the name `mistapi` and `casper new mist-python`
-  use), host from `MIST_HOST`. Never put a token in code, output, logs or saved samples.
+- Token from the environment only: `MIST_APITOKEN` (as `mistapi` and `casper new mist-python` use),
+  host from `MIST_HOST`. Never put a token in code, output, logs or saved samples.
 - Header: `Authorization: Token <token>`.
-- The host is your org's cloud: `api.mist.com`, `api.eu.mist.com`, `api.gc1.mist.com`, and more.
+- The host is your org's cloud: `api.mist.com`, `api.eu.mist.com`, `api.gc1.mist.com`, others.
   Use the host that matches the portal URL your org logs in to.
 - User token: same rights as the admin who made it; the spec says it is removed after 90 days
-  unused. Org token: one org only, with the role picked when it was made. Ask for the smallest
+  unused. Org token: one org only, with the role chosen at creation. Ask for the smallest
   role the task needs (an observer role for reports).
 - Only the product's own access check decides what a token may do.
 - Make tokens in the portal. Do not write code that makes tokens.

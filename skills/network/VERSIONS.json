@@ -8,19 +8,19 @@
     "sha256": "1b566c2ce2588b3afb4f5e2b8ba0d188a2fa225568024fa3aeb89f58b4d07075"
   },
   "network-central-api": {
-    "version": 2,
-    "sha256": "a5e73aeb4901859705531d2f8534f211db22de2b489a3ffca96f91300630311a"
+    "version": 3,
+    "sha256": "a36ed605a1af3248c15b8145babfdd926d4ae7e40048ad3e14cdbe411ffc4679"
   },
   "network-clearpass-api": {
-    "version": 2,
-    "sha256": "eaca29055e28f839274ede2fe6b24dfab1a44e2fdca7437567594ea3301fcc81"
+    "version": 3,
+    "sha256": "d3f091538a7c20bc7e0c611f0057fe045f6714b1997e71cf1b1c27863983b333"
   },
   "network-junos-pyez": {
     "version": 3,
     "sha256": "7f81e4fd24b5b3742d277a16ffcdbf90c29b48770755ec0f2bb422305719792f"
   },
   "network-mist-api": {
-    "version": 3,
-    "sha256": "e9e83a8941d2bfa8ad5bc5ff8f7cdf2dc107bb9b6479425562541d3bd4255cc2"
+    "version": 4,
+    "sha256": "2bf70664c26e6a804c1cca42ebf17baf731fd53b73962dfbed05ebf2411a5127"
   }
 }
