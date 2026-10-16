@@ -263,8 +263,10 @@ export async function offerNewProject(app: CasperApp, prompt: string): Promise<"
 }
 
 /** The project a request names by its folder name ("fix find_tool in casper-tools", a link ending in /casper-tools),
- * among the folders Casper has had conversations in, when it is not the open folder or one holding it. A short or
- * plain-word name ("app", "Notes") counts only as typed, case and all, so ordinary words don't move anyone. */
+ * among the folders Casper has had conversations in, when it is not the open folder or one holding it. A name with a
+ * dash, underscore, dot or digit counts anywhere, in any case. A plain word ("review", "Notes") is an ordinary word
+ * too, so it counts only where the request points at a folder: "move to review", "open the review project",
+ * "the Notes folder". A name shorter than five letters never counts. */
 export function namedProject(request: string, folders: readonly string[], root: string): string | undefined {
   let found: string | undefined;
   for (const dir of folders) {
@@ -273,7 +275,10 @@ export function namedProject(request: string, folders: readonly string[], root: 
     const name = path.basename(full);
     if (name.length < 5) continue;
     const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    const named = new RegExp(`(?<![\\w.-])${escaped}(?![\\w-]|\\.\\w)`, /[-_.\d]/.test(name) ? "i" : "").test(request);
+    const named = /[-_.\d]/.test(name)
+      ? new RegExp(`(?<![\\w.-])${escaped}(?![\\w-]|\\.\\w)`, "i").test(request)
+      : new RegExp(`\\b(?:(?:move|switch|go|cd|change)\\s+(?:over\\s+)?(?:in)?to|open)\\s+(?:the\\s+)?${escaped}\\b(?!-)`
+        + `|\\b${escaped}\\s+(?:folder|project|repo|repository|directory)\\b`, "i").test(request);
     if (named && (!found || name.length > path.basename(found).length)) found = full;
   }
   return found;
