@@ -9,11 +9,11 @@ import { windowsProofProblems } from "../tools/windows-ci-proof";
 
 const workflow = () => parse(readFileSync(".github/workflows/windows-preview.yml", "utf8"));
 
-test("Windows suite uses six balanced two-worker shards with an 18-minute step inside a 25-minute job", async () => {
+test("Windows suite uses six balanced two-worker shards with an 18-minute step inside a 28-minute job", async () => {
   const job = workflow().jobs.suite;
   expect(job.strategy.matrix.part).toEqual([1, 2, 3, 4, 5, 6]);
   expect(job.strategy["fail-fast"]).toBe(false);
-  expect(job["timeout-minutes"]).toBe(25);
+  expect(job["timeout-minutes"]).toBe(28);
   const suite = job.steps.find((step: { name?: string }) => step.name?.startsWith("Regression suite"));
   expect(suite["timeout-minutes"]).toBe(18);
   expect(suite.run).toContain("bun tools/test-shard.ts 6 ${{ matrix.part }} $env:TIER");
@@ -30,9 +30,9 @@ test("Windows suite uses six balanced two-worker shards with an 18-minute step i
   expect(Math.max(...totals) - Math.min(...totals)).toBeLessThanOrEqual(Math.max(...known));
   // Historical timings are a sizing check, not proof of Windows wall time; the real run is checked separately.
   expect(Math.max(...totals) / 2).toBeLessThan(suite["timeout-minutes"] * 60_000);
-  for (const start of ["Real debugger test", "Eval bench tests"]) {
+  for (const [start, minutes] of [["Real debugger test", 3], ["Eval bench tests", 6]] as const) {
     const step = job.steps.find((step: { name?: string }) => step.name?.startsWith(start));
-    expect(step["timeout-minutes"]).toBe(3);
+    expect(step["timeout-minutes"]).toBe(minutes);
     expect(job["timeout-minutes"] - suite["timeout-minutes"] - step["timeout-minutes"]).toBeGreaterThanOrEqual(4);
   }
 });
