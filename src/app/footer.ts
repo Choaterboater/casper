@@ -35,7 +35,8 @@ export function updateFooter(app: CasperApp): void {
   const asking = app.stopAsking ? [askingHintShown.has(app) ? "asking off" : "asking off · /permissions ask"] : [];
   if (app.stopAsking) askingHintShown.add(app);
   const mcp = parts.length ? [`${parts.join(" · ")} · ${app.terminal.rich ? "Ctrl+X" : "/mcp writes off"}`] : [];
-  app.terminal.setBadge([...asking, ...mcp].join(" · ") || undefined);
+  const plan = app.planMode ? ["PLAN · /plan off"] : [];
+  app.terminal.setBadge([...plan, ...asking, ...mcp].join(" · ") || undefined);
   app.terminal.setUpdate(updateNoteText(app));
   try {
     const project = app.projectContext.info;

@@ -872,3 +872,42 @@ test("a plan's open question is a choice: 2 asks it, the answer revises the plan
     await f.screen.until(idleAfter("[plan] Stopped without building."));
   } finally { await f.close(); }
 }, 60_000);
+
+test("a question at Change the plan is answered and the same plan's choices come back, with no rewrite", async () => {
+  const f = await fixture();
+  try {
+    f.input.write(`/plan ${REQUEST}\r`);
+    await f.screen.until(waiting("Build this plan?"));
+    f.input.write("3");
+    await f.screen.until(waiting("What should change?"));
+    expect(f.screen.output).toContain('Type a change ("drop step 2") or ask ("why step 3?")');
+    const from = f.screen.output.length;
+    f.input.write("why step 2?\r");
+    await f.screen.until(output => waiting("Build this plan?")(output.slice(from)));
+    expect(f.prompts).toHaveLength(2);
+    expect(f.prompts[1]).toContain("asks a question about it");
+    expect(f.prompts[1]).toContain("Question: why step 2?");
+    expect(f.prompts[1]).toContain("1. Add a Limiter class in limiter.py");
+    expect(f.prompts[1]).not.toContain("Rewrite the current plan");
+    // The plan was not redrawn: the same choices follow the answer.
+    expect(f.screen.output.slice(from)).not.toContain("╭─ Plan");
+    f.input.write("\r");
+    await f.screen.until(idleAfter("[plan] Stopped without building."));
+  } finally { await f.close(); }
+}, 60_000);
+
+test("/plan on plans every request until /plan off, and the footer says PLAN while it is on", async () => {
+  const f = await fixture();
+  try {
+    f.input.write("/plan on\r");
+    await f.screen.until(output => output.includes("[plan] Plan mode on: every request gets a plan first. /plan off ends it."));
+    await f.screen.until(output => output.includes("PLAN · /plan off"));
+    f.input.write(`${REQUEST}\r`);
+    await f.screen.until(waiting("Build this plan?"));
+    expect(f.prompts[0]).toContain("The user asked you to plan before building");
+    f.input.write("\r");
+    await f.screen.until(idleAfter("[plan] Stopped without building."));
+    f.input.write("/plan off\r");
+    await f.screen.until(output => output.includes("[plan] Plan mode off."));
+  } finally { await f.close(); }
+}, 60_000);

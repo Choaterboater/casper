@@ -16,9 +16,9 @@ import { remoteTargets } from "../sandbox/remote";
 import { formatChecklistPrompt } from "../task/checklist";
 import { lineText } from "../tui/format";
 
-/** Pi's built-in tools that only look at files, and the web lookups, which only read. Every other tool
- * (edit, write, MCP tools, services, the browser, delegation...) is blocked while planning, whatever it
- * says about itself. */
+/** Pi's built-in tools that only look at files, and the web lookups, which only read. GitHub lookups and
+ * read-only helpers are let through by planToolGate; every other tool (edit, write, MCP tools, services, the
+ * browser, builders...) is blocked while planning, whatever it says about itself. */
 export const PLANNING_TOOLS = new Set(["read", "grep", "find", "ls", "web_search", "web_fetch"]);
 
 /** Casper's own refusals start with this, so the screen says "— not run" and the receipt does not count them as failed. */
@@ -170,6 +170,10 @@ function isThisMachine(host: string): boolean {
 /** The gate for a plan turn, for every tool call. Undefined lets the call run; a reason blocks it. */
 export function planToolGate(toolName: string, input: Record<string, unknown> | undefined): string | undefined {
   if (PLANNING_TOOLS.has(toolName)) return undefined;
+  // Looking things up on GitHub (pull requests, one pull request, CI) only reads; a rerun starts work.
+  if (toolName === "github" && ["prs", "pr", "ci"].includes(String(input?.verb))) return undefined;
+  // Read-only helpers may research for the plan; a builder changes files in its copy, so it waits for Build.
+  if (toolName === "delegate" && ["explorer", "reviewer"].includes(String(input?.role))) return undefined;
   if (toolName === "bash" || toolName === "powershell") {
     const command = typeof input?.command === "string" ? input.command : "";
     const part = refusedPart(command, toolName);
@@ -187,7 +191,7 @@ export function planToolGate(toolName: string, input: Record<string, unknown> | 
     return `${NOT_RUN}${PLANNING_BLOCKED}. While planning it runs only look commands such as ls, cat, grep and git log.${why ? ` ${why}` : ""}`;
   }
   if (toolName === "edit" || toolName === "write") return `${NOT_RUN}${PLANNING_BLOCKED}.`;
-  return `${NOT_RUN}${PLANNING_BLOCKED}. While planning it allows only read, grep, find, ls and web lookups, not ${toolName}.`;
+  return `${NOT_RUN}${PLANNING_BLOCKED}. While planning it allows only read, grep, find, ls, web and GitHub lookups and read-only helpers, not ${toolName}.`;
 }
 
 /** A person-facing plan. Designed specs need no implementation steps; `tests` also holds "Done means".
@@ -527,6 +531,16 @@ export function planScreenRows(plan: ParsedPlan, width: number, options: PlanScr
     ...rows.map((row) => `${side}${gutter}${row}${" ".repeat(Math.max(0, inner - visibleWidth(row)))}${gutter}${side}`),
     blank, options.more && visibleWidth(footer) <= outer - 4
       ? `${accent(`╰${"─".repeat(outer - 3 - visibleWidth(footer))}`)}${footer}${accent("─╯")}` : edge("╰", "╯")];
+}
+
+/** A question about the plan ("why step 3?"): answered in words under the planning gate; the plan stays. */
+export function formatPlanQuestionPrompt(plan: ParsedPlan, question: string): string {
+  return [
+    "The user is reviewing this plan and asks a question about it. Answer in a few plain sentences, looking at the project where it helps.",
+    "Do not rewrite the plan, return a plan or JSON, or change files: the plan stays as it is unless they ask to change it.",
+    `Current plan:\n${planMarkdown(plan)}`,
+    `Question: ${question}`,
+  ].join("\n\n");
 }
 
 /** The build details for Ctrl+T or the plain terminal's "Show the details". Cases already appear on the screen. */

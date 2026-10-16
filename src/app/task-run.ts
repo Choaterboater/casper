@@ -42,7 +42,7 @@ import { autoDetectedChecks } from "../verify/migrations-check";
 import { buildNextRow, type NextItem } from "../tui/next-row";
 import { findFlow, formatFlowPrompt, loadFlowCatalog, type Flow, type FlowRule } from "../flows/catalog";
 import { suggestBeforeWork } from "../flows/suggest";
-import { extractPlan, formatPlanBlock, formatPlanChangePrompt, isSpecPlan, openQuestions, planDetailsText, planMarkdown, planScreenRows, type ParsedPlan } from "../flows/plan";
+import { extractPlan, formatPlanBlock, formatPlanChangePrompt, formatPlanQuestionPrompt, isSpecPlan, openQuestions, planDetailsText, planMarkdown, planScreenRows, type ParsedPlan } from "../flows/plan";
 import { planQuestions, readPlan, savePlan, updatePlan, wantsSpec, type SavedPlan } from "../flows/plan-store";
 import { PlanBuild } from "../flows/plan-build";
 import { PROJECT_YAML, saveProjectCommand } from "../project/config-write";
@@ -673,6 +673,22 @@ export async function runPlanTurn(app: CasperApp, session: RuntimeSession, reque
     return true;
   };
   if (!reopened && !await keep()) return "stop";
+  const answerAboutPlan = async (question: string): Promise<boolean> => {
+    const before = await app.snapshotWorkspace(root, signal);
+    app.lastAnswer = "";
+    app.planning = true;
+    try { await session.prompt(formatPlanQuestionPrompt(plan, question), signal, { request, maxTurns: app.maxTurns }); }
+    finally { app.planning = false; }
+    app.events.ensureLineBreak();
+    if (app.closing || signal?.aborted || app.taskRuntimeCancelled) return false;
+    const after = before ? await app.snapshotWorkspace(root) : undefined;
+    const diff = before && after ? diffSnapshots(before, after) : undefined;
+    const files = diff ? [...diff.added, ...diff.modified, ...diff.removed].sort() : [];
+    for (const file of files) changed.add(file);
+    if (files.length) app.output.write(`– Changed while planning: ${files.map((file) => terminalText(file)).join(", ")}\n`);
+    if (app.taskRuntimeFailed) app.output.write("[plan] The model failed while answering; the plan is unchanged.\n");
+    return true;
+  };
   app.events.ensureLineBreak();
   if (!app.interactive || !app.terminal.canAsk) {
     app.terminal.writeRows((width) => planScreenRows(plan, width, { full: true }));
@@ -730,6 +746,11 @@ export async function runPlanTurn(app: CasperApp, session: RuntimeSession, reque
     if (typed === undefined && answering) { showPlan(); continue; }
     if (typed === undefined) { app.output.write("[plan] Stopped without building.\n"); return "stop"; }
     const change = answering && typed.trim() ? `Answer to the open question "${questions[0]}": ${typed.trim()}` : typed;
+    // A question about the plan ("why step 3?") is answered in words and the same choices come back; the plan stays.
+    if (!answering && /[?？]\s*$/.test(change)) {
+      if (!await answerAboutPlan(change.trim())) return "stop";
+      continue;
+    }
     if (change.trim()) {
       questionRound = true;
       const rewritten = await writePlan(`${flowPrompt}\n\n${formatPlanChangePrompt(plan, change)}`);

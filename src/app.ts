@@ -433,6 +433,8 @@ export class CasperApp {
    * answered "Yes, for this session" without showing them. Memory only: never saved, off at start, set only by the
    * person's typed command and numbered answer (src/app/permissions.ts). */
   stopAsking = false;
+  /** `/plan on`: every request this session gets a plan first, until `/plan off`. */
+  planMode = false;
   readonly allow?: RunAllowances;
   readonly sandboxSeams?: Partial<ShellSandboxOptions>;
   /** web_search and web_fetch for this workspace; unset when web: off. */

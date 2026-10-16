@@ -182,7 +182,7 @@ export async function handlePrompt(app: CasperApp, prompt: string, typed?: { pas
       return report = await handleSlashCommand(app, `/model ${target}`);
     }
     const words = typed ? parseRequestWords(prompt, typed.pasted) : undefined;
-    return report = await runModelTask(app, words?.text ?? prompt, words ? { words } : {});
+    return report = await runModelTask(app, words?.text ?? prompt, { ...(words ? { words } : {}), ...(app.planMode ? { planFirst: true } : {}) });
   } catch (error) {
     if (error instanceof ProcessCleanupError) app.cleanupRecovery.queue(error);
     else throw error;
@@ -237,6 +237,13 @@ export function handleSlashCommand(app: CasperApp, typed: string): Promise<Verif
   if (/^\/plan(?:\s|$)/.test(prompt)) {
     const request = prompt.slice(5).trim();
     if (!request) return reopenPlan(app);
+    // `/plan on` keeps planning on for every request until `/plan off`; the footer says PLAN while it is.
+    if (request === "on" || request === "off") {
+      app.planMode = request === "on";
+      app.output.write(app.planMode ? "[plan] Plan mode on: every request gets a plan first. /plan off ends it.\n" : "[plan] Plan mode off.\n");
+      updateFooter(app);
+      return Promise.resolve(undefined);
+    }
     return runModelTask(app, request, { planFirst: true });
   }
   return runSlashCommand(app, prompt);
