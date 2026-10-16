@@ -61,7 +61,7 @@ import { ensureModel, retryModelFailure, bigModelReceipt, bigModelNotice, images
 import { attachImages } from "./images";
 import { confirmYes } from "./approvals";
 import { lookPrompt, pageLook, SHOW_PAGES_CHOICES, SHOW_PAGES_QUESTION } from "../services/page-look";
-import { offerNewProject, childProjectOfTask, runChildChecks, offerWorkFolder } from "./workspace";
+import { offerNamedProject, offerNewProject, childProjectOfTask, runChildChecks, offerWorkFolder } from "./workspace";
 import { settlePictures } from "./pictures";
 import { finishConfiguredTest, runVerification, writeCheckResult, taskNetworkOptions, checksPlan, saveFoundCheck, projectAfterSetup } from "./verification";
 import { projectPrivatePaths, reportSkillWarnings } from "./wiring";
@@ -94,6 +94,7 @@ export async function runModelTask(app: CasperApp, prompt: string, options: { fl
   prompt = attached.text;
   // A flow the user picked, or /plan, is already this task's one choice before work: no other panel.
   app.beforeWorkAsked = Boolean(options.flow || options.planFirst);
+  if (await offerNamedProject(app, typed, options.planFirst) === "stop" || app.closing || app.commandAbort?.signal.aborted) return;
   if ((!options.planFirst && await offerNewProject(app, prompt) === "stop") || app.closing || app.commandAbort?.signal.aborted) return;
   app.planBuild = undefined;
   app.events.setPlanProgress(undefined);

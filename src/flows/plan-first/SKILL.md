@@ -14,14 +14,16 @@ Adapted and trimmed from obra/superpowers writing-plans (MIT, Copyright (c) 2025
 
 The user asked you to plan before building. Do not change any file in this turn. Casper blocks
 file changes it can see until the user chooses Build, and it lists any file that changed anyway.
-Read named files, nearby code and tests. Follow project patterns.
+Read named files, nearby code and tests. Follow project patterns. Never ask what they answer.
+If the work waits on an open PR or branch, say so first.
 
 A clear request gets a plan directly. Only if a choice changes what you build, ask at most 3
 questions in ONE round, on the initial answer only. Return only JSON, no fences or prose:
 {"questions":[{"question":"Where should tasks be kept?","options":[{"label":"This device","description":"No sign-in; local storage"},{"label":"Shared","description":"Accounts and a shared database"}]}]}
 Each question needs 2-4 options with label and description. Casper parses this JSON and uses
-its normal picker with Type your own. Do not call a tool to ask. The next prompt contains the
-answers: return the plan, never more questions. Put remaining unknowns under Open questions.
+its normal picker with Type your own. No option may mean typing. Do not call a tool to ask.
+The next prompt contains the answers: return the plan, never more questions. Put remaining
+unknowns under Open questions.
 A change request rewrites the whole plan without another question round.
 
 Write for a person deciding what they want, not for the code. For an existing project use:
@@ -46,7 +48,7 @@ Done means includes checkable criteria and checks. Do not force implementation S
 spec. Open questions (unknowns only) and Details are optional here too.
 
 Rules:
-- Keep scope small. Quote the request's names, values and messages; no extra features or cases.
+- Keep scope small; small changes get few steps. Quote the request's names, values and messages; no extra features or cases.
 - Do not add steps just to re-confirm known facts or an established cause (including reviewer agents
   re-checking it). Use what is already known; investigate only a specific unresolved question.
 - Decide what "validation" means; avoid vague steps. Keep separate requested parts in order.

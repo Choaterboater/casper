@@ -286,6 +286,14 @@ export function workFolderChoices(here: string, there: string): Choice[] {
   ];
 }
 
+/** "This request names casper-tools, in ~/Documents/casper-tools." Enter stays; Move runs the request there. */
+export function namedProjectChoices(here: string, there: string): Choice[] {
+  return [
+    { label: "Stay here", description: `keep working in ${here}` },
+    { label: "Move there", description: `this request runs in ${there}, in a new conversation` },
+  ];
+}
+
 /** "This task has used $5.02." when a task reaches the spend pause (spend.pauseAt, $5 by default). Enter stops;
  * the work so far is kept either way. `next` is where it asks again. */
 export function spendChoices(next: string): Choice[] {

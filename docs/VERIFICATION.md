@@ -198,7 +198,10 @@ receipt: `• Casper checking: test (checks from sample-tools)` and
 `✓ test passed (checks from sample-tools · python3 -m unittest discover -s tests)`. They run in the
 sandbox, once, with no repair round. Then Casper asks `The work is in ~/Documents/sample-tools.` with
 `1 Stay here · 2 Switch there`; Enter stays, and after Stay it doesn't ask about that folder again this
-session. A one-shot run prints `[folder] The work is in ~/Documents/sample-tools. To work there: cd
+session. Before the model starts, a request that names another project Casper has had conversations in (by its
+folder name, or a link ending in it) asks `This request names casper-tools, in ~/Documents/casper-tools.` with
+`1 Stay here · 2 Move there`: Move runs the request there (in a new conversation when one had started here, which
+stays in /resume). Only the saved conversations' folders are matched; Casper never searches for the project. A one-shot run prints `[folder] The work is in ~/Documents/sample-tools. To work there: cd
 ~/Documents/sample-tools && casper`. In a folder too big to compare (over 20,000 files, as a Documents folder
 holding many projects often is), the work folder is found from the files Casper's edit and write tools changed;
 what a shell command changed there is not counted.
@@ -513,8 +516,9 @@ lists recent plans to reopen. The rich plan's accent frame is at most 80 columns
 terminals and `NO_COLOR` show no frame.
 
 **Plan progress is a model report, not check proof.** During the build the working line can read
-`Step 2 of 4 · Draw the header`. The receipt reports each item from Steps (or First version in a spec):
-completed items as done, not-done items with reasons, labelled **model report**.
+`Step 2 of 4 · Draw the header`. The screen after the build says the plan in one line (`– Plan: 1 of 2 steps
+done (model report) — <reason>; /receipt lists them`); `/receipt` reports each item from Steps (or First
+version in a spec): completed items as done, not-done items with reasons, labelled **model report**.
 These are the model's claims, not proof that a check ran or passed.
 They do not replace recorded check results, change the verification verdict, or make unchecked work Verified.
 

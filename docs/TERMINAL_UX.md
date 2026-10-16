@@ -461,12 +461,16 @@ model write during planning. `/plan` alone lists recent saved plans; selecting o
 Stop/Build/Change choices, not an automatic build.
 
 Build gives the model the whole revised plan, including its Details and Done means checklist. While working,
-the status names the current step, for example `Step 2 of 4 · Draw the header`. The receipt reports each item
-from Steps (or First version in a spec): completed items as done, not-done items with reasons, labelled
-**model report**. This is not check proof: recorded checks still decide verification
+the status names the current step, for example `Step 2 of 4 · Draw the header`. After the build the screen says
+the plan in one line, with the reason the model gave for a step it stopped on, so a question it is waiting on
+stays near the bottom: `– Plan: 0 of 7 steps done (model report) — Waiting for the repository path; /receipt lists
+them`. `/receipt` reports each item from Steps (or First version in a spec): completed items as done, not-done
+items with reasons, labelled **model report**. This is not check proof: recorded checks still decide verification
 (see [VERIFICATION.md](VERIFICATION.md)).
 
-The planning guidance skips steps that only re-confirm known facts or an established cause (including reviewer
+The planning guidance never asks what the repository answers, never offers a choice that means typing (Type your
+own covers that), says first when the work waits on an open PR or branch, and gives small changes few steps.
+It skips steps that only re-confirm known facts or an established cause (including reviewer
 agents re-checking it); it investigates only a specific unresolved question. Older `Plan:` and `Tests:` answers
 still read as before. A spec without numbered steps is a valid plan. If no usable plan comes of an answer,
 Casper prints what the model wrote, so nothing it said is lost.
