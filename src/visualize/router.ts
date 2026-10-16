@@ -12,7 +12,7 @@ export interface VisualizationSettings {
   outputDir: string | null;
 }
 
-export const DEFAULT_VISUALIZATION_PROVIDERS = ["mermaid", "mindmesh"] as const;
+export const DEFAULT_VISUALIZATION_PROVIDERS = ["mermaid", "mindmesh", "drawio"] as const;
 
 export interface RenderedVisualization {
   graph: VisualizationGraph;
