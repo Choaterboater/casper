@@ -11,7 +11,7 @@ casper-skill:
     weak: ["central", "glp"]
     unless: ["classic central", "central classic"]
   frameworks: [central]
-  version: 2
+  version: 3
 ---
 # HPE Aruba Networking Central (new Central) REST API
 
@@ -20,6 +20,7 @@ New Central: the Central you reach through HPE GreenLake, with paths like
 `network-monitoring/v1/...` and `network-config/...`. Classic Central (paths like
 `monitoring/v2/aps`, `configuration/v2/groups`, customer id and refresh token) is a different
 API: use the network-central-classic-api skill. If the user is not sure which one they have, ask.
+With casper-network-mcp connected, use its tools (find_tool, then the tool) before writing code.
 
 ## Sign-in and tokens
 - Values come from environment variables only: `CENTRAL_BASE_URL`, `CENTRAL_TOKEN_URL`,

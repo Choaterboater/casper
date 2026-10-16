@@ -10,19 +10,19 @@ casper-skill:
     strong: ["clearpass", "pyclearpass", "cppm", "clearpass api", "clearpass policy manager"]
     weak: []
   frameworks: [clearpass]
-  version: 2
+  version: 3
 ---
 # ClearPass Policy Manager REST API
 
 ## When to use
 Code that talks to a ClearPass server over HTTPS with `requests` or `pyclearpass`: endpoints,
 guest accounts, active sessions, server info. Base URL: `https://<clearpass>/api`. For the
-switch or AP side, use the AOS-CX, Central or Mist skill.
+switch or AP side, use the AOS-CX, Central or Mist skill. With casper-network-mcp connected, use its tools (find_tool, then the tool) before writing code.
 
 ## Sign-in and tokens
 - An admin makes an API client in ClearPass Guest (API Services; check the current docs for
   the menu): client id, grant type `client_credentials`, an operator profile, a token lifetime.
-- Id and secret from the environment only: `CLEARPASS_HOST`, `CLEARPASS_CLIENT_ID`,
+- Id and secret from the environment only: `CLEARPASS_BASE_URL`, `CLEARPASS_CLIENT_ID`,
   `CLEARPASS_CLIENT_SECRET`, `CLEARPASS_CA_BUNDLE`. Never in code, output, logs or saved samples.
 - The operator profile sets the rights. Ask for the smallest one the task needs. Only the
   product's own access check decides what a token may do.
@@ -33,11 +33,11 @@ switch or AP side, use the AOS-CX, Central or Mist skill.
 import os, sys, requests
 
 def open_session():
-    env = {k: os.environ.get(k) for k in ("CLEARPASS_HOST", "CLEARPASS_CLIENT_ID",
+    env = {k: os.environ.get(k) for k in ("CLEARPASS_BASE_URL", "CLEARPASS_CLIENT_ID",
                                           "CLEARPASS_CLIENT_SECRET", "CLEARPASS_CA_BUNDLE")}
     if not all(env.values()):
         sys.exit("Set " + ", ".join(env))
-    base = f"https://{env['CLEARPASS_HOST']}/api"
+    base = env["CLEARPASS_BASE_URL"].rstrip("/") + "/api"
     s = requests.Session()
     s.verify = env["CLEARPASS_CA_BUNDLE"]
     r = s.post(f"{base}/oauth", timeout=(5, 30), json={
