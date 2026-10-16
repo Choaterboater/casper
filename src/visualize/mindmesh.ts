@@ -13,6 +13,8 @@ interface MindMeshNode {
   childIds: string[];
   text: string;
   note?: string;
+  style?: { background?: string; bold?: boolean };
+  task?: { status: "open" | "in_progress" | "done" };
   extensions?: Record<string, unknown>;
 }
 
@@ -27,6 +29,9 @@ interface MindMeshMap {
   colorScheme: "classic" | "teal";
   meta: { createdAt: string; updatedAt: string };
 }
+
+/** Group colours in order of first appearance; MindMesh picks readable text for each. */
+export const MINDMESH_GROUP_COLOURS = ["#8ecae6", "#ffd166", "#b5e48c", "#f4a6a6", "#cdb4db", "#f6bd60", "#a3c4f3", "#d4e09b"] as const;
 
 export interface MindMeshProviderOptions {
   /** Deterministic clock for tests. */
@@ -49,11 +54,13 @@ export class MindMeshProvider implements VisualizationProvider {
   supports(_type: VisualizationType): boolean { return true; }
 
   async render(graph: VisualizationGraph): Promise<VisualizationResult> {
-    const { map, tree } = projectMindMeshMap(graph, this.mapId(graph), this.now());
+    const { map, tree, groupCount, inheritedColour } = projectMindMeshMap(graph, this.mapId(graph), this.now());
     const lossiness: string[] = [];
     if (tree.syntheticRoot) lossiness.push("No single root node; the title is used as a synthetic root.");
     if (tree.crossEdges.length) lossiness.push(`${tree.crossEdges.length} cross edge(s) are recorded in node notes/extensions, not drawn as branches.`);
-    if (graph.nodes.some((node) => node.group)) lossiness.push("Groups are recorded in node extensions, not drawn.");
+    if (groupCount) lossiness.push("Groups are shown as topic colours only; group names are in node extensions.");
+    if (groupCount > MINDMESH_GROUP_COLOURS.length) lossiness.push(`${groupCount} groups share ${MINDMESH_GROUP_COLOURS.length} colours.`);
+    if (inheritedColour) lossiness.push("Ungrouped topics under a grouped topic show that group's colour in MindMesh.");
     if (graph.edges.some((edge) => edge.label)) lossiness.push("Edge labels are recorded in node extensions only.");
     return { provider: this.name, format: "json", mimeType: "application/json", content: JSON.stringify(map, null, 2) + "\n", lossiness };
   }
@@ -68,8 +75,13 @@ export function toMindMeshMap(graph: VisualizationGraph, mapId: string, now: str
 }
 
 /** Builds the document and returns the tree projection used, so callers need not recompute it. */
-export function projectMindMeshMap(graph: VisualizationGraph, mapId: string, now: string): { map: MindMeshMap; tree: SpanningTree } {
+export function projectMindMeshMap(graph: VisualizationGraph, mapId: string, now: string): { map: MindMeshMap; tree: SpanningTree; groupCount: number; inheritedColour: boolean } {
   const tree = spanningTree(graph);
+  const groupColour = new Map<string, string>();
+  for (const node of graph.nodes) {
+    if (node.group && !groupColour.has(node.group)) groupColour.set(node.group, MINDMESH_GROUP_COLOURS[groupColour.size % MINDMESH_GROUP_COLOURS.length]!);
+  }
+  let inheritedColour = false;
   // Allocate output identity independently of the internal projection identity.
   const outputIds = new Set(graph.nodes.map((node) => `${mapId}:${node.id}`));
   let rootId = `${mapId}: root`;
@@ -90,7 +102,7 @@ export function projectMindMeshMap(graph: VisualizationGraph, mapId: string, now
     if (!crossEdgeSet.has(edge) && edge.label && !treeEdgeLabels.has(edge.to)) treeEdgeLabels.set(edge.to, edge.label);
   }
 
-  const visit = (id: string, parentId: string | null) => {
+  const visit = (id: string, parentId: string | null, underGroup: boolean) => {
     const synthetic = tree.syntheticRoot && id === tree.rootId;
     const source = synthetic ? undefined : byId.get(id)!;
     const children = tree.children.get(id) ?? [];
@@ -119,11 +131,15 @@ export function projectMindMeshMap(graph: VisualizationGraph, mapId: string, now
     }
     const node: MindMeshNode = { id: nodeId(id), parentId, childIds: children.map(nodeId), text: synthetic ? graph.title : source!.label };
     if (noteLines.length) node.note = noteLines.join("\n");
+    const background = source?.group ? groupColour.get(source.group) : undefined;
+    if (background || parentId === null) node.style = { ...(background ? { background } : {}), ...(parentId === null ? { bold: true } : {}) };
+    if (!background && underGroup) inheritedColour = true;
+    if (graph.type === "plan" && parentId !== null) node.task = { status: "open" };
     node.extensions = extensions;
     nodes[node.id] = node;
-    for (const child of children) visit(child, node.id);
+    for (const child of children) visit(child, node.id, underGroup || Boolean(background));
   };
-  visit(tree.rootId, null);
+  visit(tree.rootId, null, false);
 
   const map: MindMeshMap = {
     schemaVersion: MINDMESH_SCHEMA_VERSION,
@@ -136,5 +152,5 @@ export function projectMindMeshMap(graph: VisualizationGraph, mapId: string, now
     colorScheme: "teal",
     meta: { createdAt: now, updatedAt: now },
   };
-  return { map, tree };
+  return { map, tree, groupCount: groupColour.size, inheritedColour };
 }
