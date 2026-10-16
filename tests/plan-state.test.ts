@@ -69,6 +69,8 @@ test("question answer format enforces 1–3 questions with 2–4 options", () =>
   for (const text of ["not json", "null", '{"questions":[{}]}', '{"questions":[{"question":"","options":[]}]}']) expect(planQuestions(text)).toBeUndefined();
 });
 
+const unreportedSteps = () => new PlanBuild(plan, () => {}).finish("completed");
+
 test("checklist progress reports done/not done and never treats an unreported or stopped step as done", async () => {
   const lines: (string | undefined)[] = [];
   const build = new PlanBuild(plan, line => lines.push(line));
@@ -80,13 +82,17 @@ test("checklist progress reports done/not done and never treats an unreported or
   const steps = build.finish("cancelled");
   expect(steps).toEqual([{ title: "Add the board", status: "done" }, { title: "Test it", status: "not-done", reason: "build cancelled" }]);
   expect((await build.tool().execute({ step: 2, status: "done" })).isError).toBe(true);
-  for (const render of [formatShortReceipt, formatTaskResult]) {
-    const text = render({ execution: "cancelled", planSteps: steps });
-    expect(text).toContain("model report, not verification");
-    expect(text).toContain("Add the board — done");
-    expect(text).toContain("Test it — not done: build cancelled");
-  }
-  const unreported = new PlanBuild(plan, () => {}).finish("completed");
+  // /receipt lists every step; the screen after the task says the plan in one line, with the reason a step stopped.
+  const full = formatTaskResult({ execution: "cancelled", planSteps: steps });
+  expect(full).toContain("model report, not verification");
+  expect(full).toContain("Add the board — done");
+  expect(full).toContain("Test it — not done: build cancelled");
+  const short = formatShortReceipt({ execution: "cancelled", planSteps: steps });
+  expect(short).toContain("– Plan: 1 of 2 steps done (model report) — build cancelled; /receipt lists them");
+  expect(short).not.toContain("Add the board — done");
+  expect(formatShortReceipt({ execution: "completed", planSteps: unreportedSteps() })).toContain("– Plan: 0 of 2 steps done (model report); /receipt lists them");
+  expect(formatShortReceipt({ execution: "completed", planSteps: steps.map(step => ({ ...step, status: "done" as const })) })).toContain("✓ Plan: all 2 steps done (model report)");
+  const unreported = unreportedSteps();
   expect(unreported.every(step => step.status === "not-done" && step.reason === "not reported done by the model")).toBe(true);
   const spec = new PlanBuild({ steps: [], tests: [], firstVersion: ["- Add tasks", "- Save tasks"] }, () => {});
   expect(spec.steps.map(step => step.title)).toEqual(["Add tasks", "Save tasks"]);

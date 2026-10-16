@@ -586,9 +586,13 @@ test("clear requests go directly to a plan; saves Markdown and keeps incomplete 
     f.input.write("2");
     await f.screen.until(idleAfter("Built."));
     expect(f.screen.output).toContain("Step 2 of 2 · Call it from app.py");
+    // The screen says the plan in one line, with the reason a step stopped; /receipt lists every step.
+    expect(f.screen.output).toContain("– Plan: 1 of 2 steps done (model report) — Needs an API decision; /receipt lists them");
+    expect(f.screen.output).not.toContain("Plan checklist (model report, not verification)");
+    f.input.write("/receipt\r");
+    await f.screen.until(output => output.includes("2. Call it from app.py — not done: Needs an API decision"));
     expect(f.screen.output).toContain("Plan checklist (model report, not verification)");
     expect(f.screen.output).toContain("1. Add a Limiter class in limiter.py — done");
-    expect(f.screen.output).toContain("2. Call it from app.py — not done: Needs an API decision");
     expect(f.app.getLastTaskResult()?.planSteps?.map(step => step.status)).toEqual(["done", "not-done"]);
     expect(f.prompts[1]).toContain("Use plan_step to keep this accepted checklist current");
   } finally { await f.close(); }

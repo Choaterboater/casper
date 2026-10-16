@@ -2,6 +2,7 @@ import type { RuntimeTool } from "../runtime/types";
 import type { ParsedPlan } from "./plan";
 import { lineText } from "../tui/format";
 
+const NOT_REPORTED = "not reported done by the model";
 export interface PlanStepReport { title: string; status: "pending" | "active" | "done" | "not-done"; reason?: string }
 /** Progress is the model's report, not verification evidence. Unreported steps never become done. */
 export class PlanBuild {
@@ -16,7 +17,7 @@ export class PlanBuild {
     this.closed = true;
     this.show(undefined);
     return this.steps.map(step => step.status === "done" || step.status === "not-done" ? { ...step } : {
-      ...step, status: "not-done", reason: execution === "completed" ? "not reported done by the model" : `build ${execution}`,
+      ...step, status: "not-done", reason: execution === "completed" ? NOT_REPORTED : `build ${execution}`,
     });
   }
   tool(): RuntimeTool {
@@ -42,7 +43,17 @@ export class PlanBuild {
     };
   }
 }
+/** The plan's one line on the screen after a task: how many steps the model reported done and, when one was not
+ * done for a reason it gave ("Waiting for the repository path"), that reason, so a question it stopped on is not
+ * buried under every step. /receipt keeps the full checklist (planReceipt). */
+export function planSummary(steps: readonly PlanStepReport[] | undefined): string[] {
+  if (!steps?.length) return [];
+  const done = steps.filter(step => step.status === "done").length;
+  if (done === steps.length) return [`✓ Plan: all ${steps.length} steps done (model report)`];
+  const why = steps.find(step => step.status !== "done" && step.reason && step.reason !== NOT_REPORTED)?.reason;
+  return [`– Plan: ${done} of ${steps.length} steps done (model report)${why ? ` — ${lineText(why)}` : ""}; /receipt lists them`];
+}
 export function planReceipt(steps: readonly PlanStepReport[] | undefined): string[] {
   if (!steps?.length) return [];
-  return ["Plan checklist (model report, not verification):", ...steps.map((step, index) => `${step.status === "done" ? "✓" : "–"} ${index + 1}. ${lineText(step.title)}${step.status === "done" ? " — done" : ` — not done: ${lineText(step.reason ?? "not reported done by the model")}`}`)];
+  return ["Plan checklist (model report, not verification):", ...steps.map((step, index) => `${step.status === "done" ? "✓" : "–"} ${index + 1}. ${lineText(step.title)}${step.status === "done" ? " — done" : ` — not done: ${lineText(step.reason ?? NOT_REPORTED)}`}`)];
 }

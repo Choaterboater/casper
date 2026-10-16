@@ -13,7 +13,7 @@ import { orderProjectChoices, recentlyUsedProjects } from "../project/recent";
 import { appAgentDir } from "./runtime-start";
 import type { VerificationReport, VerificationResult } from "../verify/evidence";
 import { VerifierRegistry } from "../verify/registry";
-import { workFolderChoices } from "./safe-choices";
+import { namedProjectChoices, workFolderChoices } from "./safe-choices";
 import { isOutside } from "../platform/inside";
 import { planAutoChecks } from "../verify/mode";
 import { NEW_USAGE, parseNewArgs, type NewCommand } from "../cli-args";
@@ -260,6 +260,47 @@ export async function offerNewProject(app: CasperApp, prompt: string): Promise<"
   if ("stopped" in built) { app.output.write("Nothing was sent to the model.\n"); return "stop"; }
   await openWorkspaceBeforeRuntime(app, built.result.dir);
   return undefined;
+}
+
+/** The project a request names by its folder name ("fix find_tool in casper-tools", a link ending in /casper-tools),
+ * among the folders Casper has had conversations in, when it is not the open folder or one holding it. A short or
+ * plain-word name ("app", "Notes") counts only as typed, case and all, so ordinary words don't move anyone. */
+export function namedProject(request: string, folders: readonly string[], root: string): string | undefined {
+  let found: string | undefined;
+  for (const dir of folders) {
+    const full = path.resolve(dir);
+    if (!isOutside(path.relative(full, path.resolve(root)))) continue;
+    const name = path.basename(full);
+    if (name.length < 5) continue;
+    const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const named = new RegExp(`(?<![\\w.-])${escaped}(?![\\w-]|\\.\\w)`, /[-_.\d]/.test(name) ? "i" : "").test(request);
+    if (named && (!found || name.length > path.basename(found).length)) found = full;
+  }
+  return found;
+}
+
+/** Before the model starts, zero tokens: a request naming another project Casper has worked in asks "1 Stay here ·
+ * 2 Move there" (Enter stays, asked once per folder). Only the saved conversations' folders are matched: Casper never
+ * searches the person's folders for it. Move before the conversation starts opens the folder and the request runs
+ * there; after, the conversation here stays in /resume and the request is queued for a new one there ("stop"). */
+export async function offerNamedProject(app: CasperApp, request: string, planFirst?: boolean): Promise<"stop" | undefined> {
+  if (!app.interactive || !app.terminal.canAsk) return undefined;
+  const home = app.sessionHomeDir ?? os.homedir();
+  const folders = await recentlyUsedProjects({ base: home, agentDir: appAgentDir(app) }).catch(() => []);
+  const target = namedProject(request, folders, app.activeWorkspaceRoot());
+  if (!target || app.stayedOutOf.has(target)) return undefined;
+  const display = terminalText(tildePath(target, home));
+  const choices = namedProjectChoices(terminalText(path.basename(app.activeWorkspaceRoot())), terminalText(path.basename(target)));
+  const picked = await app.terminal.pick(`This request names ${terminalText(path.basename(target))}, in ${display}.`, choices, app.commandAbort?.signal);
+  if (app.closing || app.commandAbort?.signal.aborted) return "stop";
+  app.beforeWorkAsked = true;
+  if (picked?.trim() !== choices[1]!.label) { app.stayedOutOf.add(target); return undefined; }
+  if (canMoveWorkspace(app)) { await openWorkspaceBeforeRuntime(app, target); return undefined; }
+  await moveWorkspace(app, target);
+  // Helpers still working: nothing moved, so the request runs here.
+  if (!canMoveWorkspace(app)) return undefined;
+  queueTypedRequest(app, planFirst ? `/plan ${request}` : request, []);
+  return "stop";
 }
 
 /** The one project folder inside the open folder that holds every file this task changed, when the open folder

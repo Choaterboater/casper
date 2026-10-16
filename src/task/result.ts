@@ -15,7 +15,7 @@ import { ROUND_MAX_TURNS, type RequirementsReview } from "./review";
 import { formatLimit } from "./spend";
 import { BRANCH_MOVED_LINE, GIT_MOVEMENT_UNKNOWN } from "./git-movement";
 import { formatCost, formatDuration, lineText, redactPreview } from "../tui/format";
-import { planReceipt, type PlanStepReport } from "../flows/plan-build";
+import { planReceipt, planSummary, type PlanStepReport } from "../flows/plan-build";
 
 /** Tool-reported diagnostics, not process exit evidence or a reusable check pass. */
 export interface ObservedCheck {
@@ -445,7 +445,7 @@ function pagesShownText(count: number): string {
 }
 
 export function formatShortReceipt(task: TaskResult, options: ReceiptOptions = {}): string {
-  const { lines, undo, folds, short } = receiptParts(task, options);
+  const { lines, undo, folds, short } = receiptParts(task, options, true);
   if (!lines.length) return undo.join("\n");
   const notes = sessionNotes(task);
   // Said in full on an earlier receipt this session: one short line at the end says them all.
@@ -497,8 +497,8 @@ function checklistLines(task: TaskResult, safe: (text: string) => string): strin
 
 /** The receipt's lines (verdict first), its undo lines, and the short form's pieces: `folds` maps a line that
  * says all is well to the few words it becomes on the one-line receipt ("" drops it); `short` is the verdict
- * word when nothing is wrong. */
-function receiptParts(task: TaskResult, options: ReceiptOptions): { lines: string[]; undo: string[]; folds: Map<string, string>; short?: string } {
+ * word when nothing is wrong. `onScreen`: the plan checklist is one line (/receipt lists every step). */
+function receiptParts(task: TaskResult, options: ReceiptOptions, onScreen = false): { lines: string[]; undo: string[]; folds: Map<string, string>; short?: string } {
   const safe = lineText;
   const slash = (command: string) => options.surface === "one-shot" ? `casper "${command}"` : command;
   const lines: string[] = [...cleanupReceiptLines(task.cleanup ?? [])];
@@ -546,7 +546,7 @@ function receiptParts(task: TaskResult, options: ReceiptOptions): { lines: strin
   }
   if (task.changedDuringChecks?.length) lines.push(`– Changed while checking: ${pathList(task.changedDuringChecks, safe, false)}`);
   if (task.changedWhilePlanning?.length) lines.push(`– Changed while planning: ${pathList(task.changedWhilePlanning, safe, false)}`);
-  lines.push(...planReceipt(task.planSteps));
+  lines.push(...(onScreen ? planSummary(task.planSteps) : planReceipt(task.planSteps)));
   if (task.branchChangesUnknown) lines.push(`– ${task.branchMoved ? "The branch moved during this task; " : ""}${GIT_MOVEMENT_UNKNOWN}; undo is unavailable`);
   else if (task.branchMoved) lines.push(BRANCH_MOVED_LINE);
 
