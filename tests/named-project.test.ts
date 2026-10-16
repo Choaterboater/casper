@@ -14,9 +14,17 @@ test("a request names a project by its folder name, a link's last part, or exact
   const folders = [tools, notes, app];
   expect(namedProject("improve find_tool in casper-tools", folders, "/home/me/Documents/mcp")).toBe(tools);
   expect(namedProject("review github.com/someone/Casper-Tools/pull/11", folders, "/home/me/Documents/mcp")).toBe(tools);
-  expect(namedProject("tidy Notes before Friday", folders, "/home/me/Documents/mcp")).toBe(notes);
-  // A plain word counts only as typed; a short name never does; a longer name or file isn't the folder.
-  expect(namedProject("tidy my notes", folders, "/home/me/Documents/mcp")).toBeUndefined();
+  // A plain word is an ordinary word too: it counts only where the request points at a folder.
+  for (const request of ["move to Notes", "switch to notes", "open the Notes project", "look in the notes folder"]) {
+    expect([request, namedProject(request, folders, "/home/me/Documents/mcp")]).toEqual([request, notes]);
+  }
+  for (const request of ["tidy Notes before Friday", "tidy my notes", "the notes are in review", "add notes-v2 support"]) {
+    expect([request, namedProject(request, folders, "/home/me/Documents/mcp")]).toEqual([request, undefined]);
+  }
+  const review = path.resolve("/home/me/Projects/review");
+  expect(namedProject("can you do the same review on the mist side as well", [review], "/home/me/Documents/mcp")).toBeUndefined();
+  expect(namedProject("move to review", [review], "/home/me/Documents/mcp")).toBe(review);
+  // A short name never counts; a longer name or file isn't the folder.
   expect(namedProject("fix the app", folders, "/home/me/Documents/mcp")).toBeUndefined();
   expect(namedProject("see casper-tools-old and casper-tools.md", folders, "/home/me/Documents/mcp")).toBeUndefined();
   // The open folder, or a folder inside the named one, is already there.

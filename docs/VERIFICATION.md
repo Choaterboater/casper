@@ -199,7 +199,8 @@ receipt: `• Casper checking: test (checks from sample-tools)` and
 sandbox, once, with no repair round. Then Casper asks `The work is in ~/Documents/sample-tools.` with
 `1 Stay here · 2 Switch there`; Enter stays, and after Stay it doesn't ask about that folder again this
 session. Before the model starts, a request that names another project Casper has had conversations in (by its
-folder name, or a link ending in it) asks `This request names casper-tools, in ~/Documents/casper-tools.` with
+folder name, or a link ending in it; a plain-word name such as `review` only where the request points at a folder:
+"move to review", "the review project") asks `This request names casper-tools, in ~/Documents/casper-tools.` with
 `1 Stay here · 2 Move there`: Move runs the request there (in a new conversation when one had started here, which
 stays in /resume). Only the saved conversations' folders are matched; Casper never searches for the project. A one-shot run prints `[folder] The work is in ~/Documents/sample-tools. To work there: cd
 ~/Documents/sample-tools && casper`. In a folder too big to compare (over 20,000 files, as a Documents folder
