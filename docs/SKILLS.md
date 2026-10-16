@@ -1,7 +1,7 @@
 # Skills and the network skills pack
 
 A skill is a short how-to file the AI reads only when a request needs it. Casper ships six network
-skills, four home lab skills and one frontend skill inside the `casper` binary, and you can add your own.
+skills, four home lab skills, one design skill and one frontend skill inside the `casper` binary, and you can add your own.
 
 The network skills pack is new in v0.2.18; releases before it have no bundled skills.
 Your own skills work the same way in both; see [CONFIGURATION.md](CONFIGURATION.md#skills).
@@ -85,7 +85,7 @@ skills:
 
 A project's `.casper/project.yaml` cannot turn the pack off: the skills only make the AI more
 careful, so a repository must not be able to remove them. `skills.maxActive: 0` turns all skill
-loading off, bundled ones included. `/status` shows `skills    11 indexed (11 bundled)` or
+loading off, bundled ones included. `/status` shows `skills    12 indexed (12 bundled)` or
 `bundled: off`.
 
 ## The home lab skills
@@ -110,6 +110,21 @@ a word such as lan, router, firewall or vpn, and words such as parser, tests, co
 out, so "connection refused from postgres in the test", "parse tcpdump output into json" or "add DNS
 records to the terraform" pick nothing. `/skills block homelab-proxmox@bundled`
 stops one.
+
+## The design skill
+
+| Skill | Covers |
+| --- | --- |
+| `design-clearpass-nac` | A method for designing or reviewing a ClearPass NAC deployment: short intake questions, then the design document in order (current vs NAC state, device inventory, a decision tree with rule IDs and a default deny, one workflow per SSID or port with a fallback, use-case table, guest, IoT and BYOD registration, service order, cluster and platform, protocols and certificates, phased rollout with monitor mode first, day 2), flowcharts and an architecture diagram through the `visualize` tool, common traps |
+
+A design skill teaches the order of work, not product facts, and changes nothing, so it has no
+"Changing things" part. Its six parts: When to use · Intake questions · Design order · Diagrams · Common
+traps · Public docs. It is picked and limited the same way as the network skills (two bundled skills per
+request). "ClearPass NAC" and "network access control" pick it; "clearpass", "cppm" and "nac" count only next
+to a word such as design, architecture, rollout, deployment, migration, pilot or sizing. Words such as api,
+python, script or pyclearpass rule it out, and a clear design request ("design a ClearPass NAC for 3 sites with
+guest and IoT") rules out `network-clearpass-api`, so API code and a design each get their own skill. "design a
+NAC with Cisco ISE" picks nothing. `/skills block design-clearpass-nac@bundled` stops it.
 
 ## The frontend skill
 
@@ -179,7 +194,7 @@ never replaces a bundled one, even after `/skills trust`.
 ## Writing or changing a bundled skill
 
 The rules are in [skills/README.md](../skills/README.md). The tests in
-`tests/network-skills-lint.test.ts` (and `tests/homelab-skills.test.ts` for the home lab skills) check each file (layout, 6 KiB cap, links, placeholders, no
+`tests/network-skills-lint.test.ts` (and `tests/homelab-skills.test.ts` and `tests/design-skills.test.ts` for the home lab and design skills) check each file (layout, 6 KiB cap, links, placeholders, no
 secret-looking values, write calls only under "Changing things"), and
 `tests/network-skills-pick.test.ts` checks which prompts pick which skill.
 

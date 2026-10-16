@@ -15,6 +15,7 @@ import dockerSource from "../../skills/homelab/docker/SKILL.md" with { type: "te
 import mediaSource from "../../skills/homelab/media/SKILL.md" with { type: "text" };
 import nettroubleSource from "../../skills/homelab/nettrouble/SKILL.md" with { type: "text" };
 import proxmoxSource from "../../skills/homelab/proxmox/SKILL.md" with { type: "text" };
+import clearpassNacSource from "../../skills/design/clearpass-nac/SKILL.md" with { type: "text" };
 import frontendSource from "../../skills/web/frontend/SKILL.md" with { type: "text" };
 import illustrationKit from "../../skills/web/frontend/illustration-kit.svg" with { type: "text" };
 
@@ -28,11 +29,14 @@ export const NETWORK_PLATFORMS = ["mist", "central", "central-classic", "aoscx",
 export type NetworkPlatform = typeof NETWORK_PLATFORMS[number];
 export const HOMELAB_PLATFORMS = ["media", "docker", "proxmox", "nettrouble"] as const;
 export type HomelabPlatform = typeof HOMELAB_PLATFORMS[number];
+export const DESIGN_PLATFORMS = ["clearpass-nac"] as const;
+export type DesignPlatform = typeof DESIGN_PLATFORMS[number];
 /** A bundled skill family with triggers: its name starts with `<family>-` and it lives in skills/<family>/. */
-export type SkillFamily = "network" | "homelab";
-export type SkillPlatform = NetworkPlatform | HomelabPlatform;
+export type SkillFamily = "network" | "homelab" | "design";
+export type SkillPlatform = NetworkPlatform | HomelabPlatform | DesignPlatform;
 
 export function platformFamily(platform: SkillPlatform): SkillFamily {
+  if ((DESIGN_PLATFORMS as readonly string[]).includes(platform)) return "design";
   return (HOMELAB_PLATFORMS as readonly string[]).includes(platform) ? "homelab" : "network";
 }
 
@@ -50,9 +54,12 @@ export const REQUIRED_SECTIONS = [
 export const CHANGING_SECTION = "## Changing things (Casper asks)";
 /** Every home lab skill has these sections, in this order. */
 export const HOMELAB_SECTIONS = ["## When to use", "## Read first", CHANGING_SECTION, "## Common traps", "## Public docs"] as const;
+/** Every design skill has these sections, in this order. It teaches a method and changes nothing, so it has no
+ * "Changing things" part. */
+export const DESIGN_SECTIONS = ["## When to use", "## Intake questions", "## Design order", "## Diagrams", "## Common traps", "## Public docs"] as const;
 
 export function sectionsFor(family: SkillFamily): readonly string[] {
-  return family === "homelab" ? HOMELAB_SECTIONS : REQUIRED_SECTIONS;
+  return family === "homelab" ? HOMELAB_SECTIONS : family === "design" ? DESIGN_SECTIONS : REQUIRED_SECTIONS;
 }
 /** The first line of "Changing things". A skill that replaces a bundled one must keep it. */
 export const STOP_AND_ASK_LINE = "MCP: Casper's change box asks; don't ask again in chat. Else ask the user first; show the exact call.";
@@ -84,8 +91,26 @@ export const HOMELAB_BANNED_TRIGGER_WORDS = [
 ] as const;
 /** A weak home lab trigger picks a skill only with one of these words, unless its block names its own `triggers.context`. */
 export const HOMELAB_CONTEXT_WORDS = ["home lab", "homelab", "self hosted", "selfhosted"] as const;
+/** Design words too common to pick a skill. A product name the network family uses as a strong trigger ("clearpass",
+ * "cppm") and "nac" may be weak triggers, never strong ones: alone they mean API work as often as a design. */
+export const DESIGN_BANNED_TRIGGER_WORDS = [
+  ...BANNED_TRIGGER_WORDS, "design", "designs", "designing", "architecture", "plan", "planning", "review", "diagram", "diagrams",
+  "guest", "guests", "iot", "byod", "radius", "802.1x", "eap", "certificate", "certificates", "segmentation", "policy", "policies",
+  "access", "auth", "authentication", "clearpass", "cppm", "nac",
+] as const;
+/** A weak design trigger picks a skill only with one of these words, unless its block names its own `triggers.context`. */
+export const DESIGN_CONTEXT_WORDS = [
+  "design", "designing", "redesign", "architecture", "hld", "lld", "rollout", "deployment", "migration", "pilot", "sizing",
+  "publisher", "subscriber", "subscribers",
+] as const;
 const WEAK_ONLY_TRIGGERS = new Set(["central"]);
 const HOMELAB_WEAK_ONLY_TRIGGERS = new Set(["docker", "qm", "pct"]);
+const DESIGN_WEAK_ONLY_TRIGGERS = new Set(["clearpass", "cppm", "nac"]);
+const FAMILY_TRIGGER_RULES: Record<SkillFamily, { banned: ReadonlySet<string>; weakOnly: ReadonlySet<string>; context: readonly string[] }> = {
+  network: { banned: new Set(BANNED_TRIGGER_WORDS), weakOnly: WEAK_ONLY_TRIGGERS, context: CONTEXT_WORDS },
+  homelab: { banned: new Set(HOMELAB_BANNED_TRIGGER_WORDS), weakOnly: HOMELAB_WEAK_ONLY_TRIGGERS, context: HOMELAB_CONTEXT_WORDS },
+  design: { banned: new Set(DESIGN_BANNED_TRIGGER_WORDS), weakOnly: DESIGN_WEAK_ONLY_TRIGGERS, context: DESIGN_CONTEXT_WORDS },
+};
 
 /** The intents for which a project's SDK counts as a reason to pick a skill. */
 const FRAMEWORK_INTENTS = new Set(["implement", "fix", "test", "configure"]);
@@ -140,7 +165,7 @@ export function parseSkillRule(value: unknown, name: string): BundledSkillRule {
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error(`${name} has no casper-skill block`);
   const fields = value as Record<string, unknown>;
   const platform = fields.platform;
-  const platforms: readonly string[] = [...NETWORK_PLATFORMS, ...HOMELAB_PLATFORMS];
+  const platforms: readonly string[] = [...NETWORK_PLATFORMS, ...HOMELAB_PLATFORMS, ...DESIGN_PLATFORMS];
   if (typeof platform !== "string" || !platforms.includes(platform)) {
     throw new Error(`${name}: casper-skill.platform must be one of ${platforms.join(", ")}`);
   }
@@ -153,8 +178,7 @@ export function parseSkillRule(value: unknown, name: string): BundledSkillRule {
   const unless = stringList(unlessValue, `${name}: casper-skill.triggers.unless`);
   const context = stringList(contextValue, `${name}: casper-skill.triggers.context`);
   if (!strong.length) throw new Error(`${name}: casper-skill.triggers.strong needs at least one trigger`);
-  const banned = new Set<string>(family === "homelab" ? HOMELAB_BANNED_TRIGGER_WORDS : BANNED_TRIGGER_WORDS);
-  const weakOnlyWords = family === "homelab" ? HOMELAB_WEAK_ONLY_TRIGGERS : WEAK_ONLY_TRIGGERS;
+  const { banned, weakOnly: weakOnlyWords } = FAMILY_TRIGGER_RULES[family];
   for (const trigger of [...strong, ...weak]) {
     const weakOnly = weak.includes(trigger) && !strong.includes(trigger) && weakOnlyWords.has(trigger);
     if (banned.has(trigger) && !weakOnly) throw new Error(`${name}: "${trigger}" is too common to be a trigger`);
@@ -174,8 +198,9 @@ function sectionText(body: string, heading: string): string | undefined {
   return (end < 0 ? rest : rest.slice(0, end)).join("\n");
 }
 
-/** What a network or home lab skill body must keep: its family's sections in order, the stop-and-ask line, no
- * overclaiming words. Used for bundled skills and for a user skill that replaces one. An empty list means it is kept. */
+/** What a bundled skill body must keep: its family's sections in order, the stop-and-ask line (when the family has a
+ * "Changing things" part), no overclaiming words. Used for bundled skills and for a user skill that replaces one. An
+ * empty list means it is kept. */
 export function safetyProblems(body: string, family: SkillFamily = "network"): string[] {
   const problems: string[] = [];
   const sections = sectionsFor(family);
@@ -183,10 +208,12 @@ export function safetyProblems(body: string, family: SkillFamily = "network"): s
   if (JSON.stringify(headings) !== JSON.stringify(sections)) {
     problems.push(`sections must be exactly: ${sections.map((heading) => heading.slice(3)).join(" / ")}`);
   }
-  const changing = sectionText(body, CHANGING_SECTION);
-  const opening = changing?.split(/\r?\n/).map((line) => line.trim()).filter(Boolean) ?? [];
-  if (opening[0] !== STOP_AND_ASK_LINE) problems.push(`"${CHANGING_SECTION.slice(3)}" must open with: ${STOP_AND_ASK_LINE}`);
-  if (!opening.slice(0, 3).includes(CASPER_ASKS_LINE)) problems.push(`"${CHANGING_SECTION.slice(3)}" must say: ${CASPER_ASKS_LINE}`);
+  if (sections.includes(CHANGING_SECTION)) {
+    const changing = sectionText(body, CHANGING_SECTION);
+    const opening = changing?.split(/\r?\n/).map((line) => line.trim()).filter(Boolean) ?? [];
+    if (opening[0] !== STOP_AND_ASK_LINE) problems.push(`"${CHANGING_SECTION.slice(3)}" must open with: ${STOP_AND_ASK_LINE}`);
+    if (!opening.slice(0, 3).includes(CASPER_ASKS_LINE)) problems.push(`"${CHANGING_SECTION.slice(3)}" must say: ${CASPER_ASKS_LINE}`);
+  }
   const lower = body.toLowerCase();
   for (const word of BANNED_PHRASES) {
     if (new RegExp(`(^|[^a-z])${word.replace(/[-]/g, "[-]")}([^a-z]|$)`).test(lower)) problems.push(`uses "${word}"`);
@@ -199,7 +226,9 @@ export function parseBundledSkill(text: string, filePath: string): BundledSkill 
   const source = normaliseLineEndings(text);
   const { header, body } = splitSkill(source);
   const metadata = parseSkillMetadata(header);
-  if (!/^(?:network|homelab)-/.test(metadata.name)) throw new Error(`${filePath}: a bundled network skill's name starts with network-, a home lab skill's with homelab-`);
+  if (!/^(?:network|homelab|design)-/.test(metadata.name)) {
+    throw new Error(`${filePath}: a bundled network skill's name starts with network-, a home lab skill's with homelab-, a design skill's with design-`);
+  }
   if (metadata.disableModelInvocation) throw new Error(`${metadata.name}: a bundled skill is picked by its triggers; remove disable-model-invocation`);
   if (metadata.description.length > MAX_BUNDLED_DESCRIPTION || /\n/.test(metadata.description)) {
     throw new Error(`${metadata.name}: the description is one line of at most ${MAX_BUNDLED_DESCRIPTION} characters`);
@@ -244,6 +273,18 @@ export function homelabSkills(): BundledSkill[] {
   return cachedHomelab;
 }
 
+const DESIGN_SOURCES: Array<[string, string]> = [
+  [clearpassNacSource, "skills/design/clearpass-nac/SKILL.md"],
+];
+
+let cachedDesign: BundledSkill[] | undefined;
+
+/** The design skills shipped inside Casper: a method for designing a deployment, picked and limited like the others. */
+export function designSkills(): BundledSkill[] {
+  cachedDesign ??= DESIGN_SOURCES.map(([source, filePath]) => parseBundledSkill(source, filePath));
+  return cachedDesign;
+}
+
 function contains(words: string, trigger: string): boolean {
   return ` ${words} `.includes(` ${trigger} `);
 }
@@ -263,8 +304,7 @@ export function scoreSkillRule(
   const weak = rule.weak.filter((trigger) => contains(text, trigger));
   // A trigger's own words never count as its context ("api gateway" is not a weak hit plus "api").
   const triggerWords = new Set([...rule.strong, ...weak].flatMap((trigger) => trigger.split(" ")));
-  const contextWords: readonly string[] = rule.context.length ? rule.context
-    : rule.family === "homelab" ? HOMELAB_CONTEXT_WORDS : CONTEXT_WORDS;
+  const contextWords: readonly string[] = rule.context.length ? rule.context : FAMILY_TRIGGER_RULES[rule.family].context;
   const context = contextWords.some((word) => !triggerWords.has(word) && contains(text, word));
   const weakHit = weak.length > 0 && context;
   const frameworkHit = context && FRAMEWORK_INTENTS.has(classification.intent)
@@ -373,9 +413,9 @@ export function scoreWebSkill(
   return web && WEB_PROJECT_WORDS.some((word) => contains(text, word)) ? 6 : 0;
 }
 
-/** Every bundled skill: the network pack, the home lab skills and the web skills. */
+/** Every bundled skill: the network pack, the home lab, design and web skills. */
 export function allBundledSkills(): AnyBundledSkill[] {
-  return [...bundledSkills(), ...homelabSkills(), ...webSkills()];
+  return [...bundledSkills(), ...homelabSkills(), ...designSkills(), ...webSkills()];
 }
 
 /** One bundled skill's score for a request, by its kind. */
