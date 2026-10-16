@@ -17,7 +17,7 @@ test.skipIf(!mux)("real tmux: /plan panel and choices at 80 columns, Ctrl+G edit
     throw new Error(`terminal did not match:\n${await capture()}`);
   };
   const completeFrame = (text: string, title: string) => {
-    const heading = text.lastIndexOf(title), choices = text.lastIndexOf("3. Change the plan");
+    const heading = text.lastIndexOf(title), choices = text.lastIndexOf("4. Change the plan");
     return heading >= 0 && text.includes("Build this plan?") && choices > heading && text.lastIndexOf("waiting for you") > choices;
   };
   try {
@@ -34,7 +34,7 @@ test.skipIf(!mux)("real tmux: /plan panel and choices at 80 columns, Ctrl+G edit
     const screen = await wait(text => completeFrame(text, "╭─ Plan · A cleaner, animated header"));
     expect(screen).toContain("╭─ Plan · A cleaner, animated header");
     expect(screen).toContain("Ctrl+T details · Ctrl+G edit");
-    for (const text of ["Goal", "What I found", "What you'll see", "Steps", "Done means", "1. Stop", "2. Build", "3. Change the plan", "▄▄███▄▄  CASPER"]) expect(screen).toContain(text);
+    for (const text of ["Goal", "What I found", "What you'll see", "Steps", "Done means", "1. Stop", "2. Answer the question", "3. Build", "4. Change the plan", "▄▄███▄▄  CASPER"]) expect(screen).toContain(text);
     const frame = screen.split("\n").filter(row => /^[╭│╰]/.test(row));
     expect(frame.every(row => Bun.stringWidth(row.trimEnd()) === 80)).toBe(true);
     const body = frame.map(row => row.slice(3, -3).trimEnd());
@@ -46,14 +46,14 @@ test.skipIf(!mux)("real tmux: /plan panel and choices at 80 columns, Ctrl+G edit
     const art = body.findIndex(row => /^  ┌─+┐$/.test(row));
     expect(art).toBeGreaterThan(body.findIndex(row => row.includes("A brief fade-in reveals")));
     expect(body[art + 1]).toContain("│ ▄▄███▄▄  CASPER");
-    expect(frame.find(row => row.includes("Draw the header in the accent colour"))).toEndWith("src/tui/banner.ts  │");
+    expect(frame.find(row => row.includes("Draw the header in the accent colour"))).toMatch(/accent colour  src\/tui\/banner\.ts +│$/);
     expect(body.findIndex(row => row.includes("The renderer already keeps"))).toBeLessThan(body.findIndex(row => row === "Open questions"));
     await Bun.sleep(350); // Real input guard: keys typed before the box appeared cannot answer it.
     await mux!.run("send-keys", "-t", "plan", "C-g");
     const edited = await wait(text => completeFrame(text, "╭─ Plan · A hand-edited header"));
-    expect(edited).toContain("3. Change the plan");
+    expect(edited).toContain("4. Change the plan");
     await Bun.sleep(350);
-    await mux!.run("send-keys", "-t", "plan", "3");
+    await mux!.run("send-keys", "-t", "plan", "4");
     await wait(text => text.includes("What should change?") && text.replace(/\s+/g, " ").includes("Esc stops without building"));
     await mux!.run("send-keys", "-t", "plan", "-l", "make it quieter"); await mux!.run("send-keys", "-t", "plan", "Enter");
     await wait(text => completeFrame(text, "╭─ Plan · A revised header"));

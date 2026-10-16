@@ -23,8 +23,10 @@ describe("the designed plan panel", () => {
     expect(rows[0]).toStartWith("╭─ Plan · A calmer project board ─");
     expect(rows.at(-1)).toContain("Ctrl+T details · Ctrl+G edit");
     expect(rows.at(-1)).toEndWith("─╯");
-    expect(rows.every(row => visibleWidth(row) === 80)).toBe(true);
-    expect(rows[1]).toBe(`│${" ".repeat(78)}│`);
+    // The frame follows the terminal up to PLAN_FRAME_WIDTH (120) columns.
+    const frame = Math.min(width, 120);
+    expect(rows.every(row => visibleWidth(row) === frame)).toBe(true);
+    expect(rows[1]).toBe(`│${" ".repeat(frame - 2)}│`);
     expect(rows.at(-2)).toBe(rows[1]);
     const content = inside(rows);
     for (const heading of headings) {
@@ -92,4 +94,29 @@ describe("the designed plan panel", () => {
     expect(rows.every(row => visibleWidth(row) === 20)).toBe(true);
     expect(inside(rows).join("").replace(/\s/g, "")).toContain(title);
   });
+});
+
+test("on a wide screen a long step keeps the width with its file after the words; links and bold read as words", () => {
+  const wide = extractPlan([
+    "Title: Improve the first pick",
+    "Goal: Pick the right tool first.",
+    "What I found:",
+    "- [PR #10](https://example.com/org/repo/pull/10) is merged; the biggest gap is **ranking**.",
+    "Steps:",
+    "1. Fix the largest demonstrated general failure pattern first. Adjust ranking for ordering failures and test bounded description-based retrieval only if missing name matches explain the failures. — src/casper_network_mcp/router/find.py",
+    "2. Add a test — tests/test_rules.py",
+    "Done means:",
+    "- The right tool is first.",
+  ].join("\n"))!;
+  const rows = plain(planScreenRows(wide, 200, { framed: true }));
+  expect(rows.every(row => visibleWidth(row) === 120)).toBe(true);
+  const body = inside(rows);
+  expect(body.find(row => row.startsWith("- PR #10"))).toBe("- PR #10 is merged; the biggest gap is ranking.");
+  expect(rows.join("\n")).not.toMatch(/\]\(|\*\*/);
+  // The long step wraps at the frame's full width, never in a narrow column beside its file; the file follows the words.
+  const step = body.findIndex(row => row.startsWith("1. Fix the largest"));
+  expect(visibleWidth(body[step]!)).toBeGreaterThan(100);
+  expect(body.slice(step, step + 3).join(" ").replace(/\s+/g, " ")).toContain("explain the failures. src/casper_network_mcp/router/find.py");
+  // A short step: the file two spaces after its words, with no gap across the frame.
+  expect(body.find(row => row.startsWith("2. Add a test"))).toBe("2. Add a test  tests/test_rules.py");
 });

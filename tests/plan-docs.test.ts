@@ -30,7 +30,7 @@ test.each(documents)("%s explains the bounded interview, spec, saved plan and mo
     "Screens", "Data", "Look", "First version", "Later"]) expect(text).toContain(heading);
   expect(text).toContain("60 columns");
   expect(text).toMatch(/(?:no forced|without forced|No implementation Steps are forced)/);
-  expect(text).toContain("80 columns");
+  expect(text).toContain("120 columns");
   expect(text).toContain("accent frame");
   expect(text).toMatch(/(?:dim paths|paths dimmed)/);
   expect(text).toMatch(/(?:plain terminals|Plain terminals).*?NO_COLOR.*?(?:no frame|unframed)/);
