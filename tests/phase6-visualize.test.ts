@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, readdir, readFile, symlink, writeFile } from "node:fs/p
 import os from "node:os";
 import path from "node:path";
 import { MermaidProvider } from "../src/visualize/mermaid";
-import { MindMeshProvider, MINDMESH_SCHEMA_VERSION, toMindMeshMap } from "../src/visualize/mindmesh";
+import { MINDMESH_GROUP_COLOURS, MindMeshProvider, MINDMESH_SCHEMA_VERSION, toMindMeshMap } from "../src/visualize/mindmesh";
 import { buildRepoGraph } from "../src/visualize/repo";
 import { resolveVisualizationSettings, VisualizationRouter } from "../src/visualize/router";
 import { describeVisualization, visualizationTools } from "../src/visualize/tools";
@@ -187,8 +187,46 @@ test("MindMesh provider emits a schema-6 tree document that satisfies MindMesh i
   expect(map.nodes["map1:ui"].extensions.casper).toEqual({ graphId: "ui", group: "web", crossEdgesOut: [{ to: "api", label: "POST /login" }] });
   expect(result.lossiness).toEqual([
     "1 cross edge(s) are recorded in node notes/extensions, not drawn as branches.",
-    "Groups are recorded in node extensions, not drawn.",
+    "Groups are shown as topic colours only; group names are in node extensions.",
     "Edge labels are recorded in node extensions only.",
+  ]);
+});
+
+test("MindMesh colours groups by first appearance, bolds the root and leaves ungrouped topics unstyled", () => {
+  const map = toMindMeshMap(authFlow, "map1", "2026-01-01T00:00:00.000Z");
+  expect(map.schemaVersion).toBe(MINDMESH_SCHEMA_VERSION);
+  expect(mindmeshInvariants(map)).toEqual([]);
+  // "web" appears first (Login UI), so it takes the first colour even though the root is in "server".
+  expect(map.nodes["map1:api"]!.style).toEqual({ background: MINDMESH_GROUP_COLOURS[1], bold: true });
+  expect(map.nodes["map1:db"]!.style).toEqual({ background: MINDMESH_GROUP_COLOURS[1] });
+  expect(map.nodes["map1:ui"]!.style).toEqual({ background: MINDMESH_GROUP_COLOURS[0] });
+  expect(map.nodes["map1:session"]!.style).toEqual({ background: MINDMESH_GROUP_COLOURS[0] });
+  expect(Object.values(map.nodes).some((node) => node.task)).toBe(false);
+  expect(toMindMeshMap(authFlow, "map1", "2026-01-01T00:00:00.000Z")).toEqual(map);
+
+  const plain = toMindMeshMap({ type: "mindmap", title: "Plain", nodes: [{ id: "a", label: "A" }, { id: "b", label: "B" }], edges: [{ from: "a", to: "b" }] }, "m", "2026-01-01T00:00:00.000Z");
+  expect(plain.nodes["m:a"]!.style).toEqual({ bold: true });
+  expect(plain.nodes["m:b"]!.style).toBeUndefined();
+});
+
+test("MindMesh plan topics are open tasks, the root is not, and colour sharing is disclosed", async () => {
+  const groups = Array.from({ length: MINDMESH_GROUP_COLOURS.length + 1 }, (_, index) => `g${index}`);
+  const plan: VisualizationGraph = { type: "plan", title: "Ship it", nodes: [
+    { id: "goal", label: "Goal" }, ...groups.map((group) => ({ id: group, label: `Step ${group}`, group })), { id: "loose", label: "Loose end" },
+  ], edges: [...groups.map((group) => ({ from: "goal", to: group })), { from: "g0", to: "loose" }] };
+  const result = await new MindMeshProvider({ now: () => "2026-01-01T00:00:00.000Z", mapId: () => "p" }).render(plan);
+  const map = JSON.parse(result.content);
+  expect(map.schemaVersion).toBe(MINDMESH_SCHEMA_VERSION);
+  expect(mindmeshInvariants(map)).toEqual([]);
+  expect(map.nodes["p:goal"].task).toBeUndefined();
+  expect(map.nodes["p:goal"].style).toEqual({ bold: true });
+  for (const id of [...groups, "loose"]) expect(map.nodes[`p:${id}`].task).toEqual({ status: "open" });
+  expect(map.nodes[`p:g${MINDMESH_GROUP_COLOURS.length}`].style.background).toBe(MINDMESH_GROUP_COLOURS[0]);
+  expect(map.nodes["p:loose"].style).toBeUndefined();
+  expect(result.lossiness).toEqual([
+    "Groups are shown as topic colours only; group names are in node extensions.",
+    `${groups.length} groups share ${MINDMESH_GROUP_COLOURS.length} colours.`,
+    "Ungrouped topics under a grouped topic show that group's colour in MindMesh.",
   ]);
 });
 
