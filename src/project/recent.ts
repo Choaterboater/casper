@@ -34,16 +34,17 @@ async function conversationFolder(file: string): Promise<string | undefined> {
 }
 
 /** Last use of each working folder: the newest saved conversation in each of the engine's per-folder
- * conversation folders (`<agentDir>/sessions/--<folder>--/*.jsonl`). */
-async function conversationTimes(agentDir: string): Promise<Map<string, number>> {
+ * conversation folders (`<agentDir>/sessions/--<folder>--/*.jsonl`). `named` picks conversation folders by their
+ * name, however old, in place of the newest RECENT_FOLDERS. */
+async function conversationTimes(agentDir: string, named?: (folderName: string) => boolean): Promise<Map<string, number>> {
   const sessions = path.join(agentDir, "sessions");
   const folders = await readdir(sessions, { withFileTypes: true }).catch(() => []);
   // A folder's own time moves when a conversation starts there; it picks the folders worth opening.
-  const dated = await Promise.all(folders.filter(entry => entry.isDirectory())
+  const dated = await Promise.all(folders.filter(entry => entry.isDirectory() && (!named || named(entry.name)))
     .map(async entry => ({ dir: path.join(sessions, entry.name), at: await mtime(path.join(sessions, entry.name)) ?? 0 })));
   dated.sort((a, b) => b.at - a.at);
   const times = new Map<string, number>();
-  await Promise.all(dated.slice(0, RECENT_FOLDERS).map(async ({ dir }) => {
+  await Promise.all((named ? dated : dated.slice(0, RECENT_FOLDERS)).map(async ({ dir }) => {
     const files = (await readdir(dir).catch(() => [])).filter(name => name.endsWith(".jsonl"));
     if (!files.length) return;
     // A resumed conversation is written to again: its file's time, not its name, says when it was last used.
@@ -68,13 +69,14 @@ function under(bases: readonly string[], dir: string): string | undefined {
 }
 
 /** Folders inside `base` (not `base` itself) with a saved conversation, most recently used first. A folder that
- * is gone, is not a folder, sits outside `base`, or is a temp, cache or scratch folder is skipped. */
-export async function recentlyUsedProjects(options: { base: string; agentDir: string; noise?: NoiseOptions }): Promise<string[]> {
+ * is gone, is not a folder, sits outside `base`, or is a temp, cache or scratch folder is skipped. `named` looks at
+ * the conversation folders it picks by name, however long ago they were used (see conversationTimes). */
+export async function recentlyUsedProjects(options: { base: string; agentDir: string; noise?: NoiseOptions; named?: (folderName: string) => boolean }): Promise<string[]> {
   const base = path.resolve(options.base);
   // Temp, cache, package and scratch folders are not projects (unless the opened folder is one itself).
   const skip = noiseFilter(base, options.noise);
   const bases = [...new Set([base, await realpath(base).catch(() => base)])];
-  const times = await conversationTimes(options.agentDir);
+  const times = await conversationTimes(options.agentDir, options.named);
   const inside = [...times].flatMap(([dir, at]) => { const mapped = under(bases, dir); return mapped && !skip(dir) && !skip(mapped) ? [[mapped, at] as const] : []; });
   const present = await Promise.all(inside.map(async ([dir, at]) =>
     (await stat(dir).then(info => info.isDirectory(), () => false)) ? { dir, at } : undefined));

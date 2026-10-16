@@ -25,12 +25,13 @@ test("a request names a project by its folder name, a link's last part, or exact
 });
 
 /** A saved conversation the way the engine stores it: one folder per working folder, a header line naming it. */
-async function savedConversation(home: string, cwd: string): Promise<void> {
+async function savedConversation(home: string, cwd: string, when = new Date()): Promise<void> {
   const folder = path.join(home, ".casper", "agent", "sessions", `--${cwd.replace(/^[/\\]/, "").replace(/[/\\:]/g, "-")}--`);
   await mkdir(folder, { recursive: true });
   const file = path.join(folder, "2026-01-01T00-00-00-000Z_fixture.jsonl");
   await writeFile(file, `${JSON.stringify({ type: "session", version: 3, id: "fixture", timestamp: "2026-01-01T00:00:00.000Z", cwd })}\n`);
-  await utimes(file, new Date(), new Date());
+  await utimes(file, when, when);
+  await utimes(folder, when, when);
 }
 
 function recordingRuntime(starts: string[], prompts: string[]): AgentRuntime {
@@ -105,5 +106,25 @@ test("after the conversation started, Move keeps it in /resume and runs the requ
     await f.until(() => f.prompts.length === 2);
     expect(await Promise.all(f.starts.map(dir => realpath(dir)))).toEqual([await realpath(f.project), f.tools]);
     expect(f.prompts[1]).toContain("improve find_tool in casper-tools");
+  } finally { await f.close(); }
+}), 30_000);
+
+test("a project used long ago, behind more than 30 newer ones, is still offered by name", () => withEnv({ TERM: "xterm-256color" }, async () => {
+  const starts: string[] = [];
+  const prompts: string[] = [];
+  const f = await richApp(() => recordingRuntime(starts, prompts));
+  try {
+    await f.until(screen => screen.includes("idle"));
+    const documents = path.join(await realpath(f.home), "Documents");
+    const tools = path.join(documents, "casper-tools");
+    await mkdir(path.join(tools, ".git"), { recursive: true });
+    await savedConversation(f.home, tools, new Date(Date.now() - 90 * 24 * 60 * 60 * 1000));
+    for (let index = 0; index < 35; index++) {
+      const other = path.join(documents, `project-${index}`);
+      await mkdir(other, { recursive: true });
+      await savedConversation(f.home, other);
+    }
+    f.input.write("what is the folder casper-tools about\r");
+    await f.until(screen => screen.includes("This request names casper-tools, in ~/Documents/casper-tools."));
   } finally { await f.close(); }
 }), 30_000);
