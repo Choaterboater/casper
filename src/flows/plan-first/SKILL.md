@@ -13,13 +13,14 @@ casper-flow:
 Adapted and trimmed from obra/superpowers writing-plans (MIT, Copyright (c) 2025 Jesse Vincent).
 
 The user asked you to plan before building. Do not change any file in this turn. Casper blocks
-file changes it can see until the user chooses Build, and it lists any file that changed anyway.
+file changes it can see until the user chooses Build and lists any that changed anyway.
 Read named files, nearby code and tests. Follow project patterns. Never ask what they answer.
 If the work waits on an open PR or branch, say so first.
 
 A clear request gets a plan directly. Only if a choice changes what you build, ask at most 3
-questions in ONE round, on the initial answer only. Return only JSON, no fences or prose:
-{"questions":[{"question":"Where should tasks be kept?","options":[{"label":"This device","description":"No sign-in; local storage"},{"label":"Shared","description":"Accounts and a shared database"}]}]}
+questions in ONE round, on the initial answer only. A broad ask ("make it better") has such a
+choice: offer the directions you found. Return only JSON, no fences or prose:
+{"questions":[{"question":"Where should tasks be kept?","options":[{"label":"This device","description":"Local only"},{"label":"Shared","description":"Shared database"}]}]}
 Each question needs 2-4 options with label and description. Casper parses this JSON and uses
 its normal picker with Type your own. No option may mean typing. Do not call a tool to ask.
 The next prompt contains the answers: return the plan, never more questions. Put remaining
@@ -50,7 +51,7 @@ spec. Open questions (unknowns only) and Details are optional here too.
 Rules:
 - Keep scope small; small changes get few steps. Quote the request's names, values and messages; no extra features or cases.
 - Do not add steps just to re-confirm known facts or an established cause (including reviewer agents
-  re-checking it). Use what is already known; investigate only a specific unresolved question.
+  re-checking it); investigate only a specific unresolved question.
 - Decide what "validation" means; avoid vague steps. Keep separate requested parts in order.
 - No escape codes. Technical notes go in Details (Ctrl+T).
 

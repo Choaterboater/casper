@@ -414,7 +414,7 @@ as well). For example, an existing-project plan on a rich terminal looks like th
 ╰─────────────────────────────────────────────── Ctrl+T details · Ctrl+G edit ─╯
 ```
 
-On a rich terminal the plan has an accent frame at most 120 columns wide (narrower when the window is), with
+On a rich terminal the plan has an accent frame as wide as the window, with
 paths dimmed. A step that fits on one line has its file at the right; a longer step keeps the full width and its
 file goes on the line under it. A link shows its text and bold loses its `**`. Plain terminals and `NO_COLOR` show the same sections, unframed and without colour:
 

@@ -437,15 +437,12 @@ export interface PlanScreenOptions {
 }
 
 /** The same sections in plain and framed terminals. Only implementation Details stay one key away.
- * A frame is at most PLAN_FRAME_WIDTH cells wide, with breathing room inside; no centering or terminal state required. */
-/** Wide enough to use a big screen, narrow enough to read: a step stays one comfortable line. */
-export const PLAN_FRAME_WIDTH = 120;
-
+ * A frame is as wide as the window, with breathing room inside; no centering or terminal state required. */
 export function planScreenRows(plan: ParsedPlan, width: number, options: PlanScreenOptions = {}): string[] {
   plan = questionsOnly(plan);
   const available = Number.isFinite(width) ? Math.max(1, Math.floor(width)) : 80;
   const framed = Boolean(options.framed && available >= 6);
-  const outer = framed ? Math.min(PLAN_FRAME_WIDTH, available) : available;
+  const outer = available;
   const gutter = outer >= 10 ? "  " : "";
   const inner = framed ? outer - 2 - gutter.length * 2 : outer;
   const accent = options.accent ?? ((text: string) => text);
