@@ -62,9 +62,9 @@ class Parent implements AgentRuntime {
 async function setup() {
   const root = await fixtureRepo("casper-ai-app-");
   cleanup.push(() => removeTempDir(root));
-  gitIn(root, "checkout", "-qb", "feature");
+  await gitIn(root, "checkout", "-qb", "feature");
   await writeFile(path.join(root, "app", "extra.py"), "import subprocess\n\ndef run(cmd):\n    return subprocess.check_output(cmd, shell=True)\n");
-  gitIn(root, "add", "-A"); gitIn(root, "commit", "-qm", "extra");
+  await gitIn(root, "add", "-A"); await gitIn(root, "commit", "-qm", "extra");
   const home = await mkdtemp(path.join(os.tmpdir(), "casper-ai-app-home-"));
   cleanup.push(() => removeTempDir(home));
   const tools = await fakeTools(home);

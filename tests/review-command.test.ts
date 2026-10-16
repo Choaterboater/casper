@@ -17,13 +17,13 @@ afterEach(async () => { for (const dir of temps.splice(0)) await removeTempDir(d
 async function repo(): Promise<string> {
   const root = await realpath(await mkdtemp(path.join(os.tmpdir(), "casper-review-")));
   temps.push(root);
-  gitIn(root, "init", "-q");
+  await gitIn(root, "init", "-q");
   await mkdir(path.join(root, "src"));
   await writeFile(path.join(root, "src", "a.ts"), "export const a = 1;\n");
-  gitIn(root, "add", "src/a.ts"); gitIn(root, "commit", "-qm", "first");
-  gitIn(root, "checkout", "-qb", "feature");
+  await gitIn(root, "add", "src/a.ts"); await gitIn(root, "commit", "-qm", "first");
+  await gitIn(root, "checkout", "-qb", "feature");
   await writeFile(path.join(root, "src", "b.ts"), "export function b(x: number) {\n  return x / 0;\n}\n");
-  gitIn(root, "add", "src/b.ts"); gitIn(root, "commit", "-qm", "second");
+  await gitIn(root, "add", "src/b.ts"); await gitIn(root, "commit", "-qm", "second");
   return root;
 }
 
@@ -49,7 +49,7 @@ test("/review takes nothing, a branch or a commit; a bad ref or extra words say 
   expect((await resolveReviewTarget(root, [])).kind).toBe("uncommitted");
   const branch = await resolveReviewTarget(root, ["main"]);
   expect(branch).toMatchObject({ kind: "branch", label: "the changes since main" });
-  const head = gitIn(root, "rev-parse", "HEAD").trim();
+  const head = (await gitIn(root, "rev-parse", "HEAD")).trim();
   const commit = await resolveReviewTarget(root, [head.slice(0, 8)]);
   expect(commit).toMatchObject({ kind: "commit", sha: head, label: `commit ${head.slice(0, 12)}` });
   await expect(resolveReviewTarget(root, ["no-such-branch"])).rejects.toThrow("is not a branch or commit here");
@@ -64,7 +64,7 @@ test("the diff covers staged, unstaged and new files; key and .env files stay ou
   const root = await repo();
   await writeFile(path.join(root, "src", "a.ts"), "export const a = 2;\n");
   await writeFile(path.join(root, "src", "c.ts"), "export const c = 3;\n");
-  gitIn(root, "add", "src/c.ts");
+  await gitIn(root, "add", "src/c.ts");
   await writeFile(path.join(root, "src", "d.ts"), "export const d = 4;\n");
   await writeFile(path.join(root, ".env"), "TOKEN=x\n");
   const diff = await collectReviewDiff(root, await resolveReviewTarget(root, []));
@@ -141,7 +141,7 @@ test("nothing found says so; the brief asks for bugs, security and tests, not st
   await writeFile(path.join(root, "AGENTS.md"), "rules\n");
   await mkdir(path.join(root, "docs", "adr"), { recursive: true });
   await writeFile(path.join(root, "docs", "adr", "0002-deliberate-choices.md"), "choices\n");
-  gitIn(root, "add", "AGENTS.md", "docs/adr/0002-deliberate-choices.md");
+  await gitIn(root, "add", "AGENTS.md", "docs/adr/0002-deliberate-choices.md");
   await writeFile(path.join(root, "src", "a.ts"), "export const a = 5;\n");
   const { host, out, runs, told } = fake(root, "```json\n[]\n```");
   expect(await runReview(host, [])).toEqual([]);

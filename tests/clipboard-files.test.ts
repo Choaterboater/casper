@@ -96,9 +96,14 @@ test("the next tool is tried only when one is not installed; a Wayland clipboard
 const bun = (script: string, ...args: string[]): ClipboardFilesCommand => ({ file: process.execPath, args: ["-e", script, ...args], output: "paths" });
 
 test("a clipboard tool runs without a shell: its arguments reach it as they are", async () => {
-  // A generous limit: starting bun on a loaded runner can take longer than the tool's own default.
-  const output = await runClipboardTool(bun("process.stdout.write(JSON.stringify(process.argv.slice(1)))", "a;b", "$(echo hi)", "`id`", "x && y", "%PATH%", "| more"), 20_000);
-  expect(JSON.parse(output!)).toEqual(["a;b", "$(echo hi)", "`id`", "x && y", "%PATH%", "| more"]);
+  const args = ["a;b", "$(echo hi)", "`id`", "x && y", "%PATH%", "| more"];
+  // This tests argv, not Bun's module loader: use the fixed POSIX program on macOS/Linux so a stalled Bun
+  // start cannot masquerade as clipboard failure. Windows has no printf executable, so its fixture is Bun.
+  const command: ClipboardFilesCommand = process.platform === "win32"
+    ? bun('process.stdout.write(process.argv.slice(1).join("\\n") + "\\n")', ...args)
+    : { file: "/usr/bin/printf", args: ["%s\\n", ...args], output: "paths" };
+  const output = await runClipboardTool(command, 20_000);
+  expect(output?.split("\n").slice(0, -1)).toEqual(args);
 });
 
 test("a clipboard tool that fails, hangs, prints too much or is not installed gives nothing", async () => {

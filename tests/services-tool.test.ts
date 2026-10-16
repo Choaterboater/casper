@@ -45,7 +45,10 @@ async function fixture(spec: Partial<ServiceSpec> = {}) {
 }
 
 test("start, status, logs, restart and stop a declared service through the tool", async () => {
-  const f = await fixture();
+  const gateRoot = await mkdtemp(path.join(os.tmpdir(), "service-log-gate-"));
+  cleanups.push(() => removeTempDir(gateRoot));
+  const gate = path.join(gateRoot, "release");
+  const f = await fixture({ env: { READY_LOG_GATE: gate } });
   expect(f.tool.name).toBe("service");
   const started = await f.call({ action: "start", service: "api" });
   expect(started.isError).toBe(false);
@@ -54,7 +57,15 @@ test("start, status, logs, restart and stop a declared service through the tool"
   expect(origin).toMatch(/^http:\/\/127\.0\.0\.1:\d+$/);
   const grandchild = await f.grandchild();
   expect((await f.call({ action: "status" })).data.services).toEqual([expect.objectContaining({ name: "api", state: "ready", origin })]);
-  const logs = await f.call({ action: "logs", service: "api", filter: "listen" });
+  // HTTP readiness does not imply stdout has arrived. Hold the line back until the
+  // first read, then poll its actual contents rather than sleeping after start.
+  let logs = await f.call({ action: "logs", service: "api", filter: "listen" });
+  expect(logs.data.logs).toBe("");
+  await writeFile(gate, "continue");
+  await until(async () => {
+    logs = await f.call({ action: "logs", service: "api", filter: "listen" });
+    return logs.data.logs === "listening";
+  });
   expect(logs.data.logs).toBe("listening");
   const restarted = await f.call({ action: "restart", service: "api" });
   expect(restarted.data.service.state).toBe("ready");

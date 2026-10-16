@@ -67,7 +67,7 @@ test("a matching tar.gz download is unpacked into ~/.casper/tools/<id>-<version>
   const build = await temp("casper-security-build-");
   await writeFile(path.join(build, "gitleaks"), "#!/bin/sh\necho 8.30.1\n");
   await writeFile(path.join(build, "README.md"), "readme\n");
-  run(build, "tar", ["-czf", "tool.tar.gz", "gitleaks", "README.md"]);
+  await run(build, "tar", ["-czf", "tool.tar.gz", "gitleaks", "README.md"]);
   const bytes = new Uint8Array(await readFile(path.join(build, "tool.tar.gz")));
   const spec = fakeBinarySpec(bytes, "tar.gz");
   const fetched: string[] = [];
@@ -90,7 +90,7 @@ test.if(process.platform === "win32")("on Windows a GNU tar first on PATH doesn'
   await fakeProgram(gnu, "tar", [process.execPath, "-e", "process.stderr.write('tar (child): Cannot connect to C: resolve failed\\n'); process.exit(2)"]);
   await writeFile(path.join(build, "gitleaks.exe"), "not really a program\n");
   const windowsTar = path.join(process.env.SystemRoot ?? "C:\\Windows", "System32", "tar.exe");
-  run(build, windowsTar, ["-a", "-cf", "tool.zip", "gitleaks.exe"]);
+  await run(build, windowsTar, ["-a", "-cf", "tool.zip", "gitleaks.exe"]);
   const bytes = new Uint8Array(await readFile(path.join(build, "tool.zip")));
   const spec: SecurityToolSpec = { ...SECURITY_TOOLS.gitleaks, source: { kind: "binary", assets: { [hostPlatform()!]: { url: "https://github.com/example/tool/v8.30.1/tool.zip", sha256: sha(bytes), archive: "zip", member: "gitleaks.exe" } } } };
   const env: NodeJS.ProcessEnv = Object.fromEntries(Object.entries(process.env).filter(([name]) => name.toUpperCase() !== "PATH"));

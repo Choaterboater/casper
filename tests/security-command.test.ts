@@ -67,7 +67,7 @@ test("a new ignore is approved only by a person's 3, and the approval is kept in
   expect(store.markers).toHaveLength(1);
   expect(store.markers[0]).toMatchObject({ file: "app/extra.py", marker: "# nosec B602" });
   expect(approvalsPath(root, home).startsWith(path.join(home, ".casper"))).toBe(true);
-  expect(gitIn(root, "status", "--porcelain")).not.toContain(".casper");
+  expect(await gitIn(root, "status", "--porcelain")).not.toContain(".casper");
 });
 
 test("leaving an ignore flagged approves nothing", async () => {
@@ -84,7 +84,7 @@ test("Enter never approves: a new ignore stays flagged and a changed ignore file
   const root = await fixtureRepo("casper-sr-enter-"); temps.push(root);
   const home = await temp("casper-sr-home-");
   await writeFile(path.join(root, ".gitleaks.toml"), "[extend]\nuseDefault = true\n");
-  gitIn(root, "add", "-A"); gitIn(root, "commit", "-qm", "ignores");
+  await gitIn(root, "add", "-A"); await gitIn(root, "commit", "-qm", "ignores");
   await writeFile(path.join(root, ".gitleaks.toml"), "[extend]\nuseDefault = true\n[[allowlists]]\npaths = ['''app/''']\n");
   await writeFile(path.join(root, "app", "extra.py"), "import subprocess\nsubprocess.call('ls', shell=True)  # nosec B602\n");
   const tools = await fakeTools(home);
@@ -135,7 +135,7 @@ test("a changed ignore file counts only after a person says so", async () => {
   const root = await fixtureRepo("casper-sr-file-"); temps.push(root);
   const home = await temp("casper-sr-home-");
   await writeFile(path.join(root, ".gitleaks.toml"), "[extend]\nuseDefault = true\n");
-  gitIn(root, "add", "-A"); gitIn(root, "commit", "-qm", "ignores");
+  await gitIn(root, "add", "-A"); await gitIn(root, "commit", "-qm", "ignores");
   await writeFile(path.join(root, ".gitleaks.toml"), "[extend]\nuseDefault = true\n[[allowlists]]\npaths = ['''app/''']\n");
   const tools = await fakeTools(home);
   const s = scripted(root, home, tools.find, ["Use my changed file", "Leave it flagged"]);

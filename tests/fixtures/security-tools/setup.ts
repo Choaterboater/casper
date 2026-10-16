@@ -1,5 +1,5 @@
-import { spawnSync } from "node:child_process";
 import { cleanEnv } from "../../support/env";
+import { run as runFixture } from "../../support/run";
 import { createHash } from "node:crypto";
 import { chmod, copyFile, link, mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import os from "node:os";
@@ -125,13 +125,15 @@ export async function fakeTools(dir: string, behaviours: Partial<Record<Security
   return { find, recorded };
 }
 
-export function run(cwd: string, command: string, args: string[]): string {
-  const result = spawnSync(command, args, { cwd, encoding: "utf8", env: { ...process.env, GIT_CONFIG_NOSYSTEM: "1", GIT_AUTHOR_NAME: "t", GIT_AUTHOR_EMAIL: "t@example.com", GIT_COMMITTER_NAME: "t", GIT_COMMITTER_EMAIL: "t@example.com" } });
-  if (result.status !== 0) throw new Error(`${command} ${args.join(" ")} failed: ${result.stderr}`);
+/** Never block a Bun test worker waiting for a sync child: its exit notification can be
+ * lost under contention, leaving a zombie and preventing even the test deadline from firing. */
+export async function run(cwd: string, command: string, args: string[]): Promise<string> {
+  const result = await runFixture([command, ...args], { cwd, env: cleanEnv({ GIT_CONFIG_NOSYSTEM: "1", GIT_AUTHOR_NAME: "t", GIT_AUTHOR_EMAIL: "t@example.com", GIT_COMMITTER_NAME: "t", GIT_COMMITTER_EMAIL: "t@example.com" }) });
+  if (result.status !== 0 || result.timedOut) throw new Error(`${command} ${args.join(" ")} failed: ${result.stderr}; status=${result.status}; signal=${result.signal}; timedOut=${result.timedOut}`);
   return result.stdout;
 }
 
-export function gitIn(cwd: string, ...args: string[]): string {
+export function gitIn(cwd: string, ...args: string[]): Promise<string> {
   return run(cwd, "git", ["-c", "commit.gpgsign=false", "-c", "init.defaultBranch=main", ...args]);
 }
 
@@ -201,9 +203,9 @@ export async function fixtureRepo(prefix: string, options: { git?: boolean } = {
   await writeFile(path.join(root, "site.yml"), PLAYBOOK_YML);
   await writeFile(path.join(root, "tools.json"), TOOLS_JSON);
   if (options.git !== false) {
-    gitIn(root, "init", "-q");
-    gitIn(root, "add", "-A");
-    gitIn(root, "commit", "-qm", "init");
+    await gitIn(root, "init", "-q");
+    await gitIn(root, "add", "-A");
+    await gitIn(root, "commit", "-qm", "init");
   }
   return root;
 }

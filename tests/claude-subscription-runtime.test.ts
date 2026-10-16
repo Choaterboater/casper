@@ -1,10 +1,20 @@
-import { expect, test } from "bun:test";
-import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { afterAll, beforeAll, expect, test } from "bun:test";
+import { copyFile, mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { isolatedEnvironment } from "../src/platform/environment";
 import { removeTempDir } from "./support/temp-dir";
-import { compileExecutable } from "../scripts/compile";
+import { buildSharedLauncher, FAKE_PROGRAM_SETUP_MS } from "./fixtures/security-tools/setup";
+
+let compiled: string;
+let compiledRoot: string;
+beforeAll(async () => {
+  compiledRoot = await mkdtemp(path.join(os.tmpdir(), "casper-subscription-fixture-"));
+  compiled = await buildSharedLauncher(path.join(compiledRoot, "fixture.exe"), {
+    entrypoint: path.join(import.meta.dir, "fixtures/claude-subscription-cli.ts"),
+  });
+}, FAKE_PROGRAM_SETUP_MS);
+afterAll(async () => { if (compiledRoot) await removeTempDir(compiledRoot); });
 
 test("a signed-out user logs in through native Claude Code and sends a subscription request without restarting", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "casper-claude-login-"));
@@ -12,7 +22,7 @@ test("a signed-out user logs in through native Claude Code and sends a subscript
     const home = path.join(root, "home"), cwd = path.join(root, "project");
     await mkdir(home); await mkdir(cwd);
     const cli = path.join(root, process.platform === "win32" ? "synthetic claude.exe" : "synthetic claude");
-    await compileExecutable(path.join(import.meta.dir, "fixtures/claude-subscription-cli.ts"), cli);
+    await copyFile(compiled, cli);
     const source = path.resolve(import.meta.dir, "../src/runtime/pi.ts");
     const child = Bun.spawn([process.execPath, "-e", `
       import { PiRuntime } from ${JSON.stringify(source)};
@@ -65,7 +75,7 @@ test("fresh Casper sessions and isolated readers can select the subscription pro
     const home = path.join(root, "home"), cwd = path.join(root, "project"), agent = path.join(home, ".casper/agent");
     await mkdir(agent, { recursive: true }); await mkdir(cwd);
     const cli = path.join(root, process.platform === "win32" ? "synthetic claude.exe" : "synthetic claude");
-    await compileExecutable(path.join(import.meta.dir, "fixtures/claude-subscription-cli.ts"), cli);
+    await copyFile(compiled, cli);
     const source = path.resolve(import.meta.dir, "../src/runtime/pi.ts");
     const child = Bun.spawn([process.execPath, "-e", `
       import { PiRuntime } from ${JSON.stringify(source)};
@@ -97,7 +107,7 @@ test("subscription proposals retain Casper's native tools, approvals, private-pa
     await writeFile(path.join(cwd, "fixture.txt"), "native read evidence\n");
     await writeFile(path.join(cwd, "private/token.txt"), "PRIVATE_FIXTURE_MUST_NOT_REACH_MODEL\n");
     const cli = path.join(root, process.platform === "win32" ? "synthetic claude.exe" : "synthetic claude");
-    await compileExecutable(path.join(import.meta.dir, "fixtures/claude-subscription-cli.ts"), cli);
+    await copyFile(compiled, cli);
     const child = Bun.spawn([process.execPath, path.join(import.meta.dir, "fixtures/claude-subscription-runtime.ts")], { cwd,
       env: { ...isolatedEnvironment(home), CASPER_CLAUDE_PATH: cli, PI_CODING_AGENT_DIR: path.join(home, ".casper/agent"), PI_OFFLINE: "1", CASPER_OFFLINE: "1" },
       stdout: "pipe", stderr: "pipe", timeout: 60_000 });
@@ -125,7 +135,7 @@ test("subscription registration and session-only selection preserve existing sav
     const defaults = JSON.stringify({ defaultProvider: "anthropic", defaultModel: "claude-opus-4-8", defaultThinkingLevel: "high" }) + "\n";
     await writeFile(path.join(directory, "settings.json"), defaults);
     const cli = path.join(root, process.platform === "win32" ? "synthetic claude.exe" : "synthetic claude");
-    await compileExecutable(path.join(import.meta.dir, "fixtures/claude-subscription-cli.ts"), cli);
+    await copyFile(compiled, cli);
     const source = path.resolve(import.meta.dir, "../src/runtime/pi.ts");
     const child = Bun.spawn([process.execPath, "-e", `
       import { PiRuntime } from ${JSON.stringify(source)};
