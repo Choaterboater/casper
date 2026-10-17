@@ -336,7 +336,9 @@ test("completion refreshes a ready stale preserved service with ensureFresh befo
       return super.ensureFresh(name, signal);
     }
   }
-  f.app.services = new TrackingManager({ projectRoot: f.project, services: { web: f.spec } });
+  const manager = f.app.services = new TrackingManager({ projectRoot: f.project, services: { web: f.spec } });
+  // app.close() stops only a manager the app made itself; this preserved one must stop before its folder is removed.
+  cleanups.push(() => manager.close().catch(() => {}));
   await f.app.runOnce("/services start web");
   refreshed.length = 0;
   f.edit(); const task = await f.run();
@@ -345,6 +347,7 @@ test("completion refreshes a ready stale preserved service with ensureFresh befo
   await until(async () => (await lines(f.requests)).length === 1);
   expect(await lines(f.requests)).toEqual(["/"]);
   expect(f.app.services.status()[0]).toMatchObject({ state: "ready", stale: false });
+  await manager.close(); await f.stopped();
 }, 20_000);
 
 test("refresh keeps the user's service preserved, never automatic or stopped by completion cleanup", async () => {
@@ -353,7 +356,8 @@ test("refresh keeps the user's service preserved, never automatic or stopped by 
   class TrackingManager extends ServiceManager {
     override async stop(name: string) { stops.push(name); return super.stop(name); }
   }
-  f.app.services = new TrackingManager({ projectRoot: f.project, services: { web: f.spec } });
+  const manager = f.app.services = new TrackingManager({ projectRoot: f.project, services: { web: f.spec } });
+  cleanups.push(() => manager.close().catch(() => {}));
   await f.app.runOnce("/services start web");
   f.edit(); const task = await f.run();
   expect(f.app.preservedServices.has("web")).toBe(true);
@@ -361,6 +365,7 @@ test("refresh keeps the user's service preserved, never automatic or stopped by 
   expect(stops).toEqual(["web"]); // The freshness restart only, never completion teardown.
   expect(task.appSmoke?.cleanup).toBe("preserved");
   expect(f.app.services.status()[0]!.state).toBe("ready");
+  await manager.close(); await f.stopped();
 }, 20_000);
 
 test("a preserved service restart failure reports not-run with its reason and makes no GET", async () => {
