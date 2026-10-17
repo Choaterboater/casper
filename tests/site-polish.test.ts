@@ -24,8 +24,8 @@ describe("site polish content", () => {
     const page = read("roadmap.html");
     const released = page.slice(page.indexOf('<section id="released"'));
     const releases = [...released.matchAll(/<details class="card release" id="([^"]+)"[^>]*>[\s\S]*?<\/details>/g)];
-    expect(releases).toHaveLength(26);
-    expect(releases.slice(0, 3).map(match => match[1])).toEqual(["v0237", "v0236", "v0235"]);
+    expect(releases).toHaveLength(27);
+    expect(releases.slice(0, 3).map(match => match[1])).toEqual(["v0238", "v0237", "v0236"]);
     releases.forEach((match, i) => {
       expect(/\bopen\b/.test(match[0].slice(0, match[0].indexOf(">")))).toBe(i < 3);
       expect(match[0]).toMatch(/<summary class="release-heading">\s*<h3[^>]*>[^<]+<\/h3>\s*<span class="badge/);
@@ -65,7 +65,7 @@ describe("site polish content", () => {
     expect(page.match(/<section id="([^"]+)"/)![1]).toBe("setup-casper");
     expect(page).toContain("Casper sets it up for you (Mist, Central, ClearPass)");
     expect(page).toContain('id="setup-own"');
-    expect(page).toContain("Casper can set up its network server (casper-network-mcp 0.1.3");
+    expect(page).toContain("Casper can set up its network server (casper-network-mcp 0.1.4");
     const toc = page.match(/<nav class="toc"[\s\S]*?<\/nav>/)![0];
     expect(toc.match(/href="#([^"]+)"/)![1]).toBe("setup-casper");
   });
@@ -90,6 +90,6 @@ describe("site polish content", () => {
     const lead = text(read("tour.html").match(/<p class="lead">([\s\S]*?)<\/p>/)![1]!);
     expect(lead).toStartWith("Here are the big things");
     expect(lead).not.toMatch(/[()]/);
-    expect(lead).toContain("More in 0.2.37");
+    expect(lead).toContain("More in 0.2.38");
   });
 });

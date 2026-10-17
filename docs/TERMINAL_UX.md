@@ -303,7 +303,7 @@ A narrow window shortens that to `✔ restart to update`, then hides it rather t
 Other update notices keep their text, dropping the detail after `·` when needed; they never become restart
 advice. `NO_COLOR` keeps the words and alignment without colour. The row yields to questions, pickers and
 screens too short to keep the prompt, live steps and footer visible; it never takes room from the footer's
-folder, model or state. Without an install it says `Casper 0.2.38 is out · casper update` (or
+folder, model or state. Without an install it says `Casper 0.2.39 is out · casper update` (or
 `Casper update ready · casper update` for a checkout); a quiet failure says `update failed · casper update`.
 Plain terminals print one `[update] …` line instead, once per session. **Updates: off** in `/settings`
 (`updates: off`, also legacy `updates: false`) hides the row

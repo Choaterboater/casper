@@ -78,6 +78,7 @@
           </li>
           <li><a href="#released">Released</a>
             <ul>
+              <li><a href="#v0238">v0.2.38: plans that stay on</a></li>
               <li><a href="#v0237">v0.2.37: builders opt-in</a></li>
               <li><a href="#v0236">v0.2.36: plans and updates</a></li>
               <li><a href="#v0235">v0.2.35: plain steps</a></li>
@@ -114,7 +115,7 @@
         <h2 id="next-h">Next release</h2>
         <aside class="callout soon">
           <strong class="callout-title">Built, not released</strong>
-          <p>Nothing on the main branch is waiting: everything built so far is in v0.2.37. New work shows here before the next preview.</p>
+          <p>Nothing on the main branch is waiting: everything built so far is in v0.2.38. New work shows here before the next preview.</p>
         </aside>
       </section>
 
@@ -356,10 +357,27 @@
         and on the <a href="https://github.com/Choaterboater/casper/releases">Releases page</a>.</p>
         <div class="stack">
 
+        <details class="card release" id="v0238" aria-labelledby="v0238-h" open>
+          <summary class="release-heading">
+            <h3 id="v0238-h">v0.2.38 · Plans that stay on, draw.io diagrams and a ClearPass design skill</h3>
+            <span class="badge ok">current preview</span>
+          </summary>
+          <ul>
+            <li><strong>Plans that stay on.</strong> <code>/plan on</code> keeps planning on for every request, with a PLAN badge in the footer, until <code>/plan off</code>. A question ending in <code>?</code> asks about a plan without rewriting it, and you can answer a plan's open question from its choices.</li>
+            <li>While planning, Casper may read GitHub and use read-only helpers. Plans use the whole window, keep a step's file after its words and show links and bold as words. A broad request such as "make it better" asks which direction first; small changes get small plans; planning says first when work waits on an open pull request.</li>
+            <li>After a build the plan is one line with the reason a step stopped; <code>/receipt</code> lists every step.</li>
+            <li><strong>Diagrams as draw.io files.</strong> Diagrams can also be saved as <code>.drawio</code> files, laid out and editable. MindMesh maps colour their groups, bold the root, and plans become task lists.</li>
+            <li>When a request names a project you used Casper in, however long ago, Casper offers <strong>Stay here</strong> or <strong>Move there</strong>. A plain-word name counts only where the request points at a folder.</li>
+            <li>A ClearPass NAC design skill (<code>design-clearpass-nac</code>) walks from intake to a design document and diagrams. Network skills use the casper-network-mcp tools first; the ClearPass skill uses <code>CLEARPASS_BASE_URL</code>.</li>
+            <li>The bundled network server is casper-network-mcp 0.1.4: secrets are hidden before large replies are cut, ClearPass logs in with an API client, write bodies follow the vendor specs and cable tests ask first.</li>
+            <li>A question box no longer offers a choice that means typing your own answer.</li>
+          </ul>
+        </details>
+
         <details class="card release" id="v0237" aria-labelledby="v0237-h" open>
           <summary class="release-heading">
             <h3 id="v0237-h">v0.2.37 · Builders opt-in, reviewed parts and token usage</h3>
-            <span class="badge ok">current preview</span>
+            <span class="badge">previous preview</span>
           </summary>
           <ul>
             <li><strong>Helpers that build are off by default.</strong> Turn them on in <code>/settings</code> (Checks) or a user profile; a project file can only turn them off. Explorer and reviewer helpers, <code>/crew</code> and background builds are unchanged.</li>
@@ -373,7 +391,7 @@
         <details class="card release" id="v0236" aria-labelledby="v0236-h" open>
           <summary class="release-heading">
             <h3 id="v0236-h">v0.2.36 · Empty projects, designed plans, model servers, quieter commands and background updates</h3>
-            <span class="badge">previous preview</span>
+            <span class="badge">released</span>
           </summary>
           <ul>
             <li><code>casper new &lt;name&gt;</code> asks nothing: it opens an empty <code>~/Projects/&lt;name&gt;</code> or the existing folder; no name picks a free <code>my-project</code>. Explicit templates still work.</li>
@@ -394,7 +412,7 @@
           </ul>
         </details>
 
-        <details class="card release" id="v0235" aria-labelledby="v0235-h" open>
+        <details class="card release" id="v0235" aria-labelledby="v0235-h">
           <summary class="release-heading">
             <h3 id="v0235-h">v0.2.35 · Plain live steps, plans in words, a grouped /settings, Crews complete, Windows updates</h3>
             <span class="badge">released</span>
@@ -1122,7 +1140,7 @@
   <footer class="site-footer">
     <div class="container footer-inner">
       <div>
-        <p><strong>Casper 0.2.37</strong> · early preview, unsigned</p>
+        <p><strong>Casper 0.2.38</strong> · early preview, unsigned</p>
         <p><a href="https://github.com/Choaterboater/casper/blob/main/LICENSE">MIT licence</a> · © 2026 Choaterboater</p>
         <p>Built on the <a href="https://github.com/earendil-works/pi">Pi SDK</a>. Other parts keep their own licences (<a href="https://github.com/Choaterboater/casper/blob/main/THIRD_PARTY_NOTICES.txt">notices</a>).</p>
       </div>

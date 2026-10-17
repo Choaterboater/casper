@@ -14,11 +14,39 @@ when releasing. Existing historical notes below stay as written; feature tests c
 reference docs, not a per-PR release-note or roadmap entry. Release-prep checks verify the version and
 installer targets (`tests/release-install.test.ts`, `tests/release-targets.test.ts`).
 
-Casper distributes an unsigned **v0.2.37 preview**, not a stable release. The installers
-download from `https://github.com/Choaterboater/casper/releases/download/v0.2.37`,
+Casper distributes an unsigned **v0.2.38 preview**, not a stable release. The installers
+download from `https://github.com/Choaterboater/casper/releases/download/v0.2.38`,
 because GitHub's `latest/download` link skips preview releases. The first published
 preview was **v0.1.0**. A published release is never changed; every fix ships under a
 new version.
+
+## v0.2.38: plans that stay on, draw.io diagrams and a ClearPass design skill
+
+### Added
+
+- Diagrams can also be saved as draw.io files (`.drawio`), laid out and ready to edit.
+- MindMesh maps colour their groups and bold the root, and plans become task lists.
+- `/plan on` keeps planning on for every request, with a PLAN badge in the footer, until `/plan off`.
+- A question ending in `?` asks about a plan without rewriting it.
+- While planning, Casper may read GitHub and use read-only helpers.
+- You can answer a plan's open question by picking one of its choices.
+- A ClearPass NAC design skill (`design-clearpass-nac`) walks from intake to a design document and diagrams.
+
+### Changed
+
+- When a request names a project you used Casper in, however long ago, Casper offers Stay here or Move there.
+- A plain-word project name counts only where the request points at a folder.
+- Plans use the whole window, keep a step's file after its words, and show links and bold as words.
+- A broad request such as "make it better" asks which direction first, and small changes get small plans.
+- Planning says first when work waits on an open pull request.
+- After a build the plan is one line with the reason a step stopped, and `/receipt` lists every step.
+- Network skills use the casper-network-mcp tools first, and the ClearPass skill uses `CLEARPASS_BASE_URL`.
+- The bundled network server is now casper-network-mcp 0.1.4, which hides secrets before it cuts large replies.
+- With it, ClearPass logs in with an API client, write bodies follow the vendor specs and cable tests ask first.
+
+### Fixed
+
+- A question box no longer offers a choice that means typing your own answer.
 
 ## v0.2.37: builders opt-in, reviewed parts and token usage
 

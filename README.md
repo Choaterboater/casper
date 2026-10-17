@@ -36,20 +36,20 @@ Casper itself is free and open source. A task spends money only with your own mo
 macOS / Linux:
 
 ```sh
-curl -fsSL https://github.com/Choaterboater/casper/releases/download/v0.2.37/install.sh | sh
+curl -fsSL https://github.com/Choaterboater/casper/releases/download/v0.2.38/install.sh | sh
 ```
 
 Windows (x64 or ARM64), in PowerShell:
 
 ```powershell
-[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; irm https://github.com/Choaterboater/casper/releases/download/v0.2.37/install.ps1 | iex
+[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; irm https://github.com/Choaterboater/casper/releases/download/v0.2.38/install.ps1 | iex
 ```
 
 No admin rights, Bun or source checkout needed. The installer checks the file's SHA-256 (with
 `gh` signed in, also where it was built; for releases signed with the
 [release key](docs/RELEASE.md#the-release-key), none yet, the signature too) and keeps your old install
-if anything is wrong. These commands pin **v0.2.37**; after that,
-`casper update` gets the newest preview. `install.sh` takes `--dir <path>`, `--version 0.2.37`,
+if anything is wrong. These commands pin **v0.2.38**; after that,
+`casper update` gets the newest preview. `install.sh` takes `--dir <path>`, `--version 0.2.38`,
 `--sha256 <hex>` and `--force`. [Installer details](docs/RELEASE.md#installer-contract).
 
 Use the one-line command above rather than downloading a program in your browser: the installer
@@ -83,7 +83,7 @@ From the shell:
 ```sh
 casper "Explain this project"  # start a session with this first request
 casper --no-verify   # no Casper-run checks this run
-casper --version     # casper 0.2.37 (/absolute/path/of/the/binary/or/cli.ts)
+casper --version     # casper 0.2.38 (/absolute/path/of/the/binary/or/cli.ts)
 casper doctor        # check Casper's own setup and fix what it can (no model)
 ```
 
@@ -203,6 +203,8 @@ Ctrl+D on an empty prompt exits. [Keys and commands](docs/TERMINAL_UX.md#quick-r
 | Contributing | [How Casper is built](docs/ARCHITECTURE.md) · [Working on Casper](docs/DEVELOPING.md) |
 
 ## What's new
+
+v0.2.38: `/plan on` keeps planning on for every request (a PLAN badge in the footer) until `/plan off`, and a question ending in `?` asks about a plan without rewriting it; plans use the whole window; diagrams also save as editable draw.io files and MindMesh maps colour their groups; a request naming a project you used Casper in offers to move there; a broad request asks which direction first; a ClearPass NAC design skill; and the bundled network server is casper-network-mcp 0.1.4. See [release notes](docs/RELEASE.md).
 
 v0.2.37: helpers that build are off by default (turn them on in `/settings`; a project can only turn them off); when on, independent builders start together and substantial parts are reviewed before the receipt; receipts and `--json` runs show input, cached input, cache-write and output tokens, overall and per helper; and a debugger target that names a macOS command shim such as `python3` launches that command. See [release notes](docs/RELEASE.md).
 
