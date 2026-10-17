@@ -305,7 +305,7 @@ start. A project file can't set them.
 
 `/permissions` prints a short screen: whether Casper is asking, one line per kind (state · how to change it) and what stays protected, then the numbered box
 `Stop asking until you quit?` (`1 Keep asking` first, so Enter changes nothing). `/permissions details` is the full screen: where each permission came from (this
-session, remembered for this project, your config) and every way to be asked less. `/permissions all` (also `allowall` or `allow-all`) is the same box on its own;
+session, remembered for this project, your config) and every way to be asked less. `/permissions all` (also `allowall` or `allow-all`) is the same box on its own (typed during a task it opens none and takes effect at once);
 2 stops the shell's own questions until you quit and shows `asking off` in the footer. `/permissions ask` turns asking back on. A mistyped word is suggested, never run. `/permissions write <folder>` allows a folder outside the project for this project ahead of time, `/permissions forget <folder>`
 takes it back, and the write box's `4 Yes, always for this project` does the same. Protected places (`~/.ssh`, `~/.casper`, shell start-up files, git's files, your
 home folder itself, system folders) are never offered and never allowed. See [SECURITY.md](SECURITY.md#asking-less).
