@@ -1670,7 +1670,7 @@ export class BrowserSession {
       this.controller.signal.throwIfAborted();
       this.browser = await puppeteer.launch({ executablePath, headless: true, pipe: true, userDataDir: this.profile,
         handleSIGINT: false, handleSIGTERM: false, handleSIGHUP: false, signal: this.controller.signal, timeout: 10_000,
-        env: isolatedEnvironment(this.profile, process.env.DISPLAY ? { DISPLAY: process.env.DISPLAY } : {}) });
+        env: browserEnvironment(this.profile) });
       const chrome = this.browser.process();
       if (chrome) this.chromeOwner = ownSpawnedTree(chrome.pid, () => chrome.exitCode === null && chrome.signalCode === null);
       this.browser.on("disconnected", () => { if (!this.controller.signal.aborted) { this.invalidate(); void this.close(); } });
@@ -1745,6 +1745,17 @@ export class BrowserSession {
     await this.artifacts?.close();
     await serverClose;
     if (outcome === "unknown") throw new ProcessCleanupError(this.chromeOwner);
-    if (this.profile) await rm(this.profile, { recursive: true, force: true });
+    // Windows frees a stopped Chrome's files a moment after it exits; a temp profile that still can't be removed is left
+    // behind, never reported as the task failing.
+    if (this.profile) await rm(this.profile, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }).catch(() => {});
   }
+}
+
+/** Chrome's environment: no secrets, and its home and temp in the throwaway profile. On Windows USERPROFILE stays as
+ * Casper has it, as Playwright and Puppeteer leave it: Chrome started with any other USERPROFILE (even an empty folder)
+ * never answers (headless, Chrome 155). The profile (userDataDir) is what keeps it away from the user's own Chrome. */
+export function browserEnvironment(profile: string, platform: NodeJS.Platform = process.platform, env: NodeJS.ProcessEnv = process.env): Record<string, string> {
+  const additions: Record<string, string> = env.DISPLAY ? { DISPLAY: env.DISPLAY } : {};
+  if (platform === "win32" && env.USERPROFILE) additions.USERPROFILE = env.USERPROFILE;
+  return isolatedEnvironment(profile, additions);
 }
