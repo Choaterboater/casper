@@ -61,7 +61,7 @@ test("every OS keeps real-terminal and ConPTY files in a separate serial source 
   for (const os of ["linux", "macos"]) {
     const preview = parse(readFileSync(`.github/workflows/${os}-preview.yml`, "utf8"));
     const source = preview.jobs.source, serial = preview.jobs.terminal;
-    expect(source["timeout-minutes"]).toBe(os === "linux" ? 18 : 25);
+    expect(source["timeout-minutes"]).toBe(os === "linux" ? 18 : 15);
     expect(source.steps.some((step: { run?: string }) => step.run?.includes("bun run test:terminal"))).toBe(false);
     expect(serial["timeout-minutes"]).toBe(20);
     const step = serial.steps.find((step: { run?: string }) => step.run?.includes("bun run test:terminal"));
