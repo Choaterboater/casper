@@ -670,6 +670,9 @@ changed page, otherwise the service's `ready.http` path, otherwise `/`. It sends
 following redirects, and expects HTTP 2xx. Readiness polling is separate from this one smoke request.
 A matching fresh page or service check on the final files is reused instead of making another request.
 A reused check keeps its actual method, path and result. A later edit invalidates it.
+If the selected service is already running because you intentionally started it, Casper sends that GET
+there instead of launching a second copy, even on a fixed port. The receipt says `existing service left running`.
+That response alone does not prove the running service reloaded your edits.
 
 A new completion launch has at most 15 s to start (less if the declaration has a shorter deadline), and
 its request has at most 10 s. Casper stops its automatically started services and their child processes

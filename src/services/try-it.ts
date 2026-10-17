@@ -41,20 +41,7 @@ export async function tryApp(root: string, target: AppSmokeTarget, signal: Abort
         : `the app could not start: ${message(error)}`;
       return report;
     }
-    try {
-      const origin = manager.origin(name);
-      if (!origin) throw new Error("the app stopped before the request");
-      const response = await fetch(new URL(target.path, origin), { method: "GET", redirect: "manual",
-        signal: AbortSignal.any([signal, AbortSignal.timeout(REQUEST_MS)]) });
-      await response.body?.cancel();
-      report.httpStatus = response.status;
-      report.status = response.status >= 200 && response.status < 300 ? "pass" : "fail";
-      if (report.status === "fail") report.reason = `HTTP ${response.status}, expected 2xx`;
-    } catch (error) {
-      report.status = signal.aborted ? "not-run" : "fail";
-      report.reason = `the request did not finish: ${message(error)}`;
-    }
-    return report;
+    return Object.assign(report, await requestApp(manager.origin(name), target.path, signal));
   } finally {
     try {
       await manager.close();
@@ -67,6 +54,20 @@ export async function tryApp(root: string, target: AppSmokeTarget, signal: Abort
       if (report.status === "pass") report.status = "not-run";
       report.reason = [report.reason, "Casper could not confirm the app's processes stopped"].filter(Boolean).join("; ");
     }
+  }
+}
+
+/** One bounded GET, without starting, restarting or stopping the service that owns the origin. */
+export async function requestApp(origin: string | undefined, requestPath: string, signal: AbortSignal): Promise<Pick<AppSmokeReport, "status" | "httpStatus" | "reason">> {
+  try {
+    if (!origin) throw new Error("the app stopped before the request");
+    const response = await fetch(new URL(requestPath, origin), { method: "GET", redirect: "manual",
+      signal: AbortSignal.any([signal, AbortSignal.timeout(REQUEST_MS)]) });
+    await response.body?.cancel();
+    const status = response.status >= 200 && response.status < 300 ? "pass" : "fail";
+    return { status, httpStatus: response.status, ...(status === "fail" ? { reason: `HTTP ${response.status}, expected 2xx` } : {}) };
+  } catch (error) {
+    return { status: signal.aborted ? "not-run" : "fail", reason: `the request did not finish: ${message(error)}` };
   }
 }
 

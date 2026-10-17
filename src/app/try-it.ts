@@ -4,7 +4,7 @@ import { ProcessCleanupError } from "../platform/processes";
 import type { ProjectContext } from "../project/context";
 import type { ChildProject } from "../project/child";
 import { planAppSmoke, runtimeChanges, type AppSmokeTarget } from "../services/detect";
-import { sameRuntimeInputs, tryApp, type AppSmokeReport } from "../services/try-it";
+import { requestApp, sameRuntimeInputs, tryApp, type AppSmokeReport } from "../services/try-it";
 import { diffSnapshots } from "../task/changes";
 import { redactPreview } from "../tui/format";
 import type { VerificationReport } from "../verify/evidence";
@@ -94,8 +94,13 @@ export async function finishAppSmoke(app: CasperApp, options: { context: Project
       }
       app.events.ensureLineBreak();
       app.output.write(`• Casper trying the app: ${redactPreview(plan.service.label)} · GET ${redactPreview(plan.path)}\n`);
-      report = await tryApp(root, plan, app.commandAbort?.signal ?? new AbortController().signal,
-        { onCleanupError: error => app.cleanupRecovery.queue(error) });
+      const signal = app.commandAbort?.signal ?? new AbortController().signal;
+      const running = app.services?.root === root && options.preserve.has(plan.service.name)
+        && app.services.status().some(service => service.name === plan.service.name && service.state === "ready" && service.command === plan.service.spec.command);
+      report = running
+        ? { label: redactPreview(plan.service.label), command: redactPreview(plan.service.spec.command), path: redactPreview(plan.path), method: "GET", cleanup: "preserved",
+          ...await requestApp(app.services?.origin(plan.service.name), plan.path, signal) }
+        : await tryApp(root, plan, signal, { onCleanupError: error => app.cleanupRecovery.queue(error) });
       const after = await app.snapshotWorkspace(options.root, app.commandAbort?.signal);
       if (report.status === "pass" && !sameRuntimeInputs(now, after)) {
         report.status = "not-run";

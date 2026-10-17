@@ -244,6 +244,13 @@ test("Page checks row: 1 keeps them on, a pick writes pages: off in your own con
   expect(await valueOf(home, project, "Page checks")).toBe("off");
 });
 
+test("Page checks explains that off also disables final app smoke for app, server and API changes", async () => {
+  const { home, project } = await folders();
+  const host = fakeHost(home, project, ["Page checks", "Keep them on", "Done"]);
+  await runSettings(host);
+  expect(host.asked[1]).toContain("Turning them off also turns off the final app smoke for app, server and API changes.");
+});
+
 test("Packs row: 1 keeps them on, a pick writes packs: false in your own config, and it reads back off", async () => {
   const { home, project, config } = await folders();
   const host = fakeHost(home, project, ["Packs", "Keep them on", "Packs", "Turn them off", "Done"]);

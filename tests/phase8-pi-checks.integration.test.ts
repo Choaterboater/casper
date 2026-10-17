@@ -11,7 +11,7 @@ import { childTestLimit } from "./support/limits";
 
 cleanUpAfterEach();
 
-posixOnly("pinned Pi uses managed checks in its native edit loop, reuses scoped passes, and hands real failure to one repair owner", async () => {
+posixOnly("pinned Pi uses managed checks and one repair owner in an isolated HOME with sandbox: on", async () => {
   const native = "printf native > native-proof; kill -TERM $$";
   const command = checkCommand("append:test-runs", "require-line:src/value=good");
   let step = 0;
@@ -33,6 +33,7 @@ posixOnly("pinned Pi uses managed checks in its native edit loop, reuses scoped 
     verify: { test: command, build: native },
     verification: { scopes: { test: { inputs: ["src"] } } }, repair: { maxAttempts: 1 },
   }));
+  await writeFile(path.join(f.agent, "..", "..", ".casper", "config.yaml"), "sandbox: on\n");
   const harness = path.join(f.agent, "managed-checks.ts");
   // This one-shot fixture intentionally runs a native signal command, not an approval test.
   await writeFile(harness, `import { CasperApp } from ${JSON.stringify(path.join(import.meta.dir, "../src/app.ts"))};
@@ -46,6 +47,7 @@ try {
   expect({ exit: result.exit, stderr: result.stderr }).toEqual({ exit: 0, stderr: "" });
   const { report, task }: { report: VerificationReport; task: TaskResult } = JSON.parse(result.stdout.split("CHECK_RESULT=")[1]!);
   expect(report).toMatchObject({ status: "pass", repairAttempts: 1 });
+  expect(task.sandbox).toEqual({ held: false, reason: "--no-sandbox" });
   expect(report.results).toHaveLength(1);
   expect(report.results[0]).toMatchObject({ name: "test", freshness: "fresh", exitCode: 0 });
   expect(report.rounds.flat().filter((check) => !check.reused).map((check) => check.status)).toEqual(["pass", "fail", "pass"]);

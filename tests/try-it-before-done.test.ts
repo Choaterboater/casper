@@ -10,6 +10,7 @@ import { HttpPageOpener, type PageOpener } from "../src/services/page-checks";
 import { ServiceManager } from "../src/services/manager";
 import { sameRuntimeInputs, tryApp, type AppSmokeReport } from "../src/services/try-it";
 import { hostProcessPlatform, type ProcessRecord } from "../src/platform/processes";
+import { freePort } from "../src/platform/managed-process";
 import { loadProjectContext } from "../src/project/context";
 import { SkillRegistry } from "../src/skills/registry";
 import type { AgentRuntime, RuntimeSession, RuntimeStartOptions, RuntimeTool } from "../src/runtime/types";
@@ -44,7 +45,7 @@ class ScriptedRuntime implements AgentRuntime {
   async write(file: string, text: string) { await mkdir(path.dirname(file), { recursive: true }); await writeFile(file, text); await this.options!.afterFileEdit!(file); }
 }
 
-async function fixture(options: { mode?: "auto" | "offer" | "off"; config?: Record<string, unknown>; manifest?: Record<string, unknown>; status?: number; homeConfig?: string; opener?: PageOpener } = {}) {
+async function fixture(options: { mode?: "auto" | "offer" | "off"; config?: Record<string, unknown>; manifest?: Record<string, unknown>; status?: number; port?: number; homeConfig?: string; opener?: PageOpener } = {}) {
   const root = await realpath(await mkdtemp(path.join(os.tmpdir(), "casper-try-it-")));
   cleanups.push(() => removeTempDir(root));
   const project = path.join(root, "project"), home = path.join(root, "home");
@@ -66,7 +67,7 @@ console.log("listening");
   await writeFile(server, source());
   await writeFile(path.join(project, "package.json"), JSON.stringify(options.manifest ?? { name: "app" }));
   await writeFile(path.join(project, "bun.lock"), "");
-  const spec = { command: `"${process.execPath}" server.ts`, port: "auto" as const, ready: { log: "listening" }, timeoutMs: 2000 };
+  const spec = { command: `"${process.execPath}" server.ts`, port: options.port ?? "auto" as const, ready: { log: "listening" }, timeoutMs: 2000 };
   await writeFile(path.join(project, ".casper/project.yaml"), stringify({ verification: { mode: options.mode ?? "offer" }, repair: { maxAttempts: 0 }, services: { web: spec }, ...options.config }));
   const runtime = new ScriptedRuntime(), output: string[] = [];
   const app = new CasperApp({ runtimeFactory: () => runtime, output: { write: text => { output.push(text); } }, sessionHomeDir: home, pageOpener: async () => options.opener ?? new HttpPageOpener(),
@@ -324,14 +325,54 @@ for (const [label, options] of [["checks off", { mode: "off" as const }], ["page
   });
 }
 
-test("a service intentionally started before the task remains running", async () => {
+test("a preserved running service gets one GET without starting a second copy", async () => {
   const f = await fixture();
   await f.app.runOnce("/services start web");
   const origin = f.app.services!.origin("web")!;
-  f.edit(); await f.run();
+  f.edit(); const task = await f.run();
+  expect(task.appSmoke).toMatchObject({ status: "pass", method: "GET", path: "/", httpStatus: 200, cleanup: "preserved" });
+  expect(task.appSmoke?.reused).toBeUndefined();
+  await until(async () => (await lines(f.requests)).length === 1);
+  expect(await lines(f.requests)).toEqual(["/"]);
+  expect(await lines(f.starts)).toHaveLength(1);
+  expect(f.app.services!.origin("web")).toBe(origin);
   expect((await fetch(origin)).status).toBe(200);
   expect(f.app.services!.status()[0]!.state).toBe("ready");
 }, 20_000);
+
+test("a fixed-port service started by /services start web passes the smoke and remains ready", async () => {
+  const port = await freePort();
+  const f = await fixture({ port });
+  await f.app.runOnce("/services start web");
+  const before = f.app.services!.status()[0]!;
+  expect(before).toMatchObject({ state: "ready", origin: `http://127.0.0.1:${port}` });
+  f.edit(); const task = await f.run();
+  expect(task.appSmoke).toMatchObject({ status: "pass", httpStatus: 200, cleanup: "preserved" });
+  await until(async () => (await lines(f.requests)).length === 1);
+  expect(await lines(f.starts)).toHaveLength(1);
+  expect(f.app.services!.status()[0]).toMatchObject({ state: "ready", origin: before.origin, pid: before.pid });
+  expect(alive(before.pid!)).toBe(true);
+  expect(f.text()).toContain("existing service left running");
+}, 20_000);
+
+test("a failing response from a preserved service fails without launching or stopping it", async () => {
+  const f = await fixture({ status: 500 });
+  await f.app.runOnce("/services start web");
+  f.edit(); const task = await f.run();
+  expect(task.appSmoke).toMatchObject({ status: "fail", httpStatus: 500, cleanup: "preserved", reason: "HTTP 500, expected 2xx" });
+  expect(taskOutcome(undefined, task)).toBe("failed");
+  await until(async () => (await lines(f.requests)).length === 1);
+  expect(await lines(f.starts)).toHaveLength(1);
+  expect(f.app.services!.status()[0]!.state).toBe("ready");
+}, 20_000);
+
+test("a preserved app smoke reports preserved cleanup and existing service left running", () => {
+  const task: TaskResult = { execution: "completed", appSmoke: { status: "pass", method: "GET", path: "/", httpStatus: 200, cleanup: "preserved" } };
+  expect(formatTaskResult(task)).toContain("existing service left running");
+  expect(formatReceipt(task)).toContain("existing service left running");
+  expect(storedTaskResult(task).appSmoke?.cleanup).toBe("preserved");
+  expect(receiptEvent(undefined, task, 0).appSmoke?.cleanup).toBe("preserved");
+});
 
 test("a service explicitly started by the model is not taken over by completion cleanup", async () => {
   const f = await fixture();

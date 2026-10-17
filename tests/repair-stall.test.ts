@@ -113,6 +113,19 @@ test("a snapshot over its content budget is unknown, not a stalled repair", asyn
   expect(prompts).toHaveLength(2);
 });
 
+test("repair.maxAttempts still bounds repairs when the 4 MiB hashing limit leaves changes unknown", async () => {
+  const cwd = repo(), maxAttempts = 3;
+  writeFileSync(path.join(cwd, "large.bin"), Buffer.alloc(4 * 1024 * 1024 + 1));
+  const prompts: string[] = [];
+  const report = await verifyAndRepair({ registry: registry(cwd, Array(maxAttempts + 2).fill("FAIL adds")),
+    checks: ["test"], cwd, request: "fix", maxAttempts, repair: async prompt => { prompts.push(prompt); } });
+  expect(report.status).toBe("fail");
+  expect(report.reason).toBe("Repair limit reached.");
+  expect(report.repairAttempts).toBe(maxAttempts);
+  expect(prompts).toHaveLength(maxAttempts);
+  expect(report.rounds).toHaveLength(maxAttempts + 1);
+});
+
 test("Git paths outside the check folder leave the snapshot unknown", async () => {
   const root = repo(), cwd = path.join(root, "sub");
   mkdirSync(cwd);
