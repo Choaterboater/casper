@@ -1,8 +1,11 @@
 import { execFile } from "node:child_process";
+import { createHash } from "node:crypto";
 import { lstat, readdir } from "node:fs/promises";
 import path from "node:path";
 import { promisify } from "node:util";
 import { safeGitArgs } from "../platform/git";
+import { openNoFollow } from "../platform/files";
+import { isOutside } from "../platform/inside";
 import type { SmokeReport } from "../services/smoke";
 import type { PageReport } from "../services/page-report";
 import { repairClass, verificationStatus, type CheckName, type VerificationReport, type VerificationResult } from "./evidence";
@@ -13,7 +16,7 @@ import { VerificationTask } from "./task";
 
 const execFileAsync = promisify(execFile);
 
-/** The changed-file list for the prompt, and an identity of those files (size and times) to tell whether a repair round
+/** The changed-file list for the prompt, and a bounded content identity to tell whether a repair round
  * changed any; `files` is undefined when Git could not say, and then a round always counts as a change. */
 async function changedFiles(cwd: string, signal?: AbortSignal): Promise<{ text: string; files?: string }> {
   const text = await gitStatus(cwd, signal);
@@ -25,11 +28,34 @@ async function changedFiles(cwd: string, signal?: AbortSignal): Promise<{ text: 
   const names = listed.map((name) => name.replace(/^"|"$/g, ""));
   // An untracked folder is listed alone: look inside it, up to 2000 entries in all (more: unknown).
   const ids: string[] = [];
+  let remaining = 4 * 1024 * 1024;
+  const chunk = Buffer.alloc(64 * 1024);
   const visit = async (name: string): Promise<boolean> => {
-    if (ids.length >= 2000) return false;
+    if (ids.length >= 2000 || path.isAbsolute(name) || isOutside(name)) return false;
     const file = path.join(cwd, name);
     const stat = await lstat(file, { bigint: true }).catch(() => undefined);
-    ids.push(`${name}:${stat ? `${stat.size}:${stat.mtimeNs}:${stat.ctimeNs}` : "missing"}`);
+    let content = "";
+    if (stat?.isFile()) {
+      // Same-size edits can share even nanosecond timestamps on coarse filesystems.
+      // Unreadable, redirected or oversized inputs are unknown, never evidence of no change.
+      if (stat.size > BigInt(remaining)) return false;
+      const handle = await openNoFollow(file).catch(() => undefined);
+      if (!handle) return false;
+      try {
+        if (!(await handle.stat()).isFile()) return false;
+        const hash = createHash("sha256");
+        for (;;) {
+          const { bytesRead } = await handle.read(chunk, 0, chunk.length, null);
+          if (!bytesRead) break;
+          remaining -= bytesRead;
+          if (remaining < 0) return false;
+          hash.update(chunk.subarray(0, bytesRead));
+        }
+        content = hash.digest("hex");
+      } catch { return false; }
+      finally { await handle.close(); }
+    } else if (stat && !stat.isDirectory()) return false;
+    ids.push(`${name}:${stat ? `${stat.size}:${stat.mtimeNs}:${stat.ctimeNs}:${content}` : "missing"}`);
     if (!stat?.isDirectory()) return true;
     const entries = await readdir(file).catch(() => []);
     for (const entry of entries.sort()) if (!await visit(path.join(name, entry))) return false;

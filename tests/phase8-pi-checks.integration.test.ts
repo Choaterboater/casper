@@ -34,8 +34,9 @@ posixOnly("pinned Pi uses managed checks in its native edit loop, reuses scoped 
     verification: { scopes: { test: { inputs: ["src"] } } }, repair: { maxAttempts: 1 },
   }));
   const harness = path.join(f.agent, "managed-checks.ts");
+  // This one-shot fixture intentionally runs a native signal command, not an approval test.
   await writeFile(harness, `import { CasperApp } from ${JSON.stringify(path.join(import.meta.dir, "../src/app.ts"))};
-const app = new CasperApp({ autoVerify: true });
+const app = new CasperApp({ autoVerify: true, noSandbox: true });
 try {
   const report = await app.runOnce('Continue');
   console.log('CHECK_RESULT=' + JSON.stringify({ report, task: app.getLastTaskResult() }));

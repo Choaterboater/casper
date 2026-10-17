@@ -1,6 +1,6 @@
 import { afterEach, expect, spyOn, test } from "bun:test";
 import { ChildProcess, execFileSync } from "node:child_process";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, statSync, utimesSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import type { VerificationResult } from "../src/verify/evidence";
@@ -83,6 +83,45 @@ test("a repair round that changes files but not the failure is told so in the ne
   expect(prompts).toHaveLength(2);
   expect(prompts[0]!.split("\n")[0]).toBe("Casper verification repair 1/3.");
   expect(prompts[1]!.split("\n")[0]).toBe("Same failure as the last round: your change did not affect it; try a different approach.");
+});
+
+test("same-size edits with restored modification times still count as changes", async () => {
+  const cwd = repo(), file = path.join(cwd, "app.ts");
+  const fixed = new Date("2020-01-01T00:00:00Z");
+  utimesSync(file, fixed, fixed);
+  const size = statSync(file).size;
+  const prompts: string[] = [];
+  const report = await verifyAndRepair({ registry: registry(cwd, ["FAIL adds", "FAIL adds"]),
+    checks: ["test"], cwd, request: "fix", maxAttempts: 3, repair: async prompt => {
+      prompts.push(prompt);
+      writeFileSync(file, `export const x = ${prompts.length + 1};\n`);
+      utimesSync(file, fixed, fixed);
+      expect(statSync(file).size).toBe(size);
+      expect(statSync(file).mtimeMs).toBe(fixed.getTime());
+    } });
+  expect(report.status).toBe("pass");
+  expect(prompts).toHaveLength(2);
+});
+
+test("a snapshot over its content budget is unknown, not a stalled repair", async () => {
+  const cwd = repo();
+  writeFileSync(path.join(cwd, "large.bin"), Buffer.alloc(4 * 1024 * 1024 + 1));
+  const prompts: string[] = [];
+  const report = await verifyAndRepair({ registry: registry(cwd, ["FAIL adds", "FAIL adds"]),
+    checks: ["test"], cwd, request: "fix", maxAttempts: 3, repair: async prompt => { prompts.push(prompt); } });
+  expect(report.status).toBe("pass");
+  expect(prompts).toHaveLength(2);
+});
+
+test("Git paths outside the check folder leave the snapshot unknown", async () => {
+  const root = repo(), cwd = path.join(root, "sub");
+  mkdirSync(cwd);
+  const prompts: string[] = [];
+  const report = await verifyAndRepair({ registry: registry(cwd, ["FAIL adds", "FAIL adds"]),
+    checks: ["test"], cwd, request: "fix", maxAttempts: 3, repair: async prompt => { prompts.push(prompt); } });
+  expect(report.status).toBe("pass");
+  expect(prompts).toHaveLength(2);
+  expect(prompts[0]).toContain("../app.ts");
 });
 
 test("a repair round that changes the failure carries on as before", async () => {

@@ -74,7 +74,7 @@ test("a matching tar.gz download is unpacked into ~/.casper/tools/<id>-<version>
   const result = await installTool(spec, { homeDir: home, fetchBytes: async (url) => { fetched.push(url); return bytes; } });
   expect(result).toMatchObject({ ok: true, message: "gitleaks 8.30.1 installed" });
   expect(fetched).toHaveLength(1);
-  expect(await readdir(pinnedToolDir(home, spec))).toEqual([".casper-installed.json", "bin"]);
+  expect((await readdir(pinnedToolDir(home, spec))).sort()).toEqual([".casper-installed.json", "bin"]);
   expect(await findTool(spec, { homeDir: home, env: { PATH: "" } })).toEqual({ kind: "pinned", path: pinnedToolPath(home, spec), version: "8.30.1" });
   // Only the pinned file counts: a copy whose marker names another checksum is not Casper's.
   const other = fakeBinarySpec(bytes, "tar.gz", "f".repeat(64));
