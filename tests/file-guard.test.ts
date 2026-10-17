@@ -143,6 +143,20 @@ test("shell commands that write git hooks or risky git settings are refused; rea
   }
 });
 
+test("a step that only reads past .git is not a write to it because another step writes elsewhere", () => {
+  // From a real session: each refused although only `rm .smoke.ts` and a build output write, and `.git` is only skipped.
+  for (const safe of ["cd /work/app && bun .smoke.ts && rm .smoke.ts && bun build app.js --outfile out.js >/dev/null && ls -R . --ignore=.git",
+    "cd /work/app && rm .smoke.ts && find . -path ./.git -prune -o -type f -print", "rm -f out.txt; ls -a .git"]) {
+    expect([safe, gitInternalsCommand(safe, project, home)]).toEqual([safe, undefined]);
+  }
+  // Still refused: the write and .git in one step, a pipe into a writer, or a step that carries the name to the next.
+  for (const risky of ["find . -path ./.git -o -name hooks | xargs rm", "ls .git && echo x > .git/hooks/pre-commit", "pushd .git && touch hooks/post-checkout",
+    "D=.git; echo x > $D/hooks/pre-commit", "G=.git rm -rf other && echo hi", "cd ./.git/ && cp ../evil hooks/pre-push", "eval 'cd .git' && touch hooks/x",
+    "cd .git; echo x > hooks/pre-commit"]) {
+    expect([risky, gitInternalsCommand(risky, project, home)]).toEqual([risky, expect.stringMatching(/^Not run:/)]);
+  }
+});
+
 test("a shell write into git's rebase or cherry-pick to-do, or git config diff.external, is refused; reading them passes", () => {
   for (const risky of ["printf 'exec touch x\\n' >> .git/rebase-merge/git-rebase-todo", "echo 'exec id' > .git/sequencer/todo",
     "cp evil .git/rebase-apply/patch", "git config diff.external ./tool", "git config --local diff.external /tmp/x"]) {

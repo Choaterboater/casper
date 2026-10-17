@@ -422,9 +422,23 @@ export function gitInternalsCommand(command: string, root: string, home = os.hom
   if (config) return config;
   const hooks = hooksPathTargets(root, home).flatMap((target) => [target, displayPath(target, root, home)]);
   const names = [/(?:^|[\s'"=:(/\\])\.git(?:[\\/]+(?:hooks|config(?:\.worktree)?|info|rebase-merge|rebase-apply|sequencer)\b|[\\/]*(?=$|[\s'";&|)]))/, ...hooks.filter((name) => name && name !== ".").map((name) => new RegExp(`(?:^|[\\s'"=:(])${name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?:[\\\\/]|\\s|$|['"])`))];
-  const named = names.map((pattern) => pattern.exec(command)?.[0]?.trim().replace(/^['"=:(/\\]/, "")).find(Boolean);
-  if (named && (REDIRECT.test(command) || WRITE_WORDS.test(command))) {
-    return `Not run: this command changes ${named.replace(/[\\/]+$/, "")}, git's own files. Casper doesn't let the AI change them. Ask the user to run it.`;
+  const nameIn = (text: string) => names.map((pattern) => pattern.exec(text)?.[0]?.trim().replace(/^['"=:(/\\]/, "")).find(Boolean);
+  // One step at a time: `.git` named by a read (`ls --ignore=.git`, `find -path ./.git -prune`) is not a write to it
+  // because another step writes elsewhere. The whole command stays one step when a step could carry the name into
+  // the next: `cd`/`pushd` into it, a variable, `$( )` or backticks, eval or source. Pipes stay inside one step.
+  const steps = command.split(/&&|\|\||;|\n/);
+  const carried = /[$`]/.test(command) || steps.some((step) => {
+    const words = shellWords(step);
+    const first = words.findIndex((word) => !/^[A-Za-z_]\w*=/.test(word));
+    if (first > 0 && nameIn(words.slice(0, first).join(" "))) return true;
+    const verb = words[first] ?? "";
+    return /^(?:eval|source|\.|export|alias|declare|typeset|local|readonly)$/.test(verb) || (/^(?:cd|pushd)$/.test(verb) && Boolean(nameIn(` ${words.slice(first + 1).join(" ")}`)));
+  });
+  for (const step of carried ? [command] : steps) {
+    const named = nameIn(step);
+    if (named && (REDIRECT.test(step) || WRITE_WORDS.test(step))) {
+      return `Not run: this command changes ${named.replace(/[\\/]+$/, "")}, git's own files. Casper doesn't let the AI change them. Ask the user to run it.`;
+    }
   }
   return undefined;
 }
