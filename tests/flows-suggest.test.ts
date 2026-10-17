@@ -156,6 +156,16 @@ describe("before-work plan-first suggestion", () => {
     expect(ask("Add a --verbose flag to src/cli.ts")).toBeUndefined();
   });
 
+  test("\"make it polished\" and a sentence saying how the ask works are not more asks", () => {
+    // From a real session: one feature, a sentence saying how it works, and a polish wish was "a big job (3 things)".
+    const feature = "Add a form on the page to add a book (title and author). New books are saved to the JSON file and show in the list without a reload. and make it polished";
+    expect(countAsks(feature)).toBe(1);
+    expect(ask(feature)).toBeUndefined();
+    expect(countAsks("Add a settings page, and make it look nice")).toBe(1);
+    expect(countAsks("Add login, then a dashboard, and also email alerts")).toBe(3);
+    expect(countAsks("Add login. Make it remember the user. Then add a dashboard.")).toBe(3);
+  });
+
   test("counts list lines, fires on long requests, and stays quiet when the user already mentions a plan or is not interactive", () => {
     const listed = "Add these to the netbox sync:\n- read sites\n- read devices\n- write a report";
     expect(ask(listed)?.reason).toBe("this asks for 4 things");
