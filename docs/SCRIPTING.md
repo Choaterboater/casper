@@ -198,7 +198,7 @@ proven change: `timeout`, `crash` (a signal or crash, exit above 128) or `no_sta
 `reason` is the runner's reason (for example `Timed out after 20000ms`); `output` is at most the
 last 500 characters of the failing run's output. An `unproven` change has the outcome
 `not_verified`. `proofSkipped` says why checks that passed on changed files came without a proof
-(for example `only non-code files changed`, or a refactor request), else `null`.
+(for example `no app code changed, only tests, data or docs`, or a refactor request), else `null`.
 
 **Review.** `review` is the model's requirements checklist, in one of two shapes. It is the
 model's own claim, not Casper's evidence.

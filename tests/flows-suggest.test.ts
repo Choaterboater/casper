@@ -41,7 +41,7 @@ describe("after-receipt rules", () => {
   });
 
   test("prove-fix also fires when Casper skipped the comparison, but not for failing checks or a feature", () => {
-    expect(rules.afterReceipt(context({ verification: passed, proofSkipped: "only non-code files changed" }))[0]?.why).toBe("no test shows the fix works");
+    expect(rules.afterReceipt(context({ verification: passed, proofSkipped: "no app code changed, only tests, data or docs" }))[0]?.why).toBe("no test shows the fix works");
     expect(rules.afterReceipt(context({ verification: { ...passed, status: "fail" }, proof: unproven }))).toEqual([]);
     expect(rules.afterReceipt(context({ verification: passed, proof: unproven }, "Add a --verbose flag to the CLI"))).toEqual([]);
     expect(rules.afterReceipt(context({ execution: "cancelled", verification: passed, proof: unproven }))).toEqual([]);
