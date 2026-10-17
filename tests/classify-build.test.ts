@@ -22,3 +22,12 @@ test("configuration, docs or a refactor as the object of the verb, or with no bu
   }
   expect(classifyTask("Upgrade the dependency to v2").intent).toBe("configure");
 });
+
+test("removing or deleting something is a change, whatever it is named: never a request for tests", () => {
+  // From a real session: "test books" made this a testing task, and the model added a test that they are gone.
+  for (const request of ['remove the two "The Sapphire Compass" test books from books.json', "Delete the test user from the seed data", "remove the flaky test"]) {
+    expect({ request, intent: classifyTask(request).intent }).toEqual({ request, intent: "implement" });
+  }
+  expect(classifyTask("Write a test for the login flow").intent).toBe("test");
+  expect(classifyTask("write tests for the parser").intent).toBe("test");
+});

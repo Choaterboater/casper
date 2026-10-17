@@ -37,7 +37,7 @@ const INTENT_PATTERNS: Array<[TaskIntent, RegExp]> = [
  * break): "Add a tool; invalid input is a tool error" is a feature, not a fix. Used only where the
  * keyword order would read an incidental "error" or "test" as the kind of work. */
 function leadingIntent(text: string): { intent: TaskIntent; object: string } | undefined {
-  const verb = /^(?:(?:can|could|would) you\s+)?(?:please\s+)?(add|implement|build|create|extend|write|fix|refactor|rename)\b\s*(.*)$/is.exec(text);
+  const verb = /^(?:(?:can|could|would) you\s+)?(?:please\s+)?(add|implement|build|create|extend|write|fix|refactor|rename|remove|delete)\b\s*(.*)$/is.exec(text);
   if (!verb) return undefined;
   const [, word, rest] = verb;
   const lower = word.toLowerCase();
@@ -46,6 +46,8 @@ function leadingIntent(text: string): { intent: TaskIntent; object: string } | u
   const object = rest.split(/[.;:\n](?:\s|$)|\n/, 1)[0]!;
   if (lower === "fix") return { intent: "fix", object };
   if (lower === "refactor" || lower === "rename") return { intent: "refactor", object };
+  // Taking something out is a change, never writing tests: "remove the two test books from books.json".
+  if (lower === "remove" || lower === "delete") return { intent: "implement", object };
   // Tests as what is made: "tests for X", "a new test file", "tests/foo.test.ts"; a "spec" only as the noun.
   const tests = /\btests?\b|\.(?:test|spec)\.|^(?:[\w`'-]+\s+){0,5}specs?(?:\s+(?:for|of|to|that|covering|in|on)\b|\s*$)/i.test(object);
   return { intent: tests ? "test" : "implement", object };
