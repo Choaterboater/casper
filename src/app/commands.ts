@@ -1629,6 +1629,8 @@ async function handlePermissions(host: CommandHost, prompt: string, duringWork =
     // A run that can't ask has no person to answer: --no-sandbox is the flag for one run.
     if (!host.interactive) throw new Error("/permissions all needs a terminal where you can answer. For one run, use --no-sandbox.");
     if (host.stopAsking) { host.output.write("[permissions] Asking is already off. /permissions ask turns it back on.\n"); return; }
+    // Typed during a task, the command is the answer: a box would only close again for the task's next question.
+    if (typedDuringTask()) { stopAsking(host, task); return; }
     await stopAskingBox(host, true, task);
     return;
   }
@@ -1673,6 +1675,10 @@ async function handlePermissions(host: CommandHost, prompt: string, duringWork =
 async function stopAskingBox(host: CommandHost, sayStill = true, task = "\n"): Promise<void> {
   const answer = await host.approveChoice("", PERMISSIONS_ALL_QUESTION, PERMISSIONS_ALL_CHOICES, host.commandAbort?.signal);
   if (answer !== PERMISSIONS_ALL_CHOICES[1].label) { if (sayStill) host.output.write("[permissions] Still asking.\n"); return; }
+  stopAsking(host, task);
+}
+
+function stopAsking(host: CommandHost, task: string): void {
   host.stopAsking = true;
   host.updateFooter();
   host.output.write(`[permissions] Not asking until you quit: shell commands, hosts, writes outside the project and other machines are answered Yes for this session. Protected places, secrets, device writes and the spend pause stay as they are. /permissions ask turns asking back on.${task}`);

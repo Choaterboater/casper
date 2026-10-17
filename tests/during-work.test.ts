@@ -1,7 +1,6 @@
 import { afterAll, expect, test } from "bun:test";
 import { PassThrough } from "node:stream";
 import type { AgentRuntime, RuntimeStatus } from "../src/runtime/types";
-import { approveChoice } from "../src/app/approvals";
 import { runsDuringWork } from "../src/tui/commands";
 import { duringTask } from "../src/tui/give-way";
 import { TerminalSurface } from "../src/tui/surface";
@@ -79,7 +78,7 @@ test("during a task: /project and /tasks run, a bare /effort opens its picker, /
   } finally { gate.resolve(); await app.close(); }
 }, 30_000);
 
-test("during a task: /permissions all asks, runs now and says the task asks no more from its next question", async () => {
+test("during a task: /permissions all takes effect at once, with no box, from the task's next question", async () => {
   const gate = Promise.withResolvers<void>();
   prompts.count = 0; prompts.started = false;
   const app = await richApp(() => workingRuntime(gate.promise, []));
@@ -88,34 +87,10 @@ test("during a task: /permissions all asks, runs now and says the task asks no m
     app.input.write("write a poem\r");
     await app.until(() => prompts.started);
     app.input.write("/permissions all\r");
-    await app.until(text => text.includes("Stop asking until you quit?"));
-    await Bun.sleep(400);
-    app.input.write("2");
     await app.until(text => text.includes("The running task too, from its next question."));
     expect(app.app.stopAsking).toBe(true);
+    expect(app.screen()).not.toContain("Stop asking until you quit?");
     expect(app.screen()).not.toContain("/permissions waits until this task ends");
-    gate.resolve();
-  } finally { gate.resolve(); await app.close(); }
-}, 30_000);
-
-test("during a task: a typed command's box (/permissions all) closes for the task's queued approval, which never waits behind it", async () => {
-  const gate = Promise.withResolvers<void>();
-  prompts.count = 0; prompts.started = false;
-  const app = await richApp(() => workingRuntime(gate.promise, []));
-  try {
-    await app.until(text => text.includes("idle"));
-    app.input.write("write a poem\r");
-    await app.until(() => prompts.started);
-    app.input.write("/permissions all\r");
-    await app.until(text => text.includes("Stop asking until you quit?"));
-    // The task's own approval, through the same one-at-a-time queue the task uses.
-    const answer = approveChoice(app.app, "Reach example.com?\n", "Allow it?", ["No", "Yes, this once"]);
-    await app.until(text => text.includes("Allow it?") && text.includes("closed for the task's question; type the command again"));
-    await app.until(text => text.includes("[permissions] Still asking."));
-    await Bun.sleep(400);
-    app.input.write("2");
-    expect(await answer).toBe("Yes, this once");
-    expect(app.app.stopAsking).toBe(false);
     gate.resolve();
   } finally { gate.resolve(); await app.close(); }
 }, 30_000);

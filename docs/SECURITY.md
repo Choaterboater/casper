@@ -536,7 +536,7 @@ is every fact and the exact way to be asked less for each kind. A mistyped word 
   `4 Yes, always for this project` (the folder and below, kept in `~/.casper` for this project, never in the repo; `/permissions forget <folder>` takes it back,
   `/permissions write <folder>` allows one ahead of time). A folder is never offered, and a saved one is not used, when it is, holds or sits inside a protected place.
   A link out of an allowed folder does not carry the allowance with it.
-- **Until you quit.** `/permissions` (in a terminal, not during a task) and `/permissions all` ask `1 Keep asking · 2 Stop asking until I quit`. On 2, the shell's own questions (a command, a host, a write outside the
+- **Until you quit.** `/permissions` (in a terminal, not during a task) and `/permissions all` ask `1 Keep asking · 2 Stop asking until I quit`; typed during a task, `/permissions all` is itself the answer and takes effect at once, from the task's next question. On 2, the shell's own questions (a command, a host, a write outside the
   project, another machine) are answered `Yes, for this session` without showing them, builders' included (a host while a builder's command runs too); the footer says `asking off` in warning colour, with `/permissions ask` only the first time. It lives in memory only, is
   never saved or read from a project file, only your typed command and your answer set it, and `/permissions ask` or quitting ends it. A one-shot or `--json` run
   refuses it (`--no-sandbox` is the flag for one run).
