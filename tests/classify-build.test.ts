@@ -31,3 +31,14 @@ test("removing or deleting something is a change, whatever it is named: never a 
   expect(classifyTask("Write a test for the login flow").intent).toBe("test");
   expect(classifyTask("write tests for the parser").intent).toBe("test");
 });
+
+test("a stated requirement asks for a change; a question about one is still a question", () => {
+  // From a real session: "show" made this a question, so the receipt called it an inspect request.
+  for (const request of ['The search should also match authors, and show "No books found" when nothing matches.', "The list must show the newest book first",
+    "Search needs to ignore case"]) expect({ request, intent: classifyTask(request).intent }).toEqual({ request, intent: "implement" });
+  for (const request of ["Why should the search match authors?", "Should the list show the newest book first?", "how does the search work"]) {
+    expect({ request, intent: classifyTask(request).intent }).toEqual({ request, intent: "inspect" });
+  }
+  // A fix or test word keeps its own kind of work.
+  expect(classifyTask("The login should not fail with an error").intent).toBe("fix");
+});

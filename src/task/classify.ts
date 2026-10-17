@@ -33,6 +33,9 @@ const INTENT_PATTERNS: Array<[TaskIntent, RegExp]> = [
   ["inspect", /\b(inspect|review|summarize|analyse|analyze|find|locate|show|list|what|why|how)\b/i],
 ];
 
+/** A statement of what something should do, not a question: "The search should also match authors". */
+const REQUIREMENT = /^(?!(?:why|how|what|when|where|which|who|should|must|does|do|is|are|can|could|would)\b)(?:the|this|that|our|my|its|a|an|each|every|all|new)?\s*[\w'-]+(?:\s+[\w'-]+){0,5}\s+(?:should|must|needs? to)\s+(?!not\b)[^?]*$/i;
+
 /** The intent a request's opening verb states, and the object it acts on (up to the first clause
  * break): "Add a tool; invalid input is a tool error" is a feature, not a fix. Used only where the
  * keyword order would read an incidental "error" or "test" as the kind of work. */
@@ -71,7 +74,8 @@ export function classifyTask(text: string): TaskClassification {
     : leading && (keyword === undefined || ["fix", "test", "configure", "document", "refactor"].includes(keyword))
       // Only a build verb yields to its object: "Refactor the configuration loader" still refactors.
       ? leading.intent === "implement" && objectIntent ? objectIntent : leading.intent
-      : keyword ?? "general";
+      // "The search should also match authors": a stated requirement asks for a change, not an answer.
+      : (keyword === undefined || keyword === "inspect") && REQUIREMENT.test(trimmed) ? "implement" : keyword ?? "general";
   const mode = intent === "inspect" || intent === "general" || intent === "visualize" ? "read" : "modify";
   const verification: ProjectCommand[] =
     intent === "document" || intent === "inspect" || intent === "general" || intent === "visualize"
