@@ -66,6 +66,14 @@ test("user-facing runtime and session strings name conversations, not the engine
   expect(literals.filter((literal) => /\bPi\b/.test(literal))).toEqual([]);
 });
 
+test("help distinguishes automatic app smoke from the offer-mode /verify action", () => {
+  expect(FULL_HELP_TEXT).toContain("one runtime smoke in auto mode");
+  expect(FULL_HELP_TEXT).toContain("In offer mode: App smoke: not run — /verify to try it");
+  expect(FULL_HELP_TEXT).toContain("/verify runs it with the other checks");
+  expect(FULL_HELP_TEXT).toContain("Preserved services are made fresh and left running");
+  expect(FULL_HELP_TEXT).not.toContain("runtime smoke in auto or offer mode");
+});
+
 test("help says CLI server flags cover only the user's own definitions", async () => {
   const { FULL_HELP_TEXT } = await import("../src/tui/help");
   expect(FULL_HELP_TEXT).toContain("--mcp <name>  Authorize and connect your own (user/profile) MCP server");

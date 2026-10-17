@@ -1,6 +1,9 @@
 import { lstat, readdir, readFile } from "node:fs/promises";
 import path from "node:path";
 import type { ServiceSpec } from "./config";
+import { isOutside } from "../platform/inside";
+import { editAffects } from "../verify/task";
+import { changedPages, type PagesSetting } from "./pages";
 
 /** Front-end frameworks whose dev server Casper knows how to start on a port it picks. */
 export const WEB_FRAMEWORKS = ["next", "nuxt", "sveltekit", "astro", "angular", "vite", "vue", "react"] as const;
@@ -258,6 +261,71 @@ async function hasLockfile(root: string): Promise<boolean> {
   let names: string[] = [];
   try { names = await readdir(root); } catch { /* none */ }
   return ["bun.lock", "bun.lockb", "pnpm-lock.yaml", "yarn.lock", "package-lock.json"].some(name => names.includes(name));
+}
+
+/** The one local request made before completing a changed app task. */
+export interface AppSmokeTarget { service: DetectedWebService; path: string }
+export type AppSmokePlan = AppSmokeTarget | { reason: string };
+
+/** Prose, tests and generated files never start an app. Markdown routes are pages, not documentation. */
+export function runtimeChanges(files: readonly string[]): string[] {
+  return files.map(file => file.replace(/\\/g, "/").replace(/^\.\//, "")).filter(file => file && !file.startsWith("/") && !isOutside(file)
+    && !/(^|\/)(?:tests?|__tests__|specs?|e2e|cypress|playwright|node_modules|dist|build|coverage|\.git|\.casper|\.next|\.nuxt|\.venv|venv|__pycache__)\//i.test(file)
+    && !/^docs\//i.test(file)
+    && !/\.(?:test|spec|stories)\.[^/]+$|(^|\/)test_[^/]*\.py$|_test\.py$|(^|\/)conftest\.py$/i.test(file)
+    && (!/\.(?:md|markdown|txt|rst|adoc)$|(^|\/)(?:LICENSE|NOTICE|CHANGELOG|AUTHORS)[^/]*$/i.test(file)
+      || /(^|\/)(?:pages|app|routes)\/.*\.mdx?$/.test(file)));
+}
+
+const HTTP_FRAMEWORKS = ["express", "fastify", "hono", "nestjs", "fastapi", "flask", "django", "rails"];
+
+/** Completion smoke detection is broader than page discovery: an API needs no index.html. No guessed
+ * launch commands or dependency installation. A recognized app without launch information says why. */
+export async function planAppSmoke(root: string, input: DetectInput, files: readonly string[], pages?: PagesSetting): Promise<AppSmokePlan | undefined> {
+  const changed = runtimeChanges(files);
+  if (!changed.length) return undefined;
+  const web = await detectWebService(root, input);
+  const pagePlan = changedPages(web?.frameworks ?? input.frameworks ?? [], changed, pages);
+  const target = (service: DetectedWebService): AppSmokeTarget => ({ service,
+    path: pagePlan.open[0] ?? ("http" in service.spec.ready ? service.spec.ready.http : "/") });
+  const declared = Object.entries(input.services ?? {}).filter(([, spec]) => changed.some(file => editAffects(root, file)(spec.scope)));
+  const preferred = pagePlan.open.length ? declared.find(([name]) => name === "web") : undefined;
+  const selected = preferred ?? (declared.length === 1 ? declared[0] : undefined);
+  if (selected) {
+    const [name, spec] = selected;
+    return target({ name, spec, source: "declared", label: spec.command, frameworks: web?.frameworks ?? [], portFlags: true });
+  }
+  if (declared.length > 1) return { reason: "more than one declared service covers the change; set their scopes to select one" };
+  // Scoped declarations that all miss the change must not fall back to an unrelated declared web service.
+  if (Object.keys(input.services ?? {}).length) return undefined;
+  if (isDetectedWebService(web)) return target(web);
+  if (web) return { reason: web.reason };
+
+  let manifest: Mapping | undefined;
+  try { const value: unknown = JSON.parse(await readSmall(path.join(root, "package.json"), MAX_MANIFEST_BYTES) ?? "null"); if (isMapping(value)) manifest = value; } catch { /* no manifest */ }
+  const frameworks = new Set([...(input.frameworks ?? []), ...packageFrameworks(manifest)]);
+  for (const section of [manifest?.dependencies, manifest?.devDependencies]) {
+    if (isMapping(section)) for (const name of HTTP_FRAMEWORKS) if (name in section || (name === "nestjs" && "@nestjs/core" in section)) frameworks.add(name);
+  }
+  const scripts = isMapping(manifest?.scripts) ? manifest.scripts : {};
+  const script = typeof scripts.dev === "string" ? "dev" : typeof scripts.start === "string" ? "start" : undefined;
+  // Recognize framework-less APIs from the launch entry or a few actual changed sources, never a filename alone.
+  const body = script ? scripts[script] as string : "";
+  const words = lastCommand(body)?.words ?? [];
+  const entry = words.find(word => SERVER_FILE.test(word) && !word.startsWith("-"));
+  const entries = [...new Set([...(entry ? [entry] : []), ...changed.filter(file => SERVER_FILE.test(file))])].slice(0, 8);
+  const sources = await Promise.all(entries.map(file => !isOutside(file) && !path.isAbsolute(file) ? readSmall(path.join(root, file), MAX_ENTRY_BYTES) : undefined));
+  const server = sources.some(source => source !== undefined && /\bBun\.serve\s*\(|\bcreateServer\s*\(|\.listen\s*\(/.test(source));
+  const app = server || [...frameworks].some(name => (WEB_FRAMEWORKS as readonly string[]).includes(name) || HTTP_FRAMEWORKS.includes(name))
+    || pagePlan.open.length > 0;
+  if (!app) return undefined;
+  if (!script) return { reason: "no start/dev command or declared service found for this app" };
+  const manager = input.packageManager ?? await lockfileManager(root);
+  const dependencies = [manifest?.dependencies, manifest?.devDependencies].some(section => isMapping(section) && Object.keys(section).length);
+  if (dependencies && !await isDirectory(path.join(root, "node_modules"))) return { reason: `node_modules is missing. Run ${manager} install first (Casper doesn't install packages)` };
+  const dev = devCommand(body, input.platform);
+  return target({ name: "web", source: "package.json", label: `${manager} run ${script}`, frameworks: [...frameworks], portFlags: dev.portFlags,
+    spec: { command: dev.command, port: "auto", ready: { http: "/" }, timeoutMs: READY_TIMEOUT_MS, ...(dev.env ? { env: dev.env } : {}) } });
 }
 
 /** A found dev server, as opposed to a reason it is unavailable. */

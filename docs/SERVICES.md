@@ -8,7 +8,8 @@ check it still answers after a change.
 You declare each program in `.casper/project.yaml`. Casper then runs it as a
 **managed service**: it picks a port, waits until the service is ready, keeps
 recent log lines, restarts it when edits may have changed what it serves, and
-stops it when the conversation that owns it ends. A running service is not proof
+stops it when the conversation that owns it ends. A server started by Casper's automatic checks instead
+stops before that task's final receipt. A running service is not proof
 that anything works; it only gives Casper something to look at.
 
 A service runs your project's own command in the project folder. It is trusted
@@ -154,16 +155,20 @@ the session like declared ones, and `/services` lists and controls them too.
 
 ## Dev servers for page checks
 
+Completion also makes one bounded [app smoke](VERIFICATION.md#try-it-before-done) after runtime changes,
+including APIs without pages. It reuses a fresh page/service result when possible. Automatic check-owned
+servers stop before the receipt; `/services` and `/preview` servers you intentionally started are kept.
+
 New in v0.2.16. In a web project Casper starts the dev server itself
 to open changed pages after a change (see [page checks](VERIFICATION.md#page-checks)). A
 declared `services.web` (or the only declared service of a web project) is used as it is.
 Otherwise Casper runs the package.json `dev` script with its own port flags, or a
 Streamlit app with the project's `.venv` Python, in a `web` slot of its own. Casper never
-installs packages for it. That slot lives for the session like a declared service and
-shows in `/services`. It is Casper's own: a running page-check server never adds the
+installs packages for it. The slot stays listed in `/services`, but its automatically started
+processes stop before the receipt. It is Casper's own: a page-check slot never adds the
 service tool to the AI's later tasks. The browser tool's `serve` runs in this same slot
 (unless `services.web` is declared), so the page check restarts or reuses the AI's server
-on its port instead of starting a second copy; that server stops when the task ends.
+on its port instead of starting a second copy; the browser keeps its original cleanup ownership.
 
 ## Preview on your phone
 

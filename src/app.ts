@@ -94,6 +94,7 @@ import { ensureSessionWorkspace, handleBranchCommand, handleSwitchCommand } from
 import { setCheckProgress } from "./verify/progress";
 import type { PageSession } from "./pages/session";
 import { runVerification, checksPlan, saveFoundCheck } from "./app/verification";
+import type { AppSmokeTask } from "./app/try-it";
 import { runInteractive, handlePrompt, handleSlashCommand, cancelCurrent, writePrompt } from "./app/command-loop";
 import { loadWorkspace, reloadReferences, reloadSkills, projectPrivatePaths, reportSkillWarnings, bannerChecks, reportNewerCasper } from "./app/wiring";
 import { PendingPictures } from "./pictures/pending";
@@ -305,6 +306,14 @@ export class CasperApp {
   checkTask?: VerificationTask;
   /** This task's smoke checks (configured and model-recorded); run inside the task's verification. */
   smokeTask?: SmokeChecks;
+  /** Host reports reusable by the final app smoke only while these exact task inputs remain unchanged. */
+  runtimeCheckInputs = new WeakMap<object, Map<string, string>>();
+  /** The latest offer-mode app change, tried only by an explicit /verify in this workspace. */
+  offeredAppSmoke?: AppSmokeTask;
+  /** Services started by host checks this task, not by /services, /preview or the model's service tool. */
+  automaticServices = new Set<string>();
+  /** Services already running or explicitly started by the model; automatic teardown never takes them over. */
+  preservedServices = new Set<string>();
   /** This task's page check: set when its changes reach a page of a web project in auto mode. */
   pageTask?: { context: ProjectContext; root: string; before: Map<string, string> };
   /** The page opener of the current task (one disposable browser per task), closed when the task ends. */
@@ -718,7 +727,7 @@ export class CasperApp {
     task?: VerificationTask,
     /** Repairs left for this task; defaults to the project's repair budget. */
     maxAttempts?: number,
-  ): Promise<VerificationReport> { return runVerification(this, checks, repair, request, task, maxAttempts); }
+  ): Promise<VerificationReport> { return runVerification(this, checks, repair, request, task, maxAttempts, task ? undefined : this.offeredAppSmoke); }
 
   /**
    * The AI review after /security-review's tools: the review model's name and price (starting the session costs

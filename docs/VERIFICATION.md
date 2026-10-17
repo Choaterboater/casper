@@ -152,7 +152,7 @@ owner, OS and reason in `tests/known-flaky.ts`. Observations there do not enable
 | Mode | After a model turn that changed files |
 |---|---|
 | `auto` | Casper runs the selected checks, sends failures to a limited number of repair tries, and records the results. The model may still use its `casper_check` tool while working; its fresh passes are reused, not rerun. |
-| `offer` | The model may use `casper_check`; nothing else runs. The receipt suggests `/verify`. |
+| `offer` | The model may use `casper_check`; no automatic app smoke runs. The receipt suggests `/verify`, which also tries the offered app. |
 | `off` | No managed checks during tasks. `/verify` still works. |
 
 **How the mode is picked.** A flag wins for its run (`--verify` means `auto`, `--no-verify` means
@@ -657,6 +657,44 @@ data-only changes, and refactor, docs, inspection, diagram and configuration req
 proof. The comparison runs the test check once more (twice when proven), so it adds that time to
 the run.
 
+## Try it before done
+
+Before the final receipt for an app, server or page change in `auto` mode, Casper tries the app once.
+In `offer` mode it does not run automatically: the receipt says `App smoke: not run — /verify to try it`.
+`/verify` runs that app smoke with the other checks, or alone if no command checks are configured.
+It does not launch an extra test suite, crawl links or start another repair loop.
+Docs-only, tests-only and unchanged tasks start nothing. `--no-verify` / `verification.mode: off`, or
+`pages: off`, disables this completion smoke; the receipt says `App smoke: not run (off)`. An offer is
+not an unfinished attempt and does not by itself make the task incomplete.
+
+Casper selects one declared service whose scope covers the change, or the project's own `dev` (else
+`start`) command. API servers need no HTML page. For an automatic request it chooses the first concrete
+changed page, otherwise the service's `ready.http` path, otherwise `/`. It sends one local GET, without
+following redirects, and expects HTTP 2xx. Readiness polling is separate from this one smoke request.
+A matching fresh page or service check on the final files is reused instead of making another request.
+A reused check keeps its actual method, path and result. A later edit invalidates it.
+If the selected service is already running because you intentionally started it, Casper makes it fresh
+with `ensureFresh` before that GET: edits mark it stale, so it restarts once instead of serving old code.
+The request goes there instead of launching a second copy, even on a fixed port. The service stays yours,
+not an automatic service, and completion cleanup never stops it. The receipt says `existing service left running`.
+If the restart fails, app smoke says not run with the reason, and no GET is sent.
+
+A new completion launch has at most 15 s to start (less if the declaration has a shorter deadline), and
+its request has at most 10 s. Casper stops its automatically started services and their child processes
+before the receipt, including after failure or cancellation. Services you intentionally started with
+`/services`, `/preview`, or the model's service tool remain under their original ownership.
+
+```text
+✓ App smoke: passed · bun run dev · GET / → HTTP 200; app stopped
+– App smoke: not run · bun run dev · GET / — the app could not start: exit code 1
+```
+
+Missing launch information or dependencies, startup failure or timeout, changes during the smoke, and
+unconfirmed cleanup are reported plainly and leave the task incomplete, never with a passing smoke.
+An unexpected response or a reused failing page check fails the task. The observation is kept in
+`/receipt`, saved receipts and JSON `appSmoke`; a passing smoke is not behavioral proof and cannot by
+itself make a change **Verified**. Casper never guesses credentials or installs dependencies for it.
+
 ## Smoke checks
 
 A **smoke check** is an HTTP request with an expected answer, which Casper sends to one of the
@@ -697,13 +735,14 @@ receipt says so.
 **When they run.** In a task Casper verifies (`auto`, or `offer` once the model recorded a check),
 smoke runs inside the same check-and-repair loop as the command checks, after those pass.
 
-- Configured checks run after any change; recorded ones always run.
+- Configured checks run after runtime changes, not docs-only or tests-only changes; recorded ones always run.
 - Before each run Casper makes every referenced service fresh: a service that is stale from
   edits, has crashed or no longer answers its readiness path is restarted.
 - A failing smoke check joins the normal repair prompt and uses the same `repair.maxAttempts`
   budget; there is no extra round. Smoke runs again after a repair, a requirements-review edit or
   a proof repair.
-- A standalone `/verify` runs only commands.
+- A standalone `/verify` runs command checks and any app smoke deferred by the latest offer-mode task;
+  it does not replay that task's configured or model-recorded smoke cases.
 - When the command checks still fail after the last repair, smoke never ran, and the receipt says
   `– Smoke not run: command checks failed`.
 
@@ -757,14 +796,15 @@ the request:
 
 Page checks run only when Casper checks each change itself (`auto`), after the command checks and
 smoke checks pass, inside the same verify-and-repair loop. Casper starts the dev server through
-[managed services](SERVICES.md) and keeps it for the session, so later tasks reuse it; an edit makes
-it restart before the next check. The first start in a session prints the command, because it runs
+[managed services](SERVICES.md) and reuses it within the task; an edit makes it restart before the next
+check. Automatically started servers stop before the final receipt. A server you started intentionally
+is left running. Each automatic task-owned start prints the command, because it runs
 the project's own code:
 
 ```text
 • Casper checking: typecheck, pages
 • Starting dev server: bun run dev (it runs your project's code)
-Dev server: bun run dev · http://127.0.0.1:41733 (stops when you leave Casper)
+Dev server: bun run dev · http://127.0.0.1:41733 (stops after the task unless you started it)
 • Casper opening changed pages: /dashboard
 ```
 

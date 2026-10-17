@@ -156,7 +156,8 @@ test("--json --verify: the model records a smoke check, edits, and Casper replay
   expect({ exit: result.exit, outcome: receipt.outcome, checksPassed: receipt.checksPassed, smoke: receipt.smoke }).toEqual({ exit: 0, outcome: "not_verified", checksPassed: true, smoke: { status: "pass", checks: [{
     id: "smoke-1", name: "create note", service: "api", source: "model", request: { method: "POST", path: "/notes" }, baseline: "fail", status: "pass",
     actual: { status: 201, body: '{"id":1,"title":"a"}' }, restarted: true, evidence: true }] } });
-  expect(receipt.services).toEqual([{ name: "api", origin: expect.stringMatching(/^http:\/\/127\.0\.0\.1:\d+$/), state: "ready" }]);
+  expect(receipt.services).toEqual([{ name: "api", origin: null, state: "stopped" }]);
+  expect(receipt.appSmoke).toMatchObject({ status: "pass", method: "POST", path: "/notes", reused: true, cleanup: "stopped" });
   expect(receipt.text).toContain("smoke 1/1 passed (model-declared, run by Casper: create note failed before the change)");
   expect(stream.filter((event) => event.type === "phase" && event.phase === "smoke").map((event) => event.state)).toEqual(["start", "end"]);
   // Casper started the unsolved server, then the fixed one after the edit; neither outlives the run.

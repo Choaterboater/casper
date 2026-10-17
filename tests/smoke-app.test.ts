@@ -81,13 +81,13 @@ test("a model check that failed before the change and passes after it verifies t
   expect(result.verification).toMatchObject({ status: "pass", repairAttempts: 0, smoke: { status: "pass", checks: [
     { id: "smoke-1", name: "create note", source: "model", baseline: "fail", status: "pass", evidence: true, restarted: true }] } });
   expect(taskExitCode(undefined, result)).toBe(0);
-  const origin = result.services![0]!.origin!;
-  expect(result.services).toEqual([{ name: "api", origin: expect.stringMatching(/^http:\/\/127\.0\.0\.1:\d+$/), state: "ready" }]);
-  expect(f.text()).toContain(`✓ Service api at ${origin.slice(7)}; smoke 1/1 passed (model-declared, run by Casper: create note failed before the change)`);
+  expect(result.services).toEqual([{ name: "api", state: "stopped" }]);
+  expect(result.appSmoke).toMatchObject({ status: "pass", reused: true, cleanup: "stopped" });
+  expect(f.text()).toContain("✓ Service api (stopped); smoke 1/1 passed (model-declared, run by Casper: create note failed before the change)");
   const receipt = receiptEvent(undefined, result, 0);
   // The checks passed with evidence, but no test was compared with and without the change: not proven, so not "verified".
   expect({ outcome: receipt.outcome, checksPassed: receipt.checksPassed, services: receipt.services, smoke: receipt.smoke?.status })
-    .toEqual({ outcome: "not_verified", checksPassed: true, services: [{ name: "api", origin, state: "ready" }], smoke: "pass" });
+    .toEqual({ outcome: "not_verified", checksPassed: true, services: [{ name: "api", origin: null, state: "stopped" }], smoke: "pass" });
   const phases = f.events.flatMap(event => event.type === "phase" ? [`${event.phase}:${event.state}`] : []);
   expect(phases).toEqual(["task:start", "task:end", "checks:start", "smoke:start", "smoke:end", "checks:end"]);
 }, 30_000);

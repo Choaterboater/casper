@@ -132,7 +132,7 @@ A run ends with exactly one `receipt` event, or, when Casper stops before it can
 | `tool_end` | `tool`, `id`, `ok`, `ms`; delegate adds `role`, `goal`, `part` when known | A tool call ends. `ok` is the tool status, not a check result. A builder's landed part number is known at its end; a part review or fix names it at its start too. Goal previews are redacted and capped at 120 characters. |
 | `usage` | `input`, `cacheRead`, `cacheWrite`, `output`, `tokens`, `estimatedCost`, `helper`? | Each model turn ends, even without text. Unknown fields are null. Helper turns carry their run id. |
 | `check` | `name`, `command`, `status` (`pass`/`fail`/`skip`), `exit`, `ms`, `recordedBy`, `reused`, `ended`?, `kind`?, `label`?, `hosts`?, `summary`? | Casper recorded a check. `recordedBy` is `casper` (auto mode, `/verify`, repair) or `casper_check` (the model asked for it). `ended` appears only on a failure that was not the code failing: `timeout`, `no_start` (could not execute, or the shell's exit 126/127), or (v0.2.17) `blocked` (the shell sandbox refused something the check tried; the receipt text says what). Named checks (`verify.checks.<name>`, v0.2.16) may add `kind` (`report`: a diff that never passes or fails; `lab`: your own lab devices), `label` (a few words such as `dry run not guaranteed`), `hosts` (lab checks) and `summary` (reports). |
-| `phase` | `phase` (`task`, `checklist`, `checks`, `smoke`, `pages`, `review`, `proof`, `acceptance`, `repair`), `state` (`start`/`end`), `atMs` | A stage of Casper's work starts or ends. `smoke` and `pages` (v0.2.16) run inside `checks`. |
+| `phase` | `phase` (`task`, `checklist`, `checks`, `smoke`, `pages`, `review`, `proof`, `acceptance`, `repair`), `state` (`start`/`end`), `atMs` | A stage of Casper's work starts or ends. `pages` and configured `smoke` run inside `checks`; a new completion `smoke` runs after final checks, unless existing evidence is reused. |
 | `receipt` | `outcome`, `exitCode`, `execution`, `changed`, `changedDuringChecks`, `verificationMode`, `checks`, `repairAttempts`, `turnLimit`, `spendLimit`, `remoteChanges`, `remoteNotRun`, `secretInCommand`, `usage`, `proof`, `proofSkipped`, `review`, `acceptance`, `checklist`, `services`, `smoke`, `pages`, `checksPassed`, `repairModels`, `bigModel`, `security`, `task`, `undo`, `sandbox`, `changedWhilePlanning`, `pageNotes`, `verdict`, `text` | The run finished. |
 | `error` | `message` | Something failed. |
 
@@ -221,6 +221,15 @@ does not, but the receipt says `n of m requirements covered`, not all.
 `output` and `unconfirmed` (the failing test names, when Casper could read them); or `null` when it
 did not run. `checklist` is the list of cases from the
 [request checklist](VERIFICATION.md#request-checklist), or `null` when none was made.
+
+**Completion app smoke.** Optional `appSmoke` records the single runtime observation before the receipt:
+`status` (`pass`, `fail`, `not-run` or `off`), optional `label`, `command`, `method` (GET unless a prior check
+is reused), `path`, `httpStatus`, `reason`, and `cleanup` (`stopped`, `not-started`, `preserved` or
+`unconfirmed`). `reused: true` means a final-file page/service check was reused without another request.
+Absent for tasks that do not touch a runnable app. In offer mode, `status: not-run` with `deferred: true`
+and reason `/verify to try it` means intentionally waiting for `/verify`, not an incomplete attempt.
+A pass alone is not behavioral proof; any other `not-run` or unconfirmed cleanup makes the task incomplete,
+and `fail` fails it. See [try it before done](VERIFICATION.md#try-it-before-done).
 
 **Services and smoke.** `services` lists the session's managed services at the end of the task,
 each `{ "name", "origin", "state" }` (`origin` such as `http://127.0.0.1:53121`, or `null` when it

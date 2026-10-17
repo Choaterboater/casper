@@ -58,9 +58,9 @@ test("a clean page passes with exactly the loads line, and the dev server lines 
   expect(formatPageReport(report)).toEqual(["✓ /dashboard loads · 0 console errors"]);
   expect(opener.urls[0]).toMatch(/^http:\/\/127\.0\.0\.1:\d+\/dashboard$/);
   expect(lines[0]).toBe("• Starting dev server: bun run dev (it runs your project's code)");
-  expect(lines[1]).toMatch(/^Dev server: bun run dev · http:\/\/127\.0\.0\.1:\d+ \(stops when you leave Casper\)$/);
+  expect(lines[1]).toMatch(/^Dev server: bun run dev · http:\/\/127\.0\.0\.1:\d+ \(stops after the task unless you started it\)$/);
   expect(lines[2]).toBe("• Casper opening changed pages: /dashboard");
-  // The next task reuses the running server: no start lines again.
+  // Another run within this task reuses the running server: no start lines again.
   lines.length = 0;
   const again = await new PageChecks(() => f.manager, f.service, opener, { open: ["/"], skipped: [] }, { announce: line => lines.push(line), notice }).run(signal());
   expect(again.status).toBe("pass");
