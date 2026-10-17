@@ -123,7 +123,8 @@ test("the full suite runs files in parallel, slowest first, with the eval tests 
     // the stuck file once). The suite and the real debugger test are separate steps, so a retried stall still
     // runs the debugger test; a file a workflow leaves out of the suite runs in a step of its own.
     const guarded = (command: string) => runs.map((run) => new RegExp(`^bash tools/stall-guard\\.sh .* -- ${command}\\s*$`).exec(run)).find(Boolean);
-    const suite = runs.map((run) => /^bash tools\/stall-guard\.sh .* -- bun run test:suite((?: --path-ignore-patterns='[^']+')*)\s*$/.exec(run)).find(Boolean);
+    // macOS runs the suite in parts (--shard), each on its own machine.
+    const suite = runs.map((run) => /^bash tools\/stall-guard\.sh .* -- bun run test:suite(?: --shard="\$PART"\/\d+)?((?: --path-ignore-patterns='[^']+')*)\s*$/.exec(run)).find(Boolean);
     expect(suite, name).toBeDefined();
     expect(guarded("bun test tests/phase10-debugger-real\\.test\\.ts"), name).toBeDefined();
     for (const [, left] of suite![1]!.matchAll(/--path-ignore-patterns='([^']+)'/g)) {
@@ -131,9 +132,12 @@ test("the full suite runs files in parallel, slowest first, with the eval tests 
     }
     expect(runs.some((run) => /^bun test 2>&1/.test(run))).toBe(false);
   }
-  // macOS runs the browser test on its own after the suite: under load there it grew to 300 s and ran last.
-  const mac = Object.values(load("macos-preview.yml").jobs).flatMap((job) => job.steps.map((step) => step.run ?? "")).join("\n");
-  expect(mac).toContain("-- bun run test:suite --path-ignore-patterns='tests/phase10-browser.test.ts'");
+  // macOS runs the suite in three parts and the browser test alone on its own machine (under load it grew to 300 s).
+  const macJobs = load("macos-preview.yml").jobs;
+  const mac = Object.values(macJobs).flatMap((job) => job.steps.map((step) => step.run ?? "")).join("\n");
+  expect(mac).toContain(`-- bun run test:suite --shard="$PART"/3 --path-ignore-patterns='tests/phase10-browser.test.ts'`);
+  expect((macJobs.suite as { strategy?: { matrix?: { part?: number[] } } }).strategy?.matrix?.part).toEqual([1, 2, 3]);
+  expect(macJobs.browser!.steps.map((step) => step.run ?? "").join("\n")).toContain("-- bun test tests/phase10-browser.test.ts");
   // Windows runs each part on two workers: spawned CLIs and servers need CPU/memory headroom.
   const windows = load("windows-preview.yml").jobs.suite!.steps.map((step) => step.run ?? "").join("\n");
   expect(windows).toMatch(/bun test --parallel=2 --timings=tests\/timings\.json @files/);
@@ -167,14 +171,22 @@ test("every preview runs nightly, and a pull request on macOS or Windows always 
     expect(step.run).toContain("case \"$tier\" in full | fast) ;; *)");
     expect(step.run).toContain("GITHUB_STEP_SUMMARY");
   }
-  // macOS: the whole suite when full, the fast tier when fast; heavy-only steps run only when full.
+  // macOS: the whole suite (in parts) and the browser test when full, the fast tier when fast; heavy-only steps run
+  // only when full. The parts and the browser job fail open: a missing tier runs them, never a green skip.
   const ifOf = (start: string) => mac.steps.find((step) => step.name?.startsWith(start))?.if ?? "";
-  expect(ifOf("Full regression suite")).toContain("steps.tier.outputs.tier == 'full'");
+  const macJobs = load("macos-preview.yml").jobs;
+  for (const name of ["suite", "browser"]) {
+    expect(macJobs[name]!.needs, name).toBe("source");
+    expect(macJobs[name]!.if, name).toContain("!cancelled()");
+    expect(macJobs[name]!.if, name).toContain("needs.source.outputs.tier != 'fast'");
+  }
+  expect(macJobs.suite!.steps.some((step) => step.name?.startsWith("Full regression suite"))).toBe(true);
+  expect(macJobs.browser!.steps.some((step) => step.name?.startsWith("Browser test"))).toBe(true);
   expect(ifOf("Fast tier of the suite")).toContain("steps.tier.outputs.tier == 'fast'");
   const fast = mac.steps.find((step) => step.name?.startsWith("Fast tier of the suite"))!;
   expect(fast.run).toContain('files="$(bun tools/test-tier.ts fast)"');
   expect(fast.run).toMatch(/bash tools\/stall-guard\.sh .* -- bun test --parallel --timings=tests\/timings\.json \$files/);
-  for (const start of ["The shell sandbox", "Browser test", "Real debugger test"]) expect(ifOf(start), start).toContain("steps.tier.outputs.tier == 'full'");
+  for (const start of ["The shell sandbox", "Real debugger test"]) expect(ifOf(start), start).toContain("steps.tier.outputs.tier == 'full'");
   // Windows: six parts always run; source terminals and the build/installer job run only when full.
   expect(windows.jobs.suite!.needs).toBe("changes");
   // If the changes job fails, the parts still run, the whole suite, and the build job too: a job skipped
