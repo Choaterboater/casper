@@ -5,6 +5,7 @@
 import { builderSteer, builderSteerLine } from "../crew/auto";
 import { finishCrewChecks } from "./crew-checks";
 import { finishTaskCleanup } from "./cleanup";
+import { finishAppSmoke } from "./try-it";
 import type { CasperApp } from "../app";
 import os from "node:os";
 import { riskyBaseline, riskyLinesIn } from "../network/risky-receipt";
@@ -111,6 +112,9 @@ export async function runModelTask(app: CasperApp, prompt: string, options: { fl
   app.bigModelUse = undefined;
   app.taskChangeServers = new Set();
   let context = app.projectContext!;
+  const preservedServices = app.preservedServices = new Set(app.services?.status().filter(service => service.state === "ready" || service.state === "starting").map(service => service.name));
+  app.runtimeCheckInputs = new WeakMap();
+  app.automaticServices = new Set();
   const classification = classifyTask(prompt);
   // beforeChanges policy: under-specified implement/configure work must see one recorded
   // ask attempt before the first edit. Interactive sessions only — one-shot cannot ask,
@@ -500,6 +504,8 @@ export async function runModelTask(app: CasperApp, prompt: string, options: { fl
     // Last, after reviewers, fixes and late repairs: one full sweep before the receipt says done.
     ({ verification, crewChecks } = await finishCrewChecks(app, verificationMode, verification));
     verification = await finishConfiguredTest(app, verification);
+    const appSmoke = await finishAppSmoke(app, { context, root: workspaceRoot, before, preserve: preservedServices,
+      verification, mode: verificationMode, child: workFolder });
     let execution: TaskResult["execution"] = app.closing || app.commandAbort?.signal.aborted || app.taskRuntimeCancelled || app.checkTask?.signal.aborted ? "cancelled" : app.taskRuntimeFailed ? "failed" : "completed";
     // Keep already-executed evidence on terminal error/cancellation, but never
     // launch another command or repair prompt after the task has stopped.
@@ -510,7 +516,7 @@ export async function runModelTask(app: CasperApp, prompt: string, options: { fl
     // The model turn and the verification/repair round are measured separately so check
     // scripts and repair edits are never attributed to the request itself.
     afterModel ??= before && !app.closing ? await app.snapshotWorkspace(workspaceRoot) : undefined;
-    const afterChecks = verification && afterModel && !app.closing ? await app.snapshotWorkspace(workspaceRoot) : afterModel;
+    const afterChecks = (verification || appSmoke) && afterModel && !app.closing ? await app.snapshotWorkspace(workspaceRoot) : afterModel;
     const branchMoved = headMoved(undoStart.head, await taskHead(workspaceRoot));
     const changedPaths = before && afterModel ? flatten(diffSnapshots(before, afterModel)) : undefined;
     const changedDuringChecks = afterModel && afterChecks && afterChecks !== afterModel ? flatten(diffSnapshots(afterModel, afterChecks)) : [];
@@ -538,7 +544,7 @@ export async function runModelTask(app: CasperApp, prompt: string, options: { fl
     const modelError = execution === "failed" ? explainModelError(app.events.lastError ?? thrownError ?? "")?.cause : undefined;
     // The whole answer is a tool call written as text and no tool ran: shown, never run, never retried.
     const wroteToolCall = execution === "completed" && !app.observations.madeToolCalls && isToolCallAsText(app.lastAnswer);
-    app.lastTaskResult = { execution, ...(branchMoved ? { branchMoved: true as const } : {}), ...(modelError ? { modelError } : {}), ...(wroteToolCall ? { wroteToolCallAsText: true as const } : {}), verification, ...observations, ...(snapshotFailure ? { snapshotFailure } : {}), ...(browser?.checks.length ? { browser, ...(browser.status !== "pass" && answerClaimsBrowserPass(app.lastAnswer) ? { browserClaimed: true } : {}) } : {}),
+    app.lastTaskResult = { execution, ...(branchMoved ? { branchMoved: true as const } : {}), ...(modelError ? { modelError } : {}), ...(wroteToolCall ? { wroteToolCallAsText: true as const } : {}), verification, ...(appSmoke ? { appSmoke } : {}), ...observations, ...(snapshotFailure ? { snapshotFailure } : {}), ...(browser?.checks.length ? { browser, ...(browser.status !== "pass" && answerClaimsBrowserPass(app.lastAnswer) ? { browserClaimed: true } : {}) } : {}),
       ...(services.length ? { services } : {}), ...(riskyLines.length ? { riskyLines: [...riskyLines], ...(riskyLines.more ? { riskyMore: riskyLines.more } : {}) } : {}),
       // Smoke checks ran even without a configured command, so "no checks" no longer describes the task.
       verificationMode, ...(!flag && !configured && verificationMode === "auto" ? { verificationDefaulted: true as const } : {}),

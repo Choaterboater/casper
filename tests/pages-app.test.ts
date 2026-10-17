@@ -91,7 +91,7 @@ test("an edited page is opened on the dev server after the change; a load is nev
   const receipt = f.text();
   expect(receipt).toContain("• Casper checking: pages\n");
   expect(receipt).toContain("• Starting dev server: ");
-  expect(receipt).toMatch(/Dev server: .*server\.ts · http:\/\/127\.0\.0\.1:\d+ \(stops when you leave Casper\)/);
+  expect(receipt).toMatch(/Dev server: .*server\.ts · http:\/\/127\.0\.0\.1:\d+ \(stops after the task unless you started it\)/);
   expect(receipt).toContain("• Casper opening changed pages: /dashboard");
   expect(receipt).toContain("✓ /dashboard loads · 0 console errors");
   expect(receipt).toContain("– Checks passed — not proven: pages load, but no test fails without the change");
@@ -247,7 +247,7 @@ test("the dev server Casper found and started for its page check never hands the
   f.runtime.turns.push(async runtime => { toolsAtPrompt.push(runtime.tools.map(tool => tool.name)); await runtime.write(path.join(f.project, "src/App.tsx"), "export default 1;\n"); });
   await f.app.runOnce("Make the sidebar collapse on small screens");
   expect(f.text()).toContain("✓ / loads · 0 console errors");
-  expect(f.app.serviceManager().status().find(service => service.name === "web")?.state).toBe("ready");
+  expect(f.app.serviceManager().status().find(service => service.name === "web")?.state).toBe("stopped");
   f.runtime.turns.push(async runtime => { toolsAtPrompt.push(runtime.tools.map(tool => tool.name)); });
   await f.app.runOnce("Rename the sidebar title");
   expect(toolsAtPrompt).toHaveLength(2);

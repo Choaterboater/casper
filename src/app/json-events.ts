@@ -2,6 +2,7 @@ import type { RuntimeEvent, RuntimeStatus } from "../runtime/types";
 import { tokenFields } from "../runtime/model-usage";
 import { observationInput, type ToolObservationInput } from "../runtime/observation";
 import type { SmokeReport } from "../services/smoke";
+import type { AppSmokeReport } from "../services/try-it";
 import type { PageReport } from "../services/page-report";
 import { formatTerminalJSON } from "../tui/json";
 import { lineText, redactPreview, terminalText } from "../tui/format";
@@ -89,6 +90,8 @@ export interface ReceiptEvent {
   services: Array<{ name: string; origin: string | null; state: string }>;
   /** Casper's last smoke run against fresh services; null when none ran. */
   smoke: SmokeReport | null;
+  /** One completion request/load, including startup and cleanup failures; absent for non-app tasks. */
+  appSmoke?: AppSmokeReport;
   /** Casper's last page check against the dev server (console text redacted); null when none ran. */
   pages: PageReport | null;
   /** Whether the checks passed on the final files, apart from what the outcome also asks for. */
@@ -175,6 +178,12 @@ export function redactSmoke(smoke: SmokeReport): SmokeReport {
   return copy;
 }
 
+/** The new report follows the same preview rules as the existing service/page evidence. */
+export function redactAppSmoke(report: AppSmokeReport): AppSmokeReport {
+  return { ...report, ...(report.label ? { label: redactPreview(report.label) } : {}), ...(report.command ? { command: redactPreview(report.command) } : {}),
+    ...(report.path ? { path: redactPreview(report.path) } : {}), ...(report.reason ? { reason: redactPreview(report.reason) } : {}) };
+}
+
 /** Proof output is the failing test run's tail and may echo env or tokens; redact a copy, never the evidence. */
 export function redactProof(proof: ChangeProof): ChangeProof {
   const copy = structuredClone(proof);
@@ -216,6 +225,7 @@ export function redactPages(pages: PageReport): PageReport {
 export function storedTaskResult(task: TaskResult): TaskResult {
   const copy = structuredClone(task);
   if (copy.cleanup) copy.cleanup = redactCleanup(copy.cleanup);
+  if (copy.appSmoke) copy.appSmoke = redactAppSmoke(copy.appSmoke);
   if (copy.verification) {
     const strip = (result: VerificationResult): VerificationResult => ({ ...result, stdout: "", stderr: "",
       ...(result.reason ? { reason: redactPreview(result.reason) } : {}), ...(result.command ? { command: redactPreview(result.command) } : {}),
@@ -284,6 +294,7 @@ export function receiptEvent(report: VerificationReport | undefined, task: TaskR
     checklist: task?.checklist ? task.checklist.map(redactPreview) : null,
     services: (task?.services ?? []).map((service) => ({ name: service.name, origin: service.origin ?? null, state: service.state })),
     smoke: verification?.smoke ? redactSmoke(verification.smoke) : null,
+    ...(task?.appSmoke ? { appSmoke: redactAppSmoke(task.appSmoke) } : {}),
     pages: verification?.pages ? redactPages(verification.pages) : null,
     checksPassed: checksPassed(report, task),
     repairModels: verification?.repairModels ? [...verification.repairModels] : null,

@@ -34,6 +34,8 @@ import { PartRecord } from "../crew/parts";
 import { spendGate } from "./spend-gate";
 import { pageToolFor } from "./pages";
 import { pictureToolFor } from "./pictures";
+import { sameRuntimeInputs } from "../services/try-it";
+import { runtimeChanges } from "../services/detect";
 
 export async function prepareCapabilities(app: CasperApp, task: string): Promise<void> {
   app.browserInstalled ??= browserDefaults.installed().catch(() => false);
@@ -48,8 +50,7 @@ export async function prepareCapabilities(app: CasperApp, task: string): Promise
     browserReady: app.browser?.status().state === "ready", browserInstalled: await app.browserInstalled, browser: () => browserSession(app),
     browserSignal: app.commandAbort?.signal, browserOff: app.projectContext?.browser === false, diagramOff: app.projectContext?.diagrams === false,
     services: { declared: Object.keys(app.projectContext?.services ?? {}).length > 0, live: (app.services?.live({ detected: false }) ?? false) || Boolean(app.backgroundCommands?.list().length) },
-    serviceTool: () => serviceTool(() => serviceManager(app), app.commandAbort?.signal, () => app.smokeTask,
-      app.shell?.approve ? (command, signal, options) => app.shell!.approve!(command, signal, options) : undefined, () => app.backgroundCommands),
+    serviceTool: () => taskServiceTool(app),
     githubOff: app.projectContext?.github === false,
     githubTool: () => githubTool({
       root: () => app.activeWorkspaceRoot(), reruns: app.githubReruns, secrets: () => ownSecretValues(app),
@@ -64,6 +65,26 @@ export async function prepareCapabilities(app: CasperApp, task: string): Promise
   }
   app.runtimeTools = nextTools;
   for (const tool of nextTools) app.offeredTools.add(tool.name);
+}
+
+/** A check/request owns only the services it starts; an explicit start/restart instead preserves that service. */
+function taskServiceTool(app: CasperApp): RuntimeTool {
+  const tool = serviceTool(() => serviceManager(app), app.commandAbort?.signal, () => app.smokeTask,
+    app.shell?.approve ? (command, signal, options) => app.shell!.approve!(command, signal, options) : undefined, () => app.backgroundCommands);
+  return { ...tool, async execute(args, signal, context) {
+    const running = new Set(app.services?.status().filter(service => service.state === "ready" || service.state === "starting").map(service => service.name));
+    const result = await tool.execute(args, signal, context);
+    if (!result.isError && (args.action === "start" || args.action === "restart") && typeof args.service === "string") {
+      app.preservedServices.add(args.service);
+      app.automaticServices.delete(args.service);
+    }
+    if (args.action === "check" || args.action === "replay" || args.action === "request") {
+      for (const service of app.services?.status() ?? []) {
+        if (!running.has(service.name) && !app.preservedServices.has(service.name) && service.state !== "idle") app.automaticServices.add(service.name);
+      }
+    }
+    return result;
+  } };
 }
 
 /** casper_session: what /status, /usage, /context, /receipt, /tasks and /mcp show, for the AI. Read when it runs. */
@@ -227,9 +248,15 @@ export function pageRun(app: CasperApp, task: NonNullable<CasperApp["pageTask"]>
     try {
       app.taskPageOpener ??= await app.pageOpenerFn({ projectRoot: task.root, stateDirectory: task.context.stateDirectory });
       app.events.ensureLineBreak();
-      const checks = new PageChecks(() => serviceManager(app), plan.service, app.taskPageOpener, plan.pages,
+      const manager = serviceManager(app);
+      const existing = manager.status().find(service => service.name === plan.service.name);
+      if (!existing || (existing.state !== "ready" && existing.state !== "starting")) app.automaticServices.add(plan.service.name);
+      const checks = new PageChecks(() => manager, plan.service, app.taskPageOpener, plan.pages,
         { announce: (line) => { if (!app.closing) app.output.write(`${terminalText(line)}\n`); }, notice: app.pageNotice });
-      return await checks.run(signal);
+      const report = await checks.run(signal);
+      const after = await app.snapshotWorkspace(task.root, signal);
+      if (now && sameRuntimeInputs(now, after)) app.runtimeCheckInputs.set(report, now);
+      return report;
     } catch (error) {
       if (signal.aborted) return undefined;
       const { name, label, spec } = plan.service;
@@ -243,7 +270,21 @@ export function pageRun(app: CasperApp, task: NonNullable<CasperApp["pageTask"]>
 export function smokeRun(app: CasperApp, smoke: SmokeChecks): (signal: AbortSignal) => Promise<SmokeReport> {
   return async (signal) => {
     phase(app, "smoke", "start");
-    try { return await smoke.run(signal); }
+    try {
+      const before = await app.snapshotWorkspace(app.activeWorkspaceRoot(), signal);
+      const initial = app.taskEdits?.before;
+      const changed = initial && before ? diffSnapshots(initial, before) : undefined;
+      if (changed && !smoke.recordedCount && !runtimeChanges([...changed.added, ...changed.modified, ...changed.removed]).length) return { status: "pass", checks: [] };
+      const status = serviceManager(app).status();
+      for (const name of smoke.serviceNames) {
+        const existing = status.find(service => service.name === name);
+        if (!existing || (existing.state !== "ready" && existing.state !== "starting")) app.automaticServices.add(name);
+      }
+      const report = await smoke.run(signal);
+      const after = await app.snapshotWorkspace(app.activeWorkspaceRoot(), signal);
+      if (before && sameRuntimeInputs(before, after)) app.runtimeCheckInputs.set(report, before);
+      return report;
+    }
     catch (error) {
       if (signal.aborted) return { status: "incomplete", checks: [] };
       throw error;

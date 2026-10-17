@@ -152,7 +152,7 @@ export function pageFailureSummary(report: PageReport): string | undefined {
 }
 
 export function formatPagesNotChecked(reason: string): string { return `– Pages not checked: ${reason}`; }
-export function formatServerLine(label: string, origin: string): string { return `Dev server: ${label} · ${origin} (stops when you leave Casper)`; }
+export function formatServerLine(label: string, origin: string): string { return `Dev server: ${label} · ${origin} (stops after the task unless you started it)`; }
 export function formatOpeningLine(paths: readonly string[]): string { return `• Casper opening changed pages: ${paths.join(", ")}`; }
 export function formatSkippedPage(page: SkippedPage): string {
   const hint = /needs a value/.test(page.why) ? " (a fixed path can be set in .casper/project.yaml pages:)" : "";

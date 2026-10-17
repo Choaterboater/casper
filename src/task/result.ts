@@ -7,6 +7,7 @@ import type { ProjectCommand } from "../project/model";
 import type { BrowserReport } from "../browser/scenario";
 import type { ServiceState } from "../services/manager";
 import type { SmokeReport } from "../services/smoke";
+import type { AppSmokeReport } from "../services/try-it";
 import { formatPageReport, pageFailureSummary } from "../services/page-report";
 import type { AutoCheckSkip, VerificationMode } from "../verify/mode";
 import type { ChangeProof } from "../verify/proof";
@@ -67,6 +68,8 @@ export interface TaskResult {
   /** Why the model run failed, when the provider's error names a cause (bad key, no credits, rate limit …). */
   modelError?: ModelErrorCause;
   verification?: VerificationReport;
+  /** One final app request/load and its cleanup; a runtime observation, never behavioral proof. */
+  appSmoke?: AppSmokeReport;
   browser?: BrowserReport;
   /** The model's answer says the browser checks passed; only said when Casper's record disagrees. */
   browserClaimed?: boolean;
@@ -184,6 +187,7 @@ export type TaskOutcome = "verified" | "failed" | "incomplete" | "not_verified" 
 export function checksPassed(report?: VerificationReport, task?: TaskResult): boolean {
   if (task?.execution === "cancelled" || task?.execution === "failed" || task?.turnLimit !== undefined || task?.spendLimit !== undefined) return false;
   if (task?.cleanup?.some(incident => incident.state !== "stopped")) return false;
+  if (task?.appSmoke && (task.appSmoke.status === "fail" || task.appSmoke.status === "not-run" || task.appSmoke.cleanup === "unconfirmed")) return false;
   if (task?.browser?.status === "fail" || task?.browser?.status === "incomplete") return false;
   const verification = task?.verification ?? report;
   if (verification?.status !== "pass") return false;
@@ -210,8 +214,8 @@ export function taskOutcome(report?: VerificationReport, task?: TaskResult): Tas
   if (task?.turnLimit !== undefined || task?.spendLimit !== undefined) return "incomplete";
   const verification = task?.verification ?? report;
   const status = verification?.status;
-  if (status === "fail" || status === "blocked" || task?.browser?.status === "fail") return "failed";
-  if (status === "incomplete" || task?.browser?.status === "incomplete") return "incomplete";
+  if (status === "fail" || status === "blocked" || task?.browser?.status === "fail" || task?.appSmoke?.status === "fail") return "failed";
+  if (status === "incomplete" || task?.browser?.status === "incomplete" || task?.appSmoke?.status === "not-run" || task?.appSmoke?.cleanup === "unconfirmed") return "incomplete";
   if (task?.cleanup?.some(incident => incident.state !== "stopped")) return "incomplete";
   // Commands to another machine that Casper stopped: whatever the AI said about that machine did not happen.
   if (task?.remoteNotRun?.length) return "incomplete";
@@ -316,6 +320,7 @@ export function formatTaskResult(task: TaskResult): string {
       + `${check.actual ? ` (${check.actual.status})` : ""}${check.baseline ? `, baseline ${check.baseline}${check.baselineAfterEdits ? " (after edits)" : ""}` : ""}${check.status === "pass" && !check.evidence ? ", observation only" : ""}`
       + `${check.status !== "pass" && check.reason ? ` — ${safe(check.reason)}` : ""}`).join("; ")}.${report.smoke.reason ? ` ${safe(report.smoke.reason)}` : ""}${crashNotes(report.smoke, safe).map((note) => ` ${note}.`).join("")} Model checks are the model's expectations, run by Casper.`));
   }
+  if (task.appSmoke) lines.push(receiptLine("app smoke", appSmokeLine(task.appSmoke, safe)));
   if (report?.pages) lines.push(receiptLine("pages", `${report.pages.status}: ${report.pages.pages.map((page) => `${safe(page.path)} ${page.status}${page.httpStatus !== null ? ` (${page.httpStatus})` : ""}`).join("; ") || "none opened"}${report.pages.reason ? `. ${safe(report.pages.reason)}` : ""}`));
   else if (task.pageNotes?.length) lines.push(receiptLine("pages", task.pageNotes.map((note) => safe(note.replace(/^– /, ""))).join("; ")));
   if (task.partsNotReviewed?.length) lines.push(receiptLine("not reviewed", formatNotReviewed(task.partsNotReviewed, safe)));
@@ -560,6 +565,7 @@ function receiptParts(task: TaskResult, options: ReceiptOptions, onScreen = fals
     } else if (changed && task.verificationMode === "offer") lines.push(`– Not verified — run ${slash("/verify")} to check these changes.`);
   }
 
+  if (task.appSmoke) lines.push(appSmokeLine(task.appSmoke, safe));
   if (report?.smoke) lines.push(smokeLine(report.smoke, task.services, safe));
   else if (report?.smokeSkipped) lines.push(`– Smoke not run: ${report.smokeSkipped}`);
   // Page text is already scrubbed and cut short by the page check.
@@ -709,6 +715,7 @@ function withVerdict(task: TaskResult, body: string[], options: ReceiptOptions):
       }
       else if (failedChecks.length) lines = [`✗ Failed — ${failedChecks.join(", ")}`, ...body];
       else if (report?.pages?.status === "fail") lines = [`✗ Failed — ${safe(pageFailureSummary(report.pages) ?? "a page failed")}`, ...body];
+      else if (task.appSmoke?.status === "fail") lines = [`✗ Failed — app smoke: ${safe(redactPreview(task.appSmoke.reason ?? "the request failed"))}`, ...body];
       else if (report?.status === "blocked") lines = [`✗ Failed — checks stopped${report.reason ? `: ${safe(report.reason).replace(/\.$/, "").toLowerCase()}` : ""}`, ...body];
       else lines = ["✗ Failed — browser checks failed", ...body];
       break;
@@ -720,6 +727,7 @@ function withVerdict(task: TaskResult, body: string[], options: ReceiptOptions):
         : task.turnLimit !== undefined
         ? `– Incomplete — stopped after ${task.turnLimit} ${task.turnLimit === 1 ? "turn" : "turns"} (--max-turns); changes so far are kept; ${options.surface === "one-shot" ? "casper --continue" : "send another request"} to go on`
         : task.cleanup?.some(incident => incident.state !== "stopped") ? "– Incomplete — owned process cleanup is unconfirmed"
+        : task.appSmoke?.status === "not-run" || task.appSmoke?.cleanup === "unconfirmed" ? "– Incomplete — app smoke did not finish"
         : task.remoteNotRun?.length ? `– Incomplete — ${remoteNotRunVerdict(task.remoteNotRun, safe)}`
         : task.wroteToolCallAsText ? "– Did not act — the model wrote a tool call as text instead of using it"
         : report?.reason === NO_CHECKS_FOUND && !report.results.length ? NO_CHECKS_LINE
@@ -764,6 +772,17 @@ function notVerifiedReason(task: TaskResult): string {
   if (report && !report.results.length) return "only observations ran, no checks";
   if (!task.changedPaths && task.possibleMutations) return "Casper could not compare the workspace";
   return "Casper ran no checks";
+}
+
+/** The completion smoke is deliberately a narrow observation, separate from test/proof evidence. */
+function appSmokeLine(report: AppSmokeReport, text: (text: string) => string): string {
+  const safe = (value: string) => text(redactPreview(value));
+  const mark = report.status === "pass" ? "✓" : report.status === "fail" ? "✗" : "–";
+  const status = report.status === "pass" ? "passed" : report.status === "fail" ? "failed" : report.status === "off" ? "not run (off)" : "not run";
+  const request = report.path ? ` · ${safe(report.method ?? "GET")} ${safe(report.path)}${report.httpStatus !== undefined ? ` → HTTP ${report.httpStatus}` : ""}` : "";
+  const cleanup = report.cleanup === "stopped" ? "; app stopped" : report.cleanup === "preserved" ? "; existing service left running"
+    : report.cleanup === "unconfirmed" ? "; cleanup unconfirmed" : "";
+  return `${mark} App smoke: ${status}${report.label ? ` · ${safe(report.label)}` : ""}${request}${report.reason ? ` — ${safe(report.reason)}` : ""}${cleanup}${report.reused ? " (reused final-file check)" : ""}`;
 }
 
 /** One line: each checked service's address, the smoke tally, what failed, and the model-declared checks with their baselines. */

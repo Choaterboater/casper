@@ -158,8 +158,8 @@ export class ServiceManager {
   /** Adds a host-detected service (the dev server Casper found for page checks) under `name`, or keeps the
    * slot already there. A declared service of that name always wins and is left exactly as declared. A
    * detected slot whose command or readiness changed takes the new spec; if it is running, it is marked stale
-   * so the next freshness check restarts it. The slot lives as long as the session, so later tasks reuse the
-   * running server. It counts toward the MAX_SERVICES cap of named services; ad-hoc slots do not. Starts nothing. */
+   * so the next freshness check restarts it. The slot lives as long as the session; host checks stop
+   * their automatically started processes before the task receipt. It counts toward the MAX_SERVICES cap of named services; ad-hoc slots do not. Starts nothing. */
   ensureSlot(name: string, spec: ServiceSpec, options?: SlotOptions): ServiceStatus {
     if (this.closing) throw new Error("Casper's services were stopped with the conversation; start them again after it changes");
     if (!SERVICE_NAME.test(name) || name.startsWith("adhoc-")) throw new Error(`${JSON.stringify(name)} is not a service name`);

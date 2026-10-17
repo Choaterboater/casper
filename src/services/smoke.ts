@@ -182,6 +182,8 @@ export class SmokeChecks {
   get size(): number { return this.configured.length + this.recorded.length; }
   /** Checks the model recorded this task. */
   get recordedCount(): number { return this.recorded.length; }
+  /** Service owners needed by the host run, so task teardown never stops a user-started server. */
+  get serviceNames(): string[] { return [...new Set([...this.configured.map(check => check.service), ...this.recorded.map(entry => entry.check.service)])]; }
 
   /** Validates and records a model check, and runs it once for its baseline. */
   async record(input: unknown, signal: AbortSignal): Promise<SmokeResult> {
