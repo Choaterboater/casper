@@ -47,7 +47,9 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { gitGuardReason } from "./git-guard";
-import { classifyPath, fileToolGate, gitInternalsCommand, privatePathCommand, realpathLongest, resolveToolPath } from "../platform/project-paths";
+import { classifyPath, fileToolGate, gitInternalsCommand, privatePathCommand, realpathLongest, resolveToolPath, shellTempPath } from "../platform/project-paths";
+/** The AI's tools that take a file or folder `path`. */
+const FILE_PATH_TOOLS = new Set(["read", "edit", "write", "grep", "find", "ls", "lsp"]);
 import { withoutProviderKeys } from "../platform/environment";
 import { createOwnedBashOperations } from "./local-bash";
 import { ProcessCleanupError } from "../platform/processes";
@@ -929,7 +931,12 @@ export class PiRuntime implements AgentRuntime {
         pi.on("context_with_system", (event, ctx) => ({ messages: projectGuidance(event.messages, ctx.model,
           (bounded?.guidance ?? options.guidance)?.(), tools.current(), { ...options, addendum }) }));
         // First, so a repair is tied to its call even when a later handler refuses the call.
-        pi.on("tool_call", (event) => { repair.claim(event.toolName, event.toolCallId); });
+        pi.on("tool_call", (event) => {
+          repair.claim(event.toolName, event.toolCallId);
+          // Before every path check, so they check the place the tool will open.
+          const input = event.input as Record<string, unknown>;
+          if (FILE_PATH_TOOLS.has(event.toolName) && typeof input.path === "string") input.path = shellTempPath(input.path);
+        });
         // Runs after the runtime's own attribution, so Casper's identity replaces Pi's. With
         // CASPER_TELEMETRY=0 or telemetry: off there is none to add, and the runtime's is taken out too.
         pi.on("before_provider_headers", (event, ctx) => {

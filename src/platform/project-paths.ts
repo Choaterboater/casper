@@ -82,6 +82,14 @@ export function windowsShellPath(input: string): string {
   return match ? `${match[1]!.toUpperCase()}:\\${match[2]?.replaceAll("/", "\\") ?? ""}` : input;
 }
 
+/** On Windows the shell is Git Bash, whose /tmp is the user's temp folder; Pi's file tools would open /tmp/x as
+ * C:\\tmp\\x, a different place. A file tool's /tmp path becomes the temp folder, so the AI finds there what its
+ * shell wrote and the reverse. Elsewhere, and for any other path, it is returned as given. */
+export function shellTempPath(input: string, platform: NodeJS.Platform = process.platform, temp = os.tmpdir()): string {
+  if (platform !== "win32" || !/^\/tmp(?:\/|$)/.test(input)) return input;
+  return path.win32.join(temp, input.slice(4).replaceAll("/", "\\"));
+}
+
 /** A Windows path that names a drive another way, as that drive's path: a drive's admin share (\\host\C$\Users,
  * \\?\UNC\host\C$\Users) and a device path (\\?\C:\Users, \\.\C:\Users), with either slash. Only for the private-place
  * checks: a share on another machine is not this drive, so a file is never opened by this name. */
