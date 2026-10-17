@@ -582,11 +582,16 @@ test("unknown owned-process cleanup cannot produce a passing smoke", async () =>
   let kept: ProcessRecord | undefined;
   const manager = new ServiceManager({ projectRoot: f.project, services: { web: f.spec }, platform: { ...host, list: async () => {
     const all = await host.list();
-    const service = manager.status()[0];
-    if (service?.pid) kept ??= all.get(service.pid);
     if (kept) all.set(kept.pid, kept);
     return all;
   } } });
+  // Keep the service's own record once it is up: a scan may never run while it is, so reading it there could miss it.
+  const start = manager.start.bind(manager);
+  manager.start = async (name, signal) => {
+    const status = await start(name, signal);
+    if (status.pid) kept ??= (await host.list()).get(status.pid);
+    return status;
+  };
   cleanups.push(() => manager.close().catch(() => {}));
   const report = await tryApp(f.project, { service: { name: "web", spec: f.spec, source: "declared", label: f.spec.command, frameworks: [], portFlags: true }, path: "/" }, new AbortController().signal, { manager });
   expect(report.status).toBe("not-run");
