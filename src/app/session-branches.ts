@@ -99,6 +99,7 @@ export async function handleSwitchCommand(app: CasperApp, prompt: string): Promi
 export async function revokeWorkspaceCapabilities(app: CasperApp): Promise<void> {
   app.workspaceNeedsRebind = true;
   if (app.runtimeTools.length && !app.session?.setTools) throw new Error("Runtime cannot revoke workspace capabilities");
+  app.offeredAppSmoke = undefined;
   app.session?.setTools?.([]);
   app.runtimeTools = [];
   app.offeredTools.clear();

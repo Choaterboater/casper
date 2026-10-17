@@ -114,6 +114,7 @@ export async function runModelTask(app: CasperApp, prompt: string, options: { fl
   let context = app.projectContext!;
   const preservedServices = app.preservedServices = new Set(app.services?.status().filter(service => service.state === "ready" || service.state === "starting").map(service => service.name));
   app.runtimeCheckInputs = new WeakMap();
+  app.offeredAppSmoke = undefined;
   app.automaticServices = new Set();
   const classification = classifyTask(prompt);
   // beforeChanges policy: under-specified implement/configure work must see one recorded

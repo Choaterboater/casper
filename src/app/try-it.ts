@@ -51,15 +51,18 @@ async function stopAutomaticServices(app: CasperApp, preserve: ReadonlySet<strin
   return confirmed;
 }
 
+export interface AppSmokeTask { context: ProjectContext; root: string; before?: Map<string, string>; child?: ChildProject }
+
 /** Last runtime observation, after every model/review/repair edit and final command check. */
-export async function finishAppSmoke(app: CasperApp, options: { context: ProjectContext; root: string; before?: Map<string, string>;
-  preserve: ReadonlySet<string>; verification?: VerificationReport; mode: "auto" | "offer" | "off"; child?: ChildProject }): Promise<AppSmokeReport | undefined> {
+export async function finishAppSmoke(app: CasperApp, options: AppSmokeTask & {
+  preserve: ReadonlySet<string>; verification?: VerificationReport; mode: "auto" | "offer" | "off"; signal?: AbortSignal }): Promise<AppSmokeReport | undefined> {
   let report: AppSmokeReport | undefined;
   let stopped = false;
+  const signal = options.signal ?? app.commandAbort?.signal ?? new AbortController().signal;
   try {
-    if (app.closing || app.commandAbort?.signal.aborted || app.taskRuntimeCancelled || app.taskRuntimeFailed || app.checkTask?.signal.aborted
+    if (app.closing || signal.aborted || app.taskRuntimeCancelled || app.taskRuntimeFailed || app.checkTask?.signal.aborted
       || app.taskTurnLimit !== undefined || app.taskSpendStop !== undefined) return undefined;
-    const now = await app.snapshotWorkspace(options.root, app.commandAbort?.signal);
+    const now = await app.snapshotWorkspace(options.root, signal);
     const changes = options.before && now ? diffSnapshots(options.before, now) : undefined;
     const files = changes ? [...changes.added, ...changes.modified, ...changes.removed] : [];
     if (!runtimeChanges(files).length) return undefined;
@@ -73,6 +76,10 @@ export async function finishAppSmoke(app: CasperApp, options: { context: Project
     const plan = await planAppSmoke(root, { frameworks: context.model.frameworks, packageManager: context.model.packageManager, services: context.services }, relative, context.pages);
     if (!plan) return undefined;
     if (options.mode === "off" || context.pages === "off") return report = { status: "off", cleanup: "not-started", reason: options.mode === "off" ? "checks are off for this run" : "page checks are off" };
+    if (options.mode === "offer") {
+      app.offeredAppSmoke = { context: options.context, root: options.root, before: options.before, child: options.child };
+      return report = { status: "not-run", deferred: true, cleanup: "not-started", reason: "/verify to try it" };
+    }
     if ("reason" in plan) return report = { status: "not-run", cleanup: "not-started", reason: plan.reason };
     report = now && !options.child ? reuse(app, plan, now, options.verification) : undefined;
     const reused = Boolean(report);
@@ -85,7 +92,7 @@ export async function finishAppSmoke(app: CasperApp, options: { context: Project
       if (report) {
         const state = app.services?.status().find(service => service.name === plan.service.name)?.state;
         report.cleanup = state === "ready" ? "preserved" : state === "stopped" ? "stopped" : "not-started";
-        const after = await app.snapshotWorkspace(options.root, app.commandAbort?.signal);
+        const after = await app.snapshotWorkspace(options.root, signal);
         if (report.status === "pass" && !sameRuntimeInputs(now, after)) {
           report.status = "not-run";
           report.reason = "files changed while stopping the app; the result does not cover the final files";
@@ -94,14 +101,14 @@ export async function finishAppSmoke(app: CasperApp, options: { context: Project
       }
       app.events.ensureLineBreak();
       app.output.write(`• Casper trying the app: ${redactPreview(plan.service.label)} · GET ${redactPreview(plan.path)}\n`);
-      const signal = app.commandAbort?.signal ?? new AbortController().signal;
       const running = app.services?.root === root && options.preserve.has(plan.service.name)
         && app.services.status().some(service => service.name === plan.service.name && service.state === "ready" && service.command === plan.service.spec.command);
-      report = running
-        ? { label: redactPreview(plan.service.label), command: redactPreview(plan.service.spec.command), path: redactPreview(plan.path), method: "GET", cleanup: "preserved",
-          ...await requestApp(app.services?.origin(plan.service.name), plan.path, signal) }
-        : await tryApp(root, plan, signal, { onCleanupError: error => app.cleanupRecovery.queue(error) });
-      const after = await app.snapshotWorkspace(options.root, app.commandAbort?.signal);
+      if (running) {
+        report = { status: "not-run", label: redactPreview(plan.service.label), command: redactPreview(plan.service.spec.command), path: redactPreview(plan.path), method: "GET", cleanup: "not-started" };
+        await app.services!.ensureFresh(plan.service.name, signal);
+        Object.assign(report, { cleanup: "preserved" }, await requestApp(app.services!.origin(plan.service.name), plan.path, signal));
+      } else report = await tryApp(root, plan, signal, { onCleanupError: error => app.cleanupRecovery.queue(error) });
+      const after = await app.snapshotWorkspace(options.root, signal);
       if (report.status === "pass" && !sameRuntimeInputs(now, after)) {
         report.status = "not-run";
         report.reason = "files changed while trying the app; the result does not cover the final files";
@@ -109,7 +116,8 @@ export async function finishAppSmoke(app: CasperApp, options: { context: Project
       return report;
     } finally { if (!reused) phase(app, "smoke", "end"); }
   } catch (error) {
-    return report = { ...report, status: "not-run", cleanup: report?.cleanup ?? "not-started", reason: `Casper could not check the app: ${redactPreview(error instanceof Error ? error.message : String(error)).slice(0, 500)}` };
+    if (error instanceof ProcessCleanupError) app.cleanupRecovery.queue(error);
+    return report = { ...report, status: "not-run", cleanup: error instanceof ProcessCleanupError ? "unconfirmed" : report?.cleanup ?? "not-started", reason: `Casper could not check the app: ${redactPreview(error instanceof Error ? error.message : String(error)).slice(0, 500)}` };
   } finally {
     if (!stopped && !await stopAutomaticServices(app, options.preserve) && report) {
       report.cleanup = "unconfirmed";

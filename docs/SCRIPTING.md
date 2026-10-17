@@ -226,8 +226,10 @@ did not run. `checklist` is the list of cases from the
 `status` (`pass`, `fail`, `not-run` or `off`), optional `label`, `command`, `method` (GET unless a prior check
 is reused), `path`, `httpStatus`, `reason`, and `cleanup` (`stopped`, `not-started`, `preserved` or
 `unconfirmed`). `reused: true` means a final-file page/service check was reused without another request.
-Absent for tasks that do not touch a runnable app. A pass alone is not behavioral proof; `not-run` or
-unconfirmed cleanup makes the task incomplete, and `fail` fails it. See [try it before done](VERIFICATION.md#try-it-before-done).
+Absent for tasks that do not touch a runnable app. In offer mode, `status: not-run` with `deferred: true`
+and reason `/verify to try it` means intentionally waiting for `/verify`, not an incomplete attempt.
+A pass alone is not behavioral proof; any other `not-run` or unconfirmed cleanup makes the task incomplete,
+and `fail` fails it. See [try it before done](VERIFICATION.md#try-it-before-done).
 
 **Services and smoke.** `services` lists the session's managed services at the end of the task,
 each `{ "name", "origin", "state" }` (`origin` such as `http://127.0.0.1:53121`, or `null` when it

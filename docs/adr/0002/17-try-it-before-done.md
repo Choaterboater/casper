@@ -5,16 +5,20 @@ Date: 2026-10-16. Status: proposed.
 ## Decision
 
 After the last repair, review and final configured command check, a runtime change to a local app,
-server or page gets one completion smoke in both auto and offer modes. Casper uses a declared service
-or the project's own dev/start command, sends one local GET and checks for HTTP 2xx, then stops the
-process tree it started. Readiness probes are not additional smoke cases. A fresh page/service result
+server or page gets one completion smoke in auto mode. Offer mode starts no automatic app smoke:
+the receipt says `App smoke: not run — /verify to try it`, and `/verify` runs it with the other checks.
+Casper uses a declared service or the project's own dev/start command, sends one local GET and checks
+for HTTP 2xx, then stops the process tree it started. Readiness probes are not additional smoke cases. A fresh page/service result
 for the same final files can satisfy the observation without another request, retaining that check's
 method, path and result. The smoke starts no suite, route crawl, browser or model repair.
 
 This extends the existing automatic project-command execution in
 [decision 2, item 9](../0002-deliberate-choices.md#9-the-browsers-serve-runs-the-projects-packagejson-script)
 and replaces session-long ownership only for servers started by automatic checks. Explicitly started
-services, browser-tool services and previews keep their original ownership.
+services, browser-tool services and previews keep their original ownership. Before requesting an
+already-running preserved service, Casper calls `ensureFresh` so stale task edits restart it once.
+It remains preserved, never becomes automatic, and completion cleanup leaves it running. A failed
+restart reports not-run with its reason rather than requesting stale code.
 
 ## Guard rails
 

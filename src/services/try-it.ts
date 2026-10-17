@@ -15,6 +15,8 @@ export interface AppSmokeReport {
   reason?: string;
   cleanup: "stopped" | "not-started" | "preserved" | "unconfirmed";
   reused?: true;
+  /** Offer mode deliberately leaves this observation for /verify, not an unfinished attempt. */
+  deferred?: true;
 }
 
 export const APP_SMOKE_START_MS = 15_000;

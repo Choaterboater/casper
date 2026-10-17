@@ -35,6 +35,7 @@ import { settlePictures } from "./pictures";
 import { followTheme, reloadProject, writeProjectFile } from "./project-file";
 import { crewSweepStart, rememberCrewSweep } from "./crew-checks";
 import { applySessionCheckOverrides } from "./check-changes";
+import { finishAppSmoke, type AppSmokeTask } from "./try-it";
 
 /** Iteration checks are not the final test contract. Run that unchanged once, without a green-rerun repair loop. */
 export async function finishConfiguredTest(app: CasperApp, previous?: VerificationReport): Promise<VerificationReport | undefined> {
@@ -62,9 +63,12 @@ export async function runVerification(app: CasperApp, checks: readonly CheckName
   task?: VerificationTask,
   /** Repairs left for this task; defaults to the project's repair budget. */
   maxAttempts?: number,
+  offeredApp?: AppSmokeTask,
 ): Promise<VerificationReport> {
   const context = app.projectContext!;
   const controller = new AbortController();
+  const smokeTask = !task && offeredApp?.root === app.activeWorkspaceRoot() ? offeredApp : undefined;
+  const preserve = new Set(app.services?.status().filter(service => service.state === "ready" || service.state === "starting").map(service => service.name));
   // A standalone verification task (/verify, branch checks) owns its objective; post-task
   // verification passes `task` and continues the parent request's delegation budget.
   if (!task) { app.delegateToolForTask = undefined; app.crewParts = undefined; app.crewSweep = undefined; app.builderSteer = undefined; }
@@ -154,11 +158,20 @@ export async function runVerification(app: CasperApp, checks: readonly CheckName
     const report = await app.verificationWork;
     if (task && task === app.checkTask) await rememberCrewSweep(app, report.rounds.slice(roundsBefore), crewBefore);
     await recordCheckTimings(context.stateDirectory, report.rounds.flat());
+    const appSmoke = smokeTask && !controller.signal.aborted
+      ? await finishAppSmoke(app, { ...smokeTask, preserve, verification: report, mode: "auto", signal: controller.signal }) : undefined;
+    // With no commands, /verify can still make the offered observation; it is never behavioral proof.
+    if (appSmoke && !checks.length && !report.results.length) {
+      report.status = appSmoke.status === "pass" ? "pass" : appSmoke.status === "fail" ? "fail" : "incomplete";
+      report.reason = undefined;
+    }
+    const standalone = { execution: controller.signal.aborted ? "cancelled" as const : "completed" as const, verification: report, ...bigModelReceipt(app),
+      ...(appSmoke ? { appSmoke, services: app.services?.status().map(({ name, origin, state }) => ({ name, origin, state })) } : {}),
+      ...(app.sandbox ? { sandbox: sandboxReceipt(app.sandbox)! } : {}) };
+    if (appSmoke) app.lastTaskResult = standalone;
     // A model task's receipt summarizes its checks; a standalone run gets its own summary.
     if (app.verbose) app.output.write(`${formatVerificationReport(report)}\n`);
-    else if (!task) app.output.write(`${formatReceipt({ execution: "completed", verification: report, ...bigModelReceipt(app),
-      ...(app.sandbox ? { sandbox: sandboxReceipt(app.sandbox)! } : {}) },
-      { surface: receiptSurface(app) })}\n`);
+    if (!task && (!app.verbose || appSmoke)) app.output.write(`${formatReceipt(standalone, { surface: receiptSurface(app) })}\n`);
     return report;
   } finally {
     phase(app, "checks", "end");

@@ -5,6 +5,7 @@ import path from "node:path";
 import { stringify } from "yaml";
 import { CasperApp } from "../src/app";
 import { receiptEvent, storedTaskResult } from "../src/app/json-events";
+import { revokeWorkspaceCapabilities } from "../src/app/session-branches";
 import { planAppSmoke } from "../src/services/detect";
 import { HttpPageOpener, type PageOpener } from "../src/services/page-checks";
 import { ServiceManager } from "../src/services/manager";
@@ -68,7 +69,7 @@ console.log("listening");
   await writeFile(path.join(project, "package.json"), JSON.stringify(options.manifest ?? { name: "app" }));
   await writeFile(path.join(project, "bun.lock"), "");
   const spec = { command: `"${process.execPath}" server.ts`, port: options.port ?? "auto" as const, ready: { log: "listening" }, timeoutMs: 2000 };
-  await writeFile(path.join(project, ".casper/project.yaml"), stringify({ verification: { mode: options.mode ?? "offer" }, repair: { maxAttempts: 0 }, services: { web: spec }, ...options.config }));
+  await writeFile(path.join(project, ".casper/project.yaml"), stringify({ verification: { mode: options.mode ?? "auto" }, repair: { maxAttempts: 0 }, services: { web: spec }, ...options.config }));
   const runtime = new ScriptedRuntime(), output: string[] = [];
   const app = new CasperApp({ runtimeFactory: () => runtime, output: { write: text => { output.push(text); } }, sessionHomeDir: home, pageOpener: async () => options.opener ?? new HttpPageOpener(),
     loadProjectContext: info => loadProjectContext(info, { homeDir: home }),
@@ -325,46 +326,177 @@ for (const [label, options] of [["checks off", { mode: "off" as const }], ["page
   });
 }
 
-test("a preserved running service gets one GET without starting a second copy", async () => {
+test("completion refreshes a ready stale preserved service with ensureFresh before its GET", async () => {
   const f = await fixture();
+  const refreshed: Array<{ name: string; state: string; stale: boolean; requests: string[] }> = [];
+  class TrackingManager extends ServiceManager {
+    override async ensureFresh(name: string, signal: AbortSignal) {
+      const service = this.status().find(service => service.name === name)!;
+      refreshed.push({ name, state: service.state, stale: service.stale, requests: await lines(f.requests) });
+      return super.ensureFresh(name, signal);
+    }
+  }
+  f.app.services = new TrackingManager({ projectRoot: f.project, services: { web: f.spec } });
   await f.app.runOnce("/services start web");
-  const origin = f.app.services!.origin("web")!;
+  refreshed.length = 0;
   f.edit(); const task = await f.run();
+  expect(refreshed).toEqual([{ name: "web", state: "ready", stale: true, requests: [] }]);
   expect(task.appSmoke).toMatchObject({ status: "pass", method: "GET", path: "/", httpStatus: 200, cleanup: "preserved" });
-  expect(task.appSmoke?.reused).toBeUndefined();
   await until(async () => (await lines(f.requests)).length === 1);
   expect(await lines(f.requests)).toEqual(["/"]);
-  expect(await lines(f.starts)).toHaveLength(1);
-  expect(f.app.services!.origin("web")).toBe(origin);
-  expect((await fetch(origin)).status).toBe(200);
-  expect(f.app.services!.status()[0]!.state).toBe("ready");
+  expect(f.app.services.status()[0]).toMatchObject({ state: "ready", stale: false });
 }, 20_000);
 
-test("a fixed-port service started by /services start web passes the smoke and remains ready", async () => {
+test("refresh keeps the user's service preserved, never automatic or stopped by completion cleanup", async () => {
+  const f = await fixture();
+  const stops: string[] = [];
+  class TrackingManager extends ServiceManager {
+    override async stop(name: string) { stops.push(name); return super.stop(name); }
+  }
+  f.app.services = new TrackingManager({ projectRoot: f.project, services: { web: f.spec } });
+  await f.app.runOnce("/services start web");
+  f.edit(); const task = await f.run();
+  expect(f.app.preservedServices.has("web")).toBe(true);
+  expect(f.app.automaticServices.has("web")).toBe(false);
+  expect(stops).toEqual(["web"]); // The freshness restart only, never completion teardown.
+  expect(task.appSmoke?.cleanup).toBe("preserved");
+  expect(f.app.services.status()[0]!.state).toBe("ready");
+}, 20_000);
+
+test("a preserved service restart failure reports not-run with its reason and makes no GET", async () => {
+  const f = await fixture();
+  await f.app.runOnce("/services start web");
+  f.edit("server.ts", "process.exit(4);\n");
+  const task = await f.run();
+  expect(task.appSmoke?.status).toBe("not-run");
+  expect(task.appSmoke?.reason).toContain("exit code 4");
+  expect(await lines(f.requests)).toEqual([]);
+  expect(taskOutcome(undefined, task)).toBe("incomplete");
+  expect(f.app.preservedServices.has("web")).toBe(true);
+  expect(f.app.automaticServices.has("web")).toBe(false);
+  await f.stopped();
+}, 20_000);
+
+test("a fixed-port service started by /services before source edits restarts once, passes GET and stays ready", async () => {
   const port = await freePort();
-  const f = await fixture({ port });
+  const f = await fixture({ port, status: 500 });
   await f.app.runOnce("/services start web");
   const before = f.app.services!.status()[0]!;
   expect(before).toMatchObject({ state: "ready", origin: `http://127.0.0.1:${port}` });
-  f.edit(); const task = await f.run();
+  f.edit("server.ts", f.source(200)); const task = await f.run();
   expect(task.appSmoke).toMatchObject({ status: "pass", httpStatus: 200, cleanup: "preserved" });
-  await until(async () => (await lines(f.requests)).length === 1);
-  expect(await lines(f.starts)).toHaveLength(1);
-  expect(f.app.services!.status()[0]).toMatchObject({ state: "ready", origin: before.origin, pid: before.pid });
-  expect(alive(before.pid!)).toBe(true);
+  await until(async () => (await lines(f.requests)).length === 1 && (await lines(f.starts)).length === 2);
+  expect(await lines(f.requests)).toEqual(["/"]);
+  const starts = (await lines(f.starts)).map(line => JSON.parse(line) as { pid: number; port: number });
+  expect(starts.map(start => start.port)).toEqual([port, port]);
+  const after = f.app.services!.status()[0]!;
+  expect(after).toMatchObject({ state: "ready", stale: false, origin: before.origin });
+  expect(after.pid).not.toBe(before.pid);
+  await until(() => !alive(before.pid!) && !alive(starts[0]!.pid));
+  expect(alive(after.pid!)).toBe(true);
+  expect(alive(starts[1]!.pid)).toBe(true);
   expect(f.text()).toContain("existing service left running");
 }, 20_000);
 
-test("a failing response from a preserved service fails without launching or stopping it", async () => {
+test("a failing response from a refreshed preserved service fails and leaves it ready", async () => {
   const f = await fixture({ status: 500 });
   await f.app.runOnce("/services start web");
   f.edit(); const task = await f.run();
   expect(task.appSmoke).toMatchObject({ status: "fail", httpStatus: 500, cleanup: "preserved", reason: "HTTP 500, expected 2xx" });
   expect(taskOutcome(undefined, task)).toBe("failed");
   await until(async () => (await lines(f.requests)).length === 1);
-  expect(await lines(f.starts)).toHaveLength(1);
+  expect(await lines(f.starts)).toHaveLength(2);
   expect(f.app.services!.status()[0]!.state).toBe("ready");
 }, 20_000);
+
+test("offer mode does not run app smoke automatically", async () => {
+  const f = await fixture({ mode: "offer", config: { pages: ["/"],
+    smoke: [{ name: "health", service: "web", request: { method: "GET", path: "/health" }, expect: { status: 200 } }] } });
+  f.edit(); const task = await f.run();
+  expect(task.appSmoke).toMatchObject({ status: "not-run", deferred: true, cleanup: "not-started" });
+  expect(await lines(f.starts)).toEqual([]);
+  expect(await lines(f.requests)).toEqual([]);
+  expect(f.text()).not.toContain("Casper trying the app");
+});
+
+test("offer receipts say App smoke: not run — /verify to try it without making the task incomplete", async () => {
+  const f = await fixture({ mode: "offer" }); f.edit(); const task = await f.run();
+  const line = "App smoke: not run — /verify to try it";
+  expect(f.text()).toContain(line);
+  expect(formatTaskResult(task)).toContain(line);
+  expect(formatReceipt(task)).toContain(line);
+  expect(taskOutcome(undefined, task)).toBe("not_verified");
+  expect(receiptEvent(undefined, task, 0).appSmoke).toMatchObject({ status: "not-run", deferred: true, reason: "/verify to try it" });
+  const saved = await new ReceiptStore(f.app.projectContext!.stateDirectory).get(task.receipt!);
+  expect(typeof saved === "object" ? saved.task?.appSmoke : undefined).toEqual(task.appSmoke);
+});
+
+test("/verify runs the offered app smoke with typecheck, lint and test", async () => {
+  const commands = Object.fromEntries(["typecheck", "lint", "test"].map(name => [name, `bun check.ts ${name}`]));
+  const f = await fixture({ mode: "offer", config: { commands } });
+  const checks = path.join(f.root, "checks.log");
+  await writeFile(path.join(f.project, "check.ts"), `require("node:fs").appendFileSync(${JSON.stringify(checks)}, process.argv[2] + "\\n");\n`);
+  f.edit(); await f.run();
+  expect(await lines(checks)).toEqual([]);
+  const report = await f.app.runOnce("/verify");
+  expect(report).toMatchObject({ status: "pass", results: [{ name: "typecheck", status: "pass" }, { name: "lint", status: "pass" }, { name: "test", status: "pass" }] });
+  expect(f.app.getLastTaskResult()?.appSmoke).toMatchObject({ status: "pass", httpStatus: 200, cleanup: "stopped" });
+  await until(async () => (await lines(checks)).length === 3 && (await lines(f.requests)).length === 1);
+  expect(await lines(checks)).toEqual(["typecheck", "lint", "test"]);
+  expect(await lines(f.requests)).toEqual(["/"]);
+  expect(f.runtime.prompts).toBe(1);
+  expect(f.text()).toContain("App smoke: passed");
+  await f.stopped();
+}, 20_000);
+
+test("/verify tries the offered app even with no command checks configured", async () => {
+  const f = await fixture({ mode: "offer" }); f.edit(); await f.run();
+  const report = await f.app.runOnce("/verify");
+  expect(report).toMatchObject({ status: "pass", results: [] });
+  expect(f.app.getLastTaskResult()?.appSmoke).toMatchObject({ status: "pass", httpStatus: 200, cleanup: "stopped" });
+  expect(checksPassed(report, f.app.getLastTaskResult())).toBe(false);
+  await f.stopped();
+}, 20_000);
+
+test("/verify reports a failed offered app smoke rather than passing on its command checks alone", async () => {
+  const f = await fixture({ mode: "offer", status: 500, config: { commands: { test: 'bun -e "process.exit(0)"' } } });
+  f.edit(); await f.run();
+  const report = await f.app.runOnce("/verify");
+  const task = f.app.getLastTaskResult()!;
+  expect(report?.results).toMatchObject([{ name: "test", status: "pass" }]);
+  expect(task.appSmoke).toMatchObject({ status: "fail", httpStatus: 500 });
+  expect(taskOutcome(report, task)).toBe("failed");
+  expect(receiptEvent(report, task, 1).checksPassed).toBe(false);
+  await f.stopped();
+}, 20_000);
+
+test("stopping /verify during an offered app request cancels it and drains its process", async () => {
+  const f = await fixture({ mode: "offer" });
+  f.edit("server.ts", f.source().replace('return new Response("<main>', 'return new Promise(() => {}); return new Response("<main>'));
+  await f.run();
+  const running = f.app.runOnce("/verify");
+  await until(async () => (await lines(f.requests)).includes("/"));
+  f.app.verificationAbort!.abort();
+  await running;
+  expect(f.app.getLastTaskResult()).toMatchObject({ execution: "cancelled", appSmoke: { status: "not-run", cleanup: "stopped" } });
+  await f.stopped();
+}, 20_000);
+
+test("revoking a workspace clears its app smoke offer", async () => {
+  const f = await fixture({ mode: "offer" }); f.edit(); await f.run();
+  expect(f.app.offeredAppSmoke).toBeDefined();
+  await revokeWorkspaceCapabilities(f.app);
+  expect(f.app.offeredAppSmoke).toBeUndefined();
+});
+
+test("a new docs-only task clears the prior app smoke offer", async () => {
+  const f = await fixture({ mode: "offer" }); f.edit(); await f.run();
+  expect(f.app.offeredAppSmoke).toBeDefined();
+  f.edit("README.md", "# Updated docs\n"); await f.run();
+  expect(f.app.offeredAppSmoke).toBeUndefined();
+  await f.app.runOnce("/verify");
+  expect(await lines(f.starts)).toEqual([]);
+});
 
 test("a preserved app smoke reports preserved cleanup and existing service left running", () => {
   const task: TaskResult = { execution: "completed", appSmoke: { status: "pass", method: "GET", path: "/", httpStatus: 200, cleanup: "preserved" } };
@@ -415,7 +547,8 @@ test("a model-recorded check's automatic server stops before the receipt", async
 
 test("the completion smoke adds no suite, crawl or repair loop", async () => {
   const marker = "suite-ran.txt";
-  const f = await fixture({ status: 500, manifest: { scripts: { test: `bun -e "require('node:fs').writeFileSync('${marker}', 'ran')"` } } });
+  const f = await fixture({ status: 500, config: { verification: { mode: "auto", checks: ["lint"] }, commands: { lint: 'bun -e "process.exit(0)"' } },
+    manifest: { scripts: { test: `bun -e "require('node:fs').writeFileSync('${marker}', 'ran')"` } } });
   f.edit(); await f.run();
   expect(f.runtime.prompts).toBe(1);
   expect(await lines(path.join(f.project, marker))).toEqual([]);

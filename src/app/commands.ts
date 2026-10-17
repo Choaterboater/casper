@@ -174,6 +174,7 @@ export interface CommandHost {
   approveChoice(preview: string, question: string, options: ReadonlyArray<string | { label: string; description?: string }>, signal?: AbortSignal): Promise<string | undefined>;
   git(args: string[]): Promise<string>;
   runVerification(checks: readonly CheckName[], repair: boolean, request?: string, task?: VerificationTask): Promise<VerificationReport>;
+  readonly offeredAppSmoke?: { root: string };
   activeWorkspaceRoot(): string;
   browserSession(): BrowserSession;
   serviceManager(): ServiceManager;
@@ -648,7 +649,11 @@ export async function runSlashCommand(host: CommandHost, prompt: string): Promis
         const note = await noChecksNote(host.projectContext.model, host.activeWorkspaceRoot(), host.homeDir());
         // Nothing to run is not "Incomplete": one plain line, and where the tests are when a folder inside has some.
         // Nothing ran, so a script's exit code still says "not every check ran" (2), as before; only the words changed.
-        if (note) { host.output.write(note); return { status: "incomplete", repairAttempts: 0, rounds: [], results: [], reason: NO_CHECKS_FOUND }; }
+        if (note) {
+          if (host.offeredAppSmoke?.root === host.activeWorkspaceRoot()) return host.runVerification([], repair);
+          host.output.write(note);
+          return { status: "incomplete", repairAttempts: 0, rounds: [], results: [], reason: NO_CHECKS_FOUND };
+        }
         // A Python project with only tests: one line says what isn't there, and the verdict is about what ran,
         // not "Incomplete" and a "has no command" line for each of typecheck, lint and build.
         const { run, missing } = verifyPlan(host.projectContext.model);
