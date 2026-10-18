@@ -4,7 +4,7 @@ import { ProcessCleanupError } from "../platform/processes";
 import type { ProjectContext } from "../project/context";
 import type { ChildProject } from "../project/child";
 import { planAppSmoke, runtimeChanges, type AppSmokeTarget } from "../services/detect";
-import { requestApp, sameRuntimeInputs, tryApp, type AppSmokeReport } from "../services/try-it";
+import { requestApp, sameAppInputs, sameRuntimeInputs, tryApp, type AppSmokeReport } from "../services/try-it";
 import { diffSnapshots } from "../task/changes";
 import { redactPreview } from "../tui/format";
 import type { VerificationReport } from "../verify/evidence";
@@ -93,7 +93,7 @@ export async function finishAppSmoke(app: CasperApp, options: AppSmokeTask & {
         const state = app.services?.status().find(service => service.name === plan.service.name)?.state;
         report.cleanup = state === "ready" ? "preserved" : state === "stopped" ? "stopped" : "not-started";
         const after = await app.snapshotWorkspace(options.root, signal);
-        if (report.status === "pass" && !sameRuntimeInputs(now, after)) {
+        if (report.status === "pass" && !sameAppInputs(now, after)) {
           report.status = "not-run";
           report.reason = "files changed while stopping the app; the result does not cover the final files";
         }
@@ -109,7 +109,7 @@ export async function finishAppSmoke(app: CasperApp, options: AppSmokeTask & {
         Object.assign(report, { cleanup: "preserved" }, await requestApp(app.services!.origin(plan.service.name), plan.path, signal, plan.rootGuess));
       } else report = await tryApp(root, plan, signal, { onCleanupError: error => app.cleanupRecovery.queue(error) });
       const after = await app.snapshotWorkspace(options.root, signal);
-      if (report.status === "pass" && !sameRuntimeInputs(now, after)) {
+      if (report.status === "pass" && !sameAppInputs(now, after)) {
         report.status = "not-run";
         report.reason = "files changed while trying the app; the result does not cover the final files";
       }
