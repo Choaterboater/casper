@@ -8,7 +8,8 @@ import { formatSelectedSkills, SkillRegistry } from "../src/skills/registry";
 import { classifyTask } from "../src/task/classify";
 import { removeTempDir } from "./support/temp-dir";
 
-/** The bundled frontend skill: picked only for UI work in a project with no look of its own yet. */
+/** The bundled web skills: web-frontend (a look) is picked only for UI work in a project with no look of its own yet;
+ * web-quality (the checks every page needs) for UI work in any project. */
 
 const temporary: string[] = [];
 afterEach(async () => { await Promise.all(temporary.splice(0).map((dir) => removeTempDir(dir))); });
@@ -32,13 +33,36 @@ async function registry(): Promise<SkillRegistry> {
 const picked = async (prompt: string, project = model()) =>
   (await (await registry()).loadForTask(prompt, project, classifyTask(prompt))).map(({ skill }) => skill.name);
 
-test("the skill is small, in Casper's own words, and covers the agreed topics", () => {
-  const [skill] = webSkills();
-  expect(skill!.metadata.name).toBe("web-frontend");
-  expect(skill!.path).toBe("skills/web/frontend/SKILL.md");
-  expect(Buffer.byteLength(skill!.body)).toBeLessThanOrEqual(MAX_BUNDLED_BODY_BYTES);
+test("the two skills are small and between them cover the agreed topics", () => {
+  const [frontend, quality] = webSkills();
+  expect(webSkills().map(({ metadata, path }) => [metadata.name, path])).toEqual([
+    ["web-frontend", "skills/web/frontend/SKILL.md"], ["web-quality", "skills/web/quality/SKILL.md"]]);
+  for (const skill of webSkills()) expect(Buffer.byteLength(skill.body)).toBeLessThanOrEqual(MAX_BUNDLED_BODY_BYTES);
+  const both = `${frontend!.body}\n${quality!.body}`;
   for (const topic of ["type scale", "spacing", "<label", "focus", "44", "390px", "4.5:1", "empty", "error", "alt", "lang",
-    "purple", "emoji", "card", "lorem", "repo's style always wins"]) expect(skill!.body).toContain(topic);
+    "purple", "emoji", "card", "lorem", "repo's style always wins"]) expect(both).toContain(topic);
+  expect(frontend!.body).toContain("web-quality skill");
+});
+
+test("web-quality refuses the machine-made signs and lists checkable rules, without theme advice", () => {
+  const quality = webSkills()[1]!;
+  const body = quality.body;
+  expect(quality.files).toEqual({});
+  const headings = body.split("\n").filter((line) => line.startsWith("## "));
+  expect(headings).toEqual(["## When to use", "## Refuse", "## Verify", "## Forms", "## Structure and states", "## Check it"]);
+  for (const line of ["eyebrow", "01 / 02 / 03", "border over 1px", "box-shadow: 4px 4px 0", "monospace", "terracotta", "acid green",
+    "gradient text", "cards inside cards", "1px border under a wide soft shadow", "`transition: all`", "gray text on a coloured background",
+  ]) expect(body).toContain(line);
+  for (const line of ["65 to 75 characters", "more space above a heading than below", "user-scalable=no", "16px text or larger",
+    "`autocomplete`", "`inputmode`", "Never block paste", "move focus to the first field with an error", "The URL holds",
+    "`transform` and `opacity`", "44 by 44px", "4.5:1", ":focus-visible"]) expect(body).toContain(line);
+  // The look stays the project's: no type scale, palette or font advice.
+  for (const line of ["Pick a small system", "type scale", "font pair", "theme.css", "illustration-kit"]) expect(body).not.toContain(line);
+  expect(body).toContain("Keep the\nproject's colours, fonts, spacing and components");
+  // Credit for the borrowed text, with the Apache note that it was changed.
+  for (const line of ["pbakaus/impeccable (Apache-2.0, Copyright 2025 Paul Bakaus)", "anthropics/skills frontend-design (Apache-2.0, Anthropic, PBC)",
+    "vercel-labs/web-interface-guidelines\n(MIT, Copyright (c) 2025 Vercel Labs)", "jakubkrehel/make-interfaces-feel-better (MIT, Copyright (c)\n2026 Jakub Krehel)",
+    "Changed: shortened and rewritten for Casper."]) expect(body).toContain(line);
 });
 
 test("the skill asks for a chosen look: fonts that suit the product, a page shape, own image and action per item, aligned cards", () => {
@@ -131,12 +155,12 @@ test("UI work in a project with no design yet picks it", async () => {
   // Plain web words pick it in any project, even an empty one.
   for (const prompt of ["build a landing page with a signup form", "style the navbar and buttons", "create a web app to track my lab gear",
     "add a dark mode to the website", "change the look and feel of the html report"]) {
-    expect({ prompt, picked: await picked(prompt) }).toEqual({ prompt, picked: ["web-frontend"] });
+    expect({ prompt, picked: await picked(prompt) }).toEqual({ prompt, picked: ["web-frontend", "web-quality"] });
   }
   // Words that also mean other things (page, form, layout, header, design …) count only in a web project.
   const web = model({}, ["react", "vite"]);
   for (const prompt of ["add a settings page", "make the layout work on a phone", "add a header with the logo", "design the signup form"]) {
-    expect({ prompt, picked: await picked(prompt, web) }).toEqual({ prompt, picked: ["web-frontend"] });
+    expect({ prompt, picked: await picked(prompt, web) }).toEqual({ prompt, picked: ["web-frontend", "web-quality"] });
   }
 });
 
@@ -147,26 +171,52 @@ test("network, script and report work in a project that isn't a web app doesn't 
     "design a VLAN plan and write the playbook", "change the style of the log output", "add a menu to the CLI",
     "show the results on screen as a table", "add a theme option to the config", "split the parser into components"]) {
     for (const project of projects) {
-      expect({ prompt, frameworks: project.frameworks, picked: (await picked(prompt, project)).includes("web-frontend") })
-        .toEqual({ prompt, frameworks: project.frameworks, picked: false });
+      expect({ prompt, frameworks: project.frameworks, picked: (await picked(prompt, project)).filter((name) => name.startsWith("web-")) })
+        .toEqual({ prompt, frameworks: project.frameworks, picked: [] });
     }
   }
 });
 
-test("the repo's own look wins: styles, components, a design folder or a styling package keep it out", async () => {
+test("the repo's own look wins: styles, components, a design folder or a styling package keep the theme advice out, not the checks", async () => {
   const prompt = "build a landing page with a signup form";
-  expect(await picked(prompt, model({ styles: "src/theme.css" }))).toEqual([]);
-  expect(await picked(prompt, model({ ui: "src/components" }))).toEqual([]);
-  expect(await picked(prompt, model({ design: "design" }))).toEqual([]);
-  expect(await picked(prompt, model({}, ["react", "tailwind"]))).toEqual([]);
+  for (const project of [model({ styles: "src/theme.css" }), model({ ui: "src/components" }), model({ design: "design" }),
+    model({}, ["react", "tailwind"]), model({}, ["next", "styled-components"])]) {
+    expect(await picked(prompt, project)).toEqual(["web-quality"]);
+    const loaded = await (await registry()).loadForTask(prompt, project, classifyTask(prompt));
+    const text = formatSelectedSkills(loaded);
+    expect(text).toContain("## Verify");
+    expect(text).toContain("## Refuse");
+    expect(text).not.toContain("Pick a small system");
+    expect(text).not.toContain("type scale");
+    // web-quality ships no files, so no folder is made for it.
+    expect(text).not.toContain("Base directory:");
+  }
+  // In a Tailwind React app the words with other meanings count too.
+  const tailwind = model({ styles: "tailwind.config.ts" }, ["react", "vite", "tailwind"]);
+  for (const prompt of ["add a settings page", "make the layout work on a phone", "design the signup form"]) {
+    expect({ prompt, picked: await picked(prompt, tailwind) }).toEqual({ prompt, picked: ["web-quality"] });
+  }
+  expect(scoreWebSkill(prompt, tailwind, classifyTask(prompt))).toBe(0);
+  expect(scoreWebSkill(prompt, tailwind, classifyTask(prompt), true)).toBe(6);
+});
+
+test("the checks follow the same word rules as the theme advice in a project with a look", async () => {
+  const styled = (frameworks: string[] = [], languages = ["typescript"]) => model({ styles: "src/index.css" }, frameworks, languages);
+  for (const prompt of ["add a header row to the CSV report", "fetch all pages from the Mist API", "change the style of the log output",
+    "split the parser into components", "what does the settings page do?"]) {
+    for (const project of [styled(), styled([], ["python"])]) {
+      expect({ prompt, picked: (await picked(prompt, project)).filter((name) => name.startsWith("web-")) }).toEqual({ prompt, picked: [] });
+    }
+  }
 });
 
 test("questions and non-UI work don't pick it", async () => {
   for (const prompt of ["what does the settings page do?", "list APs per site in Mist", "fix the central logging config",
     "add a retry to the API client", "write tests for the parser"]) {
-    expect({ prompt, picked: (await picked(prompt)).includes("web-frontend") }).toEqual({ prompt, picked: false });
+    expect({ prompt, picked: (await picked(prompt)).filter((name) => name.startsWith("web-")) }).toEqual({ prompt, picked: [] });
   }
   expect(scoreWebSkill("explain the page layout", model(), classifyTask("explain the page layout"))).toBe(0);
+  expect(scoreWebSkill("explain the page layout", model({ styles: "src/index.css" }), classifyTask("explain the page layout"), true)).toBe(0);
 });
 
 test("a web skill never brings the network stop-and-ask line, and a user's own web-frontend replaces it", async () => {
@@ -185,5 +235,16 @@ test("a web skill never brings the network stop-and-ask line, and a user's own w
   await writeFile(path.join(own, "SKILL.md"), "---\nname: web-frontend\ndescription: Our house style.\n---\nUse our house style.\n");
   const mine = await SkillRegistry.discover({ homeDir: path.join(base, "home"), projectRoot: path.join(base, "project"), bundled: true });
   const chosen = await mine.loadForTask(prompt, model(), classifyTask(prompt));
-  expect(chosen.map(({ skill, body }) => [skill.source, body.trim()])).toEqual([["user", "Use our house style."]]);
+  // Your house style replaces the look; the checks still come.
+  expect(chosen.map(({ skill, body }) => [skill.source, skill.name, skill.source === "user" ? body.trim() : ""])).toEqual([
+    ["user", "web-frontend", "Use our house style."], ["bundled", "web-quality", ""]]);
+});
+
+test("the notices credit the four projects web-quality borrows from, and say the text was changed", async () => {
+  const notices = await Bun.file(new URL("../THIRD_PARTY_NOTICES.txt", import.meta.url)).text();
+  const entry = notices.split("Frontend design guidance — the web-quality skill text")[1]!.split("\n=====")[0]!;
+  for (const line of ["https://github.com/pbakaus/impeccable", "https://github.com/anthropics/skills, skills/frontend-design",
+    "https://github.com/vercel-labs/web-interface-guidelines", "https://github.com/jakubkrehel/make-interfaces-feel-better",
+    "Copyright 2025 Paul Bakaus", "Copyright Anthropic, PBC", "Copyright (c) 2025 Vercel Labs", "Copyright (c) 2026 Jakub Krehel",
+    "Changes: the text was shortened", "reference/ios.md"]) expect(entry).toContain(line);
 });

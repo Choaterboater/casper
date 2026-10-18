@@ -18,6 +18,7 @@ import proxmoxSource from "../../skills/homelab/proxmox/SKILL.md" with { type: "
 import clearpassNacSource from "../../skills/design/clearpass-nac/SKILL.md" with { type: "text" };
 import frontendSource from "../../skills/web/frontend/SKILL.md" with { type: "text" };
 import illustrationKit from "../../skills/web/frontend/illustration-kit.svg" with { type: "text" };
+import qualitySource from "../../skills/web/quality/SKILL.md" with { type: "text" };
 
 /** A bundled skill rides along with one request, so it stays small (about 1,500 tokens). */
 export const MAX_BUNDLED_BODY_BYTES = 6 * 1024;
@@ -328,12 +329,14 @@ export interface BundledWebSkill {
   path: string;
   /** Files the body points to by name, read by the AI only when it needs one (never part of the prompt). */
   files: Record<string, string>;
+  /** Picked for UI work in any project (the quality checks), not only in one with no look of its own (the theme advice). */
+  anyLook: boolean;
 }
 
 export type AnyBundledSkill = BundledSkill | BundledWebSkill;
 
 /** Parse and check one bundled web skill. A broken one is a build error, so this throws. */
-export function parseWebSkill(text: string, filePath: string, files: Record<string, string> = {}): BundledWebSkill {
+export function parseWebSkill(text: string, filePath: string, files: Record<string, string> = {}, anyLook = false): BundledWebSkill {
   const source = normaliseLineEndings(text);
   const { header, body } = splitSkill(source);
   const metadata = parseSkillMetadata(header);
@@ -342,14 +345,18 @@ export function parseWebSkill(text: string, filePath: string, files: Record<stri
     throw new Error(`${metadata.name}: the description is one line of at most ${MAX_BUNDLED_DESCRIPTION} characters`);
   }
   if (Buffer.byteLength(body) > MAX_BUNDLED_BODY_BYTES) throw new Error(`${metadata.name}: the body is larger than 6 KiB`);
-  return { kind: "web", metadata, header, body, source, path: filePath, files };
+  return { kind: "web", metadata, header, body, source, path: filePath, files, anyLook };
 }
 
 let cachedWeb: BundledWebSkill[] | undefined;
 
-/** The web skills shipped inside Casper (today: web-frontend). */
+/** The web skills shipped inside Casper: web-frontend (a look, for a project with none yet) and web-quality (the checks
+ * every page needs, in any project). */
 export function webSkills(): BundledWebSkill[] {
-  cachedWeb ??= [parseWebSkill(frontendSource, "skills/web/frontend/SKILL.md", { "illustration-kit.svg": illustrationKit })];
+  cachedWeb ??= [
+    parseWebSkill(frontendSource, "skills/web/frontend/SKILL.md", { "illustration-kit.svg": illustrationKit }),
+    parseWebSkill(qualitySource, "skills/web/quality/SKILL.md", {}, true),
+  ];
   return cachedWeb;
 }
 
@@ -396,17 +403,20 @@ const QUESTION_INTENTS = new Set(["inspect", "document", "visualize"]);
 /** A styling system the project already uses: then the repo's look wins. */
 const STYLING_FRAMEWORKS = ["tailwind", "styled-components", "emotion"];
 
-/** The frontend skill's pick: UI work (not a question about it), in a project with no styles, components, design
- * folder or styling package yet. A plain web word counts anywhere; a word with other meanings counts only in a
- * project with a web framework. 6 when picked, else 0. A local word match, no model call. */
+/** A web skill's pick: UI work (not a question about it). The frontend skill (`anyLook` false) also needs a project with
+ * no styles, components, design folder or styling package yet; the quality checks (`anyLook` true) apply in any
+ * project. A plain web word counts anywhere; a word with other meanings counts only in a project with a web
+ * framework. 6 when picked, else 0. A local word match, no model call. */
 export function scoreWebSkill(
   request: string,
   project: Pick<ProjectModel, "architecture" | "frameworks">,
   classification: Pick<TaskClassification, "intent">,
+  anyLook = false,
 ): number {
   if (QUESTION_INTENTS.has(classification.intent)) return 0;
   const { ui, styles, design } = project.architecture;
-  if (ui || styles || design || project.frameworks.some((framework) => STYLING_FRAMEWORKS.includes(framework))) return 0;
+  const ownLook = Boolean(ui || styles || design) || project.frameworks.some((framework) => STYLING_FRAMEWORKS.includes(framework));
+  if (ownLook && !anyLook) return 0;
   const text = normaliseWords(request).join(" ");
   if (UI_WORDS.some((word) => contains(text, word))) return 6;
   const web = project.frameworks.some((framework) => WEB_FRAMEWORKS.includes(framework));
@@ -425,5 +435,5 @@ export function scoreBundledSkill(
   project: Pick<ProjectModel, "architecture" | "frameworks">,
   classification: Pick<TaskClassification, "intent">,
 ): number {
-  return skill.kind === "web" ? scoreWebSkill(request, project, classification) : scoreSkillRule(skill.rule, request, project, classification);
+  return skill.kind === "web" ? scoreWebSkill(request, project, classification, skill.anyLook) : scoreSkillRule(skill.rule, request, project, classification);
 }

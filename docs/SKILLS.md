@@ -1,7 +1,7 @@
 # Skills and the network skills pack
 
 A skill is a short how-to file the AI reads only when a request needs it. Casper ships six network
-skills, four home lab skills, one design skill and one frontend skill inside the `casper` binary, and you can add your own.
+skills, four home lab skills, one design skill and two frontend skills inside the `casper` binary, and you can add your own.
 
 The network skills pack is new in v0.2.18; releases before it have no bundled skills.
 Your own skills work the same way in both; see [CONFIGURATION.md](CONFIGURATION.md#skills).
@@ -85,7 +85,7 @@ skills:
 
 A project's `.casper/project.yaml` cannot turn the pack off: the skills only make the AI more
 careful, so a repository must not be able to remove them. `skills.maxActive: 0` turns all skill
-loading off, bundled ones included. `/status` shows `skills    12 indexed (12 bundled)` or
+loading off, bundled ones included. `/status` shows `skills    13 indexed (13 bundled)` or
 `bundled: off`.
 
 ## The home lab skills
@@ -126,12 +126,15 @@ python, script or pyclearpass rule it out, and a clear design request ("design a
 guest and IoT") rules out `network-clearpass-api`, so API code and a design each get their own skill. "design a
 NAC with Cisco ISE" picks nothing. `/skills block design-clearpass-nac@bundled` stops it.
 
-## The frontend skill
+## The frontend skills
 
-New in v0.2.23. `web-frontend` is Casper's own short guide to building a page or app UI that looks
-deliberate and works for everyone: one type scale and spacing step, a few named colors with dark-mode
-values in one theme file, real HTML elements, a visible label on every field, a visible focus ring,
-44px tap targets, a 390px phone width first, 4.5:1 text contrast, and loading, empty and error states.
+Casper ships two: `web-frontend` gives a project with no look yet a deliberate one, and
+`web-quality` holds the checks every page needs, in any project.
+
+New in v0.2.23. `web-frontend` is Casper's own short guide to giving a page or app UI a deliberate
+look: one type scale and spacing step, a few named colors with dark-mode values in one theme file,
+real HTML elements, a 390px phone width first with a one-row header and a Menu button, and the focus
+ring in the accent color.
 It asks for a font pair and accent that suit the product (never Inter alone; the system stack is the
 fallback), a page shape chosen before the code, its own image and action for each product or plan,
 and cards whose prices and buttons line up in a row. For SVG it tells icons from illustrations: icons
@@ -143,8 +146,9 @@ for depth, soft shadows and a little real detail, `role="img"` with `<title>` an
 shadows, a glow, a sheen and brushed-metal and grain textures, each ready to copy). The kit is never in the
 prompt: when the skill is picked, Casper writes it to a new temporary folder only you can open, names that
 folder as the skill's base directory, and removes it when Casper exits. For photo-like images the skill
-asks for `make_picture` when that tool is offered. It also lists what makes a page look machine-made
-(purple gradients, emoji as icons, everything in a card, lorem ipsum) so the AI skips them.
+asks for `make_picture` when that tool is offered. The field labels, focus, 44px tap targets, 4.5:1
+contrast, states and the list of what makes a page look machine-made are in `web-quality`, which
+comes with it.
 
 - **Picked only for UI work in a project with no look of its own yet:** a request with a web word
   (web app, website, landing page, html, css, navbar, frontend …), or, in a project with a web
@@ -152,14 +156,48 @@ asks for `make_picture` when that tool is offered. It also lists what makes a pa
   header, button or design, that isn't a question, in a project where Casper finds no styles,
   components or design folder and no styling package (Tailwind, styled-components, Emotion). In a
   Python, Ansible or Mist project, "add a header row to the CSV" or "fetch all pages from the API"
-  doesn't pick it. When the project has a look, the repo's style always wins and the
-  skill stays out. `casper new web-app` and `vite-react` start with a theme file, so they follow
-  that.
-- Zero tokens until picked; about 1,000 tokens when it is. It never installs anything or adds a
+  doesn't pick it. When the project has a look, the repo's style always wins and the skill
+  stays out (`web-quality` still comes). `casper new web-app` and `vite-react` start with a theme
+  file, so they follow that.
+- Zero tokens until picked; about 1,100 tokens when it is. It never installs anything or adds a
   design system.
 - `/skills block web-frontend@bundled` stops it. A `web-frontend` skill in `~/.casper/skills/`
   (your house style) is used in its place.
-- Written for Casper; no text is copied from another skill.
+- `web-frontend` is written for Casper; no text is copied from another skill.
+
+### The quality checks: `web-quality`
+
+New. `web-quality` holds the rules that hold whatever a page looks like, so it is picked for UI work
+in **every** web project, including one with its own theme, components or Tailwind. It never gives
+look advice (no type scale, palette, fonts or theme file): it says to keep the project's colours,
+fonts, spacing and components, and to keep anything below the project's style already uses.
+
+- **Refuse:** signs of a machine-made page: a small label (eyebrow) above a heading, 01 / 02 / 03
+  on things that are not a sequence, a coloured side border over 1px, hard offset shadows, a 1px
+  border under a wide soft shadow, monospace to look technical, cream with terracotta and
+  near-black with acid green, gradient text, cards inside cards, purple gradients and glass,
+  `transition: all`, gray text on a coloured background, lorem ipsum.
+- **Verify:** rules you can check on the page: lines of 65 to 75 characters, more space above a
+  heading than below, 4.5:1 contrast in light and dark, a visible focus ring, 44 by 44px tap
+  targets that never overlap, no `user-scalable=no`, no sideways scroll at 390px, animations of
+  `transform` and `opacity` only, tabs and filters kept in the URL, colour never alone.
+- **Forms:** a visible label, 16px input text on phones, the right `type`, `autocomplete` and
+  `inputmode`, paste never blocked, errors next to the field and focus on the first one on
+  submit. Then real elements, alt text, and loading, empty and error states.
+- **Picked by the same words as `web-frontend`** (a web word anywhere; page, form, layout, header,
+  button or design only in a web-framework project; never for a question), but whether or not the
+  project has a look. In a project with no look yet both come: `web-frontend` for the look,
+  `web-quality` for the checks (about 1,100 and 950 tokens; the old single skill was about
+  1,500). In a Tailwind or themed project only `web-quality` comes. Zero tokens until picked; it
+  has no files.
+- `/skills block web-quality@bundled` stops it; a `web-quality` skill in `~/.casper/skills/` is
+  used in its place.
+- Adapted and trimmed from [pbakaus/impeccable](https://github.com/pbakaus/impeccable) (Apache-2.0),
+  [anthropics/skills](https://github.com/anthropics/skills) frontend-design (Apache-2.0),
+  [vercel-labs/web-interface-guidelines](https://github.com/vercel-labs/web-interface-guidelines) (MIT)
+  and [jakubkrehel/make-interfaces-feel-better](https://github.com/jakubkrehel/make-interfaces-feel-better)
+  (MIT), shortened and rewritten in Casper's words. The notices are in `THIRD_PARTY_NOTICES.txt`
+  (`casper --licenses`).
 
 ## Add your own
 

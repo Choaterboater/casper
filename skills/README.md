@@ -10,9 +10,13 @@ These `SKILL.md` files are built into the `casper` binary (text imports in
 - `name` starts with `web-`; `description` is one line of at most 200 characters; the body is at
   most 6 KiB. The loader refuses anything else.
 - Guidance only: it never tells the AI to install a package or add a design system, and it says
-  the repo's own style wins. `scoreWebSkill` in `src/skills/bundled.ts` picks it (UI work in a
-  project with no styles yet); `tests/web-skill.test.ts` checks the text and the picking.
-- Casper's own words. Borrow an idea only from a source whose licence allows it, and credit it here.
+  the repo's own style wins. `scoreWebSkill` in `src/skills/bundled.ts` picks it: UI work in a
+  project with no styles yet (`web-frontend`, look advice), or UI work in any project (`web-quality`,
+  checks that hold whatever the look); `tests/web-skill.test.ts` checks the text and the picking.
+- Casper's own words. Borrow an idea only from a source whose licence allows it, and credit it here,
+  in the skill's body and in `THIRD_PARTY_NOTICES.txt`. `web-quality` is adapted from
+  pbakaus/impeccable and anthropics/skills frontend-design (Apache-2.0) and
+  vercel-labs/web-interface-guidelines and jakubkrehel/make-interfaces-feel-better (MIT).
 
 ## Rules for a network skill (`skills/network/<platform>/SKILL.md`)
 

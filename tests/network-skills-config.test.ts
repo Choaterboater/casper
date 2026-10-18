@@ -90,7 +90,7 @@ describe("the app with the pack", () => {
     });
     try {
       await app.runOnce("/skills", projectRoot);
-      expect(output).toContain("12 indexed (12 bundled)");
+      expect(output).toContain("13 indexed (13 bundled)");
       expect(output).toContain("network-mist-api@bundled [bundled; trusted]");
       expect(output).toContain("skills/network/mist/SKILL.md (inside Casper; /settings turns them off)");
       expect(runtime.prompts).toHaveLength(0);
@@ -103,7 +103,7 @@ describe("the app with the pack", () => {
       expect(runtime.prompts[1]).not.toContain("Stop and ask the user");
       output = "";
       await app.runOnce("/status");
-      expect(output).toContain(" skills    12 indexed (12 bundled)");
+      expect(output).toContain(" skills    13 indexed (13 bundled)");
     } finally {
       await app.close();
     }
