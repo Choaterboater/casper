@@ -106,7 +106,7 @@ export async function finishAppSmoke(app: CasperApp, options: AppSmokeTask & {
       if (running) {
         report = { status: "not-run", label: redactPreview(plan.service.label), command: redactPreview(plan.service.spec.command), path: redactPreview(plan.path), method: "GET", cleanup: "not-started" };
         await app.services!.ensureFresh(plan.service.name, signal);
-        Object.assign(report, { cleanup: "preserved" }, await requestApp(app.services!.origin(plan.service.name), plan.path, signal));
+        Object.assign(report, { cleanup: "preserved" }, await requestApp(app.services!.origin(plan.service.name), plan.path, signal, plan.rootGuess));
       } else report = await tryApp(root, plan, signal, { onCleanupError: error => app.cleanupRecovery.queue(error) });
       const after = await app.snapshotWorkspace(options.root, signal);
       if (report.status === "pass" && !sameRuntimeInputs(now, after)) {

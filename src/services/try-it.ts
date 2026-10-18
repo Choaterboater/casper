@@ -43,7 +43,7 @@ export async function tryApp(root: string, target: AppSmokeTarget, signal: Abort
         : `the app could not start: ${message(error)}`;
       return report;
     }
-    return Object.assign(report, await requestApp(manager.origin(name), target.path, signal));
+    return Object.assign(report, await requestApp(manager.origin(name), target.path, signal, target.rootGuess));
   } finally {
     try {
       await manager.close();
@@ -59,13 +59,16 @@ export async function tryApp(root: string, target: AppSmokeTarget, signal: Abort
   }
 }
 
-/** One bounded GET, without starting, restarting or stopping the service that owns the origin. */
-export async function requestApp(origin: string | undefined, requestPath: string, signal: AbortSignal): Promise<Pick<AppSmokeReport, "status" | "httpStatus" | "reason">> {
+/** One bounded GET, without starting, restarting or stopping the service that owns the origin.
+ * When `/` is only a guess, a JSON 404/405 is an API answering that it has no page there: the app is up. */
+export async function requestApp(origin: string | undefined, requestPath: string, signal: AbortSignal, rootGuess = false): Promise<Pick<AppSmokeReport, "status" | "httpStatus" | "reason">> {
   try {
     if (!origin) throw new Error("the app stopped before the request");
     const response = await fetch(new URL(requestPath, origin), { method: "GET", redirect: "manual",
       signal: AbortSignal.any([signal, AbortSignal.timeout(REQUEST_MS)]) });
     await response.body?.cancel();
+    if (rootGuess && (response.status === 404 || response.status === 405) && /\bjson\b/i.test(response.headers.get("content-type") ?? ""))
+      return { status: "pass", httpStatus: response.status, reason: "the API answered; it has no page at /" };
     const status = response.status >= 200 && response.status < 300 ? "pass" : "fail";
     return { status, httpStatus: response.status, ...(status === "fail" ? { reason: `HTTP ${response.status}, expected 2xx` } : {}) };
   } catch (error) {

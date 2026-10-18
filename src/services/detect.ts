@@ -264,7 +264,8 @@ async function hasLockfile(root: string): Promise<boolean> {
 }
 
 /** The one local request made before completing a changed app task. */
-export interface AppSmokeTarget { service: DetectedWebService; path: string }
+/** `rootGuess`: no changed page or declared ready path, so `/` is only a guess (an API may have nothing there). */
+export interface AppSmokeTarget { service: DetectedWebService; path: string; rootGuess?: true }
 export type AppSmokePlan = AppSmokeTarget | { reason: string };
 
 /** Prose, tests and generated files never start an app. Markdown routes are pages, not documentation. */
@@ -286,8 +287,10 @@ export async function planAppSmoke(root: string, input: DetectInput, files: read
   if (!changed.length) return undefined;
   const web = await detectWebService(root, input);
   const pagePlan = changedPages(web?.frameworks ?? input.frameworks ?? [], changed, pages);
-  const target = (service: DetectedWebService): AppSmokeTarget => ({ service,
-    path: pagePlan.open[0] ?? ("http" in service.spec.ready ? service.spec.ready.http : "/") });
+  const target = (service: DetectedWebService): AppSmokeTarget => {
+    const path = pagePlan.open[0] ?? ("http" in service.spec.ready ? service.spec.ready.http : undefined);
+    return path ? { service, path } : { service, path: "/", rootGuess: true };
+  };
   const declared = Object.entries(input.services ?? {}).filter(([, spec]) => changed.some(file => editAffects(root, file)(spec.scope)));
   const preferred = pagePlan.open.length ? declared.find(([name]) => name === "web") : undefined;
   const selected = preferred ?? (declared.length === 1 ? declared[0] : undefined);
