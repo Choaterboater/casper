@@ -670,7 +670,9 @@ not an unfinished attempt and does not by itself make the task incomplete.
 Casper selects one declared service whose scope covers the change, or the project's own `dev` (else
 `start`) command. API servers need no HTML page. For an automatic request it chooses the first concrete
 changed page, otherwise the service's `ready.http` path, otherwise `/`. It sends one local GET, without
-following redirects, and expects HTTP 2xx. Readiness polling is separate from this one smoke request.
+following redirects, and expects HTTP 2xx. When `/` is only that last guess, a JSON 404 or 405 also passes:
+the API answered and has no page there (`GET / → HTTP 404 — the API answered; it has no page at /`). An HTML
+404, a 5xx, or a 404 on a changed page or declared path still fails. Readiness polling is separate from this one smoke request.
 A matching fresh page or service check on the final files is reused instead of making another request.
 A reused check keeps its actual method, path and result. A later edit invalidates it.
 If the selected service is already running because you intentionally started it, Casper makes it fresh

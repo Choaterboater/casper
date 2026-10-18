@@ -9,7 +9,7 @@ import { revokeWorkspaceCapabilities } from "../src/app/session-branches";
 import { planAppSmoke } from "../src/services/detect";
 import { HttpPageOpener, type PageOpener } from "../src/services/page-checks";
 import { ServiceManager } from "../src/services/manager";
-import { sameRuntimeInputs, tryApp, type AppSmokeReport } from "../src/services/try-it";
+import { requestApp, sameRuntimeInputs, tryApp, type AppSmokeReport } from "../src/services/try-it";
 import { hostProcessPlatform, type ProcessRecord } from "../src/platform/processes";
 import { freePort } from "../src/platform/managed-process";
 import { loadProjectContext } from "../src/project/context";
@@ -146,6 +146,28 @@ test("a declared HTTP readiness path supplies the API smoke path, not a guessed 
   const f = await fixture();
   const plan = await planAppSmoke(f.project, { services: { api: { ...f.spec, ready: { http: "/health" } } } }, ["server.ts"]);
   expect(plan).toMatchObject({ service: { name: "api", source: "declared" }, path: "/health" });
+});
+
+test("with no changed page or readiness path, the root is marked as a guess", async () => {
+  const f = await fixture();
+  expect(await planAppSmoke(f.project, { services: { api: f.spec } }, ["server.ts"])).toMatchObject({ path: "/", rootGuess: true });
+  expect(await planAppSmoke(f.project, { services: { api: { ...f.spec, ready: { http: "/health" } } } }, ["server.ts"])).not.toHaveProperty("rootGuess");
+});
+
+test("a JSON 404 or 405 at a guessed root means the API is up; an HTML 404 or a chosen path still fails", async () => {
+  const server = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch(request) {
+    const route = new URL(request.url).pathname;
+    const json = (status: number) => Response.json({ error: "not_found" }, { status });
+    return route === "/" ? json(404) : route === "/method" ? json(405) : route === "/broken" ? json(500)
+      : new Response("<h1>Not found</h1>", { status: 404, headers: { "content-type": "text/html" } });
+  } });
+  cleanups.push(() => server.stop(true));
+  const origin = `http://127.0.0.1:${server.port}`, signal = new AbortController().signal;
+  expect(await requestApp(origin, "/", signal, true)).toEqual({ status: "pass", httpStatus: 404, reason: "the API answered; it has no page at /" });
+  expect(await requestApp(origin, "/method", signal, true)).toMatchObject({ status: "pass", httpStatus: 405 });
+  expect(await requestApp(origin, "/broken", signal, true)).toMatchObject({ status: "fail", httpStatus: 500 });
+  expect(await requestApp(origin, "/page", signal, true)).toMatchObject({ status: "fail", httpStatus: 404 });
+  expect(await requestApp(origin, "/", signal)).toMatchObject({ status: "fail", reason: "HTTP 404, expected 2xx" });
 });
 
 test("service scopes select only the server touched by the change", async () => {
