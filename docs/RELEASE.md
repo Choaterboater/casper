@@ -14,11 +14,40 @@ when releasing. Existing historical notes below stay as written; feature tests c
 reference docs, not a per-PR release-note or roadmap entry. Release-prep checks verify the version and
 installer targets (`tests/release-install.test.ts`, `tests/release-targets.test.ts`).
 
-Casper distributes an unsigned **v0.2.38 preview**, not a stable release. The installers
-download from `https://github.com/Choaterboater/casper/releases/download/v0.2.38`,
+Casper distributes an unsigned **v0.2.39 preview**, not a stable release. The installers
+download from `https://github.com/Choaterboater/casper/releases/download/v0.2.39`,
 because GitHub's `latest/download` link skips preview releases. The first published
 preview was **v0.1.0**. A published release is never changed; every fix ships under a
 new version.
+
+## v0.2.39: try the app before done, Chrome that recovers, and Windows fixes
+
+### Added
+
+- In auto mode Casper tries a changed app, server or page once before the receipt, then stops any server it started.
+- In offer mode the receipt says `/verify to try it`, and `/verify` then tries the app with the other checks.
+
+### Changed
+
+- A server you started yourself gets the new code for that try and is left running.
+- An API that answers a guessed `/` with a JSON 404 or 405 counts as up.
+- Data, database and log files the app saves while it is tried no longer void the try.
+- `/permissions all` typed during a task opens no box and takes effect at once.
+- One browser check can list up to eight assertions instead of being refused after four.
+- The bundled network server is now casper-network-mcp 0.1.5, whose tools describe their arguments.
+- With it, dry runs name body keys the spec does not declare, and `MIST_APITOKEN` works as the Mist token.
+- One feature described in detail, or a wish to make it polished, is no longer called a big job.
+- A request to remove or delete something is a change, even when the thing is called a test.
+- A sentence saying what something should do is read as a change, not a question.
+- A receipt says in plain words why a change was not proven.
+
+### Fixed
+
+- On Windows, page checks and the AI's browser now start Chrome.
+- A browser profile folder Windows still holds is left behind instead of failing the task.
+- A Chrome that crashes is replaced by a fresh one, and a first start that hangs is tried once more.
+- A command that only reads past `.git` is no longer refused as changing git's own files.
+- On Windows a file tool's `/tmp` is the same folder as the shell's `/tmp`.
 
 ## v0.2.38: plans that stay on, draw.io diagrams and a ClearPass design skill
 
