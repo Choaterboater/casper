@@ -175,7 +175,7 @@ posix("interactive: each ssh asks first (No first), ~/.ssh stays private, secret
   expect(receipt).toContain("⚠ A secret appeared in a command; change it after this task.");
   // The sub-folder's own tests ran for the receipt.
   expect(receipt).toContain("• Casper checking: test (checks from tools)");
-  expect(receipt).toMatch(/✓ test passed \(checks from tools · python3 -m unittest discover -s tests(, \d+\.\ds)?\)/);
+  expect(receipt).toMatch(/✓ test passed \(checks from tools · python3 -m unittest discover -s tests(, \d+(?:\.\d)?s)?\)/);
   expect(receipt).not.toContain("Not verified");
   // The short receipt folds the passing check and the changed files into one line under the verdict.
   expect(receipt.replace(/\s+/g, " ")).toContain("· changed tools/pyproject.toml, tools/stats.py, tools/tests/test_stats.py");
@@ -205,7 +205,7 @@ posix("one-shot with no sandbox: nothing waits, no ssh runs, ~/.ssh stays privat
   expect(screen).not.toMatch(/✓ Verified|Checks passed/);
   expect(result.exit).toBe(2);
   expect(screen).toContain("⚠ A secret appeared in a command; change it after this task.");
-  expect(screen).toMatch(/✓ test passed \(checks from tools · python3 -m unittest discover -s tests(, \d+\.\ds)?\)/);
+  expect(screen).toMatch(/✓ test passed \(checks from tools · python3 -m unittest discover -s tests(, \d+(?:\.\d)?s)?\)/);
   expect(screen).toContain("[folder] The work is in ~/Documents/tools. To work there: cd ~/Documents/tools && casper");
   expect(screen).not.toContain("[memory]");
   expect(run.payloads.length).toBe(STEPS.length + 1);
