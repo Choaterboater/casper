@@ -145,9 +145,11 @@ describe("picking design skills (local word match, no model call)", () => {
     const skills = await registry();
     expect(await picked(skills, "design a ClearPass NAC for 3 sites with guest and IoT")).toEqual(["design-clearpass-nac"]);
     expect(await picked(skills, "write a python script to list ClearPass guests via the API")).toEqual(["network-clearpass-api"]);
-    for (const prompt of ["add a dark mode toggle to the settings page", "design the database schema for orders", "fix the failing unit test in the parser"]) {
+    for (const prompt of ["design the database schema for orders", "fix the failing unit test in the parser"]) {
       expect({ prompt, picked: await picked(skills, prompt) }).toEqual({ prompt, picked: [] });
     }
+    // UI work brings only the web checks (the project has its own styles), never a design skill.
+    expect(await picked(skills, "add a dark mode toggle to the settings page")).toEqual(["web-quality"]);
   });
 
   test("sample prompts pick the right skill, others pick no design skill, and every skill is picked by one", async () => {

@@ -120,8 +120,9 @@ describe("picking bundled network skills (local word match, no model call)", () 
       const registry = await SkillRegistry.discover({ ...options, bundled: true });
       const { pick, skip } = await prompts();
       for (const { prompt } of pick) await registry.loadForTask(prompt, model(), classifyTask(prompt));
-      // A project with its own styles, so the web-frontend skill stays out too.
-      const unrelated = await registry.loadForTask(skip[0]!, { ...model(), architecture: { styles: "src/index.css" } }, classifyTask(skip[0]!));
+      // Not UI work ("fix the css" would bring the web-quality checks), in a project with its own styles.
+      const prompt = skip.find((text) => text.includes("FastAPI"))!;
+      const unrelated = await registry.loadForTask(prompt, { ...model(), architecture: { styles: "src/index.css" } }, classifyTask(prompt));
       expect(formatSelectedSkills(unrelated)).toBe("");
     } finally {
       globalThis.fetch = originalFetch;
