@@ -24,8 +24,8 @@ describe("site polish content", () => {
     const page = read("roadmap.html");
     const released = page.slice(page.indexOf('<section id="released"'));
     const releases = [...released.matchAll(/<details class="card release" id="([^"]+)"[^>]*>[\s\S]*?<\/details>/g)];
-    expect(releases).toHaveLength(27);
-    expect(releases.slice(0, 3).map(match => match[1])).toEqual(["v0238", "v0237", "v0236"]);
+    expect(releases).toHaveLength(28);
+    expect(releases.slice(0, 3).map(match => match[1])).toEqual(["v0239", "v0238", "v0237"]);
     releases.forEach((match, i) => {
       expect(/\bopen\b/.test(match[0].slice(0, match[0].indexOf(">")))).toBe(i < 3);
       expect(match[0]).toMatch(/<summary class="release-heading">\s*<h3[^>]*>[^<]+<\/h3>\s*<span class="badge/);
@@ -90,6 +90,6 @@ describe("site polish content", () => {
     const lead = text(read("tour.html").match(/<p class="lead">([\s\S]*?)<\/p>/)![1]!);
     expect(lead).toStartWith("Here are the big things");
     expect(lead).not.toMatch(/[()]/);
-    expect(lead).toContain("More in 0.2.38");
+    expect(lead).toContain("More in 0.2.39");
   });
 });
