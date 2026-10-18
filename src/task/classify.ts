@@ -33,11 +33,14 @@ const INTENT_PATTERNS: Array<[TaskIntent, RegExp]> = [
   ["inspect", /\b(inspect|review|summarize|analyse|analyze|find|locate|show|list|what|why|how)\b/i],
 ];
 
+/** A statement of what something should do, not a question: "The search should also match authors". */
+const REQUIREMENT = /^(?!(?:why|how|what|when|where|which|who|should|must|does|do|is|are|can|could|would)\b)(?:the|this|that|our|my|its|a|an|each|every|all|new)?\s*[\w'-]+(?:\s+[\w'-]+){0,5}\s+(?:should|must|needs? to)\s+(?!not\b)[^?]*$/i;
+
 /** The intent a request's opening verb states, and the object it acts on (up to the first clause
  * break): "Add a tool; invalid input is a tool error" is a feature, not a fix. Used only where the
  * keyword order would read an incidental "error" or "test" as the kind of work. */
 function leadingIntent(text: string): { intent: TaskIntent; object: string } | undefined {
-  const verb = /^(?:(?:can|could|would) you\s+)?(?:please\s+)?(add|implement|build|create|extend|write|fix|refactor|rename)\b\s*(.*)$/is.exec(text);
+  const verb = /^(?:(?:can|could|would) you\s+)?(?:please\s+)?(add|implement|build|create|extend|write|fix|refactor|rename|remove|delete)\b\s*(.*)$/is.exec(text);
   if (!verb) return undefined;
   const [, word, rest] = verb;
   const lower = word.toLowerCase();
@@ -46,6 +49,8 @@ function leadingIntent(text: string): { intent: TaskIntent; object: string } | u
   const object = rest.split(/[.;:\n](?:\s|$)|\n/, 1)[0]!;
   if (lower === "fix") return { intent: "fix", object };
   if (lower === "refactor" || lower === "rename") return { intent: "refactor", object };
+  // Taking something out is a change, never writing tests: "remove the two test books from books.json".
+  if (lower === "remove" || lower === "delete") return { intent: "implement", object };
   // Tests as what is made: "tests for X", "a new test file", "tests/foo.test.ts"; a "spec" only as the noun.
   const tests = /\btests?\b|\.(?:test|spec)\.|^(?:[\w`'-]+\s+){0,5}specs?(?:\s+(?:for|of|to|that|covering|in|on)\b|\s*$)/i.test(object);
   return { intent: tests ? "test" : "implement", object };
@@ -69,7 +74,8 @@ export function classifyTask(text: string): TaskClassification {
     : leading && (keyword === undefined || ["fix", "test", "configure", "document", "refactor"].includes(keyword))
       // Only a build verb yields to its object: "Refactor the configuration loader" still refactors.
       ? leading.intent === "implement" && objectIntent ? objectIntent : leading.intent
-      : keyword ?? "general";
+      // "The search should also match authors": a stated requirement asks for a change, not an answer.
+      : (keyword === undefined || keyword === "inspect") && REQUIREMENT.test(trimmed) ? "implement" : keyword ?? "general";
   const mode = intent === "inspect" || intent === "general" || intent === "visualize" ? "read" : "modify";
   const verification: ProjectCommand[] =
     intent === "document" || intent === "inspect" || intent === "general" || intent === "visualize"

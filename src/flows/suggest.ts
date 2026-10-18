@@ -202,9 +202,15 @@ export function countAsks(request: string): number {
   const clauses = prose
     .split(/(?<=[.!?])\s+(?=[A-Z])|;\s*|,?\s+(?:and then|then|and also|also|plus)\s+|,\s+and\s+(?=(?:add|make|build|create|write|fix|change|update|remove|show|let|support|move|rename|put)\b)/i)
     .map((part) => part.trim())
-    .filter((part) => part.split(/\s+/).length >= 2);
+    .filter((part, index) => part.split(/\s+/).length >= 2 && !QUALITY_ONLY.test(part) && !(index > 0 && DESCRIBES.test(part)));
   return listLines + clauses.length;
 }
+
+/** "New books are saved to the file", "It should show a count": how the ask before it works, not another ask. */
+const DESCRIBES = /^(?:the|new|it|they|each|every|all|this|these|that|those|its|their)\b[^.!?]*?\b(?:is|are|should|must|will|can|gets?|stays?|shows?|appears?)\b/i;
+
+/** "and make it polished", "make it look nice": how the work should turn out, not another thing to build. */
+const QUALITY_ONLY = /^(?:and\s+)?(?:(?:please\s+)?make\s+(?:it|them|this|that|everything|the\s+\w+)\s+(?:look\s+|feel\s+)?(?:really\s+|more\s+|very\s+)?(?:polished|nice|nicer|pretty|prettier|clean|cleaner|good|great|better|beautiful|modern|sleek|professional)|polish\s+(?:it|them|this|that)(?:\s+up)?)[.!]?$/i;
 
 export interface BeforeWorkSuggestion {
   id: "plan-first";

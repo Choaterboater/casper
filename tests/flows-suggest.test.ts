@@ -41,7 +41,7 @@ describe("after-receipt rules", () => {
   });
 
   test("prove-fix also fires when Casper skipped the comparison, but not for failing checks or a feature", () => {
-    expect(rules.afterReceipt(context({ verification: passed, proofSkipped: "only non-code files changed" }))[0]?.why).toBe("no test shows the fix works");
+    expect(rules.afterReceipt(context({ verification: passed, proofSkipped: "no app code changed, only tests, data or docs" }))[0]?.why).toBe("no test shows the fix works");
     expect(rules.afterReceipt(context({ verification: { ...passed, status: "fail" }, proof: unproven }))).toEqual([]);
     expect(rules.afterReceipt(context({ verification: passed, proof: unproven }, "Add a --verbose flag to the CLI"))).toEqual([]);
     expect(rules.afterReceipt(context({ execution: "cancelled", verification: passed, proof: unproven }))).toEqual([]);
@@ -154,6 +154,16 @@ describe("before-work plan-first suggestion", () => {
     expect(ask(request)).toEqual({ id: "plan-first", reason: "this asks for 4 things" });
     expect(ask("fix the typo in README")).toBeUndefined();
     expect(ask("Add a --verbose flag to src/cli.ts")).toBeUndefined();
+  });
+
+  test("\"make it polished\" and a sentence saying how the ask works are not more asks", () => {
+    // From a real session: one feature, a sentence saying how it works, and a polish wish was "a big job (3 things)".
+    const feature = "Add a form on the page to add a book (title and author). New books are saved to the JSON file and show in the list without a reload. and make it polished";
+    expect(countAsks(feature)).toBe(1);
+    expect(ask(feature)).toBeUndefined();
+    expect(countAsks("Add a settings page, and make it look nice")).toBe(1);
+    expect(countAsks("Add login, then a dashboard, and also email alerts")).toBe(3);
+    expect(countAsks("Add login. Make it remember the user. Then add a dashboard.")).toBe(3);
   });
 
   test("counts list lines, fires on long requests, and stays quiet when the user already mentions a plan or is not interactive", () => {

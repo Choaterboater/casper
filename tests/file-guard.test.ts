@@ -4,7 +4,7 @@ import { realpathSync } from "node:fs";
 import { mkdir, mkdtemp, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { classifyPath, fileToolGate, gitInternalsCommand, hooksPathTargets, otherLoginFiles, PRIVATE_PATHS, privatePathCommand, resolveToolPath, windowsShellPath } from "../src/platform/project-paths";
+import { classifyPath, fileToolGate, gitInternalsCommand, hooksPathTargets, otherLoginFiles, PRIVATE_PATHS, privatePathCommand, resolveToolPath, shellTempPath, windowsShellPath } from "../src/platform/project-paths";
 import { POSIX } from "./support/platform";
 import { removeTempDir } from "./support/temp-dir";
 import { cleanEnv } from "./support/env";
@@ -143,6 +143,20 @@ test("shell commands that write git hooks or risky git settings are refused; rea
   }
 });
 
+test("a step that only reads past .git is not a write to it because another step writes elsewhere", () => {
+  // From a real session: each refused although only `rm .smoke.ts` and a build output write, and `.git` is only skipped.
+  for (const safe of ["cd /work/app && bun .smoke.ts && rm .smoke.ts && bun build app.js --outfile out.js >/dev/null && ls -R . --ignore=.git",
+    "cd /work/app && rm .smoke.ts && find . -path ./.git -prune -o -type f -print", "rm -f out.txt; ls -a .git"]) {
+    expect([safe, gitInternalsCommand(safe, project, home)]).toEqual([safe, undefined]);
+  }
+  // Still refused: the write and .git in one step, a pipe into a writer, or a step that carries the name to the next.
+  for (const risky of ["find . -path ./.git -o -name hooks | xargs rm", "ls .git && echo x > .git/hooks/pre-commit", "pushd .git && touch hooks/post-checkout",
+    "D=.git; echo x > $D/hooks/pre-commit", "G=.git rm -rf other && echo hi", "cd ./.git/ && cp ../evil hooks/pre-push", "eval 'cd .git' && touch hooks/x",
+    "cd .git; echo x > hooks/pre-commit"]) {
+    expect([risky, gitInternalsCommand(risky, project, home)]).toEqual([risky, expect.stringMatching(/^Not run:/)]);
+  }
+});
+
 test("a shell write into git's rebase or cherry-pick to-do, or git config diff.external, is refused; reading them passes", () => {
   for (const risky of ["printf 'exec touch x\\n' >> .git/rebase-merge/git-rebase-todo", "echo 'exec id' > .git/sequencer/todo",
     "cp evil .git/rebase-apply/patch", "git config diff.external ./tool", "git config --local diff.external /tmp/x"]) {
@@ -160,6 +174,16 @@ test("Windows: /c/..., /mnt/c/... and /cygdrive/c/... are checked as the drive p
   expect(windowsShellPath("/proc/cygdrive/c/Users/me/.ssh/id_rsa")).toBe("C:\\Users\\me\\.ssh\\id_rsa");
   expect(windowsShellPath("/c")).toBe("C:\\");
   for (const kept of ["//server/share", "/c\\x", "src/a.ts", "/usr/bin", "C:\\x"]) expect(windowsShellPath(kept)).toBe(kept);
+});
+
+test("Windows: a file tool's /tmp is Git Bash's /tmp, the user's temp folder, not C:\\tmp", () => {
+  // From a real session: the AI wrote /tmp/smoke.ts with its write tool, then its shell could not find it.
+  const temp = "C:\\Users\\me\\AppData\\Local\\Temp";
+  expect(shellTempPath("/tmp/smoke.ts", "win32", temp)).toBe(`${temp}\\smoke.ts`);
+  expect(shellTempPath("/tmp/a/b.txt", "win32", temp)).toBe(`${temp}\\a\\b.txt`);
+  expect(shellTempPath("/tmp", "win32", temp)).toBe(temp);
+  for (const kept of ["/tmpx/a", "tmp/a", "C:\\tmp\\a", "/c/tmp/a", "./tmp"]) expect(shellTempPath(kept, "win32", temp)).toBe(kept);
+  expect(shellTempPath("/tmp/smoke.ts", "darwin", temp)).toBe("/tmp/smoke.ts");
 });
 
 test("the lsp tool's path gets the same private-place refusal as read", async () => {

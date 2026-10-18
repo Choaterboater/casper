@@ -184,7 +184,7 @@ test("code the AI changes while looking at the pages counts for the proof: a CSS
   await f.app.runOnce("Make the dashboard header blue");
   const task = f.app.getLastTaskResult();
   expect(task?.pagesShown).toBe(2);
-  expect(task?.proofSkipped).not.toBe("only non-code files changed");
+  expect(task?.proofSkipped).not.toBe("no app code changed, only tests, data or docs");
   expect(task?.proof).toBeDefined();
 }, 60_000);
 

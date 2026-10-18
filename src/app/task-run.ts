@@ -1125,12 +1125,16 @@ export const PAGES_ONLY_PROOF = "pages load, but no test fails without the chang
 /** The same without Chrome: a page that answers over HTTP may still fail once its scripts run. */
 export const PAGES_ANSWER_ONLY_PROOF = "pages answer, but their console was not checked and no test fails without the change";
 
+/** What kind of request Casper does not prove, in the receipt's words. */
+const NOT_COMPARED: Record<string, string> = { document: "this was a docs request", configure: "this was a setup request",
+  inspect: "this read as a question", visualize: "this asked for a diagram" };
+
 export function proofSkipReason(options: { intent: string; testCommand?: string; snapshot: boolean; changedCode: boolean; testsAddedNow?: boolean }): string {
   if (options.intent === "refactor") return "a refactor should not change behavior, so no test is expected to fail without it";
-  if (["document", "inspect", "visualize", "configure"].includes(options.intent)) return `Casper does not compare ${options.intent} requests with and without the change`;
+  if (["document", "inspect", "visualize", "configure"].includes(options.intent)) return `${NOT_COMPARED[options.intent]}, so the tests were not run without the change`;
   if (!options.testCommand && options.testsAddedNow) return "the tests came with this change, so there is no version without it to compare with";
   if (!options.testCommand) return 'there are no tests yet to compare with; say "add tests"';
   if (!options.snapshot) return "Casper could not record the workspace before the change";
-  if (!options.changedCode) return "only non-code files changed";
+  if (!options.changedCode) return "no app code changed, only tests, data or docs";
   return "Casper did not compare the tests with and without the change";
 }

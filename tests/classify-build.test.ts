@@ -22,3 +22,23 @@ test("configuration, docs or a refactor as the object of the verb, or with no bu
   }
   expect(classifyTask("Upgrade the dependency to v2").intent).toBe("configure");
 });
+
+test("removing or deleting something is a change, whatever it is named: never a request for tests", () => {
+  // From a real session: "test books" made this a testing task, and the model added a test that they are gone.
+  for (const request of ['remove the two "The Sapphire Compass" test books from books.json', "Delete the test user from the seed data", "remove the flaky test"]) {
+    expect({ request, intent: classifyTask(request).intent }).toEqual({ request, intent: "implement" });
+  }
+  expect(classifyTask("Write a test for the login flow").intent).toBe("test");
+  expect(classifyTask("write tests for the parser").intent).toBe("test");
+});
+
+test("a stated requirement asks for a change; a question about one is still a question", () => {
+  // From a real session: "show" made this a question, so the receipt called it an inspect request.
+  for (const request of ['The search should also match authors, and show "No books found" when nothing matches.', "The list must show the newest book first",
+    "Search needs to ignore case"]) expect({ request, intent: classifyTask(request).intent }).toEqual({ request, intent: "implement" });
+  for (const request of ["Why should the search match authors?", "Should the list show the newest book first?", "how does the search work"]) {
+    expect({ request, intent: classifyTask(request).intent }).toEqual({ request, intent: "inspect" });
+  }
+  // A fix or test word keeps its own kind of work.
+  expect(classifyTask("The login should not fail with an error").intent).toBe("fix");
+});
