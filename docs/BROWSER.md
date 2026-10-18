@@ -361,7 +361,7 @@ After a forced SIGKILL of Casper or a power loss, cleanup may not happen.
 ## Bounds and artifacts
 
 - Serialized operations; 200 operations and 24 immutable scenarios per session (past 24, replay the ids you have).
-- Scenarios: 16 KiB, 12 steps, 1–4 assertions; total arguments: 20,000 bytes.
+- Scenarios: 16 KiB, 12 steps, 1–8 assertions; total arguments: 20,000 bytes.
 - Operation deadline: 15 seconds (30 for check/replay), including approval wait;
   navigation/server readiness: 10 seconds.
 - Chrome that crashes or is killed: checks it passed become stale, the next action says
