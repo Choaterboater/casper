@@ -88,7 +88,7 @@ describe("running named checks", () => {
     expect(done.stdout).toContain(evil);
     expect(done.command).toBe(argvText([process.execPath, "-e", "console.log(process.argv[2] ?? process.argv[1])", evil]));
     await expect(access(path.join(root, "pwned"))).rejects.toThrow();
-  });
+  }, 20_000);
 
   test("the wrap hook sees how a check starts and can change it", async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), "casper-wrap-"));

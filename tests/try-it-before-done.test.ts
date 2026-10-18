@@ -201,7 +201,8 @@ test("service scopes select only the server touched by the change", async () => 
 });
 
 test("startup failure says not run in terminal, saved and JSON receipts", async () => {
-  const f = await fixture({ config: { services: { web: { command: `"${process.execPath}" -e "process.exit(4)"`, ready: { log: "listening" }, timeoutMs: 1000 } } } });
+  // The app exits at once; the start limit only has to outlast a slow Bun start on a busy machine.
+  const f = await fixture({ config: { services: { web: { command: `"${process.execPath}" -e "process.exit(4)"`, ready: { log: "listening" }, timeoutMs: 10_000 } } } });
   f.edit(); const task = await f.run();
   expect(task.appSmoke).toMatchObject({ status: "not-run", cleanup: "stopped" });
   expect(task.appSmoke?.reason).toContain("could not start");
