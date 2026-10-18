@@ -12,7 +12,7 @@ const executable = process.env.CASPER_BROWSER_EXECUTABLE ?? "/Applications/Googl
 const browserTest = existsSync(executable) ? test : test.skip;
 const cleanup: Array<() => Promise<unknown>> = [];
 afterEach(async () => { for (const close of cleanup.splice(0).reverse()) await close(); });
-async function fixture(options: { executablePath?: string; confirm?: (request: unknown, signal: AbortSignal) => Promise<boolean>; navigationTimeoutMs?: number; allowActions?: () => boolean; checkPictures?: () => boolean } = {}) {
+async function fixture(options: { executablePath?: string; firstStartMs?: number; confirm?: (request: unknown, signal: AbortSignal) => Promise<boolean>; navigationTimeoutMs?: number; allowActions?: () => boolean; checkPictures?: () => boolean } = {}) {
   const root = await realpath(await mkdtemp(path.join(os.tmpdir(), "casper-browser-test-")));
   cleanup.push(() => removeTempDir(root));
   const project = path.join(root, "project"), state = path.join(root, "state");
@@ -135,17 +135,57 @@ browserTest("fill replaces an entire multiline textarea rather than only the cli
   expect(result.status).toBe("pass");
 }, 20_000);
 
-browserTest("a browser crash invalidates earlier passing evidence and cannot resurrect the dead session", async () => {
+const alive = (pid: number) => { try { process.kill(pid, 0); return true; } catch { return false; } };
+async function crash(session: BrowserSession) {
+  const pid = session.status().ownedBrowserPid!;
+  process.kill(pid, "SIGKILL");
+  for (let i = 0; i < 200 && (session.status().ownedBrowserPid === pid || alive(pid)); i++) await new Promise(resolve => setTimeout(resolve, 25));
+  return pid;
+}
+
+browserTest("a browser crash makes earlier passing evidence stale and the next open starts a fresh Chrome", async () => {
   const f = await fixture();
   const result = await f.session.run({ action: "check", scenario: { name: "Heading", url: f.url, scope: { inputs: ["index.html"] }, steps: [], assertions: [{ kind: "text", selector: "h1", expected: "Hello Casper" }] } });
   expect(result.status).toBe("pass");
+  const first = await crash(f.session);
+  expect(f.session.status().state).toBe("idle");
+  expect(await f.session.report()).toMatchObject({ status: "incomplete", checks: [{ freshness: "stale" }] });
+  // The old page is gone, said plainly; opening again starts a new Chrome and says what happened once.
+  await expect(f.session.run({ action: "inspect" })).rejects.toThrow("Chrome stopped unexpectedly");
+  const reopened = await f.session.run({ action: "open", url: f.url });
+  expect(reopened.title).toBe("Browser fixture");
+  expect(f.session.status().ownedBrowserPid).not.toBe(first);
+  expect(reopened).not.toHaveProperty("restarted");
+}, 30_000);
+
+browserTest("a crash right before an action is named in that action's result", async () => {
+  const f = await fixture();
+  await f.session.run({ action: "open", url: f.url });
+  await crash(f.session);
+  expect(await f.session.run({ action: "open", url: f.url })).toMatchObject({ title: "Browser fixture", restarted: expect.stringContaining("started a new one") });
+}, 30_000);
+
+browserTest("after two fresh starts a third crash closes the session for good", async () => {
+  const f = await fixture();
+  for (let i = 0; i < 2; i++) { await f.session.run({ action: "open", url: f.url }); await crash(f.session); }
+  await f.session.run({ action: "open", url: f.url });
   const pid = f.session.status().ownedBrowserPid!;
   process.kill(pid, "SIGKILL");
-  for (let i = 0; i < 40 && f.session.status().state !== "closed"; i++) await new Promise(resolve => setTimeout(resolve, 25));
+  for (let i = 0; i < 200 && f.session.status().state !== "closed"; i++) await new Promise(resolve => setTimeout(resolve, 25));
   expect(f.session.status().state).toBe("closed");
-  await expect(f.session.run({ action: "inspect" })).rejects.toThrow("closed");
-  expect(await f.session.report()).toMatchObject({ status: "incomplete", checks: [{ freshness: "stale" }] });
-}, 20_000);
+  await expect(f.session.run({ action: "open", url: f.url })).rejects.toThrow("closed");
+}, 45_000);
+
+// A Chrome that never answers on its first start (seen on fresh Windows runners) is replaced by one fresh start.
+(process.platform === "win32" ? test.skip : browserTest)("a first Chrome start that never answers is replaced by one fresh start", async () => {
+  const root = await realpath(await mkdtemp(path.join(os.tmpdir(), "casper-slow-chrome-")));
+  cleanup.push(() => removeTempDir(root));
+  const starts = path.join(root, "starts"), wrapper = path.join(root, "chrome");
+  await writeFile(wrapper, `#!/bin/sh\necho start >> "${starts}"\nif [ "$(wc -l < "${starts}")" -le 1 ]; then exec sleep 60; fi\nexec "${executable}" "$@"\n`, { mode: 0o755 });
+  const f = await fixture({ executablePath: wrapper, firstStartMs: 1_000 });
+  expect(await f.session.run({ action: "open", url: f.url })).toMatchObject({ title: "Browser fixture" });
+  expect((await readFile(starts, "utf8")).trim().split("\n")).toHaveLength(2);
+}, 30_000);
 
 browserTest("known consequential labels cannot bypass approval by claiming local-test", async () => {
   let approved = false, approvals = 0, effects = 0;

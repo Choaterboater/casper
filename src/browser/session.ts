@@ -27,6 +27,8 @@ export interface BrowserSessionOptions {
   confirm?: (request: BrowserApproval, signal: AbortSignal) => Promise<boolean>;
   /** Page navigation deadline (default 10 s); a test seam, never model-supplied. */
   navigationTimeoutMs?: number;
+  /** How long a first Chrome start may take before one fresh start replaces it (default 8 s); a test seam. */
+  firstStartMs?: number;
   /**
    * Asked once before the AI's browser reaches a cloud metadata address (metadata.ts), by the page itself, a
    * redirect, a frame or a fetch. Without it nobody can say yes, and those addresses are not opened.
@@ -815,6 +817,10 @@ interface RecordedCheck { scenario: BrowserScenario; check: BrowserCheck; finger
   /** The revision and input fingerprint of the run that recorded it: a withdraw needs both unchanged since then. */
   recordedRevision: number; recordedFingerprint?: string }
 
+/** How long a first Chrome start may take before one fresh start replaces it, and fresh starts after a crash per session. */
+const FIRST_START_MS = 8_000;
+const MAX_RESTARTS = 2;
+
 export class BrowserSession {
   private readonly controller = new AbortController();
   private browser?: Browser;
@@ -843,6 +849,9 @@ export class BrowserSession {
   private popups = 0;
   private revision = 0;
   private operations = 0;
+  /** Fresh Chrome starts after a crash this session, and the note the next result carries about the last one. */
+  private restarts = 0;
+  private restarted?: string;
   /** Host page loads: serialized, and the first one gets the longer first-compile deadline. */
   private loading: Promise<void> = Promise.resolve();
   private loads = 0;
@@ -881,8 +890,20 @@ export class BrowserSession {
     if (!record(input)) throw new Error("Browser arguments must be an object with an action");
     if (Buffer.byteLength(JSON.stringify(input)) > 20_000) throw new Error("Browser arguments exceed 20 KiB");
     const { args, ignored } = browserArguments(input);
-    const result = await this.dispatch(args, signal);
-    return ignored.length ? { ...result, ignoredArguments: ignored, note: `${actionUsage(args.action as BrowserAction)}; the other fields were not applied.` } : result;
+    const before = this.restarts;
+    let result: Record<string, unknown>;
+    try { result = await this.dispatch(args, signal); } catch (error) {
+      // Chrome died during this action: say so rather than the protocol error it caused. The action can fail a
+      // moment before Chrome's disconnect is seen, so a closed-target error waits briefly for it.
+      if (/Target closed|Session closed|detached|Connection closed/i.test(String(error)))
+        for (let i = 0; i < 20 && this.restarts === before && !this.controller.signal.aborted; i++) await new Promise(resolve => setTimeout(resolve, 25));
+      if (this.restarts > before && !this.controller.signal.aborted) { this.restarted = undefined; throw new Error("Chrome stopped unexpectedly during this action and Casper started a new one. The page is gone: open it again."); }
+      throw error;
+    }
+    const restarted = this.restarted;
+    this.restarted = undefined;
+    const noted = restarted ? { ...result, restarted } : result;
+    return ignored.length ? { ...noted, ignoredArguments: ignored, note: `${actionUsage(args.action as BrowserAction)}; the other fields were not applied.` } : noted;
   }
 
   private async dispatch(input: Record<string, unknown>, signal?: AbortSignal): Promise<Record<string, unknown>> {
@@ -909,7 +930,7 @@ export class BrowserSession {
       if (input.action === "diagnostics") return { console: structuredClone(this.logs), network: structuredClone(this.requests), dropped: this.dropped,
         server: this.server?.diagnostics(), guidance: "Bounded diagnostics, not verification. URL queries/fragments are omitted; content may still be sensitive." };
       const page = url ? await this.start() : this.page;
-      if (!page) throw new Error("Open a browser URL before inspecting it");
+      if (!page) { const restarted = this.restarted; this.restarted = undefined; throw new Error(restarted ?? "Open a browser URL before inspecting it"); }
       combined.throwIfAborted();
       if (url) {
         this.logs.length = 0; this.requests.length = 0; this.dropped = 0;
@@ -1664,19 +1685,61 @@ export class BrowserSession {
       const supplied = this.options.executablePath ?? process.env.CASPER_BROWSER_EXECUTABLE;
       const executablePath = await discoverBrowser(supplied);
       if (!executablePath || !path.isAbsolute(executablePath)) throw new Error("Browser unavailable: install Chrome yourself or set CASPER_BROWSER_EXECUTABLE to an absolute executable path");
-      this.controller.signal.throwIfAborted();
-      this.profile = await realpath(await mkdtemp(path.join(os.tmpdir(), "casper-browser-")));
       const { default: puppeteer } = await import("puppeteer-core");
-      this.controller.signal.throwIfAborted();
-      this.browser = await puppeteer.launch({ executablePath, headless: true, pipe: true, userDataDir: this.profile,
-        handleSIGINT: false, handleSIGTERM: false, handleSIGHUP: false, signal: this.controller.signal, timeout: 10_000,
-        env: browserEnvironment(this.profile) });
-      const chrome = this.browser.process();
-      if (chrome) this.chromeOwner = ownSpawnedTree(chrome.pid, () => chrome.exitCode === null && chrome.signalCode === null);
-      this.browser.on("disconnected", () => { if (!this.controller.signal.aborted) { this.invalidate(); void this.close(); } });
-      this.controller.signal.throwIfAborted();
-      return this.newPage();
+      // A first Chrome start on a cold machine sometimes never answers (seen on fresh Windows runners): that attempt
+      // is stopped after FIRST_START_MS and one fresh Chrome is started, with the running action's deadline renewed.
+      for (let attempt = 1; ; attempt++) {
+        const slow = new AbortController();
+        const timer = attempt === 1 ? setTimeout(() => slow.abort(new Error("Chrome did not answer")), this.options.firstStartMs ?? FIRST_START_MS) : undefined;
+        try {
+          return await this.launch(puppeteer, executablePath, AbortSignal.any([this.controller.signal, slow.signal]));
+        } catch (error) {
+          if (this.controller.signal.aborted || attempt >= 2) throw error;
+          await this.discardChrome();
+          this.deadline?.resume();
+        } finally { clearTimeout(timer); }
+      }
     })();
+  }
+  private async launch(puppeteer: typeof import("puppeteer-core").default, executablePath: string, signal: AbortSignal): Promise<Page> {
+    signal.throwIfAborted();
+    this.profile = await realpath(await mkdtemp(path.join(os.tmpdir(), "casper-browser-")));
+    signal.throwIfAborted();
+    const browser = this.browser = await puppeteer.launch({ executablePath, headless: true, pipe: true, userDataDir: this.profile,
+      handleSIGINT: false, handleSIGTERM: false, handleSIGHUP: false, signal, timeout: 10_000,
+      env: browserEnvironment(this.profile) });
+    const chrome = browser.process();
+    if (chrome) this.chromeOwner = ownSpawnedTree(chrome.pid, () => chrome.exitCode === null && chrome.signalCode === null);
+    browser.on("disconnected", () => { if (!this.controller.signal.aborted && browser === this.browser) void this.chromeStopped(); });
+    signal.throwIfAborted();
+    return await Promise.race([this.newPage(), new Promise<never>((_, reject) => {
+      signal.addEventListener("abort", () => reject(signal.reason), { once: true });
+    })]);
+  }
+  /** Chrome died under the session (a crash, the OS killing it). Evidence it gave is already stale. Up to
+   * MAX_RESTARTS times the next action starts a fresh Chrome; then, or if its processes can't be confirmed gone,
+   * the session closes as before. The app server the session started keeps running. */
+  private async chromeStopped(): Promise<void> {
+    this.invalidate();
+    if (this.closeWork) return;
+    if (this.restarts >= MAX_RESTARTS) { void this.close().catch(() => {}); return; }
+    this.restarts++;
+    this.restarted = "Chrome stopped unexpectedly and Casper started a new one. The page and anything typed into it are gone: open it again.";
+    await this.discardChrome();
+  }
+  /** Stops this Chrome's process tree and removes its profile, leaving the session open for a fresh start. */
+  private async discardChrome(): Promise<void> {
+    const browser = this.browser, owner = this.chromeOwner, profile = this.profile, child = browser?.process();
+    this.browser = undefined; this.chromeOwner = undefined; this.profile = undefined; this.page = undefined; this.startup = undefined;
+    await owner?.captureCurrent().catch(() => {});
+    const outcome = await terminateTree(owner, child?.pid, "SIGKILL");
+    await browser?.disconnect().catch(() => {});
+    if (outcome === "unknown") {
+      this.cleanupError = new ProcessCleanupError(owner);
+      void this.close().catch(() => {});
+      return;
+    }
+    if (profile) await rm(profile, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }).catch(() => {});
   }
   private async newPage(): Promise<Page> {
       const context = await this.browser!.createBrowserContext({ downloadBehavior: { policy: "deny" } });
@@ -1691,7 +1754,8 @@ export class BrowserSession {
       this.page.on("popup", () => { this.popups++; });
       this.page.on("console", message => this.log({ type: message.type(), text: message.text().slice(0, 1024) }));
       this.page.on("pageerror", error => this.log({ type: "exception", text: String(error).slice(0, 1024) }));
-      this.page.on("error", () => { this.invalidate(); void this.close(); });
+      const page = this.page, browser = this.browser;
+      this.page.on("error", () => { if (!this.controller.signal.aborted && browser === this.browser && page === this.page) void this.chromeStopped(); });
       this.page.on("response", response => this.request(response.url(), { status: response.status() }));
       this.page.on("requestfailed", request => this.request(request.url(), { error: "Network request failed" }));
       const cdp = await this.page.createCDPSession();
