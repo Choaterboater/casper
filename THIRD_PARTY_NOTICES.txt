@@ -169,6 +169,23 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 ==============================================================================
+pbakaus/impeccable (Apache-2.0) — the /look command instructions
+Sources:
+https://github.com/pbakaus/impeccable (commit 2f46b7a), skill/reference/critique.md,
+audit.md, polish.md, layout.md, typeset.md, colorize.md, quieter.md, adapt.md,
+harden.md and clarify.md
+
+Casper's /look instructions (src/look/*.md) are adapted from these command
+references. Changes: each was shortened to a few steps, rewritten in Casper's
+plain words, and pointed at Casper's browser tool (viewport, screenshot, inspect,
+diagnostics, check and replay) in place of impeccable's own scripts, detector and
+files. impeccable's platform files (reference/ios.md, reference/android.md) are
+not used, and its NOTICE.md is about those files only.
+
+Copyright 2025 Paul Bakaus. Licensed under the Apache License, Version 2.0. The
+full Apache License 2.0 text is reproduced below under @aws/lambda-invoke-store.
+
+==============================================================================
 Aider (Apache-2.0) — the undo rules
 Sources:
 https://github.com/Aider-AI/aider

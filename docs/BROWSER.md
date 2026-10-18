@@ -101,6 +101,43 @@ entries) taken before and after; when none of these changed, `changes` is left o
 `press` supports `Enter`, `Tab`, `Escape`, `ArrowUp`, `ArrowDown`, `ArrowLeft`,
 `ArrowRight`, `Space` and `Backspace`.
 
+## /look: review and polish a page
+
+`/look <command> [page or url]` runs one design pass on a page as an ordinary task, with the
+`browser` tool. `/look` alone shows the numbered list (pick one where Casper can ask).
+
+| Command | What it does |
+| --- | --- |
+| `critique` | Screenshots at 390 and 1280 wide; scores Nielsen's 10 usability heuristics 0 to 4; what works, issues marked P0 to P3, 3 questions. A report: no edits |
+| `audit` | `diagnostics`, `inspect`, and checks for no sideways scroll at 390 and no overlap of the header and the content; scores accessibility, performance, theming, responsive and integrity 0 to 4. A report: no edits |
+| `polish` | Fixes in this order: broken, missing states, hierarchy and responsive, visual, cleanup |
+| `layout` | Spacing, grouping and reading order |
+| `type` | Sizes, weights, line length and wrapping |
+| `colour` | Theme tokens only, with the contrast worked out for light and dark (`color` works too) |
+| `quieter` | Calms a loud page through theme tokens only |
+| `adapt` | 390, 768 and 1280 wide: overflow, overlap, 44px tap targets |
+| `harden` | Long text (a 200-character string), empty, loading and error states, a check for each |
+| `clarify` | Wording only |
+
+- **Which page.** A link you give (`/look audit http://127.0.0.1:5173/`) is used as it is. Otherwise
+  Casper finds the page the same way as the [page checks](VERIFICATION.md) after a change: the
+  dev server from `services.web` or `package.json` (the AI starts it with `serve`), or the
+  project's `index.html` (served with `script: "files"`). A path (`/look adapt /settings`) picks
+  the page on it. With none, Casper says so and runs nothing: `There is no page here to look at`.
+  A missing `node_modules`, no Chrome or Edge, or the browser tool off in `/settings` is said the
+  same way, also with no model call.
+- **Only its own instructions.** Each command's instructions are a small file of their own
+  (`src/look/<command>.md`, 230 to 450 tokens), added to that one request only. None of them is in
+  the fixed prompt, and the next request has none.
+- **Fixes end by looking again.** The fixing commands record checks before they edit, then replay
+  them and take fresh screenshots; Casper's own end-of-task replay and page checks run as after
+  any change. `critique` and `audit` are told to change no files; the receipt shows any that did.
+- `/look` waits for a running task, like `/plan`.
+- The instructions are adapted and trimmed from
+  [pbakaus/impeccable](https://github.com/pbakaus/impeccable)'s command references (Apache-2.0,
+  Copyright 2025 Paul Bakaus), shortened and rewritten in Casper's words; the notice is in
+  `THIRD_PARTY_NOTICES.txt` (`casper --licenses`).
+
 ## Reproduce, fix, replay
 
 The model records a `check` **before editing**. You do not write this JSON

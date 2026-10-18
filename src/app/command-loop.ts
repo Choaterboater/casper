@@ -32,6 +32,7 @@ import { checkSignIn, ensureRuntime } from "./runtime-start";
 import { handledHere, modelChangeRequest, namesModel } from "./model-words";
 import { reloadProject } from "./project-file";
 import { pagesCommand } from "./pages";
+import { lookCommand } from "./look";
 import { rewind } from "./rewind";
 import { readPlan, recentPlans } from "../flows/plan-store";
 
@@ -220,6 +221,7 @@ export function handleSlashCommand(app: CasperApp, typed: string): Promise<Verif
   if (prompt.trim() === "/theme") return settingsCommand(app, "Theme").then(() => undefined);
   if (/^\/pages(?:\s|$)/.test(prompt)) return pagesCommand(app, prompt.slice(6).trim()).then(() => undefined);
   if (/^\/preview(?:\s|$)/.test(prompt)) return previewCommand(app, prompt.slice(8).trim()).then(() => undefined);
+  if (/^\/look(?:\s|$)/.test(prompt)) return lookCommand(app, prompt.slice(5).trim());
   const newProject = /^\/project\s+new(?:\s+([\s\S]*))?$/.exec(prompt.trim());
   if (newProject) return newProjectCommand(app, (newProject[1] ?? "").trim()).then(() => undefined);
   if (/^\/suggestions(?:\s|$)/.test(prompt)) {

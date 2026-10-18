@@ -186,6 +186,11 @@ Local commands:
   /services start|restart|stop <name>  Start (waits for readiness; restarts a stale or crashed one), restart or stop
   /preview                          Your web app on your network for a phone; asks 1 No · 2 Yes before a public link
   /preview stop                     Stop sharing it
+  /look [command] [page or url]     Review or polish a page in the real browser (the dev server, plain files or a link); alone, the numbered list
+  /look critique|audit              A report only, no edits: 10 usability rules at 390 and 1280 wide, or a11y, speed, theming, phone width, integrity
+  /look polish|layout|type          Fix in order (broken, states, layout, looks, cleanup), the spacing, or the type; ends with fresh screenshots
+  /look colour|quieter              Colours through the theme only, with contrast in light and dark; or calm a loud page
+  /look adapt|harden|clarify        390, 768 and 1280 wide with 44px targets; long text, empty, loading and error states; wording only
   /pages [list]                     Pages the AI made for this project (comparisons, mock-ups, dashboards), with their local links
   /pages open <name>                Show one in your browser (also with opening off)
   /pages remove <name>              Delete one; its open tab says (removed)
