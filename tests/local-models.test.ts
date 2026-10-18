@@ -712,10 +712,12 @@ test("a slow server on another computer holds up neither a start whose saved mod
   const { home, project } = await looksHome();
   await mkdir(path.join(home, ".casper"), { recursive: true });
   await writeFile(path.join(home, ".casper/settings.json"), JSON.stringify({ defaultProvider: "openrouter", defaultModel: "no-such-model" }));
-  const result = await startWithSlowRemote(home, project, 4000, `
+  // The look takes 15 s: a start that waited for it would take at least that. Start itself can take a few seconds on a
+  // busy machine (5.9 s once under the full suite), so the margin is the look, not a fixed start time.
+  const result = await startWithSlowRemote(home, project, 15_000, `
     const words = performance.now(); await session.matchModel("use node 20"); const wordsMs = performance.now() - words;
     console.log(JSON.stringify({ startMs, wordsMs, looks }));`);
-  expect(result.startMs).toBeLessThan(3000);
+  expect(result.startMs).toBeLessThan(10_000);
   expect(result.wordsMs).toBeLessThan(1500);
   expect(result.looks).toBe(1);
 }, 60_000);
