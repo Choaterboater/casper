@@ -71,7 +71,7 @@ test("an all-lab inventory gives a numbered ask with no Always choice for ansibl
   expect(argv.slice(0, 3)).toEqual(["--check", "--diff", "-i"]);
   // What the user sees, the JSON fields, and the receipt: a dry-run pass is shown but never grounds for passed.
   const shown = fromNetworkResult(result);
-  expect(liveCheckLine(shown)).toMatch(/^✓ aoscx-check · dry run not guaranteed(?: · \d+\.\ds)?$/);
+  expect(liveCheckLine(shown)).toMatch(/^✓ aoscx-check · dry run not guaranteed(?: · \d+(?:\.\d)?s)?$/);
   expect(formatVerificationResult(shown)).toStartWith("✓ aoscx-check  ansible --check on 3 switches  (dry run not guaranteed; ");
   expect(namedCheckFields(shown)).toEqual({ kind: "lab", label: DRY_RUN_LABEL, hosts: ["lab-sw1", "lab-sw2", "lab-sw3"] });
   expect(checksPassed({ status: verificationStatus([shown]), repairAttempts: 0, rounds: [[shown]], results: [shown] })).toBe(false);

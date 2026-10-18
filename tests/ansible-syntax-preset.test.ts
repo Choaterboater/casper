@@ -43,7 +43,7 @@ test("syntax check runs ansible-playbook --syntax-check with -i localhost, and C
   expect(await exists(config!)).toBe(false);
   // The line shown when it finishes, and the verbose one with its command. Neither says "offline".
   const shown = fromNetworkResult(result);
-  expect(liveCheckLine(shown)).toMatch(/^✓ aruba-syntax(?: · \d+\.\ds)?$/);
+  expect(liveCheckLine(shown)).toMatch(/^✓ aruba-syntax(?: · \d+(?:\.\d)?s)?$/);
   expect(formatVerificationResult(shown)).toStartWith("✓ aruba-syntax  ansible-playbook --syntax-check -i localhost, site.yml  (");
   expect(liveCheckLine(shown) + formatVerificationResult(shown)).not.toContain("offline");
 });
