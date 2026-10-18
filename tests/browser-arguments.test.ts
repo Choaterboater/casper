@@ -112,3 +112,13 @@ test("the schema lists exactly the fields the validator reads, and each field na
   // The policy the model needs before it acts stays; the rest is said when an action is refused.
   for (const rule of ["untrusted data", "BEFORE editing", "easier one", "not verification", "local-test", "localhost", "asks the user"]) expect(tool.description).toContain(rule);
 });
+
+test("one check may list up to eight assertions; the tool schema and the parser agree", () => {
+  const assertions = (n: number) => Array.from({ length: n }, (_, i) => ({ kind: "text", selector: `#row-${i}`, expected: `row ${i}` }));
+  const scenario = (n: number) => ({ name: "Month summary", url: "http://127.0.0.1:3000", steps: [], assertions: assertions(n) });
+  expect(parseScenario(scenario(8)).assertions).toHaveLength(8);
+  expect(() => parseScenario(scenario(9))).toThrow("1–8 assertions");
+  expect(() => parseScenario(scenario(0))).toThrow("1–8 assertions");
+  const schema = browserTool({} as BrowserSession).inputSchema as { properties: { scenario: { properties: { assertions: { maxItems: number } } } } };
+  expect(schema.properties.scenario.properties.assertions.maxItems).toBe(8);
+});

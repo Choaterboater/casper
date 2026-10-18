@@ -53,6 +53,8 @@ export function viewport(value: unknown): { width: number; height: number } {
   if (!Number.isInteger(v.width) || !Number.isInteger(v.height) || Number(v.width) < 240 || Number(v.width) > 1920 || Number(v.height) < 240 || Number(v.height) > 1080) throw new Error("Browser viewport must be 240–1920 wide and 240–1080 high");
   return { width: Number(v.width), height: Number(v.height) };
 }
+/** One check may confirm several things on a page (each is a quick read); weak models often list 5–8. */
+export const MAX_ASSERTIONS = 8;
 export function parseScenario(input: unknown): BrowserScenario {
   if (Buffer.byteLength(JSON.stringify(input) ?? "") > 16_384) throw new Error("Browser scenario exceeds 16 KiB");
   const entry = object(input, ["name", "url", "viewport", "steps", "assertions", "scope"], "scenario");
@@ -62,7 +64,7 @@ export function parseScenario(input: unknown): BrowserScenario {
   if (scope !== undefined && !isVerificationScope(scope)) throw new Error("Browser scenario scope needs inputs: 1–32 project-relative paths (exclude is optional)");
   const steps = entry.steps ?? [];
   if (!Array.isArray(steps) || steps.length > 12) throw new Error("Browser scenario steps must be a list of 0–12 click/fill/press/select steps");
-  if (!Array.isArray(entry.assertions) || !entry.assertions.length || entry.assertions.length > 4) throw new Error("Browser scenario needs 1–4 assertions");
+  if (!Array.isArray(entry.assertions) || !entry.assertions.length || entry.assertions.length > MAX_ASSERTIONS) throw new Error(`Browser scenario needs 1–${MAX_ASSERTIONS} assertions`);
   const parsedSteps = steps.map((value, index) => {
     const step = object(value, ["action", "selector", "value", "impact", "reason"], `scenario step ${index + 1}`);
     if (!["click", "fill", "press", "select"].includes(String(step.action))) throw new Error(`Browser scenario step ${index + 1} action must be click, fill, press or select`);

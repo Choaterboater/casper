@@ -3,6 +3,7 @@ import { boundedObservation } from "../capabilities/result";
 import type { RuntimeImage, RuntimeTool } from "../runtime/types";
 import { formatTerminalJSON } from "../tui/json";
 import { BROWSER_ACTION_FIELDS, BROWSER_ACTIONS } from "./arguments";
+import { MAX_ASSERTIONS } from "./scenario";
 import { SCREENSHOT_PNG, type BrowserSession } from "./session";
 
 /** Base64 size a picture may have: Pi's read tool keeps the same headroom below Anthropic's 5 MB per image. */
@@ -47,7 +48,7 @@ export function browserTool(session: BrowserSession | (() => BrowserSession), li
           action: { type: "string", enum: ["click", "fill", "press", "select"] }, selector: { type: "string" }, value: { type: "string", description: "{run}: new each run, for sign-ups" },
           impact: { type: "string", enum: ["local-test", "consequential", "uncertain"] }, reason: { type: "string" },
         } } },
-        assertions: { type: "array", minItems: 1, maxItems: 4, items: { type: "object", additionalProperties: false, required: ["kind"], properties: {
+        assertions: { type: "array", minItems: 1, maxItems: MAX_ASSERTIONS, items: { type: "object", additionalProperties: false, required: ["kind"], properties: {
           kind: { type: "string", enum: ["text", "visible", "no-horizontal-overflow", "no-overlap"] },
           selector: { type: "string", description: "optional for no-horizontal-overflow (else whole page)" },
           expected: { type: "string", description: "text only" }, other: { type: "string", description: "no-overlap only" },
