@@ -9,7 +9,7 @@ import { revokeWorkspaceCapabilities } from "../src/app/session-branches";
 import { planAppSmoke } from "../src/services/detect";
 import { HttpPageOpener, type PageOpener } from "../src/services/page-checks";
 import { ServiceManager } from "../src/services/manager";
-import { requestApp, sameRuntimeInputs, tryApp, type AppSmokeReport } from "../src/services/try-it";
+import { appDataFile, requestApp, sameRuntimeInputs, tryApp, type AppSmokeReport } from "../src/services/try-it";
 import { hostProcessPlatform, type ProcessRecord } from "../src/platform/processes";
 import { freePort } from "../src/platform/managed-process";
 import { loadProjectContext } from "../src/project/context";
@@ -321,6 +321,21 @@ test("files changed by startup cannot be reported as a passing final-file smoke"
   expect(task.appSmoke?.reason).toContain("files changed while trying");
   await f.stopped();
 }, 20_000);
+
+test("the app saving its own data while it is tried still counts as a passing smoke", async () => {
+  const f = await fixture();
+  const writes = `const fs = require("node:fs"); fs.mkdirSync("db", { recursive: true });
+fs.writeFileSync("data.json", JSON.stringify({ started: Date.now() })); fs.writeFileSync("db/app.db-wal", String(Date.now())); fs.appendFileSync("app.log", "up\\n");\n`;
+  f.edit("server.ts", writes + f.source());
+  const task = await f.run();
+  expect(task.appSmoke).toMatchObject({ status: "pass", httpStatus: 200, cleanup: "stopped" });
+  await f.stopped();
+}, 20_000);
+
+test("only data, database and log files count as the app's own writes", () => {
+  for (const file of ["data.json", "db/snip.db", "snip.db-wal", "store.sqlite3-shm", "logs/app.log", "events.jsonl", "data/seed.csv"]) expect(appDataFile(file)).toBe(true);
+  for (const file of ["package.json", "tsconfig.build.json", ".eslintrc.json", "vite.config.json", "app.json", "src/server.ts", "public/app.js", "bun.lock"]) expect(appDataFile(file)).toBe(false);
+});
 
 test("teardown edits invalidate a reused final-file result", async () => {
   const f = await fixture({ mode: "auto", config: { pages: ["/"] } });

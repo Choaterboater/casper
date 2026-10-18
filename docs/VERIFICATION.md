@@ -675,6 +675,10 @@ the API answered and has no page there (`GET / → HTTP 404 — the API answered
 404, a 5xx, or a 404 on a changed page or declared path still fails. Readiness polling is separate from this one smoke request.
 A matching fresh page or service check on the final files is reused instead of making another request.
 A reused check keeps its actual method, path and result. A later edit invalidates it.
+If code or configuration changes while the app is being tried, the smoke says not run. Data the app
+writes as it works (`.json` data files, SQLite databases and their `-wal`/`-shm` files, `.log`, `.csv`)
+does not count; manifests and tool configs such as `package.json` or `tsconfig.json` still do. The
+receipt still lists those files under `Changed while checking`.
 If the selected service is already running because you intentionally started it, Casper makes it fresh
 with `ensureFresh` before that GET: edits mark it stale, so it restarts once instead of serving old code.
 The request goes there instead of launching a second copy, even on a fixed port. The service stays yours,

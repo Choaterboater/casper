@@ -76,6 +76,21 @@ export async function requestApp(origin: string | undefined, requestPath: string
   }
 }
 
+/** Files a running app writes as it works (its data store, logs), not code or configuration it loads.
+ * Manifests, lockfiles and tool configs are inputs even though they are JSON. */
+export function appDataFile(file: string): boolean {
+  const name = file.replace(/\\/g, "/").split("/").pop()!.toLowerCase();
+  if (/^(?:package|package-lock|composer|deno|bun|tsconfig.*|jsconfig.*|.*\.config|\..*rc|manifest|app|appsettings.*)\.jsonc?$/.test(name)) return false;
+  return /\.(?:json|jsonl|ndjson|csv|log|db|sqlite3?|db-(?:wal|shm|journal)|sqlite3?-(?:wal|shm|journal))$/.test(name);
+}
+
+/** Like sameRuntimeInputs, but the app's own data writes during a smoke do not count as changed inputs. */
+export function sameAppInputs(a: ReadonlyMap<string, string> | undefined, b: ReadonlyMap<string, string> | undefined): boolean {
+  if (a === undefined || b === undefined) return false;
+  const code = (map: ReadonlyMap<string, string>) => new Map([...map].filter(([file]) => !appDataFile(file)));
+  return sameRuntimeInputs(code(a), code(b));
+}
+
 /** Snapshot equality, not a tool's claim of freshness. Unknown inputs never reuse a result. */
 export function sameRuntimeInputs(a: ReadonlyMap<string, string> | undefined, b: ReadonlyMap<string, string> | undefined): boolean {
   return a !== undefined && b !== undefined && a.size === b.size && [...a].every(([file, hash]) => b.get(file) === hash);
