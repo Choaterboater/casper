@@ -160,6 +160,20 @@ export const COMMAND_REGISTRY: readonly CommandSpec[] = [
   ] },
   { name: "preview", description: "Open your web app on a phone on the same Wi-Fi; a public link only after a yes",
     subcommands: [{ name: "stop", description: "Stop sharing it" }] },
+  // /look starts model work with the browser tool, so it waits for a running task like /plan.
+  { name: "look", description: "Review or polish a page in the real browser: /look critique, /look polish …", argumentHint: "[command] [page or url]",
+    waits: ANY, subcommands: [
+      { name: "critique", args: "[page or url]", description: "Score 10 usability rules at 390 and 1280 wide; a report", waits: true },
+      { name: "audit", args: "[page or url]", description: "Accessibility, speed, theming, phone width, integrity; a report", waits: true },
+      { name: "polish", args: "[page or url]", description: "Fix broken, then states, layout, looks, cleanup; screenshots again", waits: true },
+      { name: "layout", args: "[page or url]", description: "Spacing, grouping and reading order", waits: true },
+      { name: "type", args: "[page or url]", description: "Sizes, weights, line length and wrapping", aliases: ["typeset"], waits: true },
+      { name: "colour", args: "[page or url]", description: "Theme colours only, contrast in light and dark", aliases: ["color"], waits: true },
+      { name: "quieter", args: "[page or url]", description: "Calm a loud page through the theme", waits: true },
+      { name: "adapt", args: "[page or url]", description: "390, 768 and 1280 wide: overflow, overlap, 44px targets", waits: true },
+      { name: "harden", args: "[page or url]", description: "Long text, empty, loading and error states", waits: true },
+      { name: "clarify", args: "[page or url]", description: "Wording only", waits: true },
+    ] },
   { name: "pages", description: "Pages the AI made for this project, with links; open or remove one", afterCleanupError: NONE, subcommands: [
     { name: "open", args: "<name>", description: "Show a page in your browser" },
     { name: "remove", args: "<name>", description: "Delete a page" },

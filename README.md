@@ -139,6 +139,9 @@ Ctrl+D on an empty prompt exits. [Keys and commands](docs/TERMINAL_UX.md#quick-r
   dashboard, a report for others), the AI makes a page by itself and it opens in your
   browser; a change reloads it. Local only, with an off switch in `/settings`.
   [Pages](docs/TERMINAL_UX.md#pages-the-ai-makes)
+- **Look at a page.** `/look critique` scores a page at phone and desktop width; `/look polish`,
+  `adapt`, `harden` and the others fix it and screenshot it again, in the real browser.
+  [/look](docs/BROWSER.md#look-review-and-polish-a-page)
 - **Services, browser, LSP, debugger.** Run your dev server, debug in Chrome or Edge, use a language
   server or a step debugger. [Services](docs/SERVICES.md) · [Browser](docs/BROWSER.md) · [LSP](docs/LSP.md) · [Debugger](docs/DEBUGGER.md)
 - **Scripting.** `--json` streams events, and exit codes tell a script what happened (3 = not proven

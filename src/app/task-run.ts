@@ -69,7 +69,8 @@ import { projectPrivatePaths, reportSkillWarnings } from "./wiring";
 import { appAgentDir, ensureRuntime } from "./runtime-start";
 import { reloadProject, writeProjectFile } from "./project-file";
 
-export async function runModelTask(app: CasperApp, prompt: string, options: { flow?: Flow; planFirst?: boolean; savedPlan?: SavedPlan; words?: RequestWords } = {}): Promise<VerificationReport | undefined> {
+/** `guide`: guidance a command the user typed adds to this one request (/look's instructions), after the request. */
+export async function runModelTask(app: CasperApp, prompt: string, options: { flow?: Flow; planFirst?: boolean; savedPlan?: SavedPlan; words?: RequestWords; guide?: string } = {}): Promise<VerificationReport | undefined> {
   if (app.closing) return;
   // The person's words ("think hard:", "big model:", "plan first:"): this task only, said in a line, then put back.
   const { words, ...rest } = options;
@@ -93,8 +94,8 @@ export async function runModelTask(app: CasperApp, prompt: string, options: { fl
   // `[image 1] is the file …` line names a file Casper made, not what to change.
   const typed = prompt;
   prompt = attached.text;
-  // A flow the user picked, or /plan, is already this task's one choice before work: no other panel.
-  app.beforeWorkAsked = Boolean(options.flow || options.planFirst);
+  // A flow the user picked, /plan or /look is already this task's one choice before work: no other panel.
+  app.beforeWorkAsked = Boolean(options.flow || options.planFirst || options.guide);
   if (await offerNamedProject(app, typed, options.planFirst) === "stop" || app.closing || app.commandAbort?.signal.aborted) return;
   if ((!options.planFirst && await offerNewProject(app, prompt) === "stop") || app.closing || app.commandAbort?.signal.aborted) return;
   app.planBuild = undefined;
@@ -299,6 +300,7 @@ export async function runModelTask(app: CasperApp, prompt: string, options: { fl
         checklist ? formatChecklistPrompt(checklist) : "",
         // A flow the user picked from the row: guidance for this one request.
         options.flow ? formatFlowPrompt(options.flow, prompt) : "",
+        options.guide ?? "",
       ].filter(Boolean).join("\n\n"), app.commandAbort?.signal, { request: prompt, maxTurns: app.maxTurns, ...(images.length ? { images } : {}) });
       await retryModelFailure(app, session, prompt);
     } finally {
