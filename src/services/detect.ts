@@ -287,8 +287,10 @@ export async function planAppSmoke(root: string, input: DetectInput, files: read
   if (!changed.length) return undefined;
   const web = await detectWebService(root, input);
   const pagePlan = changedPages(web?.frameworks ?? input.frameworks ?? [], changed, pages);
+  // A detected app's readiness path is Casper's own default "/", not the project's choice: still a guess.
   const target = (service: DetectedWebService): AppSmokeTarget => {
-    const path = pagePlan.open[0] ?? ("http" in service.spec.ready ? service.spec.ready.http : undefined);
+    const ready = "http" in service.spec.ready && !(service.source !== "declared" && service.spec.ready.http === "/") ? service.spec.ready.http : undefined;
+    const path = pagePlan.open[0] ?? ready;
     return path ? { service, path } : { service, path: "/", rootGuess: true };
   };
   const declared = Object.entries(input.services ?? {}).filter(([, spec]) => changed.some(file => editAffects(root, file)(spec.scope)));

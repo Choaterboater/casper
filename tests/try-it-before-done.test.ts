@@ -154,6 +154,27 @@ test("with no changed page or readiness path, the root is marked as a guess", as
   expect(await planAppSmoke(f.project, { services: { api: { ...f.spec, ready: { http: "/health" } } } }, ["server.ts"])).not.toHaveProperty("rootGuess");
 });
 
+test("an app found from package.json's start script, with no page changed, has its root marked as a guess", async () => {
+  const f = await fixture({ manifest: { name: "api", scripts: { start: "bun server.ts" } } });
+  const plan = await planAppSmoke(f.project, { packageManager: "bun" }, ["server.ts"]);
+  expect(plan).toMatchObject({ service: { source: "package.json" }, path: "/", rootGuess: true });
+});
+
+test("a JSON API found from package.json that answers / with 404 passes the smoke end to end", async () => {
+  const f = await fixture({ manifest: { name: "api", scripts: { start: `"${process.execPath}" server.ts` } }, config: { services: {} } });
+  f.edit("server.ts", `import { appendFileSync } from "node:fs";
+const server = Bun.serve({ hostname: process.env.HOST, port: Number(process.env.PORT), fetch(request) {
+  appendFileSync(${JSON.stringify(f.requests)}, new URL(request.url).pathname + "\\n");
+  return Response.json({ error: "not_found" }, { status: 404 });
+} });
+appendFileSync(${JSON.stringify(f.starts)}, JSON.stringify({ pid: process.pid, port: server.port }) + "\\n");
+console.log("listening");
+`);
+  const task = await f.run();
+  expect(task.appSmoke).toMatchObject({ status: "pass", httpStatus: 404, reason: "the API answered; it has no page at /" });
+  await f.stopped();
+}, 20_000);
+
 test("a JSON 404 or 405 at a guessed root means the API is up; an HTML 404 or a chosen path still fails", async () => {
   const server = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch(request) {
     const route = new URL(request.url).pathname;
