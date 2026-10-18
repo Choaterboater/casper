@@ -364,6 +364,13 @@ After a forced SIGKILL of Casper or a power loss, cleanup may not happen.
 - Scenarios: 16 KiB, 12 steps, 1–4 assertions; total arguments: 20,000 bytes.
 - Operation deadline: 15 seconds (30 for check/replay), including approval wait;
   navigation/server readiness: 10 seconds.
+- Chrome that crashes or is killed: checks it passed become stale, the next action says
+  `Chrome stopped unexpectedly and Casper started a new one`, and the next open starts a
+  fresh Chrome with a new profile (the old page and anything typed into it are gone; the
+  server the session started keeps running). Two fresh starts per session; a third crash,
+  or a Chrome whose processes can't be confirmed stopped, closes the session as before.
+- A first Chrome start that has not answered after 8 seconds is stopped and replaced by one
+  fresh start, and the running action's deadline starts again.
 - Viewport: 240–1920 × 240–1080; default 1280 × 800.
 - Inspection: 8,000 text characters, 40 controls; diagnostics: 30 console and
   30 network entries, 8 KiB server output. Network URL queries/fragments omitted.
