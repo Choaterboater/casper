@@ -279,7 +279,7 @@ test("a command Casper refused shows as not run with the reason said to you, nev
   }
   expect(refusalForScreen(reachCantAsk(target))).toBe("This command reaches 198.51.100.20 (build-server), another machine, and this run can't ask you first. Casper doesn't let the AI reach other machines without your OK.");
   // The hint that is for you stays.
-  expect(refusalForScreen(SHELL_CANT_ASK)).toBe(SHELL_CANT_ASK.replace("Not run: s", "S"));
+  expect(refusalForScreen(SHELL_CANT_ASK)).toBe("Shell commands need your OK here, and this run can't ask. Use --no-sandbox to allow them for this run.");
   // A command's own failure is still a failure.
   expect(refusalForScreen("bash: foo: command not found")).toBeUndefined();
 });

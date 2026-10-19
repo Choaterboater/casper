@@ -291,8 +291,9 @@ The command box always leads with Casper's own question (`Run this command?`). O
 appears below it, labelled `The model says:` and dimmed, never as the approval's authority. It is capped at 100 characters
 then `…` and clipped to one row without wrapping. Multi-line commands keep line breaks: capped previews keep about eight head lines, `… N more lines`, then the last three. Consequential middle lines (push, rm/del, curl/wget/irm, sudo, install and redirects) stay below the gap; narrower windows reduce the ordinary head, not the tail or those lines. Secrets and terminal controls stay hidden.
 Enter runs nothing. A run that can't ask refuses it:
-`Not run: shell commands need your OK here, and this run can't ask. Use --no-sandbox to allow them for this run.`
-Your project's own checks, services and dev servers then run with your permissions, as before
+`Not run: shell commands need your OK here, and this run can't ask. Use --no-sandbox to allow them for this run. Don't send this command again; use a tool instead where one fits: service starts the app, casper_check runs the project's checks, write and edit change files.`
+The screen leaves out the last sentence, which is for the model.
+When the sandbox is off, your project's own checks, services and dev servers run with your permissions, as before
 v0.2.17, and the banner, `/status` and the receipt say they were not sandboxed.
 
 ### Who can change it

@@ -119,7 +119,7 @@ test("a run that can't ask refuses the command with the --no-sandbox hint, and n
   const sandbox = createSessionSandbox(terminal.value, context, { root: () => project, home, seams: { engine: fakeEngine(), platform: "win32" } });
   const shell = runtimeShell(terminal.value, sandbox, new SandboxStore(context.stateDirectory));
   expect(await shell.approve!("npm test")).toBe(SHELL_CANT_ASK);
-  expect(SHELL_CANT_ASK).toBe("Not run: shell commands need your OK here, and this run can't ask. Use --no-sandbox to allow them for this run.");
+  expect(SHELL_CANT_ASK).toBe("Not run: shell commands need your OK here, and this run can't ask. Use --no-sandbox to allow them for this run. Don't send this command again; use a tool instead where one fits: service starts the app, casper_check runs the project's checks, write and edit change files.");
   expect(terminal.asked).toEqual([]);
 });
 
