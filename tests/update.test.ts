@@ -359,7 +359,8 @@ test("windows: the verified installer is handed to a detached process that waits
   // Nothing is downloaded again and the running program is untouched.
   expect(github.asked.filter((url) => url.endsWith("install.ps1"))).toHaveLength(1);
   expect(await readdir(dir)).toEqual(["casper.exe"]);
-  expect(lines.at(-1)).toBe("Casper cannot replace itself while it runs. A hidden helper does it once this Casper has exited, and it downloads the new program first. Close Casper if it is still open, wait about 30 seconds, then run casper --version.");
+  // Said plainly: nothing to close, the helper finishes once this command ends.
+  expect(lines.at(-1)).toBe("The update finishes in the background: Windows can't replace a running program, so a hidden helper installs 0.2.22 as soon as this command ends, in about 30 seconds. A Casper you already have open keeps 0.2.21 until you restart it.");
   // The temp folder stays for the handoff, which removes it itself.
   const cleanup = arg("-Cleanup")!;
   expect(await readdir(cleanup)).toContain("install.ps1");
