@@ -115,6 +115,15 @@ export function refusalForScreen(text: string): string | undefined {
   return reason.charAt(0).toUpperCase() + reason.slice(1);
 }
 
+/** What went wrong before a retry, in the words of its cause: one of OpenRouter's hosts failing is not "can't reach". */
+export function retryCause(provider: string, errorMessage = ""): string {
+  if (/\bupstream error\b/i.test(errorMessage)) return `${provider}'s host for this model failed`;
+  const cause = explainModelError(errorMessage)?.cause;
+  if (cause === "rate") return `${provider} is busy`;
+  if (cause === "offline" || !errorMessage.trim()) return `Can't reach ${provider}`;
+  return `${provider} answered with an error`;
+}
+
 /** Plain terminal: a command still running after this long prints its start line. */
 export const PLAIN_START_AFTER_MS = 2000;
 
@@ -529,7 +538,7 @@ export class RuntimeEventView {
         this.ensureLineBreak();
         const provider = terminalText(event.provider ?? "the model provider");
         const wait = formatDuration(Math.max(1, Math.ceil(event.delayMs / 1000)) * 1000);
-        this.output.write(`${NOTE_GLYPH} Can't reach ${provider} · trying again in ${wait} (${event.attempt} of ${event.maxAttempts})${this.terminal.rich ? " · Esc stops" : ""}\n`);
+        this.output.write(`${NOTE_GLYPH} ${retryCause(provider, event.errorMessage)} · trying again in ${wait} (${event.attempt} of ${event.maxAttempts})${this.terminal.rich ? " · Esc stops" : ""}\n`);
         // Said once, by that line (in the warning colour): the Working box drops what it showed instead of repeating it.
         this.setStaticActivity();
         this.endedWithNewline = true;
