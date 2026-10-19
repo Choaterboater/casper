@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import os from "node:os";
 import { CredentialSynchronizationError, ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { tildePath } from "../new/scaffold";
-import { privateFileProblem } from "../platform/private-file";
+import { ownPrivateFile } from "../platform/private-file";
 import { withLoginDisplay, type LoginDisplay } from "../tui/login";
 import { openRouterAttribution } from "./openrouter-attribution";
 import { loginClaudeCode } from "./claude-login";
@@ -140,7 +140,7 @@ async function useOtherLogin(login: OtherLogin, destination: string, signal: Abo
     if (!exchanged.ok) return failed(exchanged.detail);
     credential = exchanged.credential;
   }
-  const problem = await privateFileProblem(destination, signal);
+  const problem = await ownPrivateFile(destination, signal);
   if (problem) return { status: "failed", effect: "none", reason: "destination", detail: problem };
   try { await saveCredential(destination, login.provider, credential, signal); }
   catch (error) {
@@ -168,7 +168,7 @@ export async function authenticatePi(options: RuntimeAuthenticationOptions, dest
   try {
     // Named credential-writing providers fail before the picker. With no provider,
     // defer the check until selection: Claude Code keeps its own credential store.
-    const early = !options.provider || options.provider === "claude-subscription" ? undefined : await privateFileProblem(destination, signal);
+    const early = !options.provider || options.provider === "claude-subscription" ? undefined : await ownPrivateFile(destination, signal);
     if (early) return { status: "failed", effect: "none", reason: "destination", detail: early };
     return await options.terminalHost.run((io) => withLoginDisplay(io, signal, async (display): Promise<RuntimeAuthenticationResult> => {
       const saved = `Saved in ${tildePath(destination, home())}, only on this computer. Claude Code keeps its own plan login.`;
@@ -225,7 +225,7 @@ export async function authenticatePi(options: RuntimeAuthenticationOptions, dest
       }
       // Re-check after the pick: the preflight above is not atomic.
       try {
-        const problem = await privateFileProblem(destination, display.signal);
+        const problem = await ownPrivateFile(destination, display.signal);
         if (problem) return { status: "failed", effect: "none", reason: "destination", detail: problem };
       } catch { return display.signal.aborted ? { status: "cancelled", effect: "none" } : { status: "failed", effect: "none", reason: "destination" }; }
       const deadline = new AbortController();

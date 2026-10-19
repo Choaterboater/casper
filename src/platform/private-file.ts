@@ -1,7 +1,7 @@
-import { lstat, readlink } from "node:fs/promises";
+import { chmod, lstat, readlink } from "node:fs/promises";
 import path from "node:path";
 
-/** Non-atomic preflight only; Pi retains lock/write ownership. Never repair modes silently.
+/** Non-atomic preflight only; Pi retains lock/write ownership. Modes are repaired only by ownPrivateFile, for your own file.
  * Returns a terminal-safe description of the first unsafe component (with the remedy), or undefined.
  * Casper owns the credential file and the directory holding it: neither may be a link. Ancestors above
  * are the user's or the OS's (macOS /tmp -> private/tmp, ostree /home -> var/home), so a link there is
@@ -50,4 +50,19 @@ export async function privateFileProblem(file: string, signal?: AbortSignal): Pr
     if ((error as { destination?: boolean }).destination) return (error as Error).message;
     throw error;
   }
+}
+
+/** privateFileProblem for a file Casper is about to write: your own regular file that others may read is set to 600
+ * first, nothing for you to fix. A home whose folders hand every new file to everyone (a NAS's inherited ACL: 777)
+ * made /login stop with "run chmod 600". A link, another owner's file or a hard-linked copy is still refused. */
+export async function ownPrivateFile(file: string, signal?: AbortSignal): Promise<string | undefined> {
+  // Casper's own folder for it (~/.casper/agent), made the same way: 0700, when it is yours and others can open it.
+  if (process.platform !== "win32") {
+    const folder = await lstat(path.dirname(file)).catch(() => undefined);
+    if (folder?.isDirectory() && folder.uid === process.getuid?.() && (folder.mode & 0o077) !== 0) await chmod(path.dirname(file), 0o700);
+  }
+  const problem = await privateFileProblem(file, signal);
+  if (!problem || !/ is accessible to other users;/.test(problem)) return problem;
+  await chmod(file, 0o600);
+  return privateFileProblem(file, signal);
 }
