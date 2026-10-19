@@ -473,16 +473,18 @@ test("git grep --cached reads the index: a private file tracked there but delete
   }
 });
 
-test("inside double quotes a backslash before an ordinary character and ! are plain text; $ ` \\\" \\\\ and newline are not", async () => {
+test("inside double quotes a backslash before an ordinary character, \\$, \\` and ! are plain text, and so is a $ that starts nothing; \\\" \\\\ and newline are not", async () => {
   const { project, home, where } = await area();
   await mkdir(path.join(project, "src")); await writeFile(path.join(project, "src", "foo.ts"), "foo\n");
   const yes = ["grep -rn \"foo\\.ts\" src", "rg \"\\bfoo\\b\" src", "grep -E \"a\\|b\" README.md", "grep -n \"^\\s*foo\" README.md", "printf \"%s\\n\" hello",
     "echo \"a\\nb\"", "echo \"done!\"", "git log --grep=\"fix!\" --oneline", "echo \"it's\"", "echo \"a\\'b\"", "echo \"\\(x\\)\"", "grep -n \"\\.\\*\" README.md",
-    "echo \"a\\!b\"", "printf \"%d\\n\" 5 | head -1", "echo \"a'b\" 'c\"d'"];
+    "echo \"a\\!b\"", "printf \"%d\\n\" 5 | head -1", "echo \"a'b\" 'c\"d'",
+    // \$ and \` are a plain $ and backtick; a $ before the closing quote, a space, | or ) starts no expansion.
+    "echo \"a\\$b\"", "echo \"a\\`b\"", "echo \"a\\$(touch MARK)\"", "echo \"a$\"", "echo \"a$ b\"", "grep -E \"(a$|b$)\" README.md"];
   for (const line of yes) expect({ line, read: readOnlyCommand(line, where) }).toEqual({ line, read: true });
-  const no = ["echo \"a\\$b\"", "echo \"a\\`b\"", "echo \"a\\\"b\"", "echo \"a\\\\b\"", "echo \"a\\\nb\"", "echo \"a\\", "echo \"a\\\"", "echo \"\\\"; touch MARK; echo \\\"\"",
+  const no = ["echo \"a\\\"b\"", "echo \"a\\\\b\"", "echo \"a\\\nb\"", "echo \"a\\", "echo \"a\\\"", "echo \"\\\"; touch MARK; echo \\\"\"",
     "echo \"é\"", "echo \"a\\é\"", "echo \"a\\\tb\"", "echo \"a\tb\"", "echo \"a\u0001\"", "echo \"a\\\u0001\"", "echo \"$x\"", "echo \"`id`\"", "echo \"$(id)\"",
-    "echo \"a\nb\"", "printf \"%n\" X", "printf \"%s\\n%n\" a X", "echo \"a\\$(touch MARK)\"", "echo \"\\\\\"; touch MARK; echo \"\\\\\"",
+    "echo \"a\nb\"", "printf \"%n\" X", "printf \"%s\\n%n\" a X", "echo \"$1\"", "echo \"$$\"", "echo \"${x}\"", "echo \"$?\"","echo \"\\\\\"; touch MARK; echo \"\\\\\"",
     "echo \"a\" #\"", "echo \"#\" #x", "echo \"a\\\"\"; touch MARK; echo \"b\""];
   for (const line of no) expect({ line, read: readOnlyCommand(line, where) }).toEqual({ line, read: false });
   expect(readOnlyCommand("echo \"a\\.b\" # c", where)).toBe(false);
@@ -491,6 +493,9 @@ test("inside double quotes a backslash before an ordinary character and ! are pl
     expect(await bash("echo \"a\\nb\" \"done!\" \"\\.\" \"\\s\"", project, home)).toBe("a\\nb done! \\. \\s\n");
     expect(await bash("printf \"%s\\n\" hello", project, home)).toBe("hello\n");
     expect(await bash("grep -rn \"foo\\.ts\" src; echo \"x\\|y\"", project, home)).toBe("x\\|y\n");
+    // \$, \` and a $ that starts nothing run nothing.
+    expect(await bash("echo \"a\\$(touch MARK)\" \"b\\`touch MARK\\`\" \"c$\" \"d$ e\"", project, home)).toBe("a$(touch MARK) b`touch MARK` c$ d$ e\n");
+    expect(existsSync(path.join(project, "MARK"))).toBe(false);
     // What stays refused really does something in bash: \" does not end the string, so the next quote opens a new one.
     await bash("echo \"a\\\"\"; touch MARK; echo \"b\"", project, home);
     expect(existsSync(path.join(project, "MARK"))).toBe(true);

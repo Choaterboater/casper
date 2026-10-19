@@ -54,6 +54,8 @@ interface Spec {
 }
 
 const COLOR = ["--color", "--color=", "--colour", "--colour=", "--no-color"];
+const SED_LINE = String.raw`(?:\d+|\$)(?:,(?:\d+|\$))?p`;
+const SED_PRINT = new RegExp(`^${SED_LINE}(?:;${SED_LINE})*$`);
 const CHECKSUM: Spec = { short: "btz", long: ["--binary", "--text", "--tag", "--zero"] };
 
 /** Programs that only read, and the options each may have. */
@@ -115,6 +117,8 @@ const READERS: Record<string, Spec> = {
   cmp: { short: "bls", value: "ni" },
   comm: { short: "123z", long: ["--check-order", "--nocheck-order", "--total", "--output-delimiter="] },
   md5sum: CHECKSUM, sha1sum: CHECKSUM, sha256sum: CHECKSUM, sha512sum: CHECKSUM, shasum: { ...CHECKSUM, value: "a" },
+  // Print-only scripts (sed -n '200,280p' file, '5p', '10,$p;20p'): no w, e, r or s command, so it only prints. No -i or -f.
+  sed: { short: "nEr", long: ["--quiet", "--silent", "--regexp-extended"], pattern: [], check: (words) => SED_PRINT.test(words[0] ?? "") },
   // `uniq in out` writes its second file.
   uniq: { short: "cdDuiz", value: "fsw", long: ["--count", "--repeated", "--unique", "--ignore-case", "--skip-fields=", "--skip-chars=",
     "--check-chars="], maxWords: 1 },
@@ -465,6 +469,10 @@ function readerSegment(words: string[], place: Place, globs: ReadonlySet<number>
   // from inside single quotes (safeLine refuses every other one), where it is plain text.
   if (words.some((word) => word.startsWith("~"))) return false;
   if (versionOnly(words)) return true;
+  if (name === "timeout") {
+    const inner = globs.size ? undefined : timeoutCommand(args);
+    return inner !== undefined && readerSegment(inner, place, new Set(), stdin);
+  }
   if (name === "test") return !stdin && globs.size === 0 && args.length === 2 && ["-d", "-f", "-e"].includes(args[0]!) && fileOk(args[1]!, place, false);
   if (name === "ps" && (globs.size || !psReads(args))) return false;
   // `command` without -v/-V executes its operand; only lookup is a read.
@@ -485,6 +493,23 @@ function readerSegment(words: string[], place: Place, globs: ReadonlySet<number>
   }
   const spec = Object.hasOwn(READERS, name) ? READERS[name] : undefined;
   return Boolean(spec) && allowed(spec!, args, place, false, new Set([...globs].map((at) => at - 1)), stdin);
+}
+
+/** `timeout [-s SIG] [-k DUR] [--preserve-status] [--foreground] DURATION command...`: the command it runs, which is what
+ * the line does (timeout only stops it after a while), or undefined when the words are anything else. */
+export function timeoutCommand(args: readonly string[]): string[] | undefined {
+  let at = 0;
+  const duration = /^\d+(?:\.\d+)?[smhd]?$/;
+  while (at < args.length && args[at]!.startsWith("-")) {
+    const arg = args[at]!;
+    if (arg === "--preserve-status" || arg === "--foreground" || arg === "-v" || arg === "--verbose") at++;
+    else if (arg === "-s" || arg === "-k") { if (!/^[A-Za-z0-9.]+$/.test(args[at + 1] ?? "")) return undefined; at += 2; }
+    else if (/^--(?:signal|kill-after)=[A-Za-z0-9.]+$/.test(arg)) at++;
+    else return undefined;
+  }
+  if (!duration.test(args[at] ?? "")) return undefined;
+  const inner = args.slice(at + 1);
+  return inner.length && inner[0] !== "timeout" ? [...inner] : undefined;
 }
 
 /** Process environments hold credentials. Keep Linux -e, but never BSD e or macOS E environment output. */
@@ -559,10 +584,13 @@ function safeLine(command: string): string | undefined {
       if (char === quote) { quote = undefined; wordStart = false; continue; }
       if (quote === "\"" && char === "\\") {
         const next = text[index + 1];
-        if (next === undefined || !QUOTED_BACKSLASH.test(next) || "$`\"\\".includes(next)) return undefined;
+        // \$ and \` are a plain $ and backtick (grep "return \`"); \" and \\ stay out, as the quote tracker does not model them.
+        if (next === undefined || !QUOTED_BACKSLASH.test(next) || "\"\\".includes(next)) return undefined;
         index++;
         continue;
       }
+      // A $ that starts no expansion (an end-of-line anchor: grep "^}$"): before the closing quote, a space, | or ).
+      if (quote === "\"" && char === "$" && "\" |)".includes(text[index + 1] ?? "")) continue;
       if (!(quote === "'" ? SAFE_SINGLE : SAFE_QUOTED).test(char)) return undefined;
       continue;
     }
