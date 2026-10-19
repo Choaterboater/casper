@@ -282,8 +282,10 @@ posixOnly("with no sandbox, the AI's bash can't read ~/.ssh either: the command 
     await writeFile(path.join(home, ".ssh/id_test"), "PRIVATE_SSH_KEY_TEXT\n");
   });
   expect(sent).not.toContain("PRIVATE_SSH_KEY_TEXT");
-  expect(sent).not.toContain("198.51.100.20");
+  expect(sent).not.toContain("id_test");
   expect(sent).toContain("Not run: this command reads ~/.ssh, which is private (keys and logins). Casper keeps it from the AI.");
+  // The machines the config names come with the refusal (docs/adr/0002/22): name, user and address, nothing else.
+  expect(sent).toContain("Their ssh config names these machines: build-server (root@198.51.100.20).");
   expect((result.toolEnds as Array<{ isError: boolean }>)[0]!.isError).toBe(true);
 }, 30_000);
 

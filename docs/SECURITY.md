@@ -120,7 +120,7 @@ the operating system, not a list of words:
   is on, off or can't run. `4` keeps the machine's address in `~/.casper/projects/<project>/sandbox.json`
   (never in the repo; `/sandbox` lists it, `/sandbox forget <address>` takes it back). A device on your lab
   list doesn't ask at all (`/lab ssh off` makes it ask again); a machine the command names as `$HOST` always
-  asks. Casper reads `~/.ssh/config` itself to name the real address; the AI never sees that file. Enter runs nothing.
+  asks. Casper reads `~/.ssh/config` itself to name the real address; the AI never sees that file, only the machines it names, with their user, address and port, when it tries to read `~/.ssh` or a login to an address that has a name is refused ([decision 22](adr/0002/22-ssh-host-names-for-the-ai.md)). Enter runs nothing.
   A run that can't ask refuses it: `[shell] Not run: the AI's command reaches 198.51.100.20 (build-server), and
   this run can't ask you. Nothing was sent.` After your yes, a plain `ssh` or `scp` command (no pipe,
   redirect, port forward, or option that runs a program or writes a file here) runs outside the sandbox with your own keys,

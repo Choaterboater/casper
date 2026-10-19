@@ -391,6 +391,42 @@ export function resolveSshAlias(alias: string, blocks: SshConfigBlock[]): { host
   return out;
 }
 
+/** The machines ~/.ssh/config gives a name, each as ssh reads it (`nas` → `admin@192.0.2.31`): the name, user, address
+ * and port only, never a key, a key's path or any other setting. Patterns (`*`, `?`, `!`) are left out. */
+export function sshHostNames(home = os.homedir()): { name: string; user?: string; hostName: string; port?: number }[] {
+  const blocks = readSshConfig(home);
+  const names = [...new Set(blocks.slice(1).flatMap((block) => block.patterns).filter((pattern) => !/[*?!]/.test(pattern)))];
+  return names.map((name) => {
+    const { hostName, user, port } = resolveSshAlias(name, blocks);
+    return { name, hostName: hostName ?? name, ...(user ? { user } : {}), ...(port && port !== 22 ? { port } : {}) };
+  });
+}
+
+const machine = (host: { user?: string; hostName: string; port?: number }) =>
+  `${host.user ? `${host.user}@` : ""}${host.hostName}${host.port ? ` port ${host.port}` : ""}`;
+
+/** For the AI, when it looks in ~/.ssh: which machines the person's ssh config names, so it can use the name. */
+export function sshHostsLine(home = os.homedir()): string | undefined {
+  const hosts = sshHostNames(home);
+  if (!hosts.length) return undefined;
+  const listed = hosts.slice(0, 12).map((host) => host.name === host.hostName && !host.user ? host.name : `${host.name} (${machine(host)})`);
+  return `Their ssh config names these machines: ${listed.join(", ")}${hosts.length > 12 ? ` and ${hosts.length - 12} more` : ""}. `
+    + "Use `ssh <name>` and `scp <file> <name>:<path>`: ssh then brings that machine's user and key.";
+}
+
+/** For a login to a machine typed by address: the name the ssh config gives it, whose own user and key ssh would use. */
+export function sshNameLine(targets: readonly { typed: string; host: string; user?: string }[], home = os.homedir()): string | undefined {
+  const hosts = sshHostNames(home);
+  for (const target of targets) {
+    // Typed by one of the config's names already: ssh used that name's settings.
+    if (hosts.some((host) => host.name === target.typed.replace(/^[^@]*@/, ""))) continue;
+    const named = hosts.find((host) => host.hostName.toLowerCase() === target.host.toLowerCase()
+      && (!target.user || !host.user || host.user === target.user));
+    if (named) return `[ssh] Their ssh config names this machine ${named.name} (${machine(named)}): run \`ssh ${named.name} …\` or \`scp … ${named.name}:…\`, which brings its own user and key.`;
+  }
+  return undefined;
+}
+
 function readSshConfig(home: string): SshConfigBlock[] {
   const file = path.join(home, ".ssh", "config");
   try { if (statSync(file).size > 512 * 1024) return []; return parseSshConfig(readFileSync(file, "utf8")); } catch { return []; }

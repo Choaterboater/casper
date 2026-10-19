@@ -5,7 +5,7 @@ import net from "node:net";
 import os from "node:os";
 import path from "node:path";
 import { PassThrough } from "node:stream";
-import { createSessionSandbox, runtimeShell, SSH_BATCH_MODE_LINE, SSH_NOT_PLAIN_LINE, SSH_NOT_STARTED_LINE, SSH_REFUSED_LINE, type SandboxHost } from "../src/app/sandbox";
+import { createSessionSandbox, runtimeShell, SSH_BATCH_MODE_LINE, SSH_NOT_PLAIN_LINE, SSH_NOT_STARTED_LINE, SSH_PASSWORD_LINE, SSH_REFUSED_LINE, type SandboxHost } from "../src/app/sandbox";
 import { loadProjectContext } from "../src/project/context";
 import { inspectProject } from "../src/project/inspect";
 import { casperBashOperations } from "../src/runtime/pi";
@@ -462,6 +462,41 @@ for (const sandbox of ["held", "off"] as const) {
     await w.close();
   }, 30_000);
 }
+
+/** An ssh config naming the fixture machine, as a person's ~/.ssh/config would. */
+async function nameMachine(home: string) {
+  await mkdir(path.join(home, ".ssh"), { recursive: true });
+  await writeFile(path.join(home, ".ssh", "config"), "Host nas\n  HostName 192.0.2.10\n  User admin\n  IdentityFile ~/.ssh/id_fixture_nas\n");
+}
+
+viaBash("a login that used the typed password says so, so the AI can't call it a key login, and names the machine's ssh config name", async () => {
+  const w = await world();
+  await nameMachine(w.home);
+  const result = await w.run("ssh admin@192.0.2.10 uptime");
+  expect(result.exitCode).toBe(0);
+  expect(result.seen).toContain(SSH_PASSWORD_LINE);
+  expect(result.seen).toContain("[ssh] Their ssh config names this machine nas (admin@192.0.2.10): run `ssh nas …`");
+  expect(result.seen).not.toContain("id_fixture_nas");
+  await w.close();
+  // A login with no password typed (here the fake ssh is given no box) gets no such line.
+  const off = await world({ on: false });
+  expect((await off.run("ssh admin@192.0.2.10 uptime")).seen).not.toContain(SSH_PASSWORD_LINE);
+  await off.close();
+}, 30_000);
+
+test("a refused login to a machine typed by its address names the machine's ssh config name; typed by that name, it doesn't (no shell needed)", async () => {
+  const w = await world({ answers: Array.from({ length: 4 }, () => "Yes, this once") });
+  await nameMachine(w.home);
+  const wrapped = async (command: string) => { expect(await w.shell.approve!(command)).toBeUndefined(); return w.shell.wrap(command, w.project); };
+  const notPlain = await wrapped("ssh admin@192.0.2.10 uptime; echo done");
+  expect(notPlain.ssh?.afterAuthFail).toBe(`${SSH_NOT_PLAIN_LINE}\n[ssh] Their ssh config names this machine nas (admin@192.0.2.10): run \`ssh nas …\` or \`scp … nas:…\`, which brings its own user and key.`);
+  const plain = await wrapped("ssh 192.0.2.10 uptime");
+  expect(plain.ssh?.afterAuthFail).toStartWith(`${SSH_REFUSED_LINE}\n[ssh] Their ssh config names this machine nas`);
+  await plain.ssh?.done?.();
+  const named = await wrapped("ssh nas uptime; echo done");
+  expect(named.ssh?.afterAuthFail).toBe(SSH_NOT_PLAIN_LINE);
+  await w.close();
+});
 
 viaBash("a host-key question gets no password and no answer: ssh fails and the AI reads why", async () => {
   const typing = host([{ secret: "x9!", keep: "once" }]);

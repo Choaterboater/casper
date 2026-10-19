@@ -80,6 +80,8 @@ export interface SshRun {
   afterFail?: string;
   /** A plain line added only when the command fails and ssh's own words say the login was refused. */
   afterAuthFail?: string;
+  /** Asked once the command has ended and its login was not refused: a line to add (the login used a typed password). */
+  afterSuccess?(): string | undefined;
 }
 
 /** The AI's shell, as Casper holds it (see src/sandbox/manager.ts). */
