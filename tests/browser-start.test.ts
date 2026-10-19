@@ -11,8 +11,19 @@ import { removeTempDir } from "./support/temp-dir";
 // Windows and Linux runners too.
 const executable = await discoverBrowser(process.env.CASPER_BROWSER_EXECUTABLE);
 const browserTest = executable ? test : test.skip;
-const cleanup: Array<() => Promise<unknown>> = [];
-afterEach(async () => { for (const close of cleanup.splice(0).reverse()) await close(); });
+// Named steps: in the full suite on Linux and Windows this test has hung in cleanup for 90 s with no step named
+// (tests/known-flaky.ts). A step that doesn't finish in 20 s now fails with its name, and the others still run.
+const cleanup: Array<[string, () => Promise<unknown>]> = [];
+afterEach(async () => {
+  const stuck: string[] = [];
+  for (const [name, close] of cleanup.splice(0).reverse()) {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const late = new Promise<"late">((resolve) => { timer = setTimeout(() => resolve("late"), 20_000); });
+    try { if (await Promise.race([close(), late]) === "late") stuck.push(name); }
+    finally { clearTimeout(timer); }
+  }
+  if (stuck.length) throw new Error(`cleanup did not finish in 20 s: ${stuck.join(", ")}`);
+}, 70_000);
 
 /** The user's real folder from Windows itself: the suite's preload moved USERPROFILE to a test home, and Chrome hangs on
  * any USERPROFILE but the real one. Casper itself runs with the real one, as here. */
@@ -37,13 +48,13 @@ test("Chrome gets no secrets and a home in its own profile, but keeps USERPROFIL
 
 browserTest("the installed browser starts, opens a local page and closes", async () => {
   const root = await realpath(await mkdtemp(path.join(os.tmpdir(), "casper-browser-start-")));
-  cleanup.push(() => removeTempDir(root));
+  cleanup.push(["temp folder", () => removeTempDir(root)]);
   const project = path.join(root, "project"), state = path.join(root, "state");
   await mkdir(project); await mkdir(state);
   const server = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => new Response("<!doctype html><title>Start fixture</title><h1>Hello Casper</h1>", { headers: { "content-type": "text/html" } }) });
-  cleanup.push(async () => { server.stop(true); });
+  cleanup.push(["page server", () => server.stop(true)]);
   const session = new BrowserSession({ projectRoot: project, stateDirectory: state, executablePath: executable });
-  cleanup.push(() => session.close());
+  cleanup.push(["browser", () => session.close()]);
   const folder = realUserFolder();
   const opened = await withEnv(folder ? { USERPROFILE: folder } : {}, () => session.run({ action: "open", url: `http://127.0.0.1:${server.port}/` }));
   expect(JSON.stringify(opened)).toContain("Start fixture");
