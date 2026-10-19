@@ -14,11 +14,27 @@ when releasing. Existing historical notes below stay as written; feature tests c
 reference docs, not a per-PR release-note or roadmap entry. Release-prep checks verify the version and
 installer targets (`tests/release-install.test.ts`, `tests/release-targets.test.ts`).
 
-Casper distributes an unsigned **v0.2.40 preview**, not a stable release. The installers
-download from `https://github.com/Choaterboater/casper/releases/download/v0.2.40`,
+Casper distributes an unsigned **v0.2.41 preview**, not a stable release. The installers
+download from `https://github.com/Choaterboater/casper/releases/download/v0.2.41`,
 because GitHub's `latest/download` link skips preview releases. The first published
 preview was **v0.1.0**. A published release is never changed; every fix ships under a
 new version.
+
+## v0.2.41: logins on any home, ssh by name, and no project push
+
+### Changed
+
+- A refused ssh login names the machine your ssh config gives that address, whatever user was typed.
+- One No in the ssh password box answers that command's other password asks.
+- Each request says to reach a machine your ssh config names by that name, never by its address.
+- Started in your home folder, Casper says to ask for anything there instead of pointing you to a project.
+- A plain question is no longer given the test and requirement lines meant for a code change.
+- On Windows, `casper update` says the update finishes in the background instead of telling you to close Casper.
+
+### Fixed
+
+- `/login` makes your own login file private again instead of stopping with `run chmod 600`.
+- A model that failed before running any tool gets no checks, even when a file changed meanwhile.
 
 ## v0.2.40: /look, steadier OpenRouter runs, ssh hosts by name, and a Home Assistant skill
 

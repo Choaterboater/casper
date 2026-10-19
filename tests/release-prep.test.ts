@@ -11,16 +11,15 @@ const section = (text: string, start: string, end: string) => {
 
 // These are release-preparation assertions, not tests of the features themselves.
 const changes = {
-  Added: ["`/look`", "frontend quality checks", "Home Assistant skill", "ssh config names"],
-  Changed: ["chosen host fails", "what went wrong", "again and again", "use a tool instead", "`sed -n`", "recorded with", "worked on over ssh", "not checked", "password you typed"],
-  Fixed: ["own data file", "`serve()`", "`sudo casper`", "root owns", "Central or Mist"],
+  Changed: ["whatever user was typed", "other password asks", "by that name", "ask for anything", "plain question", "in the background"],
+  Fixed: ["`run chmod 600`", "before running any tool"],
 };
 
-test("v0.2.40 notes publish each user-facing change once under Added, Changed or Fixed", async () => {
-  expect(CASPER_VERSION).toBe("0.2.40");
+test("v0.2.41 notes publish each user-facing change once under Added, Changed or Fixed", async () => {
+  expect(CASPER_VERSION).toBe("0.2.41");
   const release = await read("docs/RELEASE.md");
-  const notes = section(release, "## v0.2.40:", "## v0.2.39:");
-  expect(notes).not.toMatch(/not released|unreleased|test-only|#3[789]\d/i);
+  const notes = section(release, "## v0.2.41:", "## v0.2.40:");
+  expect(notes).not.toMatch(/not released|unreleased|test-only|#3[89]\d/i);
   expect([...notes.matchAll(/^### (.+)$/gm)].map(match => match[1])).toEqual(Object.keys(changes));
   const groups = notes.split(/^### /m).slice(1);
   for (const [index, [group, phrases]] of Object.entries(changes).entries()) {
@@ -32,6 +31,7 @@ test("v0.2.40 notes publish each user-facing change once under Added, Changed or
     for (const phrase of phrases) expect(bullets.filter(line => line.includes(phrase))).toHaveLength(1);
   }
   // Historical release content must retain its original version and WMI transition.
+  expect(release).toContain("## v0.2.40: /look, steadier OpenRouter runs, ssh hosts by name, and a Home Assistant skill");
   expect(release).toContain("## v0.2.39: try the app before done");
   expect(release).toContain("## v0.2.38: plans that stay on");
   expect(release).toContain("## v0.2.37: builders opt-in");
@@ -40,8 +40,8 @@ test("v0.2.40 notes publish each user-facing change once under Added, Changed or
   expect(release).toContain("updater, so install 0.2.35 on Windows");
 });
 
-test("v0.2.40 release bullets are short single sentences without internal implementation terms", async () => {
-  const notes = section(await read("docs/RELEASE.md"), "## v0.2.40:", "## v0.2.39:");
+test("v0.2.41 release bullets are short single sentences without internal implementation terms", async () => {
+  const notes = section(await read("docs/RELEASE.md"), "## v0.2.41:", "## v0.2.40:");
   const bullets = notes.split("\n").filter(line => line.startsWith("- "));
   expect(bullets.length).toBeGreaterThan(0);
   for (const bullet of bullets) {
@@ -52,23 +52,23 @@ test("v0.2.40 release bullets are short single sentences without internal implem
   }
 });
 
-test("the roadmap ships v0.2.40 first and leaves no merged work in the next-release box", async () => {
+test("the roadmap ships v0.2.41 first and leaves no merged work in the next-release box", async () => {
   const page = await read("site/roadmap.html");
   const box = section(page, '<section id="next"', '<section id="coming"');
   expect(box).toContain("Built, not released");
-  expect(box).toContain("everything built so far is in v0.2.40");
+  expect(box).toContain("everything built so far is in v0.2.41");
   expect(box).not.toContain("<li>");
-  const current = section(page, 'id="v0240"', 'id="v0239"');
-  expect(page).toContain('href="#v0240"');
+  const current = section(page, 'id="v0241"', 'id="v0240"');
+  expect(page).toContain('href="#v0241"');
   expect(current).toContain("current preview");
-  for (const phrase of ["/look", "critique", "frontend quality checks", "Steadier OpenRouter runs", "chosen host fails", "again and again", "sed -n", "own data file", "recorded with", "serve()", "ssh hosts by name", "Home Assistant skill", ".storage", "Central or Mist", "sudo casper", "root owns"]) expect(current).toContain(phrase);
-  const previous = section(page, 'id="v0239"', 'id="v0238"');
+  for (const phrase of ["ssh by name", "whatever user was typed", "One No", "No project push", "ask for anything", "Logins on any home", "/login", "before running any tool", "in the background"]) expect(current).toContain(phrase);
+  const previous = section(page, 'id="v0240"', 'id="v0239"');
   expect(previous).toContain("previous preview");
-  for (const phrase of ["Try the app before done", "stops any server it started", "/verify to try it", "JSON 404", "Chrome that recovers", "eight assertions", "Windows fixes", "/tmp", "/permissions all", ".git", "big job", "not proven", "0.1.5", "MIST_APITOKEN"]) expect(previous).toContain(phrase);
-  expect(section(page, 'id="v0238"', 'id="v0237"')).toContain("released");
+  for (const phrase of ["/look", "critique", "frontend quality checks", "Steadier OpenRouter runs", "chosen host fails", "again and again", "sed -n", "own data file", "recorded with", "serve()", "ssh hosts by name", "Home Assistant skill", ".storage", "Central or Mist", "sudo casper", "root owns"]) expect(previous).toContain(phrase);
+  expect(section(page, 'id="v0239"', 'id="v0238"')).toContain("released");
 });
 
-test("current docs and site installation targets name v0.2.40 without relabelling old captures", async () => {
+test("current docs and site installation targets name v0.2.41 without relabelling old captures", async () => {
   const tag = `v${CASPER_VERSION}`;
   for (const file of ["README.md", "docs/SCRIPTING.md", "docs/WINDOWS.md", "docs/RELEASE.md", "site/index.html"]) {
     const tags = [...(await read(file)).matchAll(/releases\/download\/(v\d+\.\d+\.\d+)/g)].map(match => match[1]);
@@ -90,7 +90,7 @@ test("current docs and site installation targets name v0.2.40 without relabellin
   expect(faq).toContain("Updates: auto / notify only / off");
   expect(faq).toContain("row above the prompt");
   expect(faq).not.toContain("Nothing updates on its own");
-  for (const text of [faq, await read("docs/TERMINAL_UX.md")]) expect(text).toContain("Casper 0.2.41 is out · casper update");
+  for (const text of [faq, await read("docs/TERMINAL_UX.md")]) expect(text).toContain("Casper 0.2.42 is out · casper update");
   expect(await read("site/tour.html")).toContain(`More in ${CASPER_VERSION}`);
   expect(await read("site/compare.html")).toContain(`plain Pi vs Casper ${CASPER_VERSION}`);
   const readme = await read("README.md");

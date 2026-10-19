@@ -78,6 +78,7 @@
           </li>
           <li><a href="#released">Released</a>
             <ul>
+              <li><a href="#v0241">v0.2.41: logins and ssh names</a></li>
               <li><a href="#v0240">v0.2.40: /look and steadier runs</a></li>
               <li><a href="#v0239">v0.2.39: try the app before done</a></li>
               <li><a href="#v0238">v0.2.38: plans that stay on</a></li>
@@ -117,7 +118,7 @@
         <h2 id="next-h">Next release</h2>
         <aside class="callout soon">
           <strong class="callout-title">Built, not released</strong>
-          <p>Nothing on the main branch is waiting: everything built so far is in v0.2.40. New work shows here before the next preview.</p>
+          <p>Nothing on the main branch is waiting: everything built so far is in v0.2.41. New work shows here before the next preview.</p>
         </aside>
       </section>
 
@@ -359,10 +360,23 @@
         and on the <a href="https://github.com/Choaterboater/casper/releases">Releases page</a>.</p>
         <div class="stack">
 
+        <details class="card release" id="v0241" aria-labelledby="v0241-h" open>
+          <summary class="release-heading">
+            <h3 id="v0241-h">v0.2.41 · Logins on any home, ssh by name, and no project push</h3>
+            <span class="badge ok">current preview</span>
+          </summary>
+          <ul>
+            <li><strong>ssh by name.</strong> A refused ssh login, BatchMode too, names the machine your ssh config gives that address, whatever user was typed. One No in the password box answers the rest of that command's password asks, and each request says to reach such a machine by its name.</li>
+            <li><strong>No project push.</strong> Started in your home folder, Casper says to ask for anything there. A plain question such as <code>hey</code> is no longer given the test and requirement lines meant for a code change.</li>
+            <li><strong>Logins on any home.</strong> A home that makes every new file readable by all, as on some NAS systems, no longer stops <code>/login</code>: Casper makes its own login file private again.</li>
+            <li><strong>Fewer stray checks.</strong> A model that failed before running any tool gets no checks, even when a running app changed a file meanwhile. On Windows, <code>casper update</code> says the update finishes in the background.</li>
+          </ul>
+        </details>
+
         <details class="card release" id="v0240" aria-labelledby="v0240-h" open>
           <summary class="release-heading">
             <h3 id="v0240-h">v0.2.40 · /look, steadier OpenRouter runs, ssh hosts by name, and a Home Assistant skill</h3>
-            <span class="badge ok">current preview</span>
+            <span class="badge">previous preview</span>
           </summary>
           <ul>
             <li><strong>/look.</strong> One design pass on a page in the real browser: <code>critique</code> or <code>audit</code> report, and <code>polish</code>, <code>layout</code>, <code>type</code>, <code>colour</code>, <code>adapt</code>, <code>harden</code> and <code>clarify</code> fix. UI work in any project gets the frontend quality checks for forms, focus, tap sizes, contrast and states.</li>
@@ -378,7 +392,7 @@
         <details class="card release" id="v0239" aria-labelledby="v0239-h" open>
           <summary class="release-heading">
             <h3 id="v0239-h">v0.2.39 · Try the app before done, Chrome that recovers, and Windows fixes</h3>
-            <span class="badge">previous preview</span>
+            <span class="badge">released</span>
           </summary>
           <ul>
             <li><strong>Try the app before done.</strong> In auto mode Casper tries a changed app, server or page once before the receipt, then stops any server it started. A server you started yourself gets the new code and is left running. In offer mode the receipt says <code>/verify to try it</code>.</li>
@@ -391,7 +405,7 @@
           </ul>
         </details>
 
-        <details class="card release" id="v0238" aria-labelledby="v0238-h" open>
+        <details class="card release" id="v0238" aria-labelledby="v0238-h">
           <summary class="release-heading">
             <h3 id="v0238-h">v0.2.38 · Plans that stay on, draw.io diagrams and a ClearPass design skill</h3>
             <span class="badge">released</span>
@@ -1174,7 +1188,7 @@
   <footer class="site-footer">
     <div class="container footer-inner">
       <div>
-        <p><strong>Casper 0.2.40</strong> · early preview, unsigned</p>
+        <p><strong>Casper 0.2.41</strong> · early preview, unsigned</p>
         <p><a href="https://github.com/Choaterboater/casper/blob/main/LICENSE">MIT licence</a> · © 2026 Choaterboater</p>
         <p>Built on the <a href="https://github.com/earendil-works/pi">Pi SDK</a>. Other parts keep their own licences (<a href="https://github.com/Choaterboater/casper/blob/main/THIRD_PARTY_NOTICES.txt">notices</a>).</p>
       </div>
