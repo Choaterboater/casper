@@ -114,7 +114,9 @@ export const GITHUB_LOGIN_LINE = "[sandbox] Plain git and gh commands you allow 
 const GITHUB_HIDDEN = "Your GitHub login (~/.config/gh, git's saved logins) is hidden from commands in the sandbox, and no setting opens it: don't offer one.";
 export const GITHUB_LOGIN_HINT = `[sandbox] ${GITHUB_HIDDEN} A plain git push/pull/fetch or gh command runs outside the sandbox with the user's login after they say yes: send it as a command of its own (no cd, pipe, ;, &&, 2>&1, -c or VAR= in front).`;
 export const GITHUB_LOGIN_CANT_ASK = `[sandbox] ${GITHUB_HIDDEN} This run can't ask the user to use it: tell them, and they can run the command themselves.`;
-export const SHELL_CANT_ASK = "Not run: shell commands need your OK here, and this run can't ask. Use --no-sandbox to allow them for this run.";
+// The model reads it too: told only about --no-sandbox, a flag it can't pass, a small model sent one command 76 times.
+// The sentence for it starts with "Don't", which the screen leaves out (refusalForScreen).
+export const SHELL_CANT_ASK = "Not run: shell commands need your OK here, and this run can't ask. Use --no-sandbox to allow them for this run. Don't send this command again; use a tool instead where one fits: service starts the app, casper_check runs the project's checks, write and edit change files.";
 export const SHELL_DECLINED = "Not run: the user said no to this command. Don't run it again; ask the user what to do instead.";
 /** Said once a session, after the third shell box answered yes. */
 export const STOP_ASKING_HINT = "Tip: /permissions all stops these questions until you quit (/permissions ask turns them back on).";
