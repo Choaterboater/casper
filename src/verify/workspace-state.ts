@@ -69,7 +69,7 @@ async function gitIgnored(cwd: string, signal?: AbortSignal): Promise<Set<string
  * Before/after observations are not an atomic snapshot or a filesystem watcher.
  * `skipGitIgnored`: files git ignores found while walking a folder are left out (one git call per observation;
  * with no repository, what a `.gitignore` lists; no git, nothing left out). A path named in `inputs` itself always counts. */
-export async function workspaceState(cwd: string, scope?: VerificationScope, signal?: AbortSignal, options: { skipGitIgnored?: boolean } = {}): Promise<InputState> {
+export async function workspaceState(cwd: string, scope?: VerificationScope, signal?: AbortSignal, options: { skipGitIgnored?: boolean; skipFound?: (relative: string) => boolean } = {}): Promise<InputState> {
   if (!scope) return { reason: "No input scope declared." };
   if (!isVerificationScope(scope)) return { reason: "Invalid input scope." };
   const ignored = options.skipGitIgnored ? await gitIgnored(cwd, signal) : undefined;
@@ -117,13 +117,14 @@ export async function workspaceState(cwd: string, scope?: VerificationScope, sig
       // Directory timestamps/size also change when excluded children are written.
       // Hash included membership via traversal, but retain full identities for the
       // final race check within this observation.
-      hash.update(JSON.stringify([relative, stat.isDirectory() ? [stat.dev.toString(), stat.ino.toString(), stat.mode.toString()] : id]));
+      // With skipped files a folder counts only through what is in it: the app making data/ for its db.json changes nothing.
+      if (!(stat.isDirectory() && options.skipFound)) hash.update(JSON.stringify([relative, stat.isDirectory() ? [stat.dev.toString(), stat.ino.toString(), stat.mode.toString()] : id]));
       if (stat.isDirectory()) {
         const names: string[] = [];
         for await (const entry of await opendir(file)) {
           guard();
           const child = relative === "." ? entry.name : relative + "/" + entry.name;
-          if (!excluded(child) && !isIgnored(child)) names.push(entry.name);
+          if (!excluded(child) && !isIgnored(child) && !options.skipFound?.(child)) names.push(entry.name);
         }
         for (const name of names.sort()) await visit(relative === "." ? name : relative + "/" + name);
       } else if (stat.isFile()) {

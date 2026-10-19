@@ -4,6 +4,7 @@ import { StaticServer } from "./static-server";
 import type { ServiceManager } from "../services/manager";
 import { readReferenceFile, referenceText } from "../references/files";
 import { type InputState, workspaceState } from "../verify/workspace-state";
+import { appDataFile } from "../services/app-data";
 import { parseScenario, scopeOf, viewport, type BrowserScenario, type BrowserCheck, type BrowserReport, type BrowserStep } from "./scenario";
 import { mkdtemp, realpath, rm } from "node:fs/promises";
 import os from "node:os";
@@ -805,8 +806,10 @@ class ServerGone extends Error {}
 /** One task's disposable browser. No user profiles, arbitrary evaluation or browser installation. */
 /** The scenario's inputs as they are now; a check that names none is told how to get a fresh pass when the whole project can't be watched.
  * Watching the whole project leaves out what git ignores, so a page that saves to an ignored data/db.json stays fresh. */
+// With no scope the whole project is watched, but not the data files the app writes as a check uses it (data.json):
+// they would make every check that adds a row stale. Edits by the model still do, through invalidate().
 async function inputState(root: string, scenario: BrowserScenario, signal?: AbortSignal): Promise<InputState> {
-  const state = await workspaceState(root, scopeOf(scenario), signal, { skipGitIgnored: !scenario.scope });
+  const state = await workspaceState(root, scopeOf(scenario), signal, scenario.scope ? {} : { skipGitIgnored: true, skipFound: appDataFile });
   return state.fingerprint || scenario.scope ? state
     : { reason: `${state.reason} With no scope.inputs Casper watches the whole project; name the files the page depends on.` };
 }
