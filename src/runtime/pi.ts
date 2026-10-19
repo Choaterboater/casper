@@ -1308,7 +1308,11 @@ export function casperBashOperations(shell: RuntimeShell | undefined, local: Bas
           }
           if (wrapped.ssh?.afterFail && result.exitCode !== 0) onData(Buffer.from(`\n${wrapped.ssh.afterFail}\n`));
           // Not only on a failure: `ssh host cmd; echo done` ends 0 although the login was refused.
-          if (wrapped.ssh?.afterAuthFail && looksLikeRefusedLogin(tail)) onData(Buffer.from(`\n${wrapped.ssh.afterAuthFail}\n`));
+          const refusedLogin = Boolean(wrapped.ssh?.afterAuthFail) && looksLikeRefusedLogin(tail);
+          if (refusedLogin) onData(Buffer.from(`\n${wrapped.ssh!.afterAuthFail}\n`));
+          // The remote command may fail after a login that worked; the AI still learns how it logged in.
+          const loggedIn = refusedLogin ? undefined : wrapped.ssh?.afterSuccess?.();
+          if (loggedIn) onData(Buffer.from(`\n${loggedIn}\n`));
           return result;
         } finally {
           watch?.stop();

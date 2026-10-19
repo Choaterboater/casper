@@ -96,7 +96,9 @@ export function sshQuestion(machine: string, kind: PromptKind): string {
  * the session is used only for a `user@host's password:` prompt naming one of them, and only once per command: if ssh asks
  * again in the same command it was wrong, so it is forgotten and you are asked. A passphrase is always asked.
  */
-export function sshLoginHandler(host: SshLoginHost, memory: SshSessionMemory, machine: string, approved: readonly ApprovedMachine[]): AskpassHandler {
+export function sshLoginHandler(host: SshLoginHost, memory: SshSessionMemory, machine: string, approved: readonly ApprovedMachine[],
+  /** Told when a password (not a key's passphrase) is handed to ssh. */
+  onPassword?: () => void): AskpassHandler {
   const triedFromMemory = new Set<string>();
   let asked = 0;
   return async (text, signal) => {
@@ -108,7 +110,7 @@ export function sshLoginHandler(host: SshLoginHost, memory: SshSessionMemory, ma
     if (keepable) {
       const remembered = memory.get(prompt);
       if (remembered !== undefined) {
-        if (!triedFromMemory.has(key(prompt))) { triedFromMemory.add(key(prompt)); return { secret: remembered }; }
+        if (!triedFromMemory.has(key(prompt))) { triedFromMemory.add(key(prompt)); onPassword?.(); return { secret: remembered }; }
         memory.delete(prompt);
       }
     }
@@ -122,6 +124,7 @@ export function sshLoginHandler(host: SshLoginHost, memory: SshSessionMemory, ma
     const session = keepable && answer.keep === "session";
     rememberTypedSecret(answer.secret, !session);
     if (session) { memory.set(prompt, answer.secret); triedFromMemory.add(key(prompt)); }
+    if (prompt.kind === "password") onPassword?.();
     return { secret: answer.secret };
   };
 }

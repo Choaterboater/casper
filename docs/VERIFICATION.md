@@ -303,6 +303,11 @@ The lines below the verdict give the evidence:
 ⚠ A secret appeared in a command; change it after this task.
 ```
 
+The machines a task reached over ssh (at most the last three) are named on each later request of the conversation,
+by the name your ssh config gives them (`nas (192.0.2.31)`), so work meant for one of them is done there and not in
+this folder, and checked there where you would see it (its page in the browser tool, or its API) before the AI
+calls it done or moves on; otherwise it says it is not checked. `/clear` and `/resume` forget them.
+
 In a folder too big to compare, the receipt says `– Changes unknown: not a project folder (over 20,000 files)` and
 lists the files Casper's edit and write tools changed. When the ones inside the folder all sit in one project, that
 project's checks run and Casper says `The work is in ~/Documents/sample-tools.`, as above; not when the tools changed 32

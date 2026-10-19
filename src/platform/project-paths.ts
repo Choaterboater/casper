@@ -2,7 +2,7 @@ import { existsSync, readFileSync, realpathSync, statSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { commandSegments } from "../sandbox/remote";
+import { commandSegments, sshHostsLine } from "../sandbox/remote";
 import { isOutside } from "./inside";
 
 /**
@@ -333,7 +333,10 @@ export function fileToolGate(toolName: string, input: Record<string, unknown> | 
   const verb = write ? "Not done" : "Not read";
   for (const candidate of toolName === "read" ? readVariants(absolute) : [absolute]) {
     const place = privatePlace(candidate, context);
-    if (place) return `${verb}: ${place} is private (${whyPrivate(place, context)}). Casper keeps it from the AI.`;
+    if (place) {
+      const ssh = !write && /^~\/\.ssh(?:\/|$)/.test(place) ? sshHostsLine(home) : undefined;
+      return `${verb}: ${place} is private (${whyPrivate(place, context)}). Casper keeps it from the AI.${ssh ? ` ${ssh}` : ""}`;
+    }
     // A link out of the project counts as the place it leads to: read like any outside file, written after the
     // outside-write question (src/runtime/pi.ts), and refused where that place is git's own or protected.
     let target = candidate;
@@ -477,17 +480,24 @@ export function privatePathCommand(command: string, context: PathContext): strin
     const names = entry ? homes.map((prefix) => `${prefix}[\\\\/]+${entry.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/\//g, "[\\\\/]+")}`) : [];
     for (const absolute of place.paths) names.push(pathPattern(absolute));
     const pattern = new RegExp(`(?:^|[\\s'"=:(<>|;&])(?:${names.join("|")})(?=$|[\\\\/\\s'";&|)<>*?])`, flags);
-    if (pattern.test(text)) return `Not run: this command reads ${place.shown}, which is private (${place.why}). Casper keeps it from the AI. Ask the user instead.`;
+    if (pattern.test(text)) return privateRefusal(place.shown, place.why, home);
   }
   // `cd ~/.ssh`, `cd $HOME` then a relative name: a command that goes home and names a private place by itself.
   if (/(?:^|[\s;&|(])cd\s+(?:~|\$HOME|\$\{HOME\}|"\$HOME")\/?(?=$|[\s;&|)])/.test(text)) {
     const bare = PRIVATE_PATHS.find((entry) => new RegExp(`(?:^|[\\s'"=:(<>|;&])(?:\\./)?${entry.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?=$|[\\\\/\\s'";&|)])`).test(text));
-    if (bare) return `Not run: this command reads ~/${bare}, which is private (keys and logins). Casper keeps it from the AI. Ask the user instead.`;
+    if (bare) return privateRefusal(`~/${bare}`, "keys and logins", home);
   }
   // PowerShell and cmd separate folders with \, which the shell reading below takes as an escape: read those once more with /.
   const shown = privateWord(text, context, home) ?? (process.platform === "win32" && text.includes("\\") ? privateWord(text.replaceAll("\\", "/"), context, home) : undefined);
-  if (shown) return `Not run: this command reads ${shown}, which is private (${whyPrivate(shown, context)}). Casper keeps it from the AI. Ask the user instead.`;
+  if (shown) return privateRefusal(shown, whyPrivate(shown, context), home);
   return undefined;
+}
+
+/** A look into ~/.ssh is usually for the machine to reach: the machines the ssh config names (never keys or key paths)
+ * come with the refusal, so the AI can use `ssh <name>` instead of asking. */
+function privateRefusal(shown: string, why: string, home: string): string {
+  const ssh = /^~\/\.ssh(?:\/|$)/.test(shown) ? sshHostsLine(home) : undefined;
+  return `Not run: this command reads ${shown}, which is private (${why}). Casper keeps it from the AI.${ssh ? ` ${ssh} Otherwise ask the user.` : " Ask the user instead."}`;
 }
 
 /** An absolute path as a regex. On Windows either slash separates folders, and the drive may be named the Git Bash,

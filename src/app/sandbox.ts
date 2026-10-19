@@ -17,7 +17,7 @@ import { MODEL_REASON_PREFIX } from "../tui/choices";
 import { modelReasonSummary } from "../tui/model-reason";
 import { blockedBySandbox } from "../verify/command";
 import { hideCommandSecrets } from "../secrets/files";
-import { remoteTargets, runsAlone, segmentTargets, splitShell, targetLabel, trustedProgram, type LocalPlaces, type RemoteTarget } from "../sandbox/remote";
+import { remoteTargets, runsAlone, segmentTargets, splitShell, sshNameLine, targetLabel, trustedProgram, type LocalPlaces, type RemoteTarget } from "../sandbox/remote";
 import { startAskpass } from "../ssh/askpass";
 import { forgetSshSecrets, sshLoginHandler, sshSessionMemory, type SshLoginHost } from "../ssh/login";
 import { forgetOnceSecrets } from "../secrets/typed";
@@ -84,6 +84,10 @@ export const SSH_BATCH_MODE_LINE = `[ssh] This command sets BatchMode=yes, so ss
 export const SSH_NOT_PLAIN_LINE = `[ssh] The login was refused. Casper can only ask for a password when ssh is the whole command. ${SSH_RETRY} ${SSH_NEVER}`;
 /** A plain ssh or scp whose login was refused although Casper's box was offered (the person said no, or the password was wrong). */
 export const SSH_REFUSED_LINE = `[ssh] The login was refused. Casper's hidden password box was offered for this command; if the person said no or the password was wrong, ask them what to do. ${SSH_NEVER}`;
+/** After a login that worked with a password the person typed (or gave for the session): the AI must not call it a key login. */
+export const SSH_PASSWORD_LINE = "[ssh] This login used the password the person typed in Casper's box, not a key.";
+/** A refusal note, with the name the ssh config gives the machine when the AI typed its address. */
+const withName = (line: string, targets: RemoteTarget[], home: string) => [line, sshNameLine(targets, home)].filter(Boolean).join("\n");
 
 export const hostQuestion = (host: string) => `A shell command wants to reach ${terminalText(host)}. Allow it?`;
 /** Keep the command's layout (including heredocs), with secrets hidden and a bounded preview. */
@@ -265,15 +269,18 @@ export function runtimeShell(host: SandboxHost, sandbox: ShellSandbox, given: Sa
     const words = splitShell(command).segments[0]?.words ?? [];
     // BatchMode=yes tells ssh never to ask: that is the command's own choice, so it stays, and the AI reads why it failed.
     if (batchMode(segmentTargets(words).values)) return { ssh: { afterFail: SSH_BATCH_MODE_LINE } };
+    let password = false;
     const handler = sshLoginHandler(host.ssh ?? NO_TERMINAL, sshSessionMemory, targets.map(targetLabel).join(", "),
-      targets.map((target) => ({ typed: target.typed, host: target.host, ...(target.user ? { user: target.user } : {}) })));
+      targets.map((target) => ({ typed: target.typed, host: target.host, ...(target.user ? { user: target.user } : {}) })), () => { password = true; });
     const run = await (ssh.start ?? startAskpass)(handler, { home: sandbox.home });
-    return run ? { ssh: { env: run.env, done: () => run.close(), afterAuthFail: SSH_REFUSED_LINE } } : { ssh: { afterFail: SSH_NOT_STARTED_LINE } };
+    const named = sshNameLine(targets, sandbox.home);
+    return run ? { ssh: { env: run.env, done: () => run.close(), afterAuthFail: withName(SSH_REFUSED_LINE, targets, sandbox.home),
+      afterSuccess: () => password ? [SSH_PASSWORD_LINE, named].filter(Boolean).join("\n") : undefined } } : { ssh: { afterFail: SSH_NOT_STARTED_LINE } };
   };
   /** A command that reaches a machine but is not one plain ssh or scp gets no password box: if its login is refused, the AI is told
    * how to run it so that Casper can ask. Not when the person turned the box off (ssh_login: off). */
   const notPlain = (targets: RemoteTarget[] | undefined): { ssh?: SshRun } =>
-    targets?.length && !(ssh.on && !ssh.on()) ? { ssh: { afterAuthFail: SSH_NOT_PLAIN_LINE } } : {};
+    targets?.length && !(ssh.on && !ssh.on()) ? { ssh: { afterAuthFail: withName(SSH_NOT_PLAIN_LINE, targets, sandbox.home) } } : {};
   const shell: RuntimeShell & { close(): Promise<void> } = {
     keepEnv: sandbox.user.keepEnv ?? [],
     async wrap(command, cwd) {

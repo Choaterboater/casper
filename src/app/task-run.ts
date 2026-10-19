@@ -19,6 +19,7 @@ import type { ChildProject } from "../project/child";
 import type { RuntimeImage, RuntimeSession } from "../runtime/types";
 import { formatSelectedSkills } from "../skills/registry";
 import { classifyTask, formatTaskPrompt, underSpecifiedTarget } from "../task/classify";
+import { machineNames, rememberMachines } from "./machines";
 import { answerClaimsBrowserPass, formatShortReceipt, rememberSessionNotes, undoPathsShown, formatTaskResult, UNDO_NOT_PROJECT, type TaskResult } from "../task/result";
 import { OBSERVED_EDITS_LIMIT, TaskObservations } from "../task/observations";
 import { isToolCallAsText, TOOL_CALL_AS_TEXT_LINE } from "../task/text-tool-call";
@@ -292,7 +293,7 @@ export async function runModelTask(app: CasperApp, prompt: string, options: { fl
         ...app.pendingPictures.takeUnseen(),
         memoryContext,
         skillContext,
-        formatTaskPrompt(prompt, classification, context.model, { verificationMode, proveChange: proving, typed,
+        formatTaskPrompt(prompt, classification, context.model, { verificationMode, proveChange: proving, typed, machines: machineNames(app.machines, app.sessionHomeDir),
           reviewFollows: context.verification.review === true, afterContext: Boolean(memoryContext || skillContext) }),
         planBlock,
         // "in parallel", "by yourself": one line, only where builders are offered.
@@ -559,6 +560,7 @@ export async function runModelTask(app: CasperApp, prompt: string, options: { fl
       ...(app.planBuild ? { planSteps: app.planBuild.finish(execution) } : {}),
       ...(changedWhilePlanning?.length ? { changedWhilePlanning } : {}), ...(app.sandbox ? { sandbox: sandboxReceipt(app.sandbox)! } : {}),
       ...outsideWrites };
+    rememberMachines(app, observations.remoteChanges);
     if (app.cleanupReports.length) app.lastTaskResult.cleanup = [...app.cleanupReports];
     app.lastFinishedTask = app.lastTaskResult;
     // The receipt is next: the steps fold and the Working box goes, even for a tool that ended late.
@@ -1140,3 +1142,4 @@ export function proofSkipReason(options: { intent: string; testCommand?: string;
   if (!options.changedCode) return "no app code changed, only tests, data or docs";
   return "Casper did not compare the tests with and without the change";
 }
+

@@ -87,6 +87,8 @@ export interface OutputWriter {
 /** Everything the extracted slash-command handlers touch on the app. The app stays the
  * owner of all state; this interface makes the (wide) coupling explicit instead of private. */
 export interface CommandHost {
+  /** Machines this conversation reached over ssh, newest last (the request hint); /clear and /resume forget them. */
+  machines?: string[];
   blockOnCleanupFailure?(error?: import("../platform/processes").ProcessCleanupError): void;
   readonly output: OutputWriter;
   /** What side questions (`? …`) cost this session, for /usage. */
@@ -370,6 +372,7 @@ export async function runSlashCommand(host: CommandHost, prompt: string): Promis
     }
     if (prompt === "/clear" || /^\/resume(?:\s|$)/.test(prompt)) {
       if (host.subagents.isBusy) throw new Error("Wait for active subagents before changing conversations.");
+      host.machines = [];
       const session = await host.ensureRuntime();
       let id = prompt.slice(7).trim();
       let title: string | undefined;
