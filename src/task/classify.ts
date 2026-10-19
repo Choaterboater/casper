@@ -147,7 +147,9 @@ export function formatTaskPrompt(
     // Auto mode only: Casper owns the final run, so the model need not select checks to record them.
     ...(options.verificationMode === "auto" ? ["Casper runs the final checks itself after your last edit and records them; you do not need to. Use casper_check while iterating if it helps. Bash runs of checks are diagnostics only."] : []),
     // Proving: Casper reruns the test check on the code without the change; only a test of the new behavior fails there.
-    ...(options.proveChange ? ["If you change code, Casper then checks that the tests fail without your change and pass with it. Add or update a test that exercises the requested behavior so it would fail without your change.", "Before finishing, review every requirement in the request and project docs. Count a requirement as done only when a test you can name asserts it; otherwise add the test or leave it open. A rule that covers several inputs, options or errors is several requirements. Do not list the covered ones: end with only the requirements still not done, one line each; with none left, no list:", OPEN_ITEM_FORMAT] : []),
+    // Not for a plain question ("hey", "connect to the nas"): those lines read as "you are changing a project". Casper
+    // still proves a change the work turns out to make.
+    ...(options.proveChange && classification.intent !== "general" ? ["If you change code, Casper then checks that the tests fail without your change and pass with it. Add or update a test that exercises the requested behavior so it would fail without your change.", "Before finishing, review every requirement in the request and project docs. Count a requirement as done only when a test you can name asserts it; otherwise add the test or leave it open. A rule that covers several inputs, options or errors is several requirements. Do not list the covered ones: end with only the requirements still not done, one line each; with none left, no list:", OPEN_ITEM_FORMAT] : []),
     "",
     "User request:",
     request,

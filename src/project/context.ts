@@ -278,7 +278,7 @@ export function formatProjectContext(context: ProjectContext, lean = false): str
     `- project: ${model.project.name}`,
     `- root: ${model.project.root}`,
     // The home folder or a drive's top: one line, there only, so the model doesn't search it all or build at its top.
-    ...context.broad ? [`- This is the user's ${context.broad.where === "home" ? "home folder" : "drive top"}, not a project: don't search it broadly or add files at its top. A new project goes in ${context.broad.projects}/<name>; for an existing one, ask its path.`] : [],
+    ...context.broad ? [`- This is the user's ${context.broad.where === "home" ? "home folder" : "drive top"}: a request here need not be about a project. Don't search it broadly or add files at its top; a new project goes in ${context.broad.projects}/<name>, and for one of theirs, ask its path.`] : [],
     `- languages: ${list(model.languages)}`,
     `- frameworks: ${list(model.frameworks)}`,
     `- package manager: ${model.packageManager ?? "not detected"}`,

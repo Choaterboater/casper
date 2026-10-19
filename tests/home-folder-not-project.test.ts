@@ -20,16 +20,16 @@ test("the home folder and a drive's top are broad; a folder inside home is not",
   } finally { await removeTempDir(home); }
 });
 
-test("opened in the home folder, the model is told it is not a project and where a new one goes; a project gets no such line", async () => {
+test("opened in the home folder, the model is told a request need not be a project and where a new one goes; a project gets no such line", async () => {
   const home = await realpath(await mkdtemp(path.join(os.tmpdir(), "casper-home-prompt-")));
   const project = path.join(home, "Projects", "app");
   await mkdir(project, { recursive: true });
   try {
     const atHome = formatProjectContext(await loadProjectContext(info(home), { homeDir: home }));
     const projects = process.platform === "win32" ? path.win32.join(home, "Projects") : "~/Projects";
-    expect(atHome).toContain(`- This is the user's home folder, not a project: don't search it broadly or add files at its top. A new project goes in ${projects}/<name>; for an existing one, ask its path.`);
-    expect(formatProjectContext(await loadProjectContext(info(home), { homeDir: home }), true)).toContain("This is the user's home folder, not a project");
-    expect(formatProjectContext(await loadProjectContext(info(project), { homeDir: home }))).not.toContain("not a project");
+    expect(atHome).toContain(`- This is the user's home folder: a request here need not be about a project. Don't search it broadly or add files at its top; a new project goes in ${projects}/<name>, and for one of theirs, ask its path.`);
+    expect(formatProjectContext(await loadProjectContext(info(home), { homeDir: home }), true)).toContain("This is the user's home folder: a request here need not be about a project");
+    expect(formatProjectContext(await loadProjectContext(info(project), { homeDir: home }))).not.toContain("need not be about a project");
   } finally { await removeTempDir(home); }
 });
 

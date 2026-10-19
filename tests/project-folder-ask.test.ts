@@ -141,7 +141,7 @@ test("launching from the home folder opens right there with no question, and one
     await harness.until(text => Bun.stripANSI(text).includes("idle"));
     const shown = Bun.stripANSI(harness.output());
     expect(shown).not.toContain("Work in which project?");
-    expect(shown).toContain("[folder] Opened in your home folder.");
+    expect(shown).toContain("[folder] Opened in your home folder: ask for anything here.");
   } finally {
     harness.input.write("/exit\r");
     await interactive;
@@ -163,7 +163,7 @@ test("without a rich terminal the home-folder hint gives a command that actually
     // `casper <folder>` opens that folder: no cd, no restart.
     // Windows shows the real path; elsewhere the home folder is ~.
     const shown = process.platform === "win32" ? path.join(home, "Projects", "myapp") : "~/Projects/myapp";
-    expect(stdout).toContain(`[folder] Opened in your home folder. To work in a project: casper ${shown}`);
+    expect(stdout).toContain(`[folder] Opened in your home folder: ask for anything here. To work in a project: casper ${shown}`);
     expect(stdout).not.toContain("restart");
     expect(stdout).not.toContain("pass a path");
   } finally { await removeTempDir(home); }

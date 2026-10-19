@@ -110,11 +110,12 @@ export async function openProjectFolder(app: CasperApp, cwd: string, env: { plat
   // `casper <folder>` opens that folder, so the hint is one command, no cd and no restart. From home it names
   // the project last worked in (no scan: only the saved conversations), else an example.
   const recent = (await recentlyUsedProjects({ base: fromHome ? home : cwd, agentDir: appAgentDir(app), noise }))[0];
-  const where = fromHome ? "your home folder" : "the top of a drive";
+  // Home is a fine place to start: a request there need not be a project (set up this server, fix the NAS's docker).
+  const where = fromHome ? "your home folder: ask for anything here" : "the top of a drive";
   app.output.write(
     recent ? `[folder] Opened in ${where}. To work in ${terminalText(path.basename(recent))}: casper ${terminalText(tildePath(recent, home, platform))}\n`
       : `[folder] Opened in ${where}. To work in a project: casper ${platform === "win32" ? path.win32.join(projectsDisplay, "myapp") : "~/Projects/myapp"}\n`);
-  app.output.write("[folder] To start a new project instead: casper new\n");
+  if (!fromHome) app.output.write("[folder] To start a new project instead: casper new\n");
   return cwd;
 }
 

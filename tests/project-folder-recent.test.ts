@@ -87,7 +87,7 @@ test("without a rich terminal the home-folder hint names the most recently used 
     expect(code, `CLI stderr: ${stderr}`).toBe(0);
     // Windows shows the real path; elsewhere the home folder is ~.
     const shown = process.platform === "win32" ? path.join(home, "Documents", "charlie-used") : "~/Documents/charlie-used";
-    expect(stdout).toContain(`[folder] Opened in your home folder. To work in charlie-used: casper ${shown}`);
+    expect(stdout).toContain(`[folder] Opened in your home folder: ask for anything here. To work in charlie-used: casper ${shown}`);
   } finally { await removeTempDir(home); }
 // Loading the CLI's module graph competes with other spawned tests on Windows CI.
 }, process.platform === "win32" ? 60_000 : 15_000);
