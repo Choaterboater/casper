@@ -238,12 +238,14 @@ Linux `ps -e` still counts as a read), `date`, `uname`, and git subcommands
 (`git status`, `diff`, `log`, `show`, `grep`, `blame`, `merge-base`, `rev-list`, `show-ref`,
 `for-each-ref`, and individual config reads: `git config <key>`, `--get`, `--global`;
 `--list`/`-l`, keys naming credential/token/password/extraheader or `url.*.insteadof`/`pushinsteadof`, and config writes still ask), each with the options it may
-have, `test -d/-f/-e` of a project path, literal `printf`, and `--version`/`-V` alone for any bare program, and `find ... | xargs wc` (names only, each reaching `wc` whole), joined
+have, `test -d/-f/-e` of a project path, literal `printf`, `sed` with a print-only script (`sed -n '200,280p' file`; no `-i`, `-f`, `w`, `e`, `r` or `s`), a read or routine command
+under `timeout` (`timeout 90 bun test`), and `--version`/`-V` alone for any bare program, and `find ... | xargs wc` (names only, each reaching `wc` whole), joined
 by `|`, `&&`, `;`, `2>&1` or `2>/dev/null`. A leading `cd` to a folder in the project counts too (later files are
 read from there; on Windows a Git Bash path such as `/c/Users/me/project` is `C:\Users\me\project`; with `CDPATH` or `BASH_ENV` set, only a
 `./` or full path counts), and a `*` or `?`
 is expanded by Casper the way bash would, each file it picks checked like a named one. Any other option (`git grep -O`,
-`git -c`, `--ext-diff`, `rg --pre`, `find -exec`, `sort --compress-program`), a non-allowlisted `VAR=value` start, other `$` forms or `~`, `[`
+`git -c`, `--ext-diff`, `rg --pre`, `find -exec`, `sort --compress-program`), a non-allowlisted `VAR=value` start, other `$` forms (in double quotes `\$`,
+`` \` `` and a `$` just before the closing quote, a space, `|` or `)` are plain text: `grep "^}$"`) or `~`, `[`
 or `{`, a glob that picks a private file or a folder name starting with a dot, `xargs` with anything but `wc`, `find -printf` or a name with a space or quote fed to `xargs`, a
 redirect other than the project writes below, a file outside the project or private (`.env`, `*.env`, `.envrc`,
 keys such as `*.key` and `id_rsa`, credentials and secrets files, `~/.ssh`, `~/.casper`, your `sandbox.denyRead`), also

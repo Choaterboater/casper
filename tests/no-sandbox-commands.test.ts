@@ -130,7 +130,7 @@ test("only known commands with known options are reads: any option, variable or 
     "git --git-dir=x log", "git grep --no-index key", "git shortlog -c", "git status --ignore-submodules=x", "rg --pre=sh x", "rg --pre sh x",
     "rg -z x", "rg --search-zip x", "rg -nz x", "rg --hostname-bin=x x", "sort --compress-program=sh x", "sort -T tmp x", "find . -exec id \\;",
     "find . -execdir id \\;", "find . -ok id \\;", "find . -fprint out", "find -L . -name x", "find . -follow", "xargs cat", "less README.md",
-    "more README.md", "man ls", "awk 'BEGIN{system(\"id\")}' x", "sed -n 1p x", "sed 's/a/b/w out' x", "tar --to-command=sh -xf a.tar",
+    "more README.md", "man ls", "awk 'BEGIN{system(\"id\")}' x", "sed 's/a/b/w out' x", "sed -n '1w out' x", "tar --to-command=sh -xf a.tar",
     "tar xf a --checkpoint-action=exec=sh", "GIT_PAGER=sh git log", "PAGER=sh git log", "LESSOPEN='|sh %s' cat x", "env git log", "tail -f log",
     "tail -F log", "date -s 2020-01-01", "hostname evil", "ls -L docs", "cat --follow x", "git branch newb", "git tag v1", "git remote add x y",
     "git stash", "git log --output=x", "git blame --contents=x a.ts", "head -c 10 x --files0-from=list", "wc --files0-from=list", "jq . x.json",
