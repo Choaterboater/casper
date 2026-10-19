@@ -329,8 +329,10 @@ export async function runModelTask(app: CasperApp, prompt: string, options: { fl
     const cancelled = app.closing || app.commandAbort?.signal.aborted || app.taskRuntimeCancelled || app.checkTask?.signal.aborted || app.taskTurnLimit !== undefined || app.taskSpendStop !== undefined;
     const stopped = cancelled || app.taskRuntimeFailed;
     // The model errored after editing: its edits are kept, so check them (no repair: the model just failed).
+    // A model that failed before any tool ran changed nothing: what changed was something else (a running app's
+    // database next to its code), so there is nothing of the model's to check.
     if (!cancelled && app.taskRuntimeFailed && app.checkTask && verificationMode === "auto") {
-      const edited = before && afterModel ? flatten(diffSnapshots(before, afterModel)) : undefined;
+      const edited = edits.tools && before && afterModel ? flatten(diffSnapshots(before, afterModel)) : undefined;
       const failedChecks = edited?.length ? planAutoChecks({ selected: context.verification.checks, commands: context.model.commands,
         scopes: context.model.verificationScopes, named: context.model.namedChecks, detected: autoDetectedChecks(context.model), changedPaths: edited, root: workspaceRoot }).run : [];
       if (failedChecks.length) {

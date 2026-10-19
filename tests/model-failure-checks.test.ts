@@ -29,6 +29,7 @@ for (const check of ["pass", "fail"] as const) test(`a model that fails after ed
         prompt: async () => {
           prompts++;
           await writeFile(path.join(project, "calc.py"), "def add(a, b):\n    return a + b\n");
+          for (const listener of listeners) listener({ type: "tool_end", toolName: "write", toolCallId: `w${prompts}`, isError: false });
           for (const listener of listeners) listener({ type: "error", message: "Provider returned an empty response" });
         },
       };
@@ -61,6 +62,51 @@ for (const check of ["pass", "fail"] as const) test(`a model that fails after ed
     expect(waits).toEqual([1000, 2000, 4000]);
     expect(prompts).toBe(4);
     expect(app.getLastTaskResult()?.verification?.repairAttempts).toBe(0);
+  } finally {
+    await app.close();
+    await removeTempDir(root);
+  }
+}, 30_000);
+
+// On a NAS: the sign-in had expired, so the model failed at once, while the running app wrote its database next to the
+// code. Casper said "checking the edits the model made" and ran go test and go build (go isn't installed there).
+test("a model that failed before running any tool gets no checks, though a file changed meanwhile", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "casper-model-failed-early-"));
+  const home = path.join(root, "home"); const project = path.join(root, "project");
+  await mkdir(home); await mkdir(path.join(project, ".casper"), { recursive: true }); await mkdir(path.join(project, "data"));
+  await writeFile(path.join(project, "calc.py"), "def add(a, b):\n    return a + b\n");
+  await writeFile(path.join(project, "data/app.db-wal"), "one");
+  await writeFile(path.join(project, ".casper/project.yaml"), `verify:\n  test: ${JSON.stringify(checkCommand())}\n`);
+  const listeners = new Set<RuntimeEventListener>();
+  const runtime: AgentRuntime = {
+    async start() {
+      return {
+        getStatus: () => ({ provider: "fixture", model: "demo", auth: "configured" }),
+        getState: () => ({ cwd: project, isStreaming: false }),
+        subscribe: (listener: RuntimeEventListener) => { listeners.add(listener); return () => listeners.delete(listener); },
+        abort: async () => {}, setTools: () => {},
+        prompt: async () => {
+          await writeFile(path.join(project, "data/app.db-wal"), `${Date.now()}${Math.random()}`);
+          for (const listener of listeners) listener({ type: "error", message: "Failed to authenticate: OAuth session expired" });
+        },
+      };
+    },
+    async dispose() {},
+  };
+  let output = "";
+  const app = new CasperApp({
+    output: { write: (text: string) => { output += text; } }, runtimeFactory: () => runtime, sessionHomeDir: home, modelRetryWait: async () => {},
+    loadProjectContext: (info) => loadProjectContext(info, { homeDir: home }),
+    loadSkillRegistry: (context) => SkillRegistry.discover({ projectRoot: context.info.root, homeDir: home }),
+    loadMCPConfiguration: async () => ({ servers: [], diagnostics: [] }),
+    loadLSPConfiguration: async () => ({ servers: [], diagnostics: [] }),
+    loadReferenceConfiguration: async () => ({ sources: [], diagnostics: [] }),
+  });
+  try {
+    await app.runOnce("hey", project);
+    expect(output).toContain("OAuth session expired");
+    expect(output).not.toContain("Casper checking the edits the model made");
+    expect(app.getLastTaskResult()?.verification?.results ?? []).toEqual([]);
   } finally {
     await app.close();
     await removeTempDir(root);
