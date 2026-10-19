@@ -2,6 +2,7 @@ import { formatVerificationReport, reportText, type CheckName, type Verification
 import { modelErrorNext, type ModelErrorCause } from "../runtime/model-errors";
 import type { RiskyLine } from "../network/risky-receipt";
 import { isBuiltinCheck } from "../verify/named";
+import { missingProgram, missingProgramLine } from "../verify/missing-program";
 import { DRY_RUN_LABEL } from "../network/checks";
 import type { ProjectCommand } from "../project/model";
 import type { BrowserReport } from "../browser/scenario";
@@ -892,6 +893,9 @@ function checkLine(result: VerificationResult, safe: (text: string) => string, s
   }
   // The sandbox refused something the check tried: the same words the AI sees, so it does not retry it.
   if (result.ended === "blocked") return `✗ ${name} — ${safe(result.reason ?? "blocked by the sandbox")}`;
+  // Its own program isn't on this computer: the config is fine, so the line says what to install.
+  const missing = missingProgram(result);
+  if (missing) return `✗ ${name} could not start — ${missingProgramLine(missing)}; install it, then ${slash(`/verify ${name}`)}`;
   if (result.ended === "no_start" && !isBuiltinCheck(name)) {
     return `✗ ${name} could not start (${typeof result.exitCode === "number" ? `exit ${result.exitCode}` : safe(result.reason ?? "no exit status").replace(/\.$/, "").toLowerCase()}) — check verify.checks.${name} in .casper/project.yaml`;
   }
