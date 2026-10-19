@@ -2,7 +2,7 @@ import { afterEach, expect } from "bun:test";
 import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { REPEAT_NOTE } from "../src/runtime/loop-guard";
+import { REFUSED_NOTE, REPEAT_NOTE } from "../src/runtime/loop-guard";
 import { ELISION_NOTE } from "../src/runtime/elision";
 import { posixOnly } from "./support/platform";
 import { cleanEnv } from "./support/env";
@@ -70,4 +70,38 @@ posixOnly("a repeated read gets a note, then is skipped, until a write resets it
     .toEqual([["read", false], ["read", false], ["read", false], ["read", false], ["read", true], ["write", false], ["read", false]]);
   // The skipped 5th read still reached the spend pause: the guard runs after the other gates.
   expect(result.waits).toEqual(["read", "read", "read", "read", "read", "write", "read"]);
+}, 20_000);
+
+/** A small model sent one refused command 76 times: from the 5th it is not tried again, and the model is told why. */
+posixOnly("a shell command refused again and again gets a note on the 3rd try and is not tried from the 5th", async () => {
+  let step = 0;
+  const root = await mkdtemp(path.join(os.tmpdir(), "casper-loop-guard-"));
+  cleanup.push(() => removeTempDir(root));
+  const home = path.join(root, "home"); const project = path.join(root, "project"); const agent = path.join(home, ".pi/agent");
+  await mkdir(agent, { recursive: true }); await mkdir(project);
+  const payloads: Payload[] = [];
+  const server = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: async request => {
+    payloads.push(await request.json());
+    const now = step++;
+    return now < 6 ? call(now, "bash", { command: "bun src/server.ts" }) : answer("done");
+  } });
+  cleanup.push(async () => { server.stop(true); });
+  await writeFile(path.join(agent, "models.json"), JSON.stringify({ providers: { fixture: {
+    baseUrl: `http://127.0.0.1:${server.port}/v1`, api: "openai-completions", apiKey: "local-fixture-not-a-secret", models: [{ id: "fixture" }],
+  } } }));
+  await writeFile(path.join(agent, "settings.json"), JSON.stringify({ defaultProvider: "fixture", defaultModel: "fixture", retry: { enabled: false } }));
+  await mkdir(path.join(home, ".casper"), { recursive: true });
+  await writeFile(path.join(home, ".casper/settings.json"), JSON.stringify({ defaultProvider: "fixture", defaultModel: "fixture" }));
+  const env = cleanEnv({ HOME: home, PI_CODING_AGENT_DIR: agent, PI_OFFLINE: "1", PI_TELEMETRY: "0" });
+  const child = Bun.spawn([process.execPath, path.join(import.meta.dir, "fixtures/pi-loop-guard.ts"), project, "refuse"], { cwd: project, env, stdout: "pipe", stderr: "pipe" });
+  const [stdout, stderr, exit] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
+  expect({ exit, stderr }).toEqual({ exit: 0, stderr: "" });
+  // payloads[n] carries the result of the call made at step n - 1.
+  expect(lastToolText(payloads[1])).toContain("Not run:");
+  expect(lastToolText(payloads[2])).not.toContain(REFUSED_NOTE);
+  expect(lastToolText(payloads[3])).toContain(REFUSED_NOTE);
+  expect(lastToolText(payloads[5])).toContain("Skipped as a repeat");
+  expect(lastToolText(payloads[6])).toContain("Skipped as a repeat");
+  const result = JSON.parse(stdout.slice(stdout.indexOf("LOOP_RESULT=") + "LOOP_RESULT=".length).trim());
+  expect(result.approvals).toEqual(Array(4).fill("bun src/server.ts"));
 }, 20_000);
