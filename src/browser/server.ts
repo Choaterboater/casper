@@ -41,8 +41,11 @@ export class BrowserServer {
     return { output: text, truncated, running: state === "starting" || state === "ready" };
   }
 
+  private started?: { command: string; projectRoot: string; source: string };
+
   async start(command: string, projectRoot: string, source: string, signal: AbortSignal): Promise<Record<string, unknown>> {
     if (this.process || this.stopped) throw new Error("A browser server starts once; serve again makes a new one");
+    this.started = { command, projectRoot, source };
     const url = this.url = loopback(source);
     signal.throwIfAborted();
     await assertFree(url);
@@ -56,6 +59,16 @@ export class BrowserServer {
       const { httpStatus } = await managed.start(signal);
       return { ready: true, url: url.href, httpStatus, guidance: "HTTP readiness only, not verification. Only the spawned process group is owned; existing processes are untouched." };
     } catch (error) { throw startError(error, signal); }
+  }
+
+  /** The same command again on the same port, so the app reads its data files afresh (an end replay restored them). */
+  async restart(signal: AbortSignal): Promise<void> {
+    const started = this.started;
+    if (!started || this.stopped) throw new Error("Development server is not running");
+    const previous = this.process;
+    this.process = undefined;
+    await previous?.close();
+    await this.start(started.command, started.projectRoot, started.source, signal);
   }
 
   close(): Promise<void> {
@@ -96,6 +109,12 @@ export class SlotServer {
     if (!origin) throw new Error("Development server was closed during startup");
     return { ready: true, url: new URL(`${url.pathname}${url.search}`, origin).href,
       guidance: "HTTP readiness only, not verification. Casper's page checks use this same server; serve again restarts it." };
+  }
+
+  /** The slot's server again, so the app reads its data files afresh (an end replay restored them). */
+  async restart(signal: AbortSignal): Promise<void> {
+    try { await this.manager.restart(this.name, signal); }
+    catch (error) { throw startError(error, signal); }
   }
 
   async close(): Promise<void> {

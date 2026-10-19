@@ -5,6 +5,7 @@ import type { ServiceManager } from "../services/manager";
 import { readReferenceFile, referenceText } from "../references/files";
 import { type InputState, workspaceState } from "../verify/workspace-state";
 import { appDataFile } from "../services/app-data";
+import { type AppData, restoreAppData, sameAppData, snapshotAppData } from "./app-data";
 import { parseScenario, scopeOf, viewport, type BrowserScenario, type BrowserCheck, type BrowserReport, type BrowserStep } from "./scenario";
 import { mkdtemp, realpath, rm } from "node:fs/promises";
 import os from "node:os";
@@ -818,7 +819,9 @@ interface RecordedCheck { scenario: BrowserScenario; check: BrowserCheck; finger
   /** Its place in recording order: a replacement must be recorded after the check it replaces. */
   order: number
   /** The revision and input fingerprint of the run that recorded it: a withdraw needs both unchanged since then. */
-  recordedRevision: number; recordedFingerprint?: string }
+  recordedRevision: number; recordedFingerprint?: string
+  /** The app's data files when it was recorded: an end replay starts from them (src/browser/app-data.ts). */
+  data?: AppData }
 
 /** How long a first Chrome start may take before one fresh start replaces it, and fresh starts after a crash per session. */
 const FIRST_START_MS = 8_000;
@@ -1281,6 +1284,8 @@ export class BrowserSession {
    */
   async replayStale(since: number, signal?: AbortSignal, onReplay?: (name: string, id: string) => void, retryFailures?: ReadonlySet<string>): Promise<void> {
     this.replayUntil = performance.now() + 60_000;
+    // The data as the AI left it, put back after the replays: they leave no rows of their own behind.
+    const left = await snapshotAppData(this.options.projectRoot, signal).catch(() => undefined);
     try {
       for (const [id, entry] of this.scenarios) {
         if (this.controller.signal.aborted || signal?.aborted || this.work || !this.page || performance.now() > this.replayUntil - 1_000) return;
@@ -1288,14 +1293,41 @@ export class BrowserSession {
           || ((await this.current(entry)).freshness !== "stale" && !(entry.check.status === "fail" && retryFailures?.has(id)))) continue;
         const kept = { check: entry.check, fingerprint: entry.fingerprint, revision: entry.revision, ranAt: entry.ranAt };
         onReplay?.(entry.check.name, id);
+        const note = left && entry.data ? await this.useAppData(entry.data, signal) : undefined;
         this.unattended = true;
         const work = this.dispatch({ action: "replay", id }, signal);
         this.work = work;
         // A server that is gone, with none of Casper's to stand in, leaves nothing checked: incomplete, not the old result.
         try { await work; } catch (error) { if (!(error instanceof ServerGone)) Object.assign(entry, kept); }
         finally { this.unattended = false; if (this.work === work) this.work = undefined; }
+        if (note) (entry.check.notes ??= []).push(note);
       }
-    } finally { this.replayUntil = undefined; }
+    } finally {
+      this.replayUntil = undefined;
+      if (left) await this.useAppData(left, signal).catch(() => undefined);
+    }
+  }
+
+  /**
+   * Puts the app's data files back as `wanted` holds them and restarts Casper's own server so the app reads them
+   * afresh; nothing happens when they already match. A server Casper doesn't run (the AI started it with bash)
+   * can't be restarted: the files are still restored, and the note says the app may hold the old data.
+   */
+  private async useAppData(wanted: AppData, signal?: AbortSignal): Promise<string | undefined> {
+    const now = await snapshotAppData(this.options.projectRoot, signal);
+    if (!now || sameAppData(wanted, now)) return undefined;
+    await restoreAppData(this.options.projectRoot, wanted, now);
+    const restart = signal ?? this.controller.signal;
+    const services = this.options.services?.();
+    try {
+      if (this.server instanceof BrowserServer || this.server instanceof SlotServer) { await this.server.restart(restart); return undefined; }
+      if (this.server instanceof StaticServer) return undefined;
+      if (services && !services.closed && services.origin(DEV_SLOT)) { await services.restart(DEV_SLOT, restart); return undefined; }
+    } catch (error) {
+      restart.throwIfAborted();
+      return `the app's data was put back as it was when this check was recorded, but the server didn't start again: ${error instanceof Error ? error.message : String(error)}`;
+    }
+    return "the app's data was put back as it was when this check was recorded, but Casper doesn't run this server, so the app may still hold other data";
   }
 
   async report(): Promise<BrowserReport> {
@@ -1332,6 +1364,7 @@ export class BrowserSession {
     const startedAt = performance.now();
     try {
       const before = await inputState(this.options.projectRoot, scenario, signal);
+      if (recording && localURL(scenario.url)) entry.data = await snapshotAppData(this.options.projectRoot, signal);
       await this.start(); signal.throwIfAborted();
       await this.page!.browserContext().close();
       const page = await this.newPage();

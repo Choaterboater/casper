@@ -369,6 +369,60 @@ browserTest("an immutable reproduction detects behavior and layout failures, rep
     .rejects.toThrow("replay runs the recorded scenario unchanged");
 }, 25_000);
 
+browserTest("an end replay restarts Casper's own server after putting the data back, so an app that reads it only at start sees it", async () => {
+  const f = await fixture();
+  // Reads data.json once at start and keeps the count in memory, as many small apps do.
+  await writeFile(path.join(f.project, "dev.ts"), `import { readFileSync, writeFileSync } from "node:fs";
+let rows: number[] = []; try { rows = JSON.parse(readFileSync("data.json", "utf8")); } catch {}
+Bun.serve({ hostname: "127.0.0.1", port: Number(process.env.PORT), fetch(request) {
+  if (new URL(request.url).pathname === "/add") { rows.push(rows.length); writeFileSync("data.json", JSON.stringify(rows)); return new Response(String(rows.length)); }
+  return new Response('<!doctype html><button id="add" onclick="fetch(\\'/add\\',{method:\\'POST\\'}).then(r=>r.text()).then(t=>{document.querySelector(\\'#total\\').textContent=t})">Add</button><p id="total">' + rows.length + '</p>', { headers: { "content-type": "text/html" } });
+} });`);
+  await writeFile(path.join(f.project, "package.json"), JSON.stringify({ scripts: { dev: `${process.execPath} dev.ts` } }));
+  const url = `http://127.0.0.1:${await freePort()}`;
+  expect(await f.session.run({ action: "serve", script: "dev", url, impact: "local-test", reason: "Synthetic project" })).toMatchObject({ ready: true });
+  const add = (name: string, expected: string) => f.session.run({ action: "check", scenario: { name, url,
+    steps: [{ action: "click", selector: "#add", impact: "local-test", reason: "adds a test row" }], assertions: [{ kind: "text", selector: "#total", expected }] } });
+  expect(await add("first row", "1")).toMatchObject({ status: "pass" });
+  expect(await add("second row", "2")).toMatchObject({ status: "pass" });
+  // The AI's own rows, through the running app: it now holds 4 in memory.
+  for (let i = 0; i < 2; i++) await fetch(`${url}/add`, { method: "POST" });
+  f.session.invalidate();
+  await f.session.replayStale(0);
+  const report = await f.session.report();
+  expect(report.checks.map(check => [check.name, check.status, check.notes ?? []])).toEqual([["first row", "pass", []], ["second row", "pass", []]]);
+  expect(JSON.parse(await readFile(path.join(f.project, "data.json"), "utf8"))).toEqual([0, 1, 2, 3]);
+  // Restarted after the last restore too: the app holds the AI's data again.
+  expect(await (await fetch(url)).text()).toContain('<p id="total">4</p>');
+}, 60_000);
+
+browserTest("an end replay starts from the data its check was recorded with, and the data the AI left comes back after", async () => {
+  const f = await fixture();
+  // The app's own server keeps a count in data.json and reads it on every request, like a small JSON-file app.
+  const data = path.join(f.project, "data.json");
+  const count = async () => { try { return (JSON.parse(await readFile(data, "utf8")) as number[]).length; } catch { return 0; } };
+  const server = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request) {
+    if (new URL(request.url).pathname === "/add") { const next = await count() + 1; await writeFile(data, JSON.stringify([...Array(next).keys()])); return new Response(String(next)); }
+    return new Response(`<!doctype html><button id="add" onclick="fetch('/add',{method:'POST'}).then(r=>r.text()).then(t=>{document.querySelector('#total').textContent=t})">Add</button><p id="total">${await count()}</p>`, { headers: { "content-type": "text/html" } });
+  } });
+  cleanup.push(async () => { server.stop(true); });
+  const add = (name: string, expected: string) => f.session.run({ action: "check", scenario: { name, url: `http://127.0.0.1:${server.port}`,
+    steps: [{ action: "click", selector: "#add", impact: "local-test", reason: "adds a test row" }],
+    assertions: [{ kind: "text", selector: "#total", expected }] } });
+  // Written as a chain: each check expects the total the one before left.
+  expect(await add("first row", "1")).toMatchObject({ status: "pass" });
+  expect(await add("second row", "2")).toMatchObject({ status: "pass" });
+  // The AI then adds rows of its own, and a command makes both checks stale.
+  await writeFile(data, JSON.stringify([0, 1, 2, 3, 4]));
+  f.session.invalidate();
+  await f.session.replayStale(0);
+  const report = await f.session.report();
+  expect(report.checks.map(check => [check.name, check.status])).toEqual([["first row", "pass"], ["second row", "pass"]]);
+  // Casper doesn't run this server: the files were put back, and the check says the app may hold other data.
+  expect(report.checks[0]!.notes?.some(note => note.includes("Casper doesn't run this server"))).toBe(true);
+  expect(await count()).toBe(5);
+}, 60_000);
+
 browserTest("at the end Casper replays checks that ran before a later edit: a pass counts, a break fails, a fresh check is left alone", async () => {
   const f = await fixture();
   const html = (saved: string) => `<!doctype html><button id="save" onclick="document.querySelector('#status').textContent='${saved}'">Save</button><p id="status">Not saved</p>`;
