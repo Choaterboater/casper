@@ -2,6 +2,7 @@ import type { LoginDisplay } from "../tui/login";
 import { terminalText } from "../tui/format";
 import { claudeAuthStatus, claudeExecutable, isSubscriptionStatus, subscriptionEnvironment } from "./claude-subscription";
 import type { RuntimeAuthenticationResult } from "./types";
+import { returnClaudeFiles } from "../platform/home-owner";
 
 interface LoginProcess {
   stdout: ReadableStream<Uint8Array>;
@@ -97,5 +98,6 @@ export async function loginClaudeCode(display: LoginDisplay, dependencies: {
     controller.abort();
     if (child && !ended) { try { child.kill(); } catch { /* already exited */ } }
     await input;
+    if (child) await returnClaudeFiles().catch(() => {});
   }
 }

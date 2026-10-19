@@ -7,6 +7,7 @@ import { CallToolRequestSchema, ListToolsRequestSchema } from "@modelcontextprot
 import { calculateCost, createAssistantMessageEventStream, type Api, type AssistantMessage, type Model, type SimpleStreamOptions, type Tool, type TranscriptContext } from "@earendil-works/pi-ai";
 import { getCurrentSystemPrompt, getCurrentTools } from "@earendil-works/pi-ai/utils/transcript";
 import type { ModelRuntime } from "@earendil-works/pi-coding-agent";
+import { returnClaudeFiles } from "../platform/home-owner";
 
 export const CLAUDE_SUBSCRIPTION = "claude-subscription";
 const PREFIX = "mcp__casper__";
@@ -226,6 +227,7 @@ export function streamClaudeSubscription(model: Model<Api>, context: TranscriptC
       try { query?.close(); } catch { /* Already closed after abort. */ }
       try { await server?.close(); } catch { /* Transport is already gone. */ }
       options?.signal?.removeEventListener("abort", abort);
+      await returnClaudeFiles().catch(() => {});
       stream.end();
     }
   })();
@@ -275,7 +277,8 @@ export function isSubscriptionStatus(status: ClaudeAuthStatus | undefined): bool
   return status?.loggedIn === true && status.authMethod === "claude.ai" && isSubscriptionPlan(status.subscriptionType);
 }
 export async function claudeAuthStatus(executable: string, env: Record<string, string | undefined>, cwd: string): Promise<ClaudeAuthStatus | undefined> {
-  const { stdout } = await exec(executable, ["auth", "status"], { cwd, env, encoding: "utf8", timeout: 5_000, maxBuffer: 64 * 1024, windowsHide: true });
+  const { stdout } = await exec(executable, ["auth", "status"], { cwd, env, encoding: "utf8", timeout: 5_000, maxBuffer: 64 * 1024, windowsHide: true })
+    .finally(() => returnClaudeFiles().catch(() => {}));
   const status: unknown = JSON.parse(stdout);
   return status && typeof status === "object" && !Array.isArray(status) ? status as ClaudeAuthStatus : undefined;
 }
