@@ -40,8 +40,10 @@ test("each request names the machines the conversation worked on over ssh, by th
   const model = { commands: {} } as never;
   const classification = { intent: "implement", mode: "modify", verification: [] } as never;
   const prompt = formatTaskPrompt("install home assistant and get it running", classification, model, { machines: ["nas (192.0.2.31)"] });
-  expect(prompt).toContain("- machines: this conversation worked on nas (192.0.2.31) over ssh. Work meant for one of them happens there (its files, its services), not in this folder, unless the request asks for files here. Check a change there where the person will see it (its web page in the browser tool, or its API) before you call it done or go on; if you can't, say it is not checked.");
+  expect(prompt).toContain("- machines: this conversation worked on nas (192.0.2.31) over ssh. Reach it as `ssh nas`, never by address: the name brings its user and key. Work meant for one of them happens there (its files, its services), not in this folder, unless the request asks for files here. Check a change there where the person will see it (its web page in the browser tool, or its API) before you call it done or go on; if you can't, say it is not checked.");
   expect(formatTaskPrompt("install home assistant", classification, model)).not.toContain("- machines:");
+  // A machine the ssh config doesn't name is reached by its address: no name to suggest.
+  expect(formatTaskPrompt("install home assistant", classification, model, { machines: ["192.0.2.60"] })).not.toContain("Reach it as");
   expect(formatTaskPrompt("install home assistant", classification, model, { machines: [] })).not.toContain("- machines:");
 });
 

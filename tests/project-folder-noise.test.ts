@@ -110,9 +110,10 @@ test("the home-folder hint never names a junk folder, rich or not, and asks noth
       const text = out.join("");
       // The most recently used real project is named; Windows shows the real path, elsewhere ~/.
       const shown = process.platform === "win32" ? real : `~/${path.relative(home, real)}`.split("/").join(path.sep);
-      expect(text).toContain(`[folder] Opened in your home folder. To work in ${path.basename(real)}: casper ${shown}\n`);
+      expect(text).toContain(`[folder] Opened in your home folder: ask for anything here. To work in ${path.basename(real)}: casper ${shown}\n`);
       expect(text).not.toMatch(/bench|scratch|cache|node_modules|faketmp|somerun|smoke/i);
-      expect(text).toContain("[folder] To start a new project instead: casper new\n");
+      // Home needs no project: no push to start one.
+      expect(text).not.toContain("casper new");
     }
   } finally { await removeTempDir(home); }
 });

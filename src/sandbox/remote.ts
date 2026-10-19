@@ -414,14 +414,15 @@ export function sshHostsLine(home = os.homedir()): string | undefined {
     + "Use `ssh <name>` and `scp <file> <name>:<path>`: ssh then brings that machine's user and key.";
 }
 
-/** For a login to a machine typed by address: the name the ssh config gives it, whose own user and key ssh would use. */
-export function sshNameLine(targets: readonly { typed: string; host: string; user?: string }[], home = os.homedir()): string | undefined {
+/** For a login to a machine typed by address: the name the ssh config gives it, whose own user and key ssh would use.
+ * `anyUser` (a refused login): also when the command typed another user, since that user may be why it was refused. */
+export function sshNameLine(targets: readonly { typed: string; host: string; user?: string }[], home = os.homedir(), anyUser = false): string | undefined {
   const hosts = sshHostNames(home);
   for (const target of targets) {
     // Typed by one of the config's names already: ssh used that name's settings.
     if (hosts.some((host) => host.name === target.typed.replace(/^[^@]*@/, ""))) continue;
     const named = hosts.find((host) => host.hostName.toLowerCase() === target.host.toLowerCase()
-      && (!target.user || !host.user || host.user === target.user));
+      && (anyUser || !target.user || !host.user || host.user === target.user));
     if (named) return `[ssh] Their ssh config names this machine ${named.name} (${machine(named)}): run \`ssh ${named.name} …\` or \`scp … ${named.name}:…\`, which brings its own user and key.`;
   }
   return undefined;

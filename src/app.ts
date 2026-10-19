@@ -336,7 +336,7 @@ export class CasperApp {
   readonly pageNotice: DevServerNotice = { shown: false };
   /** What may have changed this task's code since it started: a check the model records after that has no
    * before-the-change baseline. `before` is the task's starting tree, compared only after a shell command. */
-  taskEdits?: { before?: Map<string, string>; edited: boolean; shell: boolean; turnEnded: boolean };
+  taskEdits?: { before?: Map<string, string>; edited: boolean; shell: boolean; turnEnded: boolean; tools?: boolean };
   readonly sessionHomeDir?: string;
   sessionWorkspace?: SessionWorkspaceManager;
   sessionWorkspaceStart?: Promise<SessionWorkspaceManager>;
@@ -546,6 +546,7 @@ export class CasperApp {
       announceLongChecks: () => this.onEvent === undefined,
       onToolEnd: event => {
         this.observations.observeToolEnd(event, this.projectContext?.model.commands);
+        if (this.taskEdits) this.taskEdits.tools = true;
         if (event.sessionOnlyCheck) return;
         if (["bash", "powershell", "edit", "write"].includes(event.toolName)) this.browser?.invalidate();
         // A shell command's files are unknown, so it marks every running service stale.

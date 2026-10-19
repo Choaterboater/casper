@@ -87,6 +87,15 @@ test("a change the review will check gets the request itself as its first turn, 
     { verificationMode: "offer", proveChange: false, reviewFollows: true })).toContain("Casper initial classification");
 });
 
+test("a plain question (\"hey\", \"connect to the nas\") is not told it is changing a project: no test or requirement lines", () => {
+  const model = { commands: { test: "go test ./..." } } as unknown as Parameters<typeof formatTaskPrompt>[2];
+  for (const request of ["hey", "connect to the nas at 192.0.2.31"]) {
+    const prompt = formatTaskPrompt(request, { intent: "general", mode: "read", verification: [] }, model, { verificationMode: "auto", proveChange: true, reviewFollows: false });
+    expect([request, prompt.includes("If you change code"), prompt.includes("project docs")]).toEqual([request, false, false]);
+    expect(prompt).toEndWith(`User request:\n${request}`);
+  }
+});
+
 test("with the review off, the first turn asks only for the open requirements, in the format the review parses", () => {
   const model = { commands: { test: "npm test" } } as unknown as Parameters<typeof formatTaskPrompt>[2];
   const prompt = formatTaskPrompt("Add --tls to portcheck.", { intent: "implement", mode: "modify", verification: [] }, model, { proveChange: true, reviewFollows: false });

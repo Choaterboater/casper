@@ -1,5 +1,6 @@
 import { afterEach, expect, setDefaultTimeout, test } from "bun:test";
 import { chmod, link, mkdir, mkdtemp, readFile, realpath, stat, symlink, writeFile } from "node:fs/promises";
+import { ownPrivateFile } from "../src/platform/private-file";
 import { flakyOn, posixOnly } from "./support/platform";
 import { PTY_TEST_MS, runPtyFixture } from "./support/pty";
 import { isolatedEnvironment } from "../src/platform/environment";
@@ -655,14 +656,13 @@ test("hostile device fields fail closed without saving or rendering controls", a
 });
 
 // POSIX file modes and symlink denial; Windows has no 0o644 mode to preserve.
-posixOnly("unsafe auth files fail before network without repairing modes or following links", async () => {
-  for (const kind of ["mode", "hardlink", "symlink"] as const) {
+posixOnly("unsafe auth files fail before network without following links", async () => {
+  for (const kind of ["hardlink", "symlink"] as const) {
     const f = await fixture(); const agent = f.env.PI_CODING_AGENT_DIR; await mkdir(agent, { recursive: true });
     const auth = path.join(agent, "auth.json"); const other = path.join(f.root, "other.json");
-    await writeFile(other, "{}", { mode: kind === "mode" ? 0o644 : 0o600 });
+    await writeFile(other, "{}", { mode: 0o644 });
     if (kind === "hardlink") await link(other, auth);
-    else if (kind === "symlink") await symlink(other, auth);
-    else await writeFile(auth, "{}", { mode: 0o644 });
+    else await symlink(other, auth);
     const output = await f.run(`
       import { PiRuntime } from ${JSON.stringify(path.join(repo, "src/runtime/pi.ts"))}; import { PassThrough } from 'node:stream';
       let fetches = 0; globalThis.fetch = async () => { fetches++; throw new Error('NETWORK_FORBIDDEN'); };
@@ -672,9 +672,34 @@ posixOnly("unsafe auth files fail before network without repairing modes or foll
     `);
     expect(JSON.parse(output)).toMatchObject({ result: { status: "failed", effect: "none", reason: "destination" }, fetches: 0 });
     expect(JSON.parse(output).result.detail).toContain(JSON.stringify(auth));
-    if (kind === "mode") expect((await stat(auth)).mode & 0o777).toBe(0o644);
+    // A file a link leads to is never made private for you: it may be someone else's.
+    expect((await stat(other)).mode & 0o777).toBe(0o644);
     expect(await readFile(other, "utf8")).toBe("{}");
   }
+});
+
+// A NAS home whose inherited ACL makes every new file 777 left auth.json readable by all, and /login said "run chmod 600".
+posixOnly("your own auth file that others can read is made private before the login, and the login goes on", async () => {
+  const f = await fixture(); const agent = f.env.PI_CODING_AGENT_DIR; await mkdir(agent, { recursive: true });
+  const auth = path.join(agent, "auth.json");
+  await writeFile(auth, "{}"); await chmod(auth, 0o777); await chmod(agent, 0o777);
+  expect(await ownPrivateFile(auth)).toBeUndefined();
+  expect((await stat(auth)).mode & 0o777).toBe(0o600);
+  expect((await stat(agent)).mode & 0o777).toBe(0o700);
+  expect(await readFile(auth, "utf8")).toBe("{}");
+  // A file that isn't there yet is fine; another owner's or a linked one is still refused (above).
+  expect(await ownPrivateFile(path.join(agent, "missing.json"))).toBeUndefined();
+  // Through /login itself: the loose file no longer stops it (here it goes on to the network, which the test forbids).
+  await chmod(auth, 0o777);
+  const output = await f.run(`
+    import { PiRuntime } from ${JSON.stringify(path.join(repo, "src/runtime/pi.ts"))}; import { PassThrough } from 'node:stream';
+    let fetches = 0; globalThis.fetch = async () => { fetches++; throw new Error('NETWORK_FORBIDDEN'); };
+    const runtime = new PiRuntime(); const input = new PassThrough();
+    try { const result = await runtime.authenticate({ provider: 'openai-codex', terminalHost: { run: operation => withLoginSurface({ input, color: false, onEOF() {}, output: { write() {} } }, operation) } });
+      console.log(JSON.stringify({ result, fetches })); } finally { await runtime.dispose(); input.destroy(); }
+  `);
+  expect(JSON.parse(output).result.reason).not.toBe("destination");
+  expect((await stat(auth)).mode & 0o777).toBe(0o600);
 });
 
 // Symlinked ancestors of HOME (macOS /tmp, ostree /home -> var/home) are canonicalized, not refused.

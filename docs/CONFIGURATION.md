@@ -612,7 +612,10 @@ before this setup: they create no state and import nothing.
 (`models.json`) live in Casper's own store, `~/.casper/agent/`, mode 0700 (only your user can read
 it). The AI's tools and shell can't read `auth.json`, `models.json` or the saved conversations
 there. No Pi installation is needed. `CASPER_AGENT_DIR` selects a different store; an inherited
-`PI_CODING_AGENT_DIR` never does. `/login` writes only the provider you agreed to into that store.
+`PI_CODING_AGENT_DIR` never does. `/login` writes only the provider you agreed to into that store. A home that makes every new file
+readable by all (a NAS whose folders hand down a 777 ACL) is no reason to stop: before saving, Casper
+sets its own `auth.json` back to 0600 and the folder to 0700. A link, a hard-linked copy or a file
+someone else owns is still refused.
 
 **One-time import from Pi.** On first run with the default store, an existing Pi CLI install's API
 keys (from `auth.json`) and `models.json` are copied once (the originals stay untouched). OAuth

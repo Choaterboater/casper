@@ -1,7 +1,7 @@
 import { randomBytes } from "node:crypto";
 import { chmod, lstat, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { privateFileProblem } from "../../platform/private-file";
+import { ownPrivateFile, privateFileProblem } from "../../platform/private-file";
 import { resolveEnvironment, type MCPServerDefinition } from "../config";
 import { matchPreset } from "../presets";
 
@@ -142,12 +142,8 @@ export async function readLogins(homeDir: string, warn?: (text: string) => void)
 async function writeLogins(homeDir: string, logins: Logins): Promise<void> {
   const file = loginFile(homeDir);
   await mkdir(path.dirname(file), { recursive: true, mode: 0o700 });
-  let problem = await privateFileProblem(file);
-  if (problem && /accessible to other users/.test(problem)) {
-    // Your own regular file with loose permissions: replaced by a private one, nothing for you to fix.
-    await chmod(file, 0o600);
-    problem = await privateFileProblem(file);
-  }
+  // Your own regular file with loose permissions is made private first, nothing for you to fix.
+  const problem = await ownPrivateFile(file);
   if (problem) throw new Error(`Casper can't save network logins: ${problem}.`);
   if (!Object.keys(logins).length) { await rm(file, { force: true }); return; }
   const temporary = `${file}.${process.pid}.${randomBytes(6).toString("hex")}.tmp`;

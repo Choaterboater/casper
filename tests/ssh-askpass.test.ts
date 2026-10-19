@@ -306,10 +306,24 @@ test("Yes, this once is not kept: the next command asks again", async () => {
 });
 
 test("a run asks at most a few times, so ssh retrying can't keep opening boxes", async () => {
-  const terminal = host(Array.from({ length: 10 }, () => "no" as const));
+  const terminal = host(Array.from({ length: 10 }, (_, n) => ({ secret: `wrong-${n}`, keep: "once" as const })));
   const handler = handlerFor(terminal, new SshSessionMemory());
   for (let attempt = 0; attempt < 8; attempt++) await handler(PROMPT, never);
   expect(terminal.asked.length).toBe(4);
+  forgetSshSecrets();
+});
+
+test("after a No, ssh's own retries in that command are refused the same way without asking again; the next command asks", async () => {
+  // ssh asks three times per login: the person said No three times for one command.
+  const terminal = host(["no", "no", undefined]);
+  const handler = handlerFor(terminal, new SshSessionMemory());
+  for (let attempt = 0; attempt < 3; attempt++) expect(await handler(PROMPT, never)).toEqual({ refuse: sshDeclined("192.0.2.10") });
+  expect(terminal.asked).toHaveLength(1);
+  expect(await handlerFor(terminal, new SshSessionMemory())(PROMPT, never)).toEqual({ refuse: sshDeclined("192.0.2.10") });
+  expect(terminal.asked).toHaveLength(2);
+  const nobody = handlerFor(terminal, new SshSessionMemory());
+  expect([await nobody(PROMPT, never), await nobody(PROMPT, never)]).toEqual([{ refuse: sshUnanswered("192.0.2.10") }, { refuse: sshUnanswered("192.0.2.10") }]);
+  expect(terminal.asked).toHaveLength(3);
 });
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -485,7 +499,7 @@ viaBash("a login that used the typed password says so, so the AI can't call it a
 }, 30_000);
 
 test("a refused login to a machine typed by its address names the machine's ssh config name; typed by that name, it doesn't (no shell needed)", async () => {
-  const w = await world({ answers: Array.from({ length: 4 }, () => "Yes, this once") });
+  const w = await world({ answers: Array.from({ length: 6 }, () => "Yes, this once") });
   await nameMachine(w.home);
   const wrapped = async (command: string) => { expect(await w.shell.approve!(command)).toBeUndefined(); return w.shell.wrap(command, w.project); };
   const notPlain = await wrapped("ssh admin@192.0.2.10 uptime; echo done");
@@ -495,6 +509,12 @@ test("a refused login to a machine typed by its address names the machine's ssh 
   await plain.ssh?.done?.();
   const named = await wrapped("ssh nas uptime; echo done");
   expect(named.ssh?.afterAuthFail).toBe(SSH_NOT_PLAIN_LINE);
+  // BatchMode by address (the AI's usual first try) and another user (your login name, not the config's) name it too.
+  const batch = await wrapped("ssh -o BatchMode=yes 192.0.2.10 uptime");
+  expect(batch.ssh?.afterFail).toBe(`${SSH_BATCH_MODE_LINE}\n[ssh] Their ssh config names this machine nas (admin@192.0.2.10): run \`ssh nas …\` or \`scp … nas:…\`, which brings its own user and key.`);
+  const other = await wrapped("ssh someone@192.0.2.10 uptime");
+  expect(other.ssh?.afterAuthFail).toStartWith(`${SSH_REFUSED_LINE}\n[ssh] Their ssh config names this machine nas (admin@192.0.2.10)`);
+  await other.ssh?.done?.();
   await w.close();
 });
 
