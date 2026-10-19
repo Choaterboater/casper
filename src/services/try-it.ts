@@ -3,6 +3,9 @@ import { ProcessCleanupError } from "../platform/processes";
 import { redactPreview } from "../tui/format";
 import type { AppSmokeTarget } from "./detect";
 import { ServiceManager } from "./manager";
+import { appDataFile } from "./app-data";
+
+export { appDataFile };
 
 /** One completion observation, never proof that the requested behavior works. */
 export interface AppSmokeReport {
@@ -74,14 +77,6 @@ export async function requestApp(origin: string | undefined, requestPath: string
   } catch (error) {
     return { status: signal.aborted ? "not-run" : "fail", reason: `the request did not finish: ${message(error)}` };
   }
-}
-
-/** Files a running app writes as it works (its data store, logs), not code or configuration it loads.
- * Manifests, lockfiles and tool configs are inputs even though they are JSON. */
-export function appDataFile(file: string): boolean {
-  const name = file.replace(/\\/g, "/").split("/").pop()!.toLowerCase();
-  if (/^(?:package|package-lock|composer|deno|bun|tsconfig.*|jsconfig.*|.*\.config|\..*rc|manifest|app|appsettings.*)\.jsonc?$/.test(name)) return false;
-  return /\.(?:json|jsonl|ndjson|csv|log|db|sqlite3?|db-(?:wal|shm|journal)|sqlite3?-(?:wal|shm|journal))$/.test(name);
 }
 
 /** Like sameRuntimeInputs, but the app's own data writes during a smoke do not count as changed inputs. */
