@@ -404,7 +404,9 @@ async function updateBinary(options: UpdateOptions, executable: string): Promise
       return { exitCode: 1 };
     }
     handedOff = true;
-    write(`Casper cannot replace itself while it runs. A hidden helper does it once this Casper has exited, and it downloads the new program first. Close Casper if it is still open, wait about 30 seconds, then run casper --version.${log ? ` If it still shows ${currentVersion}, ${updateLogPath(options.stateDir!)} says what happened.` : ""}`);
+    // The helper waits only for this command, then moves the running program aside, so another open Casper never
+    // blocks it: that one keeps the old version until it is restarted.
+    write(`The update finishes in the background: Windows can't replace a running program, so a hidden helper installs ${version} as soon as this command ends, in about 30 seconds. A Casper you already have open keeps ${currentVersion} until you restart it.${log ? ` If casper --version still shows ${currentVersion} after that, ${updateLogPath(options.stateDir!)} says why.` : ""}`);
     return { exitCode: 0, updated: true };
   } finally { if (!handedOff) await rm(temp, { recursive: true, force: true }); }
 }
