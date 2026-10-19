@@ -78,6 +78,7 @@
           </li>
           <li><a href="#released">Released</a>
             <ul>
+              <li><a href="#v0240">v0.2.40: /look and steadier runs</a></li>
               <li><a href="#v0239">v0.2.39: try the app before done</a></li>
               <li><a href="#v0238">v0.2.38: plans that stay on</a></li>
               <li><a href="#v0237">v0.2.37: builders opt-in</a></li>
@@ -116,7 +117,7 @@
         <h2 id="next-h">Next release</h2>
         <aside class="callout soon">
           <strong class="callout-title">Built, not released</strong>
-          <p>Nothing on the main branch is waiting: everything built so far is in v0.2.39. New work shows here before the next preview.</p>
+          <p>Nothing on the main branch is waiting: everything built so far is in v0.2.40. New work shows here before the next preview.</p>
         </aside>
       </section>
 
@@ -358,10 +359,26 @@
         and on the <a href="https://github.com/Choaterboater/casper/releases">Releases page</a>.</p>
         <div class="stack">
 
+        <details class="card release" id="v0240" aria-labelledby="v0240-h" open>
+          <summary class="release-heading">
+            <h3 id="v0240-h">v0.2.40 · /look, steadier OpenRouter runs, ssh hosts by name, and a Home Assistant skill</h3>
+            <span class="badge ok">current preview</span>
+          </summary>
+          <ul>
+            <li><strong>/look.</strong> One design pass on a page in the real browser: <code>critique</code> or <code>audit</code> report, and <code>polish</code>, <code>layout</code>, <code>type</code>, <code>colour</code>, <code>adapt</code>, <code>harden</code> and <code>clarify</code> fix. UI work in any project gets the frontend quality checks for forms, focus, tap sizes, contrast and states.</li>
+            <li><strong>Steadier OpenRouter runs.</strong> A request is tried again when OpenRouter's chosen host fails, and that host is avoided for the rest of the session. The retry line says what went wrong instead of always that Casper can't reach the provider.</li>
+            <li><strong>Fewer refused commands.</strong> A refused shell command is no longer sent again and again, and a run that can't ask tells the model which tool to use instead. <code>sed -n</code>, <code>timeout</code> and a plain <code>$</code> in a grep pattern run as reads.</li>
+            <li><strong>Browser checks.</strong> A check stays fresh when the app writes its own data file, each end replay starts from the data its check was recorded with, and a server started with <code>serve()</code> from <code>bun</code> is found as an app to try.</li>
+            <li><strong>ssh hosts by name.</strong> Asked about <code>~/.ssh</code>, the AI is told the machines your ssh config names (never a key or key path), and a refused login names the one to use. Each request names the machines the conversation worked on, so work for one happens there, and a change there is checked where you would see it or said to be unchecked. A login that used your typed password says so.</li>
+            <li><strong>Home Assistant skill.</strong> Integrations go through Home Assistant's setup flow, never its <code>.storage</code> files, and count as done only when you can see them; HACS, MQTT and dashboards too. A request about Central or Mist picks their skills again.</li>
+            <li><strong>sudo keeps your files yours.</strong> Files a <code>sudo casper</code> leaves in your home are given back to you; run as you, Casper names any of your files root owns, with the one command that gives them back.</li>
+          </ul>
+        </details>
+
         <details class="card release" id="v0239" aria-labelledby="v0239-h" open>
           <summary class="release-heading">
             <h3 id="v0239-h">v0.2.39 · Try the app before done, Chrome that recovers, and Windows fixes</h3>
-            <span class="badge ok">current preview</span>
+            <span class="badge">previous preview</span>
           </summary>
           <ul>
             <li><strong>Try the app before done.</strong> In auto mode Casper tries a changed app, server or page once before the receipt, then stops any server it started. A server you started yourself gets the new code and is left running. In offer mode the receipt says <code>/verify to try it</code>.</li>
@@ -377,7 +394,7 @@
         <details class="card release" id="v0238" aria-labelledby="v0238-h" open>
           <summary class="release-heading">
             <h3 id="v0238-h">v0.2.38 · Plans that stay on, draw.io diagrams and a ClearPass design skill</h3>
-            <span class="badge">previous preview</span>
+            <span class="badge">released</span>
           </summary>
           <ul>
             <li><strong>Plans that stay on.</strong> <code>/plan on</code> keeps planning on for every request, with a PLAN badge in the footer, until <code>/plan off</code>. A question ending in <code>?</code> asks about a plan without rewriting it, and you can answer a plan's open question from its choices.</li>
@@ -391,7 +408,7 @@
           </ul>
         </details>
 
-        <details class="card release" id="v0237" aria-labelledby="v0237-h" open>
+        <details class="card release" id="v0237" aria-labelledby="v0237-h">
           <summary class="release-heading">
             <h3 id="v0237-h">v0.2.37 · Builders opt-in, reviewed parts and token usage</h3>
             <span class="badge">released</span>
@@ -1157,7 +1174,7 @@
   <footer class="site-footer">
     <div class="container footer-inner">
       <div>
-        <p><strong>Casper 0.2.39</strong> · early preview, unsigned</p>
+        <p><strong>Casper 0.2.40</strong> · early preview, unsigned</p>
         <p><a href="https://github.com/Choaterboater/casper/blob/main/LICENSE">MIT licence</a> · © 2026 Choaterboater</p>
         <p>Built on the <a href="https://github.com/earendil-works/pi">Pi SDK</a>. Other parts keep their own licences (<a href="https://github.com/Choaterboater/casper/blob/main/THIRD_PARTY_NOTICES.txt">notices</a>).</p>
       </div>
