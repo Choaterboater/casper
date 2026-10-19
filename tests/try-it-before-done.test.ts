@@ -160,6 +160,21 @@ test("an app found from package.json's start script, with no page changed, has i
   expect(plan).toMatchObject({ service: { source: "package.json" }, path: "/", rootGuess: true });
 });
 
+test("a server started as serve() imported from bun, or Deno.serve, is found as an app; a file with serve() alone is not", async () => {
+  const f = await fixture({ manifest: { name: "api", scripts: { start: "bun src/server.ts" } } });
+  await mkdir(path.join(f.project, "src"));
+  for (const [source, found] of [
+    ['import { serve } from "bun";\nserve({ port: Number(process.env.PORT), fetch: () => new Response("ok") });\n', true],
+    ["import { type Server, serve } from 'bun'\nconst server = serve({ fetch: () => new Response('ok') })\n", true],
+    ['Deno.serve({ port: 8000 }, () => new Response("ok"));\n', true],
+    ['import { serve } from "./my-helpers";\nserve(task);\n', false],
+  ] as const) {
+    await writeFile(path.join(f.project, "src/server.ts"), source);
+    const plan = await planAppSmoke(f.project, { packageManager: "bun" }, ["src/server.ts"]);
+    expect([source, plan === undefined ? "none" : "found"]).toEqual([source, found ? "found" : "none"]);
+  }
+});
+
 test("a JSON API found from package.json that answers / with 404 passes the smoke end to end", async () => {
   const f = await fixture({ manifest: { name: "api", scripts: { start: `"${process.execPath}" server.ts` } }, config: { services: {} } });
   f.edit("server.ts", `import { appendFileSync } from "node:fs";

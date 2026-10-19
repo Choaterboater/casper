@@ -231,6 +231,10 @@ const PAGE_FILES = ["index.html", "public/index.html", "static/index.html", "src
 /** `bun [run] [--watch|--hot] server.ts` or `node server.js`: the project's own server, which reads PORT. */
 const OWN_SERVER = /^(?:bun|node)$/;
 const SERVER_FILE = /\.(?:[cm]?[jt]sx?)$/;
+/** A server the file starts itself: Bun.serve, Deno.serve, node:http's createServer, or any .listen(. */
+const SERVER_CALL = /\b(?:Bun|Deno)\.serve\s*\(|\bcreateServer\s*\(|\.listen\s*\(/;
+/** `import { serve } from "bun"` then `serve({...})`: the same server as Bun.serve, written another way. */
+const BUN_SERVE_IMPORT = /\bimport\s*(?:type\s+)?\{[^}]*\bserve\b[^}]*\}\s*from\s*["']bun["']/;
 
 /**
  * A site with no framework (Bun.serve or node:http and an index.html): its dev script runs its own server file
@@ -320,7 +324,7 @@ export async function planAppSmoke(root: string, input: DetectInput, files: read
   const entry = words.find(word => SERVER_FILE.test(word) && !word.startsWith("-"));
   const entries = [...new Set([...(entry ? [entry] : []), ...changed.filter(file => SERVER_FILE.test(file))])].slice(0, 8);
   const sources = await Promise.all(entries.map(file => !isOutside(file) && !path.isAbsolute(file) ? readSmall(path.join(root, file), MAX_ENTRY_BYTES) : undefined));
-  const server = sources.some(source => source !== undefined && /\bBun\.serve\s*\(|\bcreateServer\s*\(|\.listen\s*\(/.test(source));
+  const server = sources.some(source => source !== undefined && (SERVER_CALL.test(source) || (BUN_SERVE_IMPORT.test(source) && /\bserve\s*\(/.test(source))));
   const app = server || [...frameworks].some(name => (WEB_FRAMEWORKS as readonly string[]).includes(name) || HTTP_FRAMEWORKS.includes(name))
     || pagePlan.open.length > 0;
   if (!app) return undefined;
