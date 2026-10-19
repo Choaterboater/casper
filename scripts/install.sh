@@ -212,7 +212,7 @@ gh_too_old() {
 }
 if command -v gh >/dev/null 2>&1 && gh auth status >/dev/null 2>&1; then
   if gh_too_old; then
-    echo "Checked SHA-256. This gh is too old to check where it was built (gh 2.56 or newer can)."
+    echo "Checked SHA-256. (Optional: gh 2.56 or newer would also check where it was built.)"
   elif gh attestation verify "$tmp/$artifact" --repo Choaterboater/casper >/dev/null 2>&1; then
     echo "Verified: built by GitHub Actions from Choaterboater/casper."
   else
@@ -220,9 +220,9 @@ if command -v gh >/dev/null 2>&1 && gh auth status >/dev/null 2>&1; then
     exit 1
   fi
 elif command -v gh >/dev/null 2>&1; then
-  echo "Checked SHA-256. Sign in to gh (gh auth login) to also check where it was built."
+  echo "Checked SHA-256. (Optional: gh auth login would also check where it was built.)"
 else
-  echo "Checked SHA-256. Install gh to also check where it was built."
+  echo "Checked SHA-256."
 fi
 
 # The artifact is proved inside the install directory before it replaces anything: a

@@ -279,7 +279,7 @@ posixOnly("a signed-in gh too old to have `attestation` installs on the SHA-256 
   const installDir = path.join(root, "bin");
   const result = await install(release, installDir, [], await fakeGh(root, 1, true));
   expect(result.exitCode).toBe(0);
-  expect(result.stdout).toContain("Checked SHA-256. This gh is too old to check where it was built (gh 2.56 or newer can).");
+  expect(result.stdout).toContain("Checked SHA-256. (Optional: gh 2.56 or newer would also check where it was built.)");
   expect(result.stderr).not.toContain("doesn't match");
   expect((await stat(path.join(installDir, "casper"))).isFile()).toBe(true);
 });
@@ -291,7 +291,7 @@ posixOnly("a signed-in gh that has `attestation` but is older than 2.56 installs
     const installDir = path.join(root, `bin-${version}`);
     const result = await install(release, installDir, [], await fakeGh(root, 1, false, version));
     expect({ version, exitCode: result.exitCode, stderr: result.stderr }).toEqual({ version, exitCode: 0, stderr: expect.not.stringContaining("doesn't match") });
-    expect(result.stdout).toContain("Checked SHA-256. This gh is too old to check where it was built (gh 2.56 or newer can).");
+    expect(result.stdout).toContain("Checked SHA-256. (Optional: gh 2.56 or newer would also check where it was built.)");
     expect((await stat(path.join(installDir, "casper"))).isFile()).toBe(true);
   }
   // Neither was asked to check the download.
@@ -314,7 +314,9 @@ posixOnly("with gh, a matching build is installed and says where it was built; w
   const plain = await install(release, path.join(root, "bin2"));
   expect(plain.exitCode).toBe(0);
   // A CI runner has gh but no sign-in here (the installer gets a clean HOME).
-  expect(plain.stdout).toMatch(/Checked SHA-256\. (?:Install gh|Sign in to gh \(gh auth login\)) to also check where it was built\./);
+  expect(plain.stdout).toMatch(/Checked SHA-256\.(?: \(Optional: gh auth login would also check where it was built\.\))?\n/);
+  // gh is optional: without it the installer doesn't send you off to install it.
+  expect(plain.stdout).not.toContain("Install gh");
 });
 
 // --- The release signature: a throwaway key made for each test, never a real one ---
