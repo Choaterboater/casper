@@ -29,6 +29,23 @@ const RULES: ReadonlyArray<{ cause: ModelErrorCause; test: RegExp; line: string 
     line: "The provider can't run this model. Next: /model to pick another model." },
 ];
 
+/** OpenRouter's words when the host it picked fails ("Upstream error from <host>: inference generation failed"). Pi
+ * retries only the transient words it knows, so one bad host ended the whole task in its first seconds. */
+const UPSTREAM = /\bupstream error\b/i;
+
+/** Lets Pi retry an upstream host failure as it retries a 502, so OpenRouter can route to another host. A credits,
+ * key, refusal, window or model error stays final, and so does whatever Pi itself refuses (its quota words, a full window). */
+export function retryUpstreamErrors(session: object): void {
+  const piRetries = Reflect.get(session, "_isRetryableError") as unknown;
+  if (typeof piRetries !== "function") return;
+  Reflect.set(session, "_isRetryableError", (message: { stopReason?: string; errorMessage?: string }) => {
+    if (piRetries.call(session, message)) return true;
+    const text = message.stopReason === "error" ? message.errorMessage ?? "" : "";
+    return UPSTREAM.test(text) && !/quota|budget|billing/i.test(text)
+      && !RULES.some((rule) => rule.cause !== "rate" && rule.cause !== "offline" && rule.test.test(text));
+  });
+}
+
 /** Pi's words around every failed sign-in renewal, whatever the cause (offline, timeout, 5xx or a real rejection). */
 const REFRESH_FAILED = /oauth refresh failed|token refresh (?:request )?(?:failed|error|unauthorized)/i;
 /** The token server turned the saved sign-in down: only /login fixes it. */

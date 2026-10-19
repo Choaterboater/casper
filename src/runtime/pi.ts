@@ -21,6 +21,7 @@ import { applyClaudeCodeVersion } from "./claude-code-version";
 import { registerClaudeSubscription } from "./claude-subscription";
 import { authenticatePi } from "./pi-auth";
 import { applyOpenRouterAttribution, isOpenRouterModel } from "./openrouter-attribution";
+import { retryUpstreamErrors } from "./model-errors";
 import {
   createAgentSessionFromServices,
   createAgentSessionRuntime,
@@ -1163,6 +1164,7 @@ export class PiRuntime implements AgentRuntime {
           ].map((definition) => repairing(definition) as unknown as ToolDefinition),
           ...(readOnly ? { tools: ["read", "grep", "find", "ls"] } : {}),
         });
+        retryUpstreamErrors(created.session);
         if (bounded) {
           // Chain Pi's own boundary hook, as the main session does: a turn_end handler's decision is
           // honored and dispatch comes before the budget decision. (Children load no extensions, so

@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import { RuntimeEventView } from "../src/app/events";
-import { errorText, explainModelError, refreshFailure, signInExpired } from "../src/runtime/model-errors";
+import { AgentSession } from "@earendil-works/pi-coding-agent";
+import { errorText, explainModelError, refreshFailure, retryUpstreamErrors, signInExpired } from "../src/runtime/model-errors";
 import { formatReceipt } from "../src/task/result";
 import { removeTempDir } from "./support/temp-dir";
 
@@ -205,4 +206,19 @@ test("a provider that rejects tools is said plainly, without the raw text in the
   expect(explainModelError("Tool use is not supported by this model")?.cause).toBe("tools");
   expect(explainModelError("400 llama3 does not support tools")?.line).toBe(`llama3 ${plain}`);
   expect(explainModelError("400 llama3 does not support tools")?.line).not.toContain("400");
+});
+
+test("an OpenRouter upstream host failure is retried as Pi retries a 502; credits, key and window errors stay final", () => {
+  // Pi's own check on a bare session: the real method, so a Pi update that renames it fails here.
+  const session = Object.create(AgentSession.prototype, { agent: { value: { state: {} } }, _modelForMessage: { value: () => undefined, writable: true } }) as object;
+  const retries = (errorMessage: string) => (Reflect.get(session, "_isRetryableError") as (m: object) => boolean)
+    .call(session, { role: "assistant", stopReason: "error", errorMessage, content: [] });
+  const upstream = "Upstream error from Darkbloom: inference generation failed";
+  expect([retries(upstream), retries("502 Bad Gateway")]).toEqual([false, true]);
+  retryUpstreamErrors(session);
+  expect([retries(upstream), retries("502 Bad Gateway"), retries("Upstream error from Host: rate limit reached")]).toEqual([true, true, true]);
+  for (const final of ["Upstream error from Host: insufficient credits", "Upstream error from Host: 401 invalid api key",
+    "Upstream error from Host: maximum context length is 32768 tokens", "Upstream error from Host: quota exceeded", "inference generation failed"])
+    expect([final, retries(final)]).toEqual([final, false]);
+  expect((Reflect.get(session, "_isRetryableError") as (m: object) => boolean).call(session, { role: "assistant", stopReason: "stop", errorMessage: upstream, content: [] })).toBe(false);
 });
