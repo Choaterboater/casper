@@ -287,6 +287,14 @@ Casper (kept out of its public rankings for now); nothing about your code. It is
 `/settings` (it writes `telemetry: false`) or `CASPER_TELEMETRY=0`; either one off is off. A project
 file can't change `telemetry:`. See [OpenRouter app attribution](#provider-credentials).
 
+### When an OpenRouter host fails
+
+OpenRouter runs a model on several hosts and can keep sending every try to the same one. When it answers
+`Upstream error from <host>: ...`, Casper tries again, and that host goes on the model's OpenRouter `ignore`
+list for the rest of the session, so the next try goes to another host. Hosts you pinned with `only`
+(`modelOverrides` in `~/.casper/agent/models.json`) are respected: the failed one leaves your list, and the
+last one left is never dropped.
+
 ### My MCP servers and My language servers
 
 Your own MCP servers (`~/.casper/mcp.json`, your profile's, and the ones found in Claude Code and

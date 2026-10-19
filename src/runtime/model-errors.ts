@@ -39,11 +39,34 @@ export function retryUpstreamErrors(session: object): void {
   const piRetries = Reflect.get(session, "_isRetryableError") as unknown;
   if (typeof piRetries !== "function") return;
   Reflect.set(session, "_isRetryableError", (message: { stopReason?: string; errorMessage?: string }) => {
-    if (piRetries.call(session, message)) return true;
     const text = message.stopReason === "error" ? message.errorMessage ?? "" : "";
-    return UPSTREAM.test(text) && !/quota|budget|billing/i.test(text)
-      && !RULES.some((rule) => rule.cause !== "rate" && rule.cause !== "offline" && rule.test.test(text));
+    const retried = piRetries.call(session, message) === true || (UPSTREAM.test(text) && !/quota|budget|billing/i.test(text)
+      && !RULES.some((rule) => rule.cause !== "rate" && rule.cause !== "offline" && rule.test.test(text)));
+    if (retried) avoidFailedHost(Reflect.get(session, "model"), text);
+    return retried;
   });
+}
+
+/** OpenRouter names the host that failed: "Upstream error from Darkbloom: ...". */
+const FAILED_HOST = /\bupstream error from ([A-Za-z0-9][\w .-]{0,40}?):/i;
+const MAX_AVOIDED = 8;
+
+/**
+ * OpenRouter kept sending every retry to the same broken host (four tries, all to one). The host it names goes on
+ * this model's OpenRouter ignore list for the rest of the session, so the next try goes elsewhere. Not when the
+ * person pinned hosts with `only` and this is the last one left: ignoring it would leave none.
+ */
+export function avoidFailedHost(model: unknown, errorMessage: string): string | undefined {
+  const host = FAILED_HOST.exec(errorMessage)?.[1]?.trim();
+  if (!host || !model || typeof model !== "object" || Reflect.get(model, "provider") !== "openrouter") return undefined;
+  const compat = (Reflect.get(model, "compat") ?? {}) as { openRouterRouting?: { ignore?: string[]; only?: string[] } };
+  const routing = compat.openRouterRouting ?? {};
+  const ignore = routing.ignore ?? [];
+  if (ignore.some((name) => name.toLowerCase() === host.toLowerCase()) || ignore.length >= MAX_AVOIDED) return undefined;
+  const left = routing.only?.filter((name) => name.toLowerCase() !== host.toLowerCase());
+  if (left && !left.length) return undefined;
+  Reflect.set(model, "compat", { ...compat, openRouterRouting: { ...routing, ignore: [...ignore, host], ...(left ? { only: left } : {}) } });
+  return host;
 }
 
 /** Pi's words around every failed sign-in renewal, whatever the cause (offline, timeout, 5xx or a real rejection). */

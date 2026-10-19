@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { RuntimeEventView } from "../src/app/events";
 import { AgentSession } from "@earendil-works/pi-coding-agent";
-import { errorText, explainModelError, refreshFailure, retryUpstreamErrors, signInExpired } from "../src/runtime/model-errors";
+import { avoidFailedHost, errorText, explainModelError, refreshFailure, retryUpstreamErrors, signInExpired } from "../src/runtime/model-errors";
 import { formatReceipt } from "../src/task/result";
 import { removeTempDir } from "./support/temp-dir";
 
@@ -221,4 +221,34 @@ test("an OpenRouter upstream host failure is retried as Pi retries a 502; credit
     "Upstream error from Host: maximum context length is 32768 tokens", "Upstream error from Host: quota exceeded", "inference generation failed"])
     expect([final, retries(final)]).toEqual([final, false]);
   expect((Reflect.get(session, "_isRetryableError") as (m: object) => boolean).call(session, { role: "assistant", stopReason: "stop", errorMessage: upstream, content: [] })).toBe(false);
+});
+
+test("a host OpenRouter names as failed is avoided for the rest of the session, never the last pinned one", () => {
+  const failed = (host: string) => `Upstream error from ${host}: inference generation failed`;
+  const model = { provider: "openrouter", id: "qwen/qwen3.5-9b" } as Record<string, unknown>;
+  expect(avoidFailedHost(model, failed("Darkbloom"))).toBe("Darkbloom");
+  expect(model.compat).toEqual({ openRouterRouting: { ignore: ["Darkbloom"] } });
+  // Said again, it is not added twice; another host is added beside it.
+  expect(avoidFailedHost(model, failed("darkbloom"))).toBeUndefined();
+  expect(avoidFailedHost(model, failed("Google AI Studio"))).toBe("Google AI Studio");
+  expect((model.compat as { openRouterRouting: { ignore: string[] } }).openRouterRouting.ignore).toEqual(["Darkbloom", "Google AI Studio"]);
+  // Hosts the person pinned: the failed one leaves the list; the last one left is kept.
+  const pinned = { provider: "openrouter", compat: { openRouterRouting: { only: ["SiliconFlow", "Venice"], allow_fallbacks: false } } } as Record<string, unknown>;
+  expect(avoidFailedHost(pinned, failed("SiliconFlow"))).toBe("SiliconFlow");
+  expect(pinned.compat).toEqual({ openRouterRouting: { only: ["Venice"], ignore: ["SiliconFlow"], allow_fallbacks: false } });
+  expect(avoidFailedHost(pinned, failed("Venice"))).toBeUndefined();
+  // Another provider, or an error that names no host, changes nothing.
+  const other = { provider: "together" } as Record<string, unknown>;
+  expect([avoidFailedHost(other, failed("Darkbloom")), other.compat]).toEqual([undefined, undefined]);
+  expect(avoidFailedHost(model, "502 Bad Gateway")).toBeUndefined();
+});
+
+test("the retry hook puts the failed host on the session model's ignore list as it retries", () => {
+  const model = { provider: "openrouter", id: "qwen/qwen3.5-9b" };
+  const session = Object.create(AgentSession.prototype, { agent: { value: { state: { model } } }, _modelForMessage: { value: () => undefined, writable: true } }) as object;
+  retryUpstreamErrors(session);
+  const retries = (Reflect.get(session, "_isRetryableError") as (m: object) => boolean)
+    .call(session, { role: "assistant", stopReason: "error", errorMessage: "Upstream error from Darkbloom: inference generation failed", content: [] });
+  expect(retries).toBe(true);
+  expect(Reflect.get(model, "compat")).toEqual({ openRouterRouting: { ignore: ["Darkbloom"] } });
 });
