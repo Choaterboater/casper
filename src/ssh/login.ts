@@ -1,6 +1,6 @@
 import { forgetTypedSecrets, rememberTypedSecret } from "../secrets/typed";
 import { terminalText } from "../tui/format";
-import type { AskpassHandler } from "./askpass";
+import type { AskpassHandler, AskpassReply } from "./askpass";
 
 /**
  * What Casper does when ssh (one you allowed) asks for something. Only a password or a key passphrase is ever answered,
@@ -101,6 +101,8 @@ export function sshLoginHandler(host: SshLoginHost, memory: SshSessionMemory, ma
   onPassword?: () => void): AskpassHandler {
   const triedFromMemory = new Set<string>();
   let asked = 0;
+  // ssh asks up to three times per login: after a No (or no answer), the rest of this command's asks get the same reply.
+  let declined: AskpassReply | undefined;
   return async (text, signal) => {
     const prompt = parsePrompt(text);
     if (!prompt) return { refuse: notSshQuestion };
@@ -114,12 +116,13 @@ export function sshLoginHandler(host: SshLoginHost, memory: SshSessionMemory, ma
         memory.delete(prompt);
       }
     }
+    if (declined) return declined;
     if (!host.canTypePrivately()) return { refuse: sshCantAsk(machine) };
     if (++asked > MOST_PER_RUN) return { refuse: sshDeclined(machine) };
     const label = terminalText(text.trim()).slice(0, 200);
     const answer = await host.ask({ question: sshQuestion(machine, prompt.kind), label, canKeep: keepable }, signal).catch(() => undefined);
-    if (answer === undefined) return { refuse: sshUnanswered(machine) };
-    if (answer === "no") return { refuse: sshDeclined(machine) };
+    if (answer === undefined) return declined = { refuse: sshUnanswered(machine) };
+    if (answer === "no") return declined = { refuse: sshDeclined(machine) };
     // Hidden from the AI from this moment, before ssh has even received it.
     const session = keepable && answer.keep === "session";
     rememberTypedSecret(answer.secret, !session);

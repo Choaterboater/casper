@@ -86,8 +86,8 @@ export const SSH_NOT_PLAIN_LINE = `[ssh] The login was refused. Casper can only 
 export const SSH_REFUSED_LINE = `[ssh] The login was refused. Casper's hidden password box was offered for this command; if the person said no or the password was wrong, ask them what to do. ${SSH_NEVER}`;
 /** After a login that worked with a password the person typed (or gave for the session): the AI must not call it a key login. */
 export const SSH_PASSWORD_LINE = "[ssh] This login used the password the person typed in Casper's box, not a key.";
-/** A refusal note, with the name the ssh config gives the machine when the AI typed its address. */
-const withName = (line: string, targets: RemoteTarget[], home: string) => [line, sshNameLine(targets, home)].filter(Boolean).join("\n");
+/** A refusal note, with the name the ssh config gives the machine when the AI typed its address (with any user). */
+const withName = (line: string, targets: RemoteTarget[], home: string) => [line, sshNameLine(targets, home, true)].filter(Boolean).join("\n");
 
 export const hostQuestion = (host: string) => `A shell command wants to reach ${terminalText(host)}. Allow it?`;
 /** Keep the command's layout (including heredocs), with secrets hidden and a bounded preview. */
@@ -268,7 +268,7 @@ export function runtimeShell(host: SandboxHost, sandbox: ShellSandbox, given: Sa
     if (ssh.on && !ssh.on()) return {};
     const words = splitShell(command).segments[0]?.words ?? [];
     // BatchMode=yes tells ssh never to ask: that is the command's own choice, so it stays, and the AI reads why it failed.
-    if (batchMode(segmentTargets(words).values)) return { ssh: { afterFail: SSH_BATCH_MODE_LINE } };
+    if (batchMode(segmentTargets(words).values)) return { ssh: { afterFail: withName(SSH_BATCH_MODE_LINE, targets, sandbox.home) } };
     let password = false;
     const handler = sshLoginHandler(host.ssh ?? NO_TERMINAL, sshSessionMemory, targets.map(targetLabel).join(", "),
       targets.map((target) => ({ typed: target.typed, host: target.host, ...(target.user ? { user: target.user } : {}) })), () => { password = true; });

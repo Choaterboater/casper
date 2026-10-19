@@ -76,4 +76,7 @@ test("a machine typed by its address gets the name the config gives it; typed by
   expect(sshNameLine([{ typed: "nas", host: "192.0.2.31", user: "admin" }], where)).toBeUndefined();
   expect(sshNameLine([{ typed: "root@192.0.2.31", host: "192.0.2.31", user: "root" }], where)).toBeUndefined();
   expect(sshNameLine([{ typed: "192.0.2.77", host: "192.0.2.77" }], where)).toBeUndefined();
+  // A refused login names it whatever user was typed: a wrong user (your own login name) is often why.
+  expect(sshNameLine([{ typed: "root@192.0.2.31", host: "192.0.2.31", user: "root" }], where, true)).toBe(hint);
+  expect(sshNameLine([{ typed: "nas", host: "192.0.2.31", user: "admin" }], where, true)).toBeUndefined();
 });
