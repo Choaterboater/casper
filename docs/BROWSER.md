@@ -190,6 +190,21 @@ when recorded and fills a fixed email, user name or name says so: `It passed
 before: a sign-up or booking may need a new value each run; use {run} in the
 fill value.`
 
+Casper's end-of-task replays start from the app's data as each check saw it. When a
+check of a local page is recorded, Casper keeps a copy of the project's data files
+(the ones the app writes: `data.json`, `.jsonl`, `.csv`, logs, SQLite with its `-wal`
+and `-shm`; not `package.json` or other manifests and configs). Before replaying that
+check it puts them back, a file that was absent then is removed, and it restarts the
+server it runs (`serve`, or the page checks' server) so the app reads them afresh. So
+checks written as a chain, each expecting the totals the one before left, replay as
+they ran, even after the AI tidied up `data.json`. After the replays the data the AI
+left comes back (and the server restarts again): replays leave no rows of their own.
+A server Casper doesn't run (the AI started it with a command) can't be restarted;
+the files are still put back and the check notes that the app may hold other data.
+Data files are copied only up to 32 files, 1 MiB each and 8 MiB in all; a project
+with more replays on the data as it is. Nothing is copied or restored when the data
+is already the same.
+
 A check the model wrote wrong (an expected text or a selector that was never
 right) can be taken out of the result with
 `{"action":"withdraw","id":"<returned-id>","reason":"expected text had a typo"}`.
