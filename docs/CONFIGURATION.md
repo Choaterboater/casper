@@ -389,6 +389,15 @@ decisions), `~/.casper/packs/`, `~/.casper/packs.json` and `~/.casper/packs.key`
 and what you were shown; see [PACKS.md](PACKS.md)), `~/.casper/agent/` (sign-ins and conversations; see
 [Provider credentials](#provider-credentials)) and `~/.casper/projects/` (per-project state).
 
+**Started with sudo.** `sudo casper` keeps your home, so these files, and `~/.claude.json` that
+Claude Code rewrites when Casper starts it, would belong to root and the next Casper or Claude
+Code run as you could not read them. A Casper running as root in a home that is not root's gives
+every root-owned file in `~/.casper`, `~/.claude` and Claude Code's `~/.claude.json` files back to
+the home's owner: at start, after each Claude Code run and at exit; it says so with a `[home]`
+line. Files of any other user are never changed. Run as you, Casper checks the few files that
+matter at start and, when root owns any, names them in a `[home]` line with the one `sudo chown`
+command that gives them back.
+
 **Which file wins.** Settings apply in this order, later ones winning: safe defaults → global →
 selected profile → project. So a repository's `.casper/project.yaml` can override your global
 settings for that repository.

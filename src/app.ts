@@ -99,6 +99,8 @@ import { runInteractive, handlePrompt, handleSlashCommand, cancelCurrent, writeP
 import { loadWorkspace, reloadReferences, reloadSkills, projectPrivatePaths, reportSkillWarnings, bannerChecks, reportNewerCasper } from "./app/wiring";
 import { PendingPictures } from "./pictures/pending";
 import { acquireRuntime, ensureRuntime, checkSignIn, observeEdit } from "./app/runtime-start";
+import { keepHomeFilesYours, returnHomeFiles } from "./app/home-files";
+import type { Owner } from "./platform/home-owner";
 
 export type { OutputWriter } from "./app/commands";
 
@@ -365,6 +367,9 @@ export class CasperApp {
     this.cleanupRecovery.queue(error);
   };
   savedModelDisplay?: string;
+  /** Set when Casper runs as root in someone else's home: what it leaves there goes back to them. */
+  homeOwner?: { home: string; owner: Owner };
+  homeSweep?: Promise<void>;
   /** False when no sign-in exists (no saved provider, no provider key): the banner and footer say how to start. */
   signedIn?: boolean;
   taskRuntimeCancelled = false;
@@ -616,6 +621,7 @@ export class CasperApp {
     for (const diagnostic of referenceConfiguration.diagnostics) this.output.write(`[references] ${formatReferenceResult(diagnostic)}\n`);
     reportSkillWarnings(this);
     for (const diagnostic of mcp.diagnostics) this.output.write(`[mcp] ${terminalText(diagnostic)}\n`);
+    await keepHomeFilesYours(this, this.sessionHomeDir ?? os.homedir());
     if (this.interactive) await reportImports(this);
     if (this.interactive) await reportNewerCasper(this, context);
     if (this.interactive) await refreshNetworkReleaseCheck(this);
@@ -695,7 +701,7 @@ export class CasperApp {
         this.unsubscribe?.();
         this.terminal.close();
         try { await this.runtime?.dispose(); }
-        finally { await this.lifecycle.drain(); }
+        finally { try { await this.lifecycle.drain(); } finally { await returnHomeFiles(this); } }
       }
     }
   }
