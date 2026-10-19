@@ -14,11 +14,40 @@ when releasing. Existing historical notes below stay as written; feature tests c
 reference docs, not a per-PR release-note or roadmap entry. Release-prep checks verify the version and
 installer targets (`tests/release-install.test.ts`, `tests/release-targets.test.ts`).
 
-Casper distributes an unsigned **v0.2.39 preview**, not a stable release. The installers
-download from `https://github.com/Choaterboater/casper/releases/download/v0.2.39`,
+Casper distributes an unsigned **v0.2.40 preview**, not a stable release. The installers
+download from `https://github.com/Choaterboater/casper/releases/download/v0.2.40`,
 because GitHub's `latest/download` link skips preview releases. The first published
 preview was **v0.1.0**. A published release is never changed; every fix ships under a
 new version.
+
+## v0.2.40: /look, steadier OpenRouter runs, ssh hosts by name, and a Home Assistant skill
+
+### Added
+
+- `/look` runs one design pass on a page in the real browser: a critique, an audit, or a polish, layout, type, colour or wording fix.
+- UI work in any project gets the frontend quality checks for forms, focus, tap sizes, contrast and states.
+- A bundled Home Assistant skill adds integrations through their setup flow and counts them done only when you can see them.
+- Asked about `~/.ssh`, the AI is told the machines your ssh config names, never a key or key path.
+
+### Changed
+
+- A model request is tried again when OpenRouter's chosen host fails, and that host is avoided for the rest of the session.
+- A retry line says what went wrong: a busy provider, a failed host, an error, or no connection.
+- A shell command that was refused is no longer sent again and again.
+- A run that can't ask tells the model to use a tool instead of a refused command.
+- `sed -n`, `timeout` and a plain `$` in a grep pattern run as the reads they are.
+- Each end-of-task browser replay starts from the data its check was recorded with.
+- Each request names the machines the conversation worked on over ssh, so work for one happens there.
+- A change on another machine is checked where you would see it, or the AI says it is not checked.
+- A login that used the password you typed says so, so the AI can't call it a key login.
+
+### Fixed
+
+- A browser check stays fresh when the app writes its own data file.
+- A server started with `serve()` imported from `bun` is found as an app to try.
+- Files a `sudo casper` leaves in your home are given back to you.
+- Run as you, Casper names any of your files root owns, with the one command that gives them back.
+- A request about Central or Mist picks their skills again instead of none.
 
 ## v0.2.39: try the app before done, Chrome that recovers, and Windows fixes
 
