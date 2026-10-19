@@ -668,7 +668,8 @@ Docs-only, tests-only and unchanged tasks start nothing. `--no-verify` / `verifi
 not an unfinished attempt and does not by itself make the task incomplete.
 
 Casper selects one declared service whose scope covers the change, or the project's own `dev` (else
-`start`) command. API servers need no HTML page. For an automatic request it chooses the first concrete
+`start`) command. API servers need no HTML page. A server with no framework is known by its entry file: `Bun.serve(`,
+`serve(` imported from `bun`, `Deno.serve(`, `createServer(` or `.listen(`. For an automatic request it chooses the first concrete
 changed page, otherwise the service's `ready.http` path, otherwise `/`. It sends one local GET, without
 following redirects, and expects HTTP 2xx. When `/` is only a guess (that last fallback, or an app Casper found from `package.json`, whose
 readiness path is Casper's own default `/`), a JSON 404 or 405 also passes:
