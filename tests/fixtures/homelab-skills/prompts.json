@@ -2,6 +2,11 @@
   "note": "Sample prompts for bundled home lab skill picking. No live calls.",
   "pick": [
     { "prompt": "radarr won't import from qbittorrent", "expect": ["homelab-media-stack"] },
+    { "prompt": "can you install the docker home assistant and get it up and running?", "expect": ["homelab-home-assistant"] },
+    { "prompt": "so i dont see them in home assistant do they need plugins and stuff", "expect": ["homelab-home-assistant"] },
+    { "prompt": "install hacs and mushroom cards for a homelab dashboard", "expect": ["homelab-home-assistant"] },
+    { "prompt": "what is mosquitto", "expect": ["homelab-home-assistant"] },
+    { "prompt": "add sonarr and radarr to home assistant", "expect": ["homelab-home-assistant", "homelab-media-stack"] },
     { "prompt": "sonarr says the download folder is not writable", "expect": ["homelab-media-stack"] },
     { "prompt": "jellyfin can't see the new movies", "expect": ["homelab-media-stack"] },
     { "prompt": "set up gluetun so the downloader leaks nothing", "expect": ["homelab-media-stack"] },
@@ -31,6 +36,7 @@
     { "prompt": "connection timed out to my server from outside, is it the firewall", "expect": ["homelab-network-troubleshooting"] }
   ],
   "skip": [
+    "write a smart home assistant chatbot in python",
     "build a todo app",
     "fix the login form",
     "plot a chart",

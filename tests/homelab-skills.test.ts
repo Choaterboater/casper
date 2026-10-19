@@ -18,7 +18,7 @@ import { removeTempDir } from "./support/temp-dir";
 // the network skills. Nothing is fetched: links are checked by host only.
 const ROOT = path.join(import.meta.dir, "..");
 const HOMELAB = path.join(ROOT, "skills", "homelab");
-const FOLDERS = ["docker", "media", "nettrouble", "proxmox"];
+const FOLDERS = ["docker", "home-assistant", "media", "nettrouble", "proxmox"];
 
 async function source(folder: string): Promise<string> {
   return normaliseLineEndings(await readFile(path.join(HOMELAB, folder, "SKILL.md"), "utf8"));
@@ -59,7 +59,7 @@ const SIGN_IN_LINE = /sign in|login|\/auth\//i;
 const DOC_HOSTS = new Set([
   "wiki.servarr.com", "trash-guides.info", "jellyfin.org", "support.plex.tv", "sabnzbd.org", "docs.docker.com",
   "pve.proxmox.com", "pbs.proxmox.com", "github.com", "man7.org", "www.tcpdump.org", "wiki.nftables.org", "curl.se",
-  "www.rfc-editor.org",
+  "www.rfc-editor.org", "www.home-assistant.io", "developers.home-assistant.io", "hacs.xyz", "mosquitto.org",
 ]);
 const GITHUB_PATHS = /^\/(?:qdm12\/gluetun-wiki|qbittorrent\/qBittorrent)(?:\/|$)/;
 /** Hosts a skill may name outside its docs: the public IP echo used in the VPN leak check. */
