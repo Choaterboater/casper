@@ -85,7 +85,7 @@ skills:
 
 A project's `.casper/project.yaml` cannot turn the pack off: the skills only make the AI more
 careful, so a repository must not be able to remove them. `skills.maxActive: 0` turns all skill
-loading off, bundled ones included. `/status` shows `skills    13 indexed (13 bundled)` or
+loading off, bundled ones included. `/status` shows `skills    14 indexed (14 bundled)` or
 `bundled: off`.
 
 ## The home lab skills
@@ -95,10 +95,12 @@ loading off, bundled ones included. `/status` shows `skills    13 indexed (13 bu
 | `homelab-media-stack` | Radarr, Sonarr and the other *arr apps, Prowlarr, Plex, Jellyfin, Emby, qBittorrent, SABnzbd, NZBGet: status and health calls, one `/data` mount for hardlinks, PUID/PGID, remote path mappings, API keys, Gluetun and a VPN leak check |
 | `homelab-docker-compose` | A Docker Compose health and drift sweep: `docker compose ps` and `config --quiet`, health checks, restart loops, `:latest` images that moved on, config hash drift, orphans, volumes and bind mounts, `.env` kept out of git, a rollback tag before an update |
 | `homelab-proxmox` | Proxmox VE and Backup Server: `pvesh get /cluster/resources`, `qm list`, `pct list`, `pvesm status`, quorum, full storage, API tokens (`user@realm!name`, privilege separation), `qm snapshot`/`pct snapshot` before a change with the rollback line, vzdump and PBS |
+| `homelab-home-assistant` | Home Assistant in Docker: `/api/config/config_entries/entry` and each integration's state, integrations added through their setup flow (never the `.storage` files), HACS and its GitHub sign-in, Mosquitto and MQTT, dashboards (Take control), a reverse proxy's `trusted_proxies`, done only when the person can see it |
 | `homelab-network-troubleshooting` | Finding where traffic stops, one layer at a time: link and Wi-Fi, address and DHCP lease, gateway, DNS (local against public resolver, split DNS, Pi-hole/AdGuard), `traceroute`/`mtr`, listeners and ports (`ss -tlnp`, `nc -vz`, `Test-NetConnection`), TLS with `openssl s_client`, `curl -v`, MTU, firewall rules as reads, `tcpdump` only after asking, Docker networking; rules saved before a firewall, route or DNS change, with the undo line |
 
 They are picked and limited the same way as the network skills (two per request, network and home
-lab together), and their "Changing things (Casper asks)" part opens with the same stop-and-ask line.
+lab together; when skills tie, a second one for the same product, such as Central Classic after Central,
+waits behind another product, so "central or mist" gets Central and Mist), and their "Changing things (Casper asks)" part opens with the same stop-and-ask line.
 They have five parts: When to use · Read first · Changing things (Casper asks) · Common traps · Public
 docs. Only product and tool names pick them: "radarr won't import from qbittorrent", "check my proxmox cluster
 for full storage", "my compose stack keeps restarting" and "traceroute shows packet loss" each pick one; "docker", "docker compose",

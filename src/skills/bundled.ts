@@ -15,6 +15,7 @@ import dockerSource from "../../skills/homelab/docker/SKILL.md" with { type: "te
 import mediaSource from "../../skills/homelab/media/SKILL.md" with { type: "text" };
 import nettroubleSource from "../../skills/homelab/nettrouble/SKILL.md" with { type: "text" };
 import proxmoxSource from "../../skills/homelab/proxmox/SKILL.md" with { type: "text" };
+import homeAssistantSource from "../../skills/homelab/home-assistant/SKILL.md" with { type: "text" };
 import clearpassNacSource from "../../skills/design/clearpass-nac/SKILL.md" with { type: "text" };
 import frontendSource from "../../skills/web/frontend/SKILL.md" with { type: "text" };
 import illustrationKit from "../../skills/web/frontend/illustration-kit.svg" with { type: "text" };
@@ -28,7 +29,7 @@ export const MAX_BUNDLED_ACTIVE = 2;
 
 export const NETWORK_PLATFORMS = ["mist", "central", "central-classic", "aoscx", "junos", "clearpass"] as const;
 export type NetworkPlatform = typeof NETWORK_PLATFORMS[number];
-export const HOMELAB_PLATFORMS = ["media", "docker", "proxmox", "nettrouble"] as const;
+export const HOMELAB_PLATFORMS = ["media", "docker", "proxmox", "nettrouble", "homeassistant"] as const;
 export type HomelabPlatform = typeof HOMELAB_PLATFORMS[number];
 export const DESIGN_PLATFORMS = ["clearpass-nac"] as const;
 export type DesignPlatform = typeof DESIGN_PLATFORMS[number];
@@ -264,6 +265,7 @@ const HOMELAB_SOURCES: Array<[string, string]> = [
   [mediaSource, "skills/homelab/media/SKILL.md"],
   [nettroubleSource, "skills/homelab/nettrouble/SKILL.md"],
   [proxmoxSource, "skills/homelab/proxmox/SKILL.md"],
+  [homeAssistantSource, "skills/homelab/home-assistant/SKILL.md"],
 ];
 
 let cachedHomelab: BundledSkill[] | undefined;
@@ -301,10 +303,12 @@ export function scoreSkillRule(
   const words = normaliseWords(request);
   const text = words.join(" ");
   if (rule.unless.some((phraseText) => contains(text, phraseText))) return 0;
-  const strong = rule.strong.filter((trigger) => contains(text, trigger)).length;
+  const strongHits = rule.strong.filter((trigger) => contains(text, trigger));
+  const strong = strongHits.length;
   const weak = rule.weak.filter((trigger) => contains(text, trigger));
-  // A trigger's own words never count as its context ("api gateway" is not a weak hit plus "api").
-  const triggerWords = new Set([...rule.strong, ...weak].flatMap((trigger) => trigger.split(" ")));
+  // A trigger's own words never count as its context ("api gateway" is not a weak hit plus "api"). Only the triggers
+  // the request names: a strong `mist api` the request doesn't use must not stop "api" counting for a weak "mist".
+  const triggerWords = new Set([...strongHits, ...weak].flatMap((trigger) => trigger.split(" ")));
   const contextWords: readonly string[] = rule.context.length ? rule.context : FAMILY_TRIGGER_RULES[rule.family].context;
   const context = contextWords.some((word) => !triggerWords.has(word) && contains(text, word));
   const weakHit = weak.length > 0 && context;

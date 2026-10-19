@@ -127,6 +127,13 @@
       "expect": [
         "network-central-classic-api"
       ]
+    },
+    {
+      "prompt": "what about using streaming api from central or mist ?",
+      "expect": [
+        "network-central-api",
+        "network-mist-api"
+      ]
     }
   ],
   "skip": [

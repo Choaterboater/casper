@@ -382,11 +382,11 @@ export class SkillRegistry {
       candidates.push({ entry, score: scoreBundledSkill(entry.bundled!, request, project, classification) });
     }
     const priority: Record<SkillSource, number> = { project: 0, user: 1, external: 2, bundled: 3, pack: 4 };
-    const ranked = candidates
+    const ranked = productsFirst(candidates
       .filter(({ score }) => score > 0)
       .sort((left, right) => right.score - left.score
         || priority[left.entry.summary.source] - priority[right.entry.summary.source]
-        || left.entry.summary.id.localeCompare(right.entry.summary.id));
+        || left.entry.summary.id.localeCompare(right.entry.summary.id)));
     const loaded: LoadedSkill[] = [];
     const loadedNames = new Set<string>();
     let bodyBytes = 0;
@@ -432,6 +432,30 @@ export class SkillRegistry {
 }
 
 /** The registry options for a project's settings: the one place `skills.bundled` and `packs` (both default on) are read. */
+/** Among skills with the same score, a second one for a product already listed (Central Classic after Central) waits
+ * behind another product: "central or mist" gets Central and Mist, not both Centrals, while the two-skill limit holds. */
+function productsFirst<T extends { score: number; entry: { bundled?: unknown } }>(ranked: T[]): T[] {
+  const product = (candidate: T) => {
+    const bundled = candidate.entry.bundled as AnyBundledSkill | undefined;
+    return bundled && bundled.kind !== "web" ? (bundled as BundledSkill).rule.frameworks[0] : undefined;
+  };
+  const out: T[] = [];
+  for (let start = 0; start < ranked.length;) {
+    let end = start;
+    while (end < ranked.length && ranked[end]!.score === ranked[start]!.score) end++;
+    const seen = new Set(out.map(product).filter(Boolean));
+    const first: T[] = [], later: T[] = [];
+    for (const candidate of ranked.slice(start, end)) {
+      const name = product(candidate);
+      (name && seen.has(name) ? later : first).push(candidate);
+      if (name) seen.add(name);
+    }
+    out.push(...first, ...later);
+    start = end;
+  }
+  return out;
+}
+
 export function skillRegistryOptions(
   context: { info: { root: string }; skills: { maxActive: number; imports: readonly SkillImport[]; bundled?: boolean }; packs?: boolean },
   homeDir?: string,

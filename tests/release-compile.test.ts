@@ -81,7 +81,7 @@ test("the compiled binary carries the bundled network, home lab and design skill
     expect({ exit, stderr }).toEqual({ exit: 0, stderr: "" });
     const skills = JSON.parse(stdout) as Array<{ name: string; bytes: number }>;
     expect(skills.map((skill) => skill.name).sort()).toEqual([
-      "design-clearpass-nac", "homelab-docker-compose", "homelab-media-stack", "homelab-network-troubleshooting", "homelab-proxmox",
+      "design-clearpass-nac", "homelab-docker-compose", "homelab-home-assistant", "homelab-media-stack", "homelab-network-troubleshooting", "homelab-proxmox",
       "network-aoscx-rest", "network-central-api", "network-central-classic-api", "network-clearpass-api", "network-junos-pyez", "network-mist-api",
     ]);
     for (const skill of skills) expect(skill.bytes).toBeGreaterThan(3000);
