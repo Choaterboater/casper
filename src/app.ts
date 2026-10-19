@@ -370,6 +370,7 @@ export class CasperApp {
   /** Set when Casper runs as root in someone else's home: what it leaves there goes back to them. */
   homeOwner?: { home: string; owner: Owner };
   homeSweep?: Promise<void>;
+  machines: string[] = [];
   /** False when no sign-in exists (no saved provider, no provider key): the banner and footer say how to start. */
   signedIn?: boolean;
   taskRuntimeCancelled = false;

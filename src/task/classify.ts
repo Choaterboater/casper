@@ -100,6 +100,8 @@ export function formatTaskPrompt(
   model: ProjectModel,
   options: {
     verificationMode?: VerificationMode; proveChange?: boolean; reviewFollows?: boolean; afterContext?: boolean;
+    /** Machines this conversation reached over ssh: work meant for one of them is done there, not in this folder. */
+    machines?: readonly string[];
     /** The request as typed, before Casper added lines to it (a saved picture's path); the target check reads this. */
     typed?: string;
   } = {},
@@ -132,6 +134,7 @@ export function formatTaskPrompt(
     `- mode: ${classification.mode}`,
     ...(underSpecified ? ["- target: under-specified; if the ask tool is available, ask one concrete question with options before the first edit"] : []),
     `- available configured checks: ${availableChecks.length ? availableChecks.join("; ") : "none detected"}`,
+    ...(options.machines?.length ? [`- machines: this conversation worked on ${options.machines.join(", ")} over ssh. Work meant for one of them happens there (its files, its services), not in this folder, unless the request asks for files here.`] : []),
     // Which checks to pick and when is in casper_check's description; this is what it does not say.
     "If you ran tests yourself, say in one line what ran and the result. Don't claim a check passed that didn't run.",
     // Auto mode only: Casper owns the final run, so the model need not select checks to record them.
