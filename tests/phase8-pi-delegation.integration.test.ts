@@ -217,7 +217,7 @@ test("a provider retry says so as it happens, and the error line waits until the
   await writeFile(path.join(f.agent, "settings.json"), JSON.stringify({ ...routing, retry: { maxRetries: 1, baseDelayMs: 1 } }));
   const recovered = await f.run([cli, "Answer without tools"]);
   expect(recovered.exit).toBe(0);
-  expect(recovered.stdout).toContain("Can't reach fixture · trying again in 1s (1 of 1)");
+  expect(recovered.stdout).toContain("fixture is busy · trying again in 1s (1 of 1)");
   expect(recovered.stdout).not.toContain("[error]");
   expect(recovered.stdout).toContain("MAIN_RECOVERED");
   throttles = 2;

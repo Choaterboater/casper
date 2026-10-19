@@ -1,5 +1,5 @@
 import { afterAll, afterEach, beforeEach, expect, spyOn, test } from "bun:test";
-import { PLAIN_CHECK_EVERY_MS, RuntimeEventView } from "../src/app/events";
+import { PLAIN_CHECK_EVERY_MS, retryCause, RuntimeEventView } from "../src/app/events";
 import { runCommandCheck } from "../src/verify/command";
 import { PROGRESS_TAIL_CHARS, ProgressFeed, type CheckProgressRun } from "../src/verify/progress";
 import type { RuntimeEvent } from "../src/runtime/types";
@@ -159,6 +159,14 @@ test("a reasoning box that goes quiet turns into the waiting line, counted from 
   clock += 11_000;
   s.tick();
   expect(s.last()).toEqual(["Waiting for openrouter/kimi-k2 · 15s"]);
+});
+
+test("a retry line says what went wrong: a failed OpenRouter host, a busy provider, no connection or another error", () => {
+  expect(retryCause("openrouter", "Upstream error from Darkbloom: inference generation failed")).toBe("openrouter's host for this model failed");
+  expect(retryCause("openrouter", "429 Provider returned error")).toBe("openrouter is busy");
+  expect(retryCause("openrouter", "fetch failed")).toBe("Can't reach openrouter");
+  expect(retryCause("openrouter")).toBe("Can't reach openrouter");
+  expect(retryCause("openrouter", "502 Bad Gateway")).toBe("openrouter answered with an error");
 });
 
 test("a provider retry is said once, by its line; the box doesn't repeat it", () => {
