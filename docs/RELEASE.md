@@ -14,11 +14,23 @@ when releasing. Existing historical notes below stay as written; feature tests c
 reference docs, not a per-PR release-note or roadmap entry. Release-prep checks verify the version and
 installer targets (`tests/release-install.test.ts`, `tests/release-targets.test.ts`).
 
-Casper distributes an unsigned **v0.2.43 preview**, not a stable release. The installers
-download from `https://github.com/Choaterboater/casper/releases/download/v0.2.43`,
+Casper distributes an unsigned **v0.2.44 preview**, not a stable release. The installers
+download from `https://github.com/Choaterboater/casper/releases/download/v0.2.44`,
 because GitHub's `latest/download` link skips preview releases. The first published
 preview was **v0.1.0**. A published release is never changed; every fix ships under a
 new version.
+
+## v0.2.44: app databases are data, clearer sign-ins, and real reviewer lines
+
+### Changed
+
+- A sign-in that doesn't finish says nothing was saved, instead of "credential save outcome unknown".
+- A crew reviewer's line shows its first real finding, not its "## Findings" heading.
+
+### Fixed
+
+- A running app's SQLite database file changing no longer makes Casper run the project's checks.
+- A date format such as `date -u +%Y-%m-%d` no longer says a secret appeared in a command.
 
 ## v0.2.43: timeouts on time, fewer false alarms, and tests for plain scripts
 

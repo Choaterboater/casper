@@ -36,20 +36,20 @@ Casper itself is free and open source. A task spends money only with your own mo
 macOS / Linux:
 
 ```sh
-curl -fsSL https://github.com/Choaterboater/casper/releases/download/v0.2.43/install.sh | sh
+curl -fsSL https://github.com/Choaterboater/casper/releases/download/v0.2.44/install.sh | sh
 ```
 
 Windows (x64 or ARM64), in PowerShell:
 
 ```powershell
-[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; irm https://github.com/Choaterboater/casper/releases/download/v0.2.43/install.ps1 | iex
+[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; irm https://github.com/Choaterboater/casper/releases/download/v0.2.44/install.ps1 | iex
 ```
 
 No admin rights, Bun or source checkout needed. The installer checks the file's SHA-256 (with
 `gh` signed in, also where it was built; for releases signed with the
 [release key](docs/RELEASE.md#the-release-key), none yet, the signature too) and keeps your old install
-if anything is wrong. These commands pin **v0.2.43**; after that,
-`casper update` gets the newest preview. `install.sh` takes `--dir <path>`, `--version 0.2.43`,
+if anything is wrong. These commands pin **v0.2.44**; after that,
+`casper update` gets the newest preview. `install.sh` takes `--dir <path>`, `--version 0.2.44`,
 `--sha256 <hex>` and `--force`. [Installer details](docs/RELEASE.md#installer-contract).
 
 Use the one-line command above rather than downloading a program in your browser: the installer
@@ -83,7 +83,7 @@ From the shell:
 ```sh
 casper "Explain this project"  # start a session with this first request
 casper --no-verify   # no Casper-run checks this run
-casper --version     # casper 0.2.43 (/absolute/path/of/the/binary/or/cli.ts)
+casper --version     # casper 0.2.44 (/absolute/path/of/the/binary/or/cli.ts)
 casper doctor        # check Casper's own setup and fix what it can (no model)
 ```
 
@@ -206,6 +206,8 @@ Ctrl+D on an empty prompt exits. [Keys and commands](docs/TERMINAL_UX.md#quick-r
 | Contributing | [How Casper is built](docs/ARCHITECTURE.md) · [Working on Casper](docs/DEVELOPING.md) |
 
 ## What's new
+
+v0.2.44: a running app's SQLite database file no longer runs the project's checks; a date format such as `date -u +%Y-%m-%d` no longer counts as a secret in a command; a sign-in that doesn't finish says nothing was saved; and a crew reviewer's line shows its first real finding. See [release notes](docs/RELEASE.md).
 
 v0.2.43: a timed-out command the AI doesn't retry shows when it happens, not under the answer; code that reads a password from a file and a secrets path in a compose volume no longer count as a secret in a command; macOS `sed -i ''` edits are no longer refused as check changes; a picture in `assets/` no longer starts an app check in a folder with no web framework; and plain Python scripts with their own `unittest` file get it as their test check. See [release notes](docs/RELEASE.md).
 

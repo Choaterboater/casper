@@ -11,15 +11,15 @@ const section = (text: string, start: string, end: string) => {
 
 // These are release-preparation assertions, not tests of the features themselves.
 const changes = {
-  Changed: ["when it happens", "`unittest`"],
-  Fixed: ["secret appeared", "`sed -i ''`", "`assets/`"],
+  Changed: ["nothing was saved", "first real finding"],
+  Fixed: ["SQLite database", "date format"],
 };
 
-test("v0.2.43 notes publish each user-facing change once under Added, Changed or Fixed", async () => {
-  expect(CASPER_VERSION).toBe("0.2.43");
+test("v0.2.44 notes publish each user-facing change once under Added, Changed or Fixed", async () => {
+  expect(CASPER_VERSION).toBe("0.2.44");
   const release = await read("docs/RELEASE.md");
-  const notes = section(release, "## v0.2.43:", "## v0.2.42:");
-  expect(notes).not.toMatch(/not released|unreleased|test-only|#39\d/i);
+  const notes = section(release, "## v0.2.44:", "## v0.2.43:");
+  expect(notes).not.toMatch(/not released|unreleased|test-only|#(?:39|40)\d/i);
   expect([...notes.matchAll(/^### (.+)$/gm)].map(match => match[1])).toEqual(Object.keys(changes));
   const groups = notes.split(/^### /m).slice(1);
   for (const [index, [group, phrases]] of Object.entries(changes).entries()) {
@@ -31,6 +31,7 @@ test("v0.2.43 notes publish each user-facing change once under Added, Changed or
     for (const phrase of phrases) expect(bullets.filter(line => line.includes(phrase))).toHaveLength(1);
   }
   // Historical release content must retain its original version and WMI transition.
+  expect(release).toContain("## v0.2.43: timeouts on time, fewer false alarms, and tests for plain scripts");
   expect(release).toContain("## v0.2.42: missing programs named, and checks only for the AI's changes");
   expect(release).toContain("## v0.2.41: logins on any home, ssh by name, and no project push");
   expect(release).toContain("## v0.2.40: /look, steadier OpenRouter runs, ssh hosts by name, and a Home Assistant skill");
@@ -42,8 +43,8 @@ test("v0.2.43 notes publish each user-facing change once under Added, Changed or
   expect(release).toContain("updater, so install 0.2.35 on Windows");
 });
 
-test("v0.2.43 release bullets are short single sentences without internal implementation terms", async () => {
-  const notes = section(await read("docs/RELEASE.md"), "## v0.2.43:", "## v0.2.42:");
+test("v0.2.44 release bullets are short single sentences without internal implementation terms", async () => {
+  const notes = section(await read("docs/RELEASE.md"), "## v0.2.44:", "## v0.2.43:");
   const bullets = notes.split("\n").filter(line => line.startsWith("- "));
   expect(bullets.length).toBeGreaterThan(0);
   for (const bullet of bullets) {
@@ -54,23 +55,23 @@ test("v0.2.43 release bullets are short single sentences without internal implem
   }
 });
 
-test("the roadmap ships v0.2.43 first and leaves no merged work in the next-release box", async () => {
+test("the roadmap ships v0.2.44 first and leaves no merged work in the next-release box", async () => {
   const page = await read("site/roadmap.html");
   const box = section(page, '<section id="next"', '<section id="coming"');
   expect(box).toContain("Built, not released");
-  expect(box).toContain("everything built so far is in v0.2.43");
+  expect(box).toContain("everything built so far is in v0.2.44");
   expect(box).not.toContain("<li>");
-  const current = section(page, 'id="v0243"', 'id="v0242"');
-  expect(page).toContain('href="#v0243"');
+  const current = section(page, 'id="v0244"', 'id="v0243"');
+  expect(page).toContain('href="#v0244"');
   expect(current).toContain("current preview");
-  for (const phrase of ["Timeouts on time", "when it happens", "Fewer false alarms", "secrets path", "sed -i ''", "No app check for pictures", "make_picture", "Tests for plain scripts", "unittest"]) expect(current).toContain(phrase);
-  const previous = section(page, 'id="v0242"', 'id="v0241"');
+  for (const phrase of ["App databases are data", "SQLite database", "No secret in a date", "date -u", "Clearer sign-ins", "nothing was saved", "Real reviewer lines", "first real finding"]) expect(current).toContain(phrase);
+  const previous = section(page, 'id="v0243"', 'id="v0242"');
   expect(previous).toContain("previous preview");
-  for (const phrase of ["Missing programs named", "isn't installed", "Only the AI's changes", "another program changed", "No checks for app data", ".db-wal", "Calmer installer", "optional"]) expect(previous).toContain(phrase);
-  expect(section(page, 'id="v0241"', 'id="v0240"')).toContain("released");
+  for (const phrase of ["Timeouts on time", "when it happens", "Fewer false alarms", "secrets path", "sed -i ''", "No app check for pictures", "make_picture", "Tests for plain scripts", "unittest"]) expect(previous).toContain(phrase);
+  expect(section(page, 'id="v0242"', 'id="v0241"')).toContain("released");
 });
 
-test("current docs and site installation targets name v0.2.43 without relabelling old captures", async () => {
+test("current docs and site installation targets name v0.2.44 without relabelling old captures", async () => {
   const tag = `v${CASPER_VERSION}`;
   for (const file of ["README.md", "docs/SCRIPTING.md", "docs/WINDOWS.md", "docs/RELEASE.md", "site/index.html"]) {
     const tags = [...(await read(file)).matchAll(/releases\/download\/(v\d+\.\d+\.\d+)/g)].map(match => match[1]);
@@ -92,7 +93,7 @@ test("current docs and site installation targets name v0.2.43 without relabellin
   expect(faq).toContain("Updates: auto / notify only / off");
   expect(faq).toContain("row above the prompt");
   expect(faq).not.toContain("Nothing updates on its own");
-  for (const text of [faq, await read("docs/TERMINAL_UX.md")]) expect(text).toContain("Casper 0.2.44 is out · casper update");
+  for (const text of [faq, await read("docs/TERMINAL_UX.md")]) expect(text).toContain("Casper 0.2.45 is out · casper update");
   expect(await read("site/tour.html")).toContain(`More in ${CASPER_VERSION}`);
   expect(await read("site/compare.html")).toContain(`plain Pi vs Casper ${CASPER_VERSION}`);
   const readme = await read("README.md");

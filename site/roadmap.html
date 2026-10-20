@@ -78,6 +78,7 @@
           </li>
           <li><a href="#released">Released</a>
             <ul>
+              <li><a href="#v0244">v0.2.44: databases are data</a></li>
               <li><a href="#v0243">v0.2.43: fewer false alarms</a></li>
               <li><a href="#v0242">v0.2.42: missing programs</a></li>
               <li><a href="#v0241">v0.2.41: logins and ssh names</a></li>
@@ -120,7 +121,7 @@
         <h2 id="next-h">Next release</h2>
         <aside class="callout soon">
           <strong class="callout-title">Built, not released</strong>
-          <p>Nothing on the main branch is waiting: everything built so far is in v0.2.43. New work shows here before the next preview.</p>
+          <p>Nothing on the main branch is waiting: everything built so far is in v0.2.44. New work shows here before the next preview.</p>
         </aside>
       </section>
 
@@ -362,10 +363,23 @@
         and on the <a href="https://github.com/Choaterboater/casper/releases">Releases page</a>.</p>
         <div class="stack">
 
+        <details class="card release" id="v0244" aria-labelledby="v0244-h" open>
+          <summary class="release-heading">
+            <h3 id="v0244-h">v0.2.44 · App databases are data, clearer sign-ins, and real reviewer lines</h3>
+            <span class="badge ok">current preview</span>
+          </summary>
+          <ul>
+            <li><strong>App databases are data.</strong> A running app's SQLite database file changing, not only its <code>-wal</code> and <code>-shm</code> journals, no longer makes Casper run the project's checks.</li>
+            <li><strong>No secret in a date.</strong> A date format such as <code>date -u +%Y-%m-%d</code> no longer says a secret appeared in a command.</li>
+            <li><strong>Clearer sign-ins.</strong> A sign-in that doesn't finish says nothing was saved, instead of "credential save outcome unknown".</li>
+            <li><strong>Real reviewer lines.</strong> A crew reviewer's line shows its first real finding, not its "## Findings" heading.</li>
+          </ul>
+        </details>
+
         <details class="card release" id="v0243" aria-labelledby="v0243-h" open>
           <summary class="release-heading">
             <h3 id="v0243-h">v0.2.43 · Timeouts on time, fewer false alarms, and tests for plain scripts</h3>
-            <span class="badge ok">current preview</span>
+            <span class="badge">previous preview</span>
           </summary>
           <ul>
             <li><strong>Timeouts on time.</strong> A timed-out command the AI doesn't retry with its next command shows when it happens, not under the final answer.</li>
@@ -378,7 +392,7 @@
         <details class="card release" id="v0242" aria-labelledby="v0242-h" open>
           <summary class="release-heading">
             <h3 id="v0242-h">v0.2.42 · Missing programs named, and checks only for the AI's changes</h3>
-            <span class="badge">previous preview</span>
+            <span class="badge">released</span>
           </summary>
           <ul>
             <li><strong>Missing programs named.</strong> A check whose own program isn't installed, such as <code>go</code> for <code>go test</code>, says to install it instead of offering Retry or Fix it anyway.</li>
@@ -388,7 +402,7 @@
           </ul>
         </details>
 
-        <details class="card release" id="v0241" aria-labelledby="v0241-h" open>
+        <details class="card release" id="v0241" aria-labelledby="v0241-h">
           <summary class="release-heading">
             <h3 id="v0241-h">v0.2.41 · Logins on any home, ssh by name, and no project push</h3>
             <span class="badge">released</span>
@@ -1216,7 +1230,7 @@
   <footer class="site-footer">
     <div class="container footer-inner">
       <div>
-        <p><strong>Casper 0.2.43</strong> · early preview, unsigned</p>
+        <p><strong>Casper 0.2.44</strong> · early preview, unsigned</p>
         <p><a href="https://github.com/Choaterboater/casper/blob/main/LICENSE">MIT licence</a> · © 2026 Choaterboater</p>
         <p>Built on the <a href="https://github.com/earendil-works/pi">Pi SDK</a>. Other parts keep their own licences (<a href="https://github.com/Choaterboater/casper/blob/main/THIRD_PARTY_NOTICES.txt">notices</a>).</p>
       </div>
