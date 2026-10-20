@@ -62,7 +62,8 @@ const RULES: ProseRule[] = [
   { re: /\b(?:curl|wget)\b[^;&|\n]*?\s(?:-u|--user)(?:\s+|=)?(['"]?)[^\s:'"]+:([^\s'"]+)\1/gid, group: 2, kind: "password", accept: (value) => anyValue(value) },
   { re: new RegExp(String.raw`\b(?:mysql|mariadb|mysqldump|mysqladmin)\b[^;&|\n]*?\s-p(?!\s)(${QUOTED})`, "gid"), group: 1, kind: "password", accept: (value) => anyValue(unquote(value)) },
   { re: new RegExp(String.raw`\bipmitool\b[^;&|\n]*?\s-P\s*(${QUOTED})`, "gid"), group: 1, kind: "password", accept: (value) => anyValue(unquote(value)) },
-  { re: /(?<![\w-])-U\s*(['"]?)[^\s%'"]+%([^\s'"]+)\1/gid, group: 2, kind: "password", accept: (value) => anyValue(value) },
+  // smbclient's -U is upper case: `date -u +%Y-%m-%d` is a date format, not user%password.
+  { re: /(?<![\w-])-U\s*(['"]?)[^\s%'"]+%([^\s'"]+)\1/gd, group: 2, kind: "password", accept: (value) => anyValue(value) },
   { re: new RegExp(String.raw`\b(?:echo|printf)\s+(?:-\w+\s+)?(${QUOTED})\s*\|\s*sudo\b[^|;&\n]*?\s-\w*S\b`, "gid"), group: 1, kind: "password", accept: (value) => anyValue(unquote(value)) },
   { re: /\b(?:echo|printf)\s+(?:-\w+\s+)?(['"]?)[\w.-]+:([^\s'"]+)\1\s*\|\s*(?:sudo\s+)?chpasswd\b/gid, group: 2, kind: "password", accept: (value) => anyValue(value) },
   // login: admin / X, creds: user / X, username/password: admin / X, sign-in root / X. The word stands alone: a
