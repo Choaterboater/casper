@@ -1,4 +1,5 @@
 import type { SideQuestionUsage } from "./app/side-question";
+import { reviewerLine } from "./crew/review-line";
 import { leavesFilesHere } from "./app/local-effect";
 import { execFile } from "node:child_process";
 import type { DebugSession } from "./debug/session";
@@ -493,7 +494,7 @@ export class CasperApp {
       }
       if (!this.closing && this.terminal.rich && activity.kind === "end" && activity.run.role === "reviewer") {
         this.events.ensureLineBreak();
-        const summary = activity.status === "completed" ? redactPreview(activity.response?.trim().split(/\r?\n/, 1)[0] ?? "Review completed").replace(/\s+/g, " ").slice(0, 180)
+        const summary = activity.status === "completed" ? redactPreview(reviewerLine(activity.response)).replace(/\s+/g, " ").slice(0, 180)
           : `Review ${activity.status.replaceAll("_", " ")}`;
         this.output.write(`[crew] Reviewer ${activity.run.id}: ${summary}\n`);
       }
