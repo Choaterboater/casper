@@ -257,7 +257,21 @@ test("a recognized app without launch information says not run", async () => {
   f.edit("src/App.tsx", "export default function App() { return null; }\n");
   const task = await f.run();
   expect(task.appSmoke).toMatchObject({ status: "not-run", reason: "no start/dev command or declared service found for this app" });
+  // A real app (React) that can't be started is still unfinished.
+  expect(task.appSmoke?.nothingToStart).toBeUndefined();
   expect(f.text()).toContain("App smoke: not run");
+  expect(await lines(f.starts)).toEqual([]);
+});
+
+// A Home Assistant card in a folder of build scripts: a .js and a preview .html, nothing that serves them. The finished
+// task said "Incomplete — app smoke did not finish".
+test("page files with nothing to start them are a note, not an unfinished check", async () => {
+  const f = await fixture({ config: { services: {} } });
+  f.edit("frontend/client-list-preview.html", "<!doctype html><title>Preview</title><client-list></client-list>\n");
+  const task = await f.run();
+  expect(task.appSmoke).toMatchObject({ status: "not-run", nothingToStart: true });
+  expect(f.text()).toContain("App smoke: not run");
+  expect(f.text()).not.toContain("Incomplete — app smoke did not finish");
   expect(await lines(f.starts)).toEqual([]);
 });
 

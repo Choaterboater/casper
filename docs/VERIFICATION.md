@@ -707,6 +707,11 @@ The request goes there instead of launching a second copy, even on a fixed port.
 not an automatic service, and completion cleanup never stops it. The receipt says `existing service left running`.
 If the restart fails, app smoke says not run with the reason, and no GET is sent.
 
+A change to page files that nothing in the folder serves (no web framework, no server code, no start
+command or service: a card or page another program loads) says `App smoke: not run — no start/dev command or
+declared service found for this app` as a note; it does not make the task Incomplete. An app that has a framework
+or server code but no launch command still does.
+
 A new completion launch has at most 15 s to start (less if the declaration has a shorter deadline), and
 its request has at most 10 s. Casper stops its automatically started services and their child processes
 before the receipt, including after failure or cancellation. Services you intentionally started with

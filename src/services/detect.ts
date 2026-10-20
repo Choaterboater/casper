@@ -270,7 +270,9 @@ async function hasLockfile(root: string): Promise<boolean> {
 /** The one local request made before completing a changed app task. */
 /** `rootGuess`: no changed page or declared ready path, so `/` is only a guess (an API may have nothing there). */
 export interface AppSmokeTarget { service: DetectedWebService; path: string; rootGuess?: true }
-export type AppSmokePlan = AppSmokeTarget | { reason: string };
+/** `nothingToStart`: the change reaches a page but the folder has no command or service that serves it (a card a
+ * dashboard loads, a static file another program serves). Said on the receipt, not an unfinished check. */
+export type AppSmokePlan = AppSmokeTarget | { reason: string; nothingToStart?: true };
 
 /** Prose, tests and generated files never start an app. Markdown routes are pages, not documentation. */
 export function runtimeChanges(files: readonly string[]): string[] {
@@ -328,7 +330,10 @@ export async function planAppSmoke(root: string, input: DetectInput, files: read
   const app = server || [...frameworks].some(name => (WEB_FRAMEWORKS as readonly string[]).includes(name) || HTTP_FRAMEWORKS.includes(name))
     || pagePlan.open.length > 0;
   if (!app) return undefined;
-  if (!script) return { reason: "no start/dev command or declared service found for this app" };
+  // Page files only (no framework, no server code): something else loads them (a dashboard card). A real app with no
+  // launch command (React, a server script) is still an unfinished check.
+  const pagesOnly = !server && ![...frameworks].some(name => (WEB_FRAMEWORKS as readonly string[]).includes(name) || HTTP_FRAMEWORKS.includes(name));
+  if (!script) return { reason: "no start/dev command or declared service found for this app", ...(pagesOnly ? { nothingToStart: true as const } : {}) };
   const manager = input.packageManager ?? await lockfileManager(root);
   const dependencies = [manifest?.dependencies, manifest?.devDependencies].some(section => isMapping(section) && Object.keys(section).length);
   if (dependencies && !await isDirectory(path.join(root, "node_modules"))) return { reason: `node_modules is missing. Run ${manager} install first (Casper doesn't install packages)` };

@@ -80,7 +80,7 @@ export async function finishAppSmoke(app: CasperApp, options: AppSmokeTask & {
       app.offeredAppSmoke = { context: options.context, root: options.root, before: options.before, child: options.child };
       return report = { status: "not-run", deferred: true, cleanup: "not-started", reason: "/verify to try it" };
     }
-    if ("reason" in plan) return report = { status: "not-run", cleanup: "not-started", reason: plan.reason };
+    if ("reason" in plan) return report = { status: "not-run", cleanup: "not-started", reason: plan.reason, ...(plan.nothingToStart ? { nothingToStart: true as const } : {}) };
     report = now && !options.child ? reuse(app, plan, now, options.verification) : undefined;
     const reused = Boolean(report);
     if (!reused) phase(app, "smoke", "start");
