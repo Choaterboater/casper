@@ -248,6 +248,9 @@ test("commands to another machine that Casper stopped are said on the receipt: n
   refused("ssh sw1 'systemctl enable sampleapp'", "Not run: this command reaches sw1, another machine, and this run can't ask you first.");
   // A refusal of a local command is not about another machine.
   refused("cat ~/.ssh/config", "Not run: this command reads ~/.ssh, which is private (keys and logins).");
+  // Nor is an ssh refused only for reading ~/.ssh on this computer: it is about a private file here, and the AI
+  // reaching the machine by its config name afterwards left a finished task "Incomplete".
+  refused("ssh 192.0.2.31 'uptime'; cat ~/.ssh/config", "Not run: this command reads ~/.ssh, which is private (keys and logins). Casper keeps it from the AI.");
   // A command that ran and failed there did reach it.
   observations.observeToolEnd(bash("ssh sw2 'false'", true), {});
   const snapshot = observations.snapshot([]);

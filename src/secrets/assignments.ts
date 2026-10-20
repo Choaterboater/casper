@@ -115,6 +115,9 @@ function assignmentSpans(line: string, strict: boolean): Span[] {
     if (line[indices[0]] === "=" || (match[5] === ":" && line[match.indices![5]![1]] === "=")) continue;
     // ok ? "pass" : "fail" is a ternary in grepped code: both sides are results, not a name and its value.
     if (!strict && match[5] === ":" && /\?\s*$/.test(line.slice(0, match.indices![2]![0]))) continue;
+    // `printf 'HA_TOKEN: '; if [ -n "$HA_TOKEN" ] ...`: the name sits inside a shell quote, so the same quote right
+    // after it closes the name; it doesn't open a quoted value (that read the shell code up to the next quote).
+    if (!strict && (match[1] === "'" || match[1] === "\"") && raw[0] === match[1]) continue;
     let [start, end] = indices;
     let value = raw;
     const quoted = value.length >= 2 && (value[0] === "\"" || value[0] === "'") && value.at(-1) === value[0];

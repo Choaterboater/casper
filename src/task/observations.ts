@@ -152,8 +152,11 @@ export class TaskObservations {
     if ((["bash", "powershell", "edit", "write"].includes(event.toolName) && !looked) || (event.toolName === "lsp" && event.input?.operation === "rename")) this.mutationToolRan = true;
     if (event.input?.secretHidden) this.secretInCommand = true;
     // A command Casper or the sandbox refused did not reach the other machine.
+    // Not one refused for reading a private place here (~/.ssh): that is about this computer, and the AI reaching the
+    // machine another way afterwards left a finished task saying "Incomplete — a command to <machine> did not run".
     const refused = event.isError && /^(?:Not run:|\[shell\] Not run)|\[sandbox\] /.test(event.output?.text ?? "");
-    if ((event.toolName === "bash" || event.toolName === "powershell") && event.input?.command && refused && this.remoteStopped.size < 16) {
+    const privateHere = refused && /^Not run: this command (?:reads|writes) [^\n]*, which is private/.test(event.output?.text ?? "");
+    if ((event.toolName === "bash" || event.toolName === "powershell") && event.input?.command && refused && !privateHere && this.remoteStopped.size < 16) {
       for (const { host, address } of remoteChanges(event.input.command)) {
         const entry = this.remoteStopped.get(address) ?? { host, commands: 0 };
         if (host.length > entry.host.length) entry.host = host;
