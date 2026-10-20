@@ -124,8 +124,10 @@ function sortedUnique(values: Iterable<string>): string[] {
 // 5: only test*.py files that use unittest count (pytest-style files would run no tests and still pass).
 // 6: `python -m build` only when the build package is there; Swift packages get swift test and swift build;
 //    uv and poetry run unittest as `uv run python -m unittest` (there is no `unittest` program).
+// 7: plain Python scripts (no pyproject or requirements) with unittest test files run them too, and a top-level
+//    test*.py is part of the fingerprint.
 /** Bump when detection changes what it derives from the same files, so cached models are rebuilt. */
-const DETECTION_VERSION = 6;
+const DETECTION_VERSION = 7;
 /** requirements.txt, requirements-dev.txt, requirements_test.txt ...: Python projects without a pyproject. */
 const REQUIREMENTS = /^requirements[\w.-]*\.txt$/i;
 /** Python package names (as a whole word, not inside another name) and the framework they give. */
@@ -147,7 +149,8 @@ async function rootSignals(root: string): Promise<string[]> {
     return [];
   }
 
-  return names.filter((name) => PROJECT_SIGNAL_NAMES.has(name) || REQUIREMENTS.test(name)).sort();
+  // A top-level test*.py decides the unittest check, so a new one rebuilds the model (an AI's test file mid-task).
+  return names.filter((name) => PROJECT_SIGNAL_NAMES.has(name) || REQUIREMENTS.test(name) || TEST_FILE.test(name)).sort();
 }
 
 async function fingerprint(
@@ -478,6 +481,13 @@ async function detectModel(
       const unittest = await unittestCommand(project.root, runner);
       if (unittest) commands.test = unittest;
     }
+  } else if (!commands.test && signals.some((name) => TEST_FILE.test(name)) && path.resolve(project.root) !== path.resolve(os.homedir())) {
+    // Plain scripts with their own unittest tests (a folder of build scripts and test_dashboards.py): the standard
+    // library runs them, so Casper does instead of saying "no checks ran" under tests the AI ran itself.
+    const unittest = await unittestCommand(project.root, pythonRunner(names, "", null));
+    if (unittest) commands.test = unittest;
+  }
+  if (pyproject || requirements) {
     if (/\bfastapi\b/i.test(pyproject)) frameworks.add("fastapi");
     if (/\bdjango\b/i.test(pyproject)) frameworks.add("django");
     if (/\bflask\b/i.test(pyproject)) frameworks.add("flask");

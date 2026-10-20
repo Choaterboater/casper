@@ -819,8 +819,8 @@ the request:
   a Streamlit app) open `/`. A route that needs a value (`/devices/[id]`) is listed, not opened. At
   most 5 pages are opened per check. Docs-only changes open nothing. With no front-end framework
   (a declared `services.web` of an API), script edits are server code and open nothing; HTML, styles
-  and files in `public/`, `static/` or `assets/` open `/`, and the `pages:` list is opened after any
-  code change.
+  and front-end files in `public/`, `static/` or `assets/` open `/` (a picture there does not: `make_picture`
+  saves to `assets/` in any folder), and the `pages:` list is opened after any code change.
 
 Page checks run only when Casper checks each change itself (`auto`), after the command checks and
 smoke checks pass, inside the same verify-and-repair loop. Casper starts the dev server through
@@ -1094,7 +1094,9 @@ playbooks (see [NETWORK-CHECKS.md](NETWORK-CHECKS.md)).
 
 From v0.2.19 a Python project with `test*.py` files that use `unittest`, and no pytest, gets
 `python3 -m unittest discover -s tests` (or `discover` at the top). pytest-style files are not
-counted, because `unittest` would run zero of them and still say OK.
+counted, because `unittest` would run zero of them and still say OK. A folder of plain Python scripts (no
+`pyproject.toml` or requirements file, not your home folder) with a top-level `test*.py` that uses
+`unittest` gets `python3 -m unittest discover` too, so tests the AI writes there are run and recorded by Casper.
 
 `/project` shows the commands Casper found.
 

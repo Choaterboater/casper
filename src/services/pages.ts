@@ -106,7 +106,9 @@ function frontEndFile(file: string, streamlit: boolean, framework: boolean): boo
   if (NOT_PAGES.test(file) || TEST_FILE.test(file)) return false;
   const ext = EXT(file);
   if (streamlit) return ext === ".py" || ext === ".css" || /^\.streamlit\/[^/]+\.toml$/.test(file) || /^(static|assets)\//.test(file);
-  if (/^(public|static|assets)\//.test(file)) return true;
+  // An image or font in public/ or assets/ is a web app's only with a front-end framework: a folder of build scripts
+  // whose assets/ held app logos opened "/" and, with nothing to start, ended the task Incomplete.
+  if (/^(public|static|assets)\//.test(file)) return framework || FRONTEND.has(ext);
   return FRONTEND.has(ext) && (framework || !SCRIPT.has(ext));
 }
 

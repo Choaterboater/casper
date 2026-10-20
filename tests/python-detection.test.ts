@@ -73,6 +73,23 @@ test("a Python project with test_*.py files and no pytest runs them with unittes
   expect((await commands({ "pyproject.toml": '[project]\nname = "x"\n' })).test).toBeUndefined();
 });
 
+// A folder of build scripts for a Home Assistant dashboard, with the AI's own test_dashboards.py and no pyproject:
+// its 12 tests passed in a shell run, and the receipt said "11 cases not confirmed: no checks ran".
+test("plain Python scripts with their own unittest file run it as the test check; pytest-style files still don't", async () => {
+  const unit = "import unittest\n\nclass T(unittest.TestCase):\n    def test_a(self):\n        pass\n";
+  expect((await commands({ "build_dashboards.py": "print(1)\n", "test_dashboards.py": unit })).test).toBe(`${systemPython} -m unittest discover`);
+  expect((await commands({ "build_dashboards.py": "print(1)\n", "test_dashboards.py": "def test_a():\n    assert True\n" })).test).toBeUndefined();
+  expect((await commands({ "build_dashboards.py": "print(1)\n" })).test).toBeUndefined();
+});
+
+test("a top-level test file added later rebuilds the cached detection", async () => {
+  const home = await mkdtemp(path.join(os.tmpdir(), "casper-python-home-")); dirs.push(home);
+  const info = await project({ "build_dashboards.py": "print(1)\n" });
+  expect((await loadProjectModel(info, { homeDir: home })).commands.test).toBeUndefined();
+  await writeFile(path.join(info.root, "test_dashboards.py"), "import unittest\n");
+  expect((await loadProjectModel(info, { homeDir: home })).commands.test).toBe(`${systemPython} -m unittest discover`);
+});
+
 test("a [build-system] builds only when the build tool is there: listed, in the .venv, or uv and poetry", async () => {
   const pyproject = '[build-system]\nrequires = ["hatchling"]\nbuild-backend = "hatchling.build"\n[project]\nname = "x"\n';
   expect((await commands({ "pyproject.toml": pyproject })).build).toBeUndefined();
