@@ -157,6 +157,15 @@ export function browserSession(app: CasperApp): BrowserSession {
     projectRoot: app.activeWorkspaceRoot(), stateDirectory: app.projectContext!.stateDirectory,
     confirm: (request, signal) => app.sessionYes.approve("browser", `Browser action:\n${formatTerminalJSON(request)}\n`, "Allow this browser action?", signal),
     confirmMetadata: metadataQuestion(app.sessionYes), allowActions: () => app.projectContext?.browserClicks !== false,
+    // A window for the person to sign in to a site (signin): asked each time; a run that can't ask says so.
+    confirmSignIn: async ({ origin }, signal) => {
+      if (!app.interactive || !app.terminal.canAsk) return undefined;
+      app.events.ensureLineBreak();
+      const picked = await app.terminal.pick(`Open a Chrome window so you can sign in to ${terminalText(origin.slice(0, 200))}? The AI won't see what you type.`,
+        [{ label: "No", description: "the AI asks you another way" }, { label: "Yes", description: "sign in, then close the window; it lasts for this session" }], signal);
+      return picked?.trim() === "Yes";
+    },
+    signInNotice: (message) => { if (!app.closing) { app.events.ensureLineBreak(); app.output.write(`[browser] ${message}\n`); } },
     checkPictures: () => app.projectContext?.showPages !== "off",
     services: () => serviceManager(app),
   });

@@ -44,6 +44,18 @@ export interface BrowserSessionOptions {
   allowActions?: () => boolean;
   /** The session's services: serve then runs in the same slot as Casper's page checks (one owner for the dev server). */
   services?: () => ServiceManager;
+  /**
+   * Asked before a Chrome window opens for the person to sign in to a site (signin). undefined: this run can't ask.
+   * The AI never sees the window or what is typed in it.
+   */
+  confirmSignIn?: (request: SignInApproval, signal: AbortSignal) => Promise<boolean | undefined>;
+  /** Told what to do while the sign-in window is open; `done` ends the wait as closing the window does. */
+  signInNotice?: (message: string, done: () => void) => void;
+  /** Test seams, never model-supplied: whether this computer can show a window, the sign-in window's own
+   * headless mode (tests never open a real one) and how long the person has. */
+  hasScreen?: () => boolean;
+  signInHeadless?: boolean;
+  signInTimeoutMs?: number;
   /** Test seams, never model-supplied: the metadata addresses and the name lookup. */
   metadataHosts?: readonly string[];
   lookup?: Lookup;
@@ -51,6 +63,13 @@ export interface BrowserSessionOptions {
 /** The ServiceManager slot of the dev server Casper found for page checks (detect.ts names it so too). */
 const DEV_SLOT = "web";
 export interface MetadataApproval { address: string; url: string }
+export interface SignInApproval { origin: string; url: string }
+/** How long the person has to sign in in the window Casper opened (signin). */
+const SIGN_IN_MS = 10 * 60_000;
+/** A window Casper can show: macOS and Windows always; Linux and the like only with a display. */
+export function screenAvailable(platform: NodeJS.Platform = process.platform, env: NodeJS.ProcessEnv = process.env): boolean {
+  return platform === "darwin" || platform === "win32" || Boolean(env.DISPLAY || env.WAYLAND_DISPLAY);
+}
 export interface BrowserApproval { action: string; url: string; selector: string; target: string; value?: string; reason: string; impact: string }
 const INTERACTIONS = ["click", "fill", "press", "select"];
 const DANGEROUS = /\b(delete|remove|destroy|purchase|pay|checkout|buy|send|publish|deploy|sign.?in|log.?in|password|credit.?card)\b/i;
@@ -869,6 +888,8 @@ export class BrowserSession {
   private recorded = 0;
   /** Casper's own end-of-task replay runs: nothing is asked, and a question is a no. */
   private unattended = false;
+  /** The person signed in through signin: pages use the profile's own cookies, not a fresh private context. */
+  private signedIn = false;
   /** When Casper's end replays must stop (performance.now()); set only while they run. */
   private replayUntil?: number;
   /** Metadata addresses the person said yes to for the action now running (a session yes is kept by confirmMetadata). */
@@ -916,7 +937,7 @@ export class BrowserSession {
 
   private async dispatch(input: Record<string, unknown>, signal?: AbortSignal): Promise<Record<string, unknown>> {
     const interaction = INTERACTIONS.includes(String(input.action));
-    const url = input.action === "open" ? webURL(input.url) : undefined;
+    const url = input.action === "open" || input.action === "signin" ? webURL(input.url) : undefined;
     let combined = signal ? AbortSignal.any([signal, this.controller.signal]) : this.controller.signal;
     combined.throwIfAborted();
     const close = () => { void this.close().catch(() => {}); };
@@ -940,6 +961,7 @@ export class BrowserSession {
       if (input.action === "serve") return await this.serve(input, combined);
       if (input.action === "diagnostics") return { console: structuredClone(this.logs), network: structuredClone(this.requests), dropped: this.dropped,
         server: this.server?.diagnostics(), guidance: "Bounded diagnostics, not verification. URL queries/fragments are omitted; content may still be sensitive." };
+      if (input.action === "signin") return await this.signIn(url!, combined);
       // A cold Chrome start has its own limits (FIRST_START_MS, then one fresh try): it doesn't use up the page's time.
       // On a busy machine the start alone took most of 15 s, and the page open ran out of time.
       const cold = Boolean(url) && !(this.page && !this.page.isClosed());
@@ -1379,7 +1401,9 @@ export class BrowserSession {
       const before = await inputState(this.options.projectRoot, scenario, signal);
       if (recording && localURL(scenario.url)) entry.data = await snapshotAppData(this.options.projectRoot, signal);
       await this.start(); signal.throwIfAborted();
-      await this.page!.browserContext().close();
+      // The signed-in profile's own context can't be closed: its page is, and a fresh one opens in it.
+      if (this.signedIn) await this.page!.close().catch(() => {});
+      else await this.page!.browserContext().close();
       const page = await this.newPage();
       this.logs.length = 0; this.requests.length = 0; this.dropped = 0;
       await page.setViewport(scenario.viewport);
@@ -1752,7 +1776,9 @@ export class BrowserSession {
   }
   private async launch(puppeteer: typeof import("puppeteer-core").default, executablePath: string, signal: AbortSignal): Promise<Page> {
     signal.throwIfAborted();
-    this.profile = await realpath(await mkdtemp(path.join(os.tmpdir(), "casper-browser-")));
+    // One profile for the session: made at the first start, kept across a sign-in window, removed after a crash or
+    // at close (a sign-in is never kept past the session).
+    this.profile ??= await realpath(await mkdtemp(path.join(os.tmpdir(), "casper-browser-")));
     signal.throwIfAborted();
     const browser = this.browser = await puppeteer.launch({ executablePath, headless: true, pipe: true, userDataDir: this.profile,
       handleSIGINT: false, handleSIGTERM: false, handleSIGHUP: false, signal, timeout: 10_000,
@@ -1790,8 +1816,94 @@ export class BrowserSession {
     }
     if (profile) await rm(profile, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }).catch(() => {});
   }
+  /**
+   * signin: a Chrome window on this session's own profile, for the person to sign in to a site the AI then uses. The
+   * headless Chrome stops (its profile is kept), the window opens at the address, and when the person closes it the
+   * next action starts headless Chrome on the same profile, signed in. Never without asking, never on a computer
+   * with no screen, never kept past the session. The AI gets only how it ended, never cookies or what was typed.
+   */
+  private async signIn(url: string, signal: AbortSignal): Promise<Record<string, unknown>> {
+    const guidance = "Open the page again to check you are signed in. The sign-in lasts until this browser session closes.";
+    if (this.unattended || !this.options.confirmSignIn) throw new Error("Not run: signing in needs the person at the keyboard, and this run can't ask you. Ask the user to sign in, or use the site's API token.");
+    if (!(this.options.hasScreen ?? screenAvailable)()) {
+      throw new Error("Not run: this computer has no screen for a sign-in window. Use the site's API token, or a login that trusts this computer (Home Assistant: trusted_networks), instead.");
+    }
+    const origin = new URL(url).origin;
+    this.deadline?.hold();
+    try {
+      const yes = await this.options.confirmSignIn({ origin, url }, signal);
+      signal.throwIfAborted();
+      if (yes === undefined) throw new Error("Not run: signing in needs the person at the keyboard, and this run can't ask you. Ask the user to sign in, or use the site's API token.");
+      if (!yes) return { signedIn: "cancelled", url, guidance: "The person said no to a sign-in window; ask them how they want to sign in." };
+      const ended = await this.signInWindow(url, signal);
+      return { signedIn: ended, url, guidance: ended === "timed out" ? `The sign-in window timed out and was closed. ${guidance}` : guidance };
+    } finally { this.deadline?.resume(); }
+  }
+  /** Opens the sign-in window and waits for the person to close it (or say done), at most signInTimeoutMs. */
+  private async signInWindow(url: string, signal: AbortSignal): Promise<"window closed" | "timed out"> {
+    const supplied = this.options.executablePath ?? process.env.CASPER_BROWSER_EXECUTABLE;
+    const executablePath = await discoverBrowser(supplied);
+    if (!executablePath || !path.isAbsolute(executablePath)) throw new Error("Browser unavailable: install Chrome yourself or set CASPER_BROWSER_EXECUTABLE to an absolute executable path");
+    const { default: puppeteer } = await import("puppeteer-core");
+    // The headless Chrome gives the profile up for the window; its cookies stay.
+    await this.startup?.catch(() => {});
+    await this.stopChromeKeepProfile();
+    this.profile ??= await realpath(await mkdtemp(path.join(os.tmpdir(), "casper-browser-")));
+    signal.throwIfAborted();
+    const window = await puppeteer.launch({ executablePath, headless: this.options.signInHeadless ?? false, pipe: true, userDataDir: this.profile,
+      defaultViewport: null, handleSIGINT: false, handleSIGTERM: false, handleSIGHUP: false, signal, timeout: 10_000,
+      env: browserEnvironment(this.profile) });
+    const chrome = window.process();
+    const owner = chrome ? ownSpawnedTree(chrome.pid, () => chrome.exitCode === null && chrome.signalCode === null) : undefined;
+    let ended: "window closed" | "timed out" = "window closed";
+    try {
+      const [first] = await window.pages();
+      const page = first ?? await window.newPage();
+      await page.goto(url, { waitUntil: "domcontentloaded", timeout: this.options.navigationTimeoutMs ?? 30_000 }).catch(() => {});
+      let done!: () => void;
+      const finished = new Promise<void>(resolve => { done = resolve; });
+      this.options.signInNotice?.(`A Chrome window is open at ${new URL(url).origin}. Sign in there, then close the window. The AI doesn't see it or what you type.`, () => done());
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const outcome = await Promise.race([
+        new Promise<"window closed">(resolve => window.once("disconnected", () => resolve("window closed"))),
+        finished.then(() => "window closed" as const),
+        new Promise<"timed out">(resolve => { timer = setTimeout(() => resolve("timed out"), this.options.signInTimeoutMs ?? SIGN_IN_MS); }),
+        new Promise<never>((_, reject) => signal.addEventListener("abort", () => reject(signal.reason), { once: true })),
+      ]).finally(() => clearTimeout(timer));
+      ended = outcome;
+    } finally {
+      // A graceful close writes the cookies to the profile; then nothing of the window may stay running.
+      if (window.connected) await Promise.race([window.close().catch(() => {}), new Promise(resolve => setTimeout(resolve, 5_000))]);
+      await owner?.captureCurrent().catch(() => {});
+      if (await terminateTree(owner, chrome?.pid, "SIGKILL") === "unknown") {
+        this.cleanupError = new ProcessCleanupError(owner);
+        void this.close().catch(() => {});
+      }
+    }
+    this.signedIn = true;
+    return ended;
+  }
+  /** Stops the running Chrome but keeps its profile (a sign-in window takes it next). */
+  private async stopChromeKeepProfile(): Promise<void> {
+    const browser = this.browser, owner = this.chromeOwner, child = browser?.process();
+    this.browser = undefined; this.chromeOwner = undefined; this.page = undefined; this.startup = undefined;
+    if (!browser) return;
+    await owner?.captureCurrent().catch(() => {});
+    await Promise.race([browser.close().catch(() => {}), new Promise(resolve => setTimeout(resolve, 2_000))]);
+    if (await terminateTree(owner, child?.pid, "SIGKILL") === "unknown") {
+      this.cleanupError = new ProcessCleanupError(owner);
+      throw this.cleanupError;
+    }
+    await browser.disconnect().catch(() => {});
+  }
   private async newPage(): Promise<Page> {
-      const context = await this.browser!.createBrowserContext({ downloadBehavior: { policy: "deny" } });
+      // Signed in: the profile's own context holds the cookies the person's sign-in left. Downloads stay off there too.
+      let context: import("puppeteer-core").BrowserContext;
+      if (this.signedIn) {
+        context = this.browser!.defaultBrowserContext();
+        const browserCdp = await this.browser!.target().createCDPSession();
+        await browserCdp.send("Browser.setDownloadBehavior", { behavior: "deny" }).catch(() => {});
+      } else context = await this.browser!.createBrowserContext({ downloadBehavior: { policy: "deny" } });
       this.page = await context.newPage();
       this.page.setDefaultTimeout(5000);
       await this.page.setViewport({ width: 1280, height: 800 });
