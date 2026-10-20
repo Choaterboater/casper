@@ -14,11 +14,24 @@ when releasing. Existing historical notes below stay as written; feature tests c
 reference docs, not a per-PR release-note or roadmap entry. Release-prep checks verify the version and
 installer targets (`tests/release-install.test.ts`, `tests/release-targets.test.ts`).
 
-Casper distributes an unsigned **v0.2.42 preview**, not a stable release. The installers
-download from `https://github.com/Choaterboater/casper/releases/download/v0.2.42`,
+Casper distributes an unsigned **v0.2.43 preview**, not a stable release. The installers
+download from `https://github.com/Choaterboater/casper/releases/download/v0.2.43`,
 because GitHub's `latest/download` link skips preview releases. The first published
 preview was **v0.1.0**. A published release is never changed; every fix ships under a
 new version.
+
+## v0.2.43: timeouts on time, fewer false alarms, and tests for plain scripts
+
+### Changed
+
+- A timed-out command the AI doesn't retry now shows when it happens, not under the final answer.
+- A folder of plain Python scripts with its own `unittest` file gets `python3 -m unittest discover` as its test check.
+
+### Fixed
+
+- Code that reads a password from a file, or a secrets path in a compose volume, no longer says a secret appeared in a command.
+- macOS `sed -i ''` edits are no longer refused as changing a configured check.
+- A picture in `assets/` in a folder with no web framework no longer starts an app check and ends the task Incomplete.
 
 ## v0.2.42: missing programs named, and checks only for the AI's changes
 
