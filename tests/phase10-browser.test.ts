@@ -12,7 +12,7 @@ const executable = process.env.CASPER_BROWSER_EXECUTABLE ?? "/Applications/Googl
 const browserTest = existsSync(executable) ? test : test.skip;
 const cleanup: Array<() => Promise<unknown>> = [];
 afterEach(async () => { for (const close of cleanup.splice(0).reverse()) await close(); });
-async function fixture(options: { executablePath?: string; firstStartMs?: number; confirm?: (request: unknown, signal: AbortSignal) => Promise<boolean>; navigationTimeoutMs?: number; allowActions?: () => boolean; checkPictures?: () => boolean } = {}) {
+async function fixture(options: { executablePath?: string; firstStartMs?: number; actionTimeoutMs?: number; confirm?: (request: unknown, signal: AbortSignal) => Promise<boolean>; navigationTimeoutMs?: number; allowActions?: () => boolean; checkPictures?: () => boolean } = {}) {
   const root = await realpath(await mkdtemp(path.join(os.tmpdir(), "casper-browser-test-")));
   cleanup.push(() => removeTempDir(root));
   const project = path.join(root, "project"), state = path.join(root, "state");
@@ -185,6 +185,18 @@ browserTest("after two fresh starts a third crash closes the session for good", 
   const f = await fixture({ executablePath: wrapper, firstStartMs: 1_000 });
   expect(await f.session.run({ action: "open", url: f.url })).toMatchObject({ title: "Browser fixture" });
   expect((await readFile(starts, "utf8")).trim().split("\n")).toHaveLength(2);
+}, 30_000);
+
+// On a busy machine a cold Chrome start took most of an open's 15 s, and the open ended in a bare AbortError.
+(process.platform === "win32" ? test.skip : browserTest)("a slow Chrome start doesn't use up the open's time, and an open that runs out says so", async () => {
+  const root = await realpath(await mkdtemp(path.join(os.tmpdir(), "casper-slow-start-")));
+  cleanup.push(() => removeTempDir(root));
+  const wrapper = path.join(root, "chrome");
+  await writeFile(wrapper, `#!/bin/sh\nsleep 2\nexec "${executable}" "$@"\n`, { mode: 0o755 });
+  const f = await fixture({ executablePath: wrapper, firstStartMs: 20_000, actionTimeoutMs: 1_500 });
+  expect(await f.session.run({ action: "open", url: f.url })).toMatchObject({ title: "Browser fixture" });
+  // A page that never finishes loading, with Chrome already up: the open's own time runs out.
+  await expect(f.session.run({ action: "open", url: new URL("/hang", f.url).href })).rejects.toThrow("The browser's open ran out of time (2 s) and Casper closed the browser; open the page again.");
 }, 30_000);
 
 browserTest("known consequential labels cannot bypass approval by claiming local-test", async () => {

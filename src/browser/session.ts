@@ -31,6 +31,8 @@ export interface BrowserSessionOptions {
   navigationTimeoutMs?: number;
   /** How long a first Chrome start may take before one fresh start replaces it (default 8 s); a test seam. */
   firstStartMs?: number;
+  /** An action's own time (default 15 s, a check or replay 30 s); a test seam, never model-supplied. */
+  actionTimeoutMs?: number;
   /**
    * Asked once before the AI's browser reaches a cloud metadata address (metadata.ts), by the page itself, a
    * redirect, a frame or a fetch. Without it nobody can say yes, and those addresses are not opened.
@@ -925,17 +927,25 @@ export class BrowserSession {
     if (soft) combined = AbortSignal.any([combined, soft.signal]);
     const stop = soft ? () => { soft.abort(new Error("Browser replay ran out of time")); last ??= setTimeout(close, 5_000); } : close;
     combined.addEventListener("abort", stop, { once: true });
-    const full = input.action === "check" || input.action === "replay" ? 30_000 : 15_000;
+    const full = this.options.actionTimeoutMs ?? (input.action === "check" || input.action === "replay" ? 30_000 : 15_000);
     const limit = soft && this.replayUntil ? Math.max(1_000, Math.min(full, this.replayUntil - performance.now())) : full;
-    let timer = setTimeout(stop, limit);
-    this.deadline = { hold: () => clearTimeout(timer), resume: () => { clearTimeout(timer); timer = setTimeout(stop, limit); } };
+    // Ran out of its time: said in plain words below, not as the AbortError the closing session leaves.
+    let ranOut = false;
+    const expire = () => { ranOut = true; stop(); };
+    let timer = setTimeout(expire, limit);
+    this.deadline = { hold: () => clearTimeout(timer), resume: () => { clearTimeout(timer); timer = setTimeout(expire, limit); } };
     try {
       if (input.action === "check" || input.action === "replay") return await this.check(input, combined);
       if (input.action === "withdraw") return await this.withdraw(input);
       if (input.action === "serve") return await this.serve(input, combined);
       if (input.action === "diagnostics") return { console: structuredClone(this.logs), network: structuredClone(this.requests), dropped: this.dropped,
         server: this.server?.diagnostics(), guidance: "Bounded diagnostics, not verification. URL queries/fragments are omitted; content may still be sensitive." };
-      const page = url ? await this.start() : this.page;
+      // A cold Chrome start has its own limits (FIRST_START_MS, then one fresh try): it doesn't use up the page's time.
+      // On a busy machine the start alone took most of 15 s, and the page open ran out of time.
+      const cold = Boolean(url) && !(this.page && !this.page.isClosed());
+      if (cold) this.deadline.hold();
+      let page: Page | undefined;
+      try { page = url ? await this.start() : this.page; } finally { if (cold) this.deadline?.resume(); }
       if (!page) { const restarted = this.restarted; this.restarted = undefined; throw new Error(restarted ?? "Open a browser URL before inspecting it"); }
       combined.throwIfAborted();
       if (url) {
@@ -963,6 +973,9 @@ export class BrowserSession {
       return { path: saved, bytes: bytes.byteLength,
         url: page.url(), viewport: page.viewport(), guidance: "The picture comes with this result when the model can see images. Capture alone is not verification.", ...held,
         [SCREENSHOT_PNG]: Buffer.from(bytes).toString("base64") };
+    } catch (error) {
+      if (ranOut && !signal?.aborted) throw new Error(`The browser's ${String(input.action)} ran out of time (${Math.round(limit / 1000)} s) and Casper closed the browser; open the page again.`);
+      throw error;
     } finally { clearTimeout(timer); clearTimeout(last); this.deadline = undefined; this.metadataAllowed.clear(); combined.removeEventListener("abort", stop); }
   }
 
