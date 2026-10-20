@@ -763,6 +763,10 @@ tool, sorted by server then tool name, 50 at a time:
   hpe-networking-mcp in router mode) can't be listed in full. Casper only knows its
   router tools, so the page adds `routers: [{ server, hint }]` telling the AI to
   use that server's `find_tool`.
+- With Casper's own network server (casper-network-mcp) connected, the AI is told
+  which server it is and sees its router first. With two or more routers (each may
+  be signed in to a different org), the AI is told to ask the others before answering
+  "nothing found", and to say which server and org each answer came from.
 
 **Bad arguments name the field.** A call whose arguments don't fit the tool's
 schema is refused before any approval question, for example:

@@ -10,7 +10,7 @@ casper-skill:
     strong: ["mist api", "juniper mist", "mistapi", "api.mist.com", "mist org", "mist site", "mist webhook", "mist websocket"]
     weak: ["mist"]
   frameworks: [mist]
-  version: 4
+  version: 5
 ---
 # Juniper Mist cloud API
 
@@ -87,17 +87,17 @@ WRITE: `POST /api/v1/sites/<site_id>/clients/<client_mac>/disconnect` kicks a cl
 
 ## Paging and rate limits
 - List calls take `limit` and `page` (page starts at 1). The answer has headers `X-Page-Total`,
-  `X-Page-Limit` and `X-Page-Page`: keep going until you have them all.
+  `X-Page-Limit` and `X-Page-Page`: page until you have them all.
 - Search calls (`.../search`) return a `next` URL in the body: follow it as given.
 - `mistapi.get_all()` does both for you.
-- Limit is per token, per hour. The public spec says 5000 calls per hour; check the current docs.
-- On HTTP 429 wait (use `Retry-After` if sent), then retry with backoff. Loop over sites
-  slowly. `mistapi` retries 429 a few times on its own.
+- Limit: about 5000 calls per token per hour (public spec; check current docs).
+- On HTTP 429 wait (`Retry-After` if sent), then back off; `mistapi` retries a few times.
 
 ## Common traps
 - Wrong cloud host: the token gives 401 or 404 on another cloud. Match the portal URL.
-- `org_id` and `site_id` are both UUIDs. Site calls are `/sites/<site_id>/...`, not under orgs.
+- Org and site IDs are UUIDs. Site calls are `/sites/<site_id>/...`, not under orgs.
 - Device lists and stats return APs only unless you pass `type=all` (or `switch`, `gateway`).
+- `stats/clients` is wireless only; also ask `/sites/<site_id>/wired_clients/search`.
 - A token that can see one site gets 403 on org calls. Check `privileges` from `/self`.
 - Webhooks: Mist sends events to your URL; set a `secret` and check the `X-Mist-Signature-v2`
   header as the docs describe. Websockets: `wss://<ws_host>/api-ws/v1/stream`, where

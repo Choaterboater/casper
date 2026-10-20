@@ -185,6 +185,8 @@ export function withoutTitles(schema: unknown): unknown {
   }
   return out;
 }
+const OWN_NETWORK = "casper-network-mcp";
+export const SEVERAL_ROUTERS_LINE = "Network servers may be signed in to different orgs. If one finds nothing or gets 403, ask the others before answering; say which server and org each answer is from, and if still not found, where you looked.";
 /** Plain code-point order, the same on every machine. */
 function order(a: string, b: string): number { return a < b ? -1 : a > b ? 1 : 0; }
 const LIST_PAGE_ITEMS = 50;
@@ -724,6 +726,7 @@ export class CapabilityBroker {
     const names = new Set<string>();
     const lines: string[] = [];
     const servers: string[] = [];
+    let routedCount = 0;
     if (!this.closed.signal.aborted) for (const { server, generation, tools } of this.manager.catalog()) {
       servers.push(server);
       const routed = tools.some((tool) => tool.name === "find_tool") && tools.some((tool) => tool.name === "invoke_read_tool");
@@ -732,6 +735,8 @@ export class CapabilityBroker {
       const access = policy.access?.state ?? "unknown";
       // Built from the server's name and Casper's parsed state only; never from server text.
       lines.push(...accessModelLines(server, policy.access, writes));
+      if (policy.match?.preset.id === OWN_NETWORK) lines.push(`${server}: Casper's own network server (casper-network-mcp); use it first.`);
+      if (routed) routedCount++;
       let definition: ReturnType<MCPManager["definition"]> | undefined;
       try { definition = this.manager.definition(server); } catch { definition = undefined; }
       const docsServer = docsPinned(definition, policy.match, tools);
@@ -765,6 +770,8 @@ export class CapabilityBroker {
       }
     }
     this.capabilities = next;
+    // Two network servers may be signed in to different orgs: an empty answer from one is not an answer.
+    if (routedCount > 1) lines.push(SEVERAL_ROUTERS_LINE);
     this.modelLines = lines.sort(order);
     this.servers = JSON.stringify(servers.sort(order));
     this.indexedRevision = revision;
@@ -836,7 +843,10 @@ export class CapabilityBroker {
       }, true),
     ];
     // Native routers are intentionally preferred over flattening their catalog.
-    const routers = [...this.capabilities.values()].filter((c) => c.router && !c.hidden).sort((a, b) => a.descriptor.id.localeCompare(b.descriptor.id));
+    // Casper's own network server comes first, so a model that tries routers in order asks it first.
+    const own = (c: Capability) => c.policy.match?.preset.id === OWN_NETWORK ? 0 : 1;
+    const routers = [...this.capabilities.values()].filter((c) => c.router && !c.hidden)
+      .sort((a, b) => own(a) - own(b) || a.descriptor.id.localeCompare(b.descriptor.id));
     const routedServers = new Set(routers.map((c) => c.descriptor.source));
     // Docs tools of a recognised hpe-networking-mcp server come right after the routers, whatever the task words.
     const docs = [...this.capabilities.values()].filter((c) => c.docs && !c.hidden).sort((a, b) =>
