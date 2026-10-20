@@ -1,6 +1,6 @@
 /** The fields each browser action reads. The tool schema, its description and the validator all use this table. */
 export const BROWSER_ACTION_FIELDS = {
-  open: ["url"], inspect: [], screenshot: [], diagnostics: [], viewport: ["width", "height"],
+  open: ["url"], signin: ["url"], inspect: [], screenshot: [], diagnostics: [], viewport: ["width", "height"],
   check: ["scenario"], replay: ["id"], withdraw: ["id", "reason", "replacedBy"], serve: ["script", "url", "impact", "reason"],
   click: ["selector", "impact", "reason"], fill: ["selector", "value", "impact", "reason"], press: ["selector", "value", "impact", "reason"],
   select: ["selector", "value", "impact", "reason"],

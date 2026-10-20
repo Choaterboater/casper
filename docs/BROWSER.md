@@ -341,6 +341,25 @@ bounded, non-atomic filesystem observations: they do **not** prove which build t
 server is serving, that the input scope is complete, or that external state stayed
 unchanged. Screenshots and model claims never count as assertion passes.
 
+## Signing in
+
+The AI's browser is headless and starts with an empty profile, so a page behind a login (a Home Assistant at
+`http://192.0.2.10:8123`, an admin page) shows only its sign-in form. The `signin` action lets **you** sign in for it:
+
+- Casper asks `Open a Chrome window so you can sign in to <site>? The AI won't see what you type.` (`1 No · 2 Yes`).
+  It asks every time; there is no "for this session" yes.
+- On Yes, the headless Chrome stops, keeping its profile, and a normal Chrome window opens on that same profile at
+  the page. Sign in there, then close the window. Casper prints
+  `[browser] A Chrome window is open at <site>. Sign in there, then close the window. ...` while it waits (up to 10
+  minutes; then the window is closed and the AI is told it timed out).
+- The AI's next page opens headless on the same profile, signed in. The AI gets only how the window ended
+  (`window closed`, `cancelled` or `timed out`), never cookies, storage or what you typed.
+- The sign-in lasts until this browser session closes: the profile is deleted then, as always. A crash that makes
+  Casper start a fresh Chrome deletes it too, so you sign in again.
+- A run that can't ask (`casper -p`, a script) and a computer with no screen (a NAS over ssh, Linux without
+  `DISPLAY`/`WAYLAND_DISPLAY`) get a plain refusal instead. There, use the site's API token, or a login that trusts
+  your computer (Home Assistant's `trusted_networks`).
+
 ## Permissions and ownership
 
 Every interaction/server start declares `impact` and a reason. Clicks, typing and
