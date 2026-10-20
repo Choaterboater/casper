@@ -106,6 +106,8 @@ function assignmentSpans(line: string, strict: boolean): Span[] {
     const auth = !named && snakeKey(name) === "auth";
     const keyed = !named && !auth && plainKeyName(name);
     if (!raw || !indices || !(named || auth || keyed)) continue;
+    // A file name inside a path is not a key: a compose volume `- /srv/secrets/api_token:/run/secrets/api_token:ro`.
+    if (!strict && (match[1] === "/" || match[1] === "\\")) continue;
     // `grep password= src/`: a path or option after "name= " (no space before =, one after) is an argument, not the value.
     // A quoted word or any other word there is still a value: `connect(password= 'x')`, `DB_PASSWORD= x`.
     if (!strict && match[5] === "=" && !match[4] && match[6] && /^(?:[-.]|[^\s"']*\/)/.test(raw)) continue;

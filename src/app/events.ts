@@ -88,6 +88,8 @@ interface Step {
   note?: string;
   /** Keep recoverable failures out of the transcript until a retry succeeds or the turn ends. */
   recovery?: RecoveryKind;
+  /** A timeout or busy service the next call of the same tool did not retry: the next fold shows it. */
+  heldOnce?: boolean;
   /** A failed edit the model tried again at once: counted, not printed. */
   retried?: boolean;
   /** Casper stopped it before it ran (the spend limit, or a refusal): printed as not run, never counted as a step. */
@@ -393,7 +395,7 @@ export class RuntimeEventView {
   /** The model moved on: the finished steps leave the live rows and fold under its words (see planFold): one row naming
    * what went well, the edits in a box, each failure in a box. Ctrl+T then shows the last box in full. */
   private fold(final = false): void {
-    const done = this.steps.filter(step => step.endedAt !== undefined && (final || !step.recovery));
+    const done = this.steps.filter(step => step.endedAt !== undefined && (final || !step.recovery || step.heldOnce));
     if (!done.length) return;
     this.steps = this.steps.filter(step => !done.includes(step));
     this.endSpeech();
@@ -658,6 +660,13 @@ export class RuntimeEventView {
           const reason = previous.recovery === "conflict" ? "conflicts resolved" : previous.recovery === "test-first" ? "expected test-first failure · rerun passed" : `${previous.recovery} · retry finished`;
           previous.failed = false; previous.recovery = undefined; previous.note = reason;
           previous.line = previous.printed = `${NOTE_GLYPH} ${commandLabel(redactPreview(previous.input?.command ?? previous.toolName), 60)} — ${reason}`;
+        }
+        // A timeout or busy service waits for its retry, which is the model's next call of that tool. When that call is
+        // something else, the failure shows at the next fold. Held to the task's end, an ssh that timed out early in a
+        // long task showed under its answer. A conflict or test-first failure takes several steps and waits on.
+        for (const previous of this.steps) {
+          if ((previous.recovery === "timeout" || previous.recovery === "service") && previous.endedAt !== undefined
+            && previous.toolName === event.toolName && previous.id !== event.toolCallId) previous.heldOnce = true;
         }
         const suffix = spendStop ? NOT_RUN : REFUSED;
         // `timed`: with the step's time. The rich terminal's folded lines leave it out (the footer and box show time).

@@ -28,6 +28,9 @@ function anyValue(value: string): boolean {
   return value.length >= 3 && !/^[<{$%]/.test(value) && !NOT_A_VALUE.test(value) && !keepLiterally(value) && !/^\*+$/.test(value);
 }
 
+/** `pw = re.search(r"..._PASSWORD=(.*)", env)` reads the password from a file: a call in code is not the value. */
+const codeCall = (value: string) => /^[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*\(/.test(value);
+
 /** A value in a command: 'quoted', "quoted" or one word. The quotes stay; only what is inside is hidden. */
 const QUOTED = String.raw`'[^'\n]+'|"[^"\n]+"|[^\s'"]+`;
 const unquote = (value: string) => /^(['"]).*\1$/s.test(value) ? value.slice(1, -1) : value;
@@ -41,11 +44,12 @@ const RULES: ProseRule[] = [
   { re: new RegExp(String.raw`(?<![\w-])(\*\*|__)?(?:${PASSWORD_WORDS})(\*\*|__)?\s*[:=]\s*(\*\*|__)?\s*(\`{1,3})?([^\s\`*]+)`, "gid"),
     group: 5, kind: "password", accept: (value, match) => {
       const marked = Boolean(match[1] || match[2] || match[3] || match[4]);
+      if (!marked && codeCall(value)) return false;
       return marked || /^pw\b/i.test(match[0]) ? anyValue(value.replace(/[.,;)]+$/, "")) : secretLike(value);
     } },
   // password X, password is X, the pw was X: only a value that looks like a secret.
   { re: /(?<![\w-])(?:password|passwd|passphrase|pw)\s+(?:is\s+|was\s+|of\s+|=\s*)?(`?)([^\s`]+)\1/gid, group: 2, kind: "password",
-    accept: (value, match) => match[1] === "`" ? anyValue(value) : secretLike(value) },
+    accept: (value, match) => match[1] === "`" ? anyValue(value) : !codeCall(value) && secretLike(value) },
   // the root password for the lab is X: a few words between, and only a value that looks like a secret.
   { re: /(?<![\w-])(?:password|passwd|pw)\b[^\n.:=`]{1,40}?\s(?:is|was)\s+(`?)([^\s`]+)\1/gid, group: 2, kind: "password",
     accept: (value, match) => match[1] === "`" ? anyValue(value) : secretLike(value) },
