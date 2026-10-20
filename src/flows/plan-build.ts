@@ -1,5 +1,5 @@
 import type { RuntimeTool } from "../runtime/types";
-import type { ParsedPlan } from "./plan";
+import { firstVersionSteps, type ParsedPlan } from "./plan";
 import { lineText } from "../tui/format";
 
 const NOT_REPORTED = "not reported done by the model";
@@ -9,7 +9,7 @@ export class PlanBuild {
   readonly steps: PlanStepReport[];
   private closed = false;
   constructor(plan: ParsedPlan, private readonly show: (line?: string) => void) {
-    this.steps = (plan.steps.length ? plan.steps : plan.firstVersion?.filter(Boolean) ?? []).map(title => ({ title: title.replace(/^\s*[-*•]\s*/, ""), status: "pending" }));
+    this.steps = (plan.steps.length ? plan.steps : firstVersionSteps(plan.firstVersion)).map(title => ({ title, status: "pending" }));
     if (this.steps.length) { this.steps[0]!.status = "active"; this.progress(0); }
   }
   private progress(index: number): void { this.show(`Step ${index + 1} of ${this.steps.length} · ${this.steps[index]!.title}`); }

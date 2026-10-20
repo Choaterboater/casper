@@ -285,6 +285,24 @@ function planItems(lines: readonly string[]): string[] {
   return items.map(cleanLine).filter(Boolean);
 }
 
+/**
+ * The build's checklist when a plan has no Steps section: its "First version" list, as work items. A sub-heading (a
+ * bold or # line) is one step and the bullets under it are its details; without sub-headings only top-level bullets
+ * are steps. A plan for a prompt with four headed parts became 39 "steps" from every nested bullet and heading (and
+ * "**MyQ garage opening**" lost one star), so a finished prompt read "Plan: 1 of 39 steps done".
+ */
+export function firstVersionSteps(lines: readonly string[] | undefined): string[] {
+  const filled = (lines ?? []).filter((line) => line.trim());
+  const bullet = (line: string) => /^\s*(?:[-*+•]|\d+[.)])\s+/.test(line);
+  const heading = (line: string) => !bullet(line) && (/^\s*#{1,6}\s+\S/.test(line) || /^\s*(?:\*\*|__)[^*_].*(?:\*\*|__)\s*:?\s*$/.test(line));
+  const text = (line: string) => cleanLine(line.replace(/^\s*#{1,6}\s+/, "").replace(/^\s*(?:[-*+•]|\d+[.)])\s+/, "")).replace(/:$/, "");
+  const headings = filled.filter(heading);
+  if (headings.length) return headings.map(text).filter(Boolean);
+  const top = Math.min(...filled.filter(bullet).map((line) => /^\s*/.exec(line)![0].length));
+  const items = filled.filter((line) => bullet(line) && /^\s*/.exec(line)![0].length === top);
+  return (items.length ? items : filled).map(text).filter(Boolean);
+}
+
 /** Join Markdown bullet continuations without losing their marker. Prose keeps its original lines. */
 function blockItems(lines: readonly string[]): string[] {
   const items: string[] = [];
