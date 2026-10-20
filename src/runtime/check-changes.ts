@@ -233,7 +233,9 @@ function shellWriteTargets(text: string, words: string[]): string[] {
   if (["sed", "perl"].includes(name) && !args.some((word) => /^-[a-zA-Z]*i/.test(word) || word.startsWith("--in-place"))) return targets;
   for (const arg of args) {
     if (name === "dd") { if (arg.startsWith("of=")) targets.push(arg.slice(3)); }
-    else if (!arg.startsWith("-")) targets.push(arg);
+    // An empty word is no file: macOS's `sed -i '' 's/a/b/' file` names its backup suffix that way, and as a path it
+    // was the project folder itself, so every such edit was refused as changing a configured check.
+    else if (arg && !arg.startsWith("-")) targets.push(arg);
   }
   return targets;
 }

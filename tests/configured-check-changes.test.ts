@@ -235,6 +235,9 @@ test("the check-rewrite guard stops writes to configured checks, not commands th
     "dd if=.casper/quick-test.ts of=output.txt",
     "echo '> .casper/quick-test.ts'",
     "echo .casper/project.yaml > output.txt",
+    // macOS's sed names its (empty) backup suffix as a word of its own: that word is not the project folder.
+    "sed -i '' 's/listen 8012;/listen 127.0.0.1:8012;/' output.txt",
+    "sed -i '' -e 's/a/b/' output.txt",
   ]) expect({ command, reason: await project.guard.shellReason(command) }).toEqual({ command, reason: undefined });
   for (const command of [
     "cat output.txt > .casper/quick-test.ts",
@@ -253,6 +256,7 @@ test("the check-rewrite guard stops writes to configured checks, not commands th
     "sed -n 's/real/skipped/w .casper/quick-test.ts' output.txt",
     "tee .casper/quick-test.ts < output.txt",
     "sed -i 's/real/skipped/' .casper/quick-test.ts",
+    "sed -i '' 's/real/skipped/' .casper/quick-test.ts",
     "dd if=output.txt of=.casper/quick-test.ts",
     "mv output.txt .casper/quick-test.ts",
     "cp output.txt .casper/quick-test.ts",
