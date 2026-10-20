@@ -14,11 +14,23 @@ when releasing. Existing historical notes below stay as written; feature tests c
 reference docs, not a per-PR release-note or roadmap entry. Release-prep checks verify the version and
 installer targets (`tests/release-install.test.ts`, `tests/release-targets.test.ts`).
 
-Casper distributes an unsigned **v0.2.41 preview**, not a stable release. The installers
-download from `https://github.com/Choaterboater/casper/releases/download/v0.2.41`,
+Casper distributes an unsigned **v0.2.42 preview**, not a stable release. The installers
+download from `https://github.com/Choaterboater/casper/releases/download/v0.2.42`,
 because GitHub's `latest/download` link skips preview releases. The first published
 preview was **v0.1.0**. A published release is never changed; every fix ships under a
 new version.
+
+## v0.2.42: missing programs named, and checks only for the AI's changes
+
+### Changed
+
+- A check whose program isn't installed, such as `go`, says to install it instead of offering Retry or Fix it anyway.
+- The installer says the `gh` build check is optional instead of saying your `gh` is too old.
+
+### Fixed
+
+- Files another program changed while the AI only read or ran ssh elsewhere are not checked as its work.
+- A running app's database journal files (`.db-wal`, `.db-shm`) changing alone no longer runs the project's checks.
 
 ## v0.2.41: logins on any home, ssh by name, and no project push
 

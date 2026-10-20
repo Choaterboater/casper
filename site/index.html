@@ -40,7 +40,7 @@
       <div class="container">
         <div class="hx-row">
           <div class="hx-copy">
-            <p class="hx-meta">Casper 0.2.41 · early preview, not signed · MIT licence</p>
+            <p class="hx-meta">Casper 0.2.42 · early preview, not signed · MIT licence</p>
             <h1 id="hero-title">The coding agent that proves it's done.</h1>
             <p class="lead">A coding helper for your terminal. Build web apps, APIs, command-line tools and scripts in the language your project uses, and Casper checks the AI's work before it tells you "done". Network engineers get extra care built in.</p>
             <div class="actions">
@@ -75,8 +75,8 @@
             <button type="button" role="tab" id="tab-unix" aria-controls="cmd-unix" aria-selected="true">macOS / Linux</button>
             <button type="button" role="tab" id="tab-windows" aria-controls="cmd-windows" aria-selected="false" tabindex="-1">Windows</button>
           </div>
-          <div class="cmd" id="cmd-unix"><span class="cmd-label visually-hidden">macOS / Linux</span><pre><code>curl -fsSL https://github.com/Choaterboater/casper/releases/download/v0.2.41/install.sh | sh</code></pre></div>
-          <div class="cmd" id="cmd-windows"><span class="cmd-label">Windows x64 or ARM64 · PowerShell</span><pre><code>[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; irm https://github.com/Choaterboater/casper/releases/download/v0.2.41/install.ps1 | iex</code></pre></div>
+          <div class="cmd" id="cmd-unix"><span class="cmd-label visually-hidden">macOS / Linux</span><pre><code>curl -fsSL https://github.com/Choaterboater/casper/releases/download/v0.2.42/install.sh | sh</code></pre></div>
+          <div class="cmd" id="cmd-windows"><span class="cmd-label">Windows x64 or ARM64 · PowerShell</span><pre><code>[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; irm https://github.com/Choaterboater/casper/releases/download/v0.2.42/install.ps1 | iex</code></pre></div>
         </div>
         <p class="small muted">No Bun or source checkout needed. The installer checks the file's SHA-256 and runs the new program's <code>--version</code> before it replaces an older install. Then run <code>casper</code> in your project folder.</p>
       </div>
@@ -308,12 +308,12 @@ Exit codes: 0 no problems, 1 problems (or warnings with --strict), 64 usage mist
           </ul>
         </div>
         <div>
-          <h2 id="next">New in 0.2.41</h2>
+          <h2 id="next">New in 0.2.42</h2>
           <ul>
-            <li>A refused ssh login names the machine your ssh config gives that address, and one No answers the rest of that command's password asks.</li>
-            <li>Started in your home folder, ask for anything: plain questions are no longer steered toward a project.</li>
-            <li><code>/login</code> makes your own login file private again instead of stopping, and a model that failed at once gets no checks.</li>
-            <li>From 0.2.40: <code>/look</code> runs one design pass on a page in the real browser, Casper tries a changed app before the receipt, and a Home Assistant skill. Helpers that build are off by default. Verified background updates are on by default.</li>
+            <li>A check whose own program isn't installed, such as <code>go</code>, says to install it instead of offering a repair.</li>
+            <li>When the AI only reads or works over ssh on another machine, files another program changes meanwhile are not checked as its work.</li>
+            <li>A running app's database journal files changing alone run no checks, and the installer calls the <code>gh</code> build check optional.</li>
+            <li>From 0.2.41: ssh logins name your ssh config's machine, plain questions are not steered toward a project, and <code>/login</code> works on any home. From 0.2.40: <code>/look</code>, Casper tries a changed app before the receipt, and a Home Assistant skill. Helpers that build are off by default. Verified background updates are on by default.</li>
           </ul>
         </div>
       </section>
@@ -323,7 +323,7 @@ Exit codes: 0 no problems, 1 problems (or warnings with --strict), 64 usage mist
   <footer class="site-footer">
     <div class="container footer-inner">
       <div>
-        <p><strong>Casper 0.2.41</strong> · early preview, unsigned</p>
+        <p><strong>Casper 0.2.42</strong> · early preview, unsigned</p>
         <p><a href="https://github.com/Choaterboater/casper/blob/main/LICENSE">MIT licence</a> · © 2026 Choaterboater</p>
         <p>Built on the <a href="https://github.com/earendil-works/pi">Pi SDK</a>. Other parts keep their own licences (<a href="https://github.com/Choaterboater/casper/blob/main/THIRD_PARTY_NOTICES.txt">notices</a>).</p>
       </div>

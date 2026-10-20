@@ -78,6 +78,7 @@
           </li>
           <li><a href="#released">Released</a>
             <ul>
+              <li><a href="#v0242">v0.2.42: missing programs</a></li>
               <li><a href="#v0241">v0.2.41: logins and ssh names</a></li>
               <li><a href="#v0240">v0.2.40: /look and steadier runs</a></li>
               <li><a href="#v0239">v0.2.39: try the app before done</a></li>
@@ -118,7 +119,7 @@
         <h2 id="next-h">Next release</h2>
         <aside class="callout soon">
           <strong class="callout-title">Built, not released</strong>
-          <p>Nothing on the main branch is waiting: everything built so far is in v0.2.41. New work shows here before the next preview.</p>
+          <p>Nothing on the main branch is waiting: everything built so far is in v0.2.42. New work shows here before the next preview.</p>
         </aside>
       </section>
 
@@ -360,10 +361,23 @@
         and on the <a href="https://github.com/Choaterboater/casper/releases">Releases page</a>.</p>
         <div class="stack">
 
+        <details class="card release" id="v0242" aria-labelledby="v0242-h" open>
+          <summary class="release-heading">
+            <h3 id="v0242-h">v0.2.42 · Missing programs named, and checks only for the AI's changes</h3>
+            <span class="badge ok">current preview</span>
+          </summary>
+          <ul>
+            <li><strong>Missing programs named.</strong> A check whose own program isn't installed, such as <code>go</code> for <code>go test</code>, says to install it instead of offering Retry or Fix it anyway.</li>
+            <li><strong>Only the AI's changes.</strong> When the AI only read, searched or ran a plain ssh to another machine, files another program changed meanwhile are listed as not the AI's, and are not checked or offered as the work's folder.</li>
+            <li><strong>No checks for app data.</strong> A running app's database journal files (<code>.db-wal</code>, <code>.db-shm</code>) changing alone run no checks.</li>
+            <li><strong>Calmer installer.</strong> The installer says the <code>gh</code> build check is optional instead of saying your <code>gh</code> is too old.</li>
+          </ul>
+        </details>
+
         <details class="card release" id="v0241" aria-labelledby="v0241-h" open>
           <summary class="release-heading">
             <h3 id="v0241-h">v0.2.41 · Logins on any home, ssh by name, and no project push</h3>
-            <span class="badge ok">current preview</span>
+            <span class="badge">previous preview</span>
           </summary>
           <ul>
             <li><strong>ssh by name.</strong> A refused ssh login, BatchMode too, names the machine your ssh config gives that address, whatever user was typed. One No in the password box answers the rest of that command's password asks, and each request says to reach such a machine by its name.</li>
@@ -376,7 +390,7 @@
         <details class="card release" id="v0240" aria-labelledby="v0240-h" open>
           <summary class="release-heading">
             <h3 id="v0240-h">v0.2.40 · /look, steadier OpenRouter runs, ssh hosts by name, and a Home Assistant skill</h3>
-            <span class="badge">previous preview</span>
+            <span class="badge">released</span>
           </summary>
           <ul>
             <li><strong>/look.</strong> One design pass on a page in the real browser: <code>critique</code> or <code>audit</code> report, and <code>polish</code>, <code>layout</code>, <code>type</code>, <code>colour</code>, <code>adapt</code>, <code>harden</code> and <code>clarify</code> fix. UI work in any project gets the frontend quality checks for forms, focus, tap sizes, contrast and states.</li>
@@ -389,7 +403,7 @@
           </ul>
         </details>
 
-        <details class="card release" id="v0239" aria-labelledby="v0239-h" open>
+        <details class="card release" id="v0239" aria-labelledby="v0239-h">
           <summary class="release-heading">
             <h3 id="v0239-h">v0.2.39 · Try the app before done, Chrome that recovers, and Windows fixes</h3>
             <span class="badge">released</span>
@@ -1188,7 +1202,7 @@
   <footer class="site-footer">
     <div class="container footer-inner">
       <div>
-        <p><strong>Casper 0.2.41</strong> · early preview, unsigned</p>
+        <p><strong>Casper 0.2.42</strong> · early preview, unsigned</p>
         <p><a href="https://github.com/Choaterboater/casper/blob/main/LICENSE">MIT licence</a> · © 2026 Choaterboater</p>
         <p>Built on the <a href="https://github.com/earendil-works/pi">Pi SDK</a>. Other parts keep their own licences (<a href="https://github.com/Choaterboater/casper/blob/main/THIRD_PARTY_NOTICES.txt">notices</a>).</p>
       </div>
