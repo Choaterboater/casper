@@ -71,6 +71,9 @@ test("with no front-end framework (a declared services.web of an API), a server 
   // Pages of a plain site still count, and so do the user's own listed pages after a code change.
   expect(changedPages([], ["views/index.html"]).open).toEqual(["/"]);
   expect(changedPages([], ["public/app.js"]).open).toEqual(["/"]);
+  // Pictures in assets/ with no front-end framework are not a page (scripts that build a dashboard elsewhere).
+  expect(changedPages([], ["assets/icons-src/emby.png", "static/banner.jpg", "public/logo.svg"])).toEqual({ open: [], skipped: [] });
+  expect(changedPages(["react", "vite"], ["public/logo.svg"]).open).toEqual(["/"]);
   expect(changedPages([], ["src/server.ts"], ["/health"]).open).toEqual(["/health"]);
   // In a front-end framework, scripts are front-end code.
   expect(changedPages(["react", "vite"], ["src/App.tsx"]).open).toEqual(["/"]);
