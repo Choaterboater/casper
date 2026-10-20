@@ -162,6 +162,16 @@ export async function authenticatePi(options: RuntimeAuthenticationOptions, dest
   // The terminal log would record what is typed and shown, codes included.
   if (process.env.CASPER_TUI_WRITE_LOG || process.env.PI_TUI_WRITE_LOG) return { status: "failed", effect: "none", reason: "unavailable", detail: "CASPER_TUI_WRITE_LOG is set" };
   let invoked = false;
+  // The login file as it was before the sign-in flow ran: unchanged afterwards means nothing was saved, so a device
+  // code that ran out says "nothing saved", not "save outcome unknown. Restart and inspect local auth".
+  let authBefore: string | null | undefined = null;
+  // Compared as its sign-ins: Pi creates a missing file as {} and may rewrite its layout without saving anything.
+  const authNow = () => {
+    let text: string;
+    try { text = readFileSync(destination, "utf8"); } catch { return "{}"; }
+    try { return JSON.stringify(JSON.parse(text.replace(/^\uFEFF/, "") || "{}")); } catch { return text; }
+  };
+  const effect = () => !invoked || (authBefore !== null && authNow() === authBefore) ? "none" as const : "unknown" as const;
   let provider = options.provider;
   /** The provider a found sign-in was saved for (it may be one /login has no row for, such as openai). */
   let imported: string | undefined;
@@ -240,6 +250,7 @@ export async function authenticatePi(options: RuntimeAuthenticationOptions, dest
       let verificationCancelled = false;
       try {
         flow.throwIfAborted();
+        authBefore = authNow();
         const runtime = await ModelRuntime.create({ authPath: destination, modelsPath: null, refreshOnCreate: false, allowModelNetwork: false, signal: flow });
         flow.throwIfAborted();
         invoked = true;
@@ -309,15 +320,15 @@ export async function authenticatePi(options: RuntimeAuthenticationOptions, dest
         return { status: "saved" };
       } catch (error) {
         if (error instanceof CredentialSynchronizationError) return { status: "saved-needs-refresh" };
-        if (verificationCancelled) return { status: "cancelled", effect: invoked ? "unknown" : "none" };
-        if (display.signal.aborted) return { status: "cancelled", effect: invoked ? "unknown" : "none" };
+        if (verificationCancelled) return { status: "cancelled", effect: effect() };
+        if (display.signal.aborted) return { status: "cancelled", effect: effect() };
         const detail = failureDetail(error, timedOut, providerNames[selected]);
-        return { status: "failed", effect: invoked ? "unknown" : "none", reason: "provider", ...(detail ? { detail } : {}) };
+        return { status: "failed", effect: effect(), reason: "provider", ...(detail ? { detail } : {}) };
       } finally { active = false; clearTimeout(timer); deadline.abort(); }
     })).then(result => ({ ...result, provider: imported ?? provider }));
   } catch {
     // Never expose SDK error objects: synchronization errors contain the credential itself.
-    return signal.aborted ? { status: "cancelled", effect: invoked ? "unknown" : "none", provider: imported ?? provider }
-      : { status: "failed", effect: invoked ? "unknown" : "none", reason: "unavailable", provider: imported ?? provider };
+    return signal.aborted ? { status: "cancelled", effect: effect(), provider: imported ?? provider }
+      : { status: "failed", effect: effect(), reason: "unavailable", provider: imported ?? provider };
   }
 }
