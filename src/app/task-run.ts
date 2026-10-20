@@ -231,6 +231,7 @@ export async function runModelTask(app: CasperApp, prompt: string, options: { fl
   // The model plans and lists cases; the user can request a rewrite before choosing Build.
   let planBlock = "";
   let changedWhilePlanning: string[] | undefined;
+  let changedNotByModel: string[] | undefined;
   if (planFirst) {
     const planned = await runPlanTurn(app, session, prompt, checklist, workspaceRoot, options.savedPlan);
     if (planned === "stop" || app.closing || app.commandAbort?.signal.aborted) return;
@@ -314,6 +315,13 @@ export async function runModelTask(app: CasperApp, prompt: string, options: { fl
     // Repair, review and proof rounds follow the change.
     edits.turnEnded = true;
     afterModel = before && !app.closing ? await app.snapshotWorkspace(workspaceRoot) : undefined;
+    // Nothing the model ran could change files here (it only read, searched or ran a plain ssh on another machine):
+    // what changed meanwhile is another program's (a running app's database, an editor), not the model's work. It is
+    // named on the receipt, and not checked, offered as "The work is in ..." or kept for undo.
+    if (before && afterModel && edits.tools && !edits.local && !edits.edited) {
+      const others = flatten(diffSnapshots(before, afterModel));
+      if (others.length) { changedNotByModel = others; afterModel = before; }
+    }
     // A project the model just set up (package.json, pyproject.toml, Package.swift...) gets its checks now,
     // not on the next task: the checks known at the start were those of the folder before the change.
     if (verificationMode !== "off" && before && afterModel && !app.closing) {
@@ -560,7 +568,7 @@ export async function runModelTask(app: CasperApp, prompt: string, options: { fl
       ...(app.taskTurnLimit !== undefined ? { turnLimit: app.taskTurnLimit } : {}), ...(app.taskSpendStop ? { spendLimit: { ...app.taskSpendStop } } : {}), ...(proof ? { proof } : {}), ...(proofSkipped && !proof ? { proofSkipped } : {}), ...(review ? { review } : {}),
       ...(acceptance ? { acceptance } : {}), ...(checklist ? { checklist } : {}), ...bigModelReceipt(app),
       ...(app.planBuild ? { planSteps: app.planBuild.finish(execution) } : {}),
-      ...(changedWhilePlanning?.length ? { changedWhilePlanning } : {}), ...(app.sandbox ? { sandbox: sandboxReceipt(app.sandbox)! } : {}),
+      ...(changedWhilePlanning?.length ? { changedWhilePlanning } : {}), ...(changedNotByModel ? { changedNotByModel } : {}), ...(app.sandbox ? { sandbox: sandboxReceipt(app.sandbox)! } : {}),
       ...outsideWrites };
     rememberMachines(app, observations.remoteChanges);
     if (app.cleanupReports.length) app.lastTaskResult.cleanup = [...app.cleanupReports];

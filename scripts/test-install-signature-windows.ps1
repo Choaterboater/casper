@@ -155,9 +155,9 @@ try {
   }
   Set-Signature $Key $Sums
   Reset-Install
-  Assert-Installed 'a signed-in gh too old to have attestation' (Invoke-Install 'install-keyed.ps1' ($Local + @{ Path = "$FakeGh\old;$env:Path" })) 'Checked SHA-256. This gh is too old to check where it was built (gh 2.56 or newer can).'
+  Assert-Installed 'a signed-in gh too old to have attestation' (Invoke-Install 'install-keyed.ps1' ($Local + @{ Path = "$FakeGh\old;$env:Path" })) 'Checked SHA-256. (Optional: gh 2.56 or newer would also check where it was built.)'
   Reset-Install
-  Assert-Installed 'a signed-in gh 2.55, which has attestation but cannot check' (Invoke-Install 'install-keyed.ps1' ($Local + @{ Path = "$FakeGh\2.55;$env:Path" })) 'Checked SHA-256. This gh is too old to check where it was built (gh 2.56 or newer can).'
+  Assert-Installed 'a signed-in gh 2.55, which has attestation but cannot check' (Invoke-Install 'install-keyed.ps1' ($Local + @{ Path = "$FakeGh\2.55;$env:Path" })) 'Checked SHA-256. (Optional: gh 2.56 or newer would also check where it was built.)'
   Reset-Install
   Assert-Refused 'a gh whose build check fails' (Invoke-Install 'install-keyed.ps1' ($Local + @{ Path = "$FakeGh\new;$env:Path" })) "This download doesn't match a Casper build from GitHub. Nothing installed."
   Reset-Install

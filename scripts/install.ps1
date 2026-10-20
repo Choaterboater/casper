@@ -163,15 +163,15 @@ try {
       }
     } finally { $ErrorActionPreference = $SavedPreference }
     if ($SignedIn -and -not $CanAttest) {
-      Write-Host "Checked SHA-256. This gh is too old to check where it was built (gh 2.56 or newer can)."
+      Write-Host "Checked SHA-256. (Optional: gh 2.56 or newer would also check where it was built.)"
     } elseif ($SignedIn) {
       if (-not $Attested) { throw "This download doesn't match a Casper build from GitHub. Nothing installed." }
       Write-Host "Verified: built by GitHub Actions from Choaterboater/casper."
     } else {
-      Write-Host "Checked SHA-256. Sign in to gh (gh auth login) to also check where it was built."
+      Write-Host "Checked SHA-256. (Optional: gh auth login would also check where it was built.)"
     }
   } else {
-    Write-Host "Checked SHA-256. Install gh to also check where it was built."
+    Write-Host "Checked SHA-256."
   }
 
   New-Item -ItemType Directory -Force -Path $InstallDir | Out-Null

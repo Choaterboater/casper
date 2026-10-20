@@ -2,6 +2,7 @@ import { formatVerificationReport, reportText, type CheckName, type Verification
 import { modelErrorNext, type ModelErrorCause } from "../runtime/model-errors";
 import type { RiskyLine } from "../network/risky-receipt";
 import { isBuiltinCheck } from "../verify/named";
+import { missingProgram, missingProgramLine } from "../verify/missing-program";
 import { DRY_RUN_LABEL } from "../network/checks";
 import type { ProjectCommand } from "../project/model";
 import type { BrowserReport } from "../browser/scenario";
@@ -127,6 +128,8 @@ export interface TaskResult {
   testRunner?: string;
   /** Files that changed during a plan turn anyway (Casper blocks the changes it can see; this names the rest). */
   changedWhilePlanning?: string[];
+  /** Files that changed while the model only read, searched or ran a plain ssh elsewhere: another program's, not checked. */
+  changedNotByModel?: string[];
   /** Repairs that ran on the user's big model: the extra try the user chose, or repair.bigModelLastTry. */
   bigModel?: { model: string; attempts: number; /** Picked for this task only, not saved as the big model. */ oneOff?: true };
   /** Casper's security tools ran for this task: counts only, never finding text. */
@@ -551,6 +554,7 @@ function receiptParts(task: TaskResult, options: ReceiptOptions, onScreen = fals
   }
   if (task.changedDuringChecks?.length) lines.push(`– Changed while checking: ${pathList(task.changedDuringChecks, safe, false)}`);
   if (task.changedWhilePlanning?.length) lines.push(`– Changed while planning: ${pathList(task.changedWhilePlanning, safe, false)}`);
+  if (task.changedNotByModel?.length) lines.push(`– Changed meanwhile by another program, not the AI (not checked): ${pathList(task.changedNotByModel, safe, false)}`);
   lines.push(...(onScreen ? planSummary(task.planSteps) : planReceipt(task.planSteps)));
   if (task.branchChangesUnknown) lines.push(`– ${task.branchMoved ? "The branch moved during this task; " : ""}${GIT_MOVEMENT_UNKNOWN}; undo is unavailable`);
   else if (task.branchMoved) lines.push(BRANCH_MOVED_LINE);
@@ -558,6 +562,7 @@ function receiptParts(task: TaskResult, options: ReceiptOptions, onScreen = fals
   const changed = Boolean(task.changedPaths?.length || (!task.changedPaths && task.possibleMutations));
   if (!report && !task.observedChecks?.length && task.execution === "completed") {
     if (task.autoSkipped === "no-checks") lines.push(options.checksHintShown ? "– Not verified — no checks set up" : NO_CHECKS_LINE);
+    else if (task.autoSkipped === "app-data") lines.push(`– Checks skipped — only a running app's database files changed${task.changedPaths?.length ? ` (${pathList(task.changedPaths, safe, false)})` : ""}; ${slash("/verify")} runs them anyway.`);
     else if (task.autoSkipped === "docs-only") lines.push(`– Checks skipped — only documentation changed${task.changedPaths?.length ? ` (${pathList(task.changedPaths, safe, false)})` : ""}; ${slash("/verify")} runs them anyway.`);
     else if (task.autoSkipped === "not-covered") lines.push("– Not verified — no configured check covers the changed files.");
     else if (changed && task.verificationMode === "off") {
@@ -892,6 +897,9 @@ function checkLine(result: VerificationResult, safe: (text: string) => string, s
   }
   // The sandbox refused something the check tried: the same words the AI sees, so it does not retry it.
   if (result.ended === "blocked") return `✗ ${name} — ${safe(result.reason ?? "blocked by the sandbox")}`;
+  // Its own program isn't on this computer: the config is fine, so the line says what to install.
+  const missing = missingProgram(result);
+  if (missing) return `✗ ${name} could not start — ${missingProgramLine(missing)}; install it, then ${slash(`/verify ${name}`)}`;
   if (result.ended === "no_start" && !isBuiltinCheck(name)) {
     return `✗ ${name} could not start (${typeof result.exitCode === "number" ? `exit ${result.exitCode}` : safe(result.reason ?? "no exit status").replace(/\.$/, "").toLowerCase()}) — check verify.checks.${name} in .casper/project.yaml`;
   }

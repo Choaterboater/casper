@@ -9,6 +9,7 @@ import { isOutside } from "../platform/inside";
 import type { SmokeReport } from "../services/smoke";
 import type { PageReport } from "../services/page-report";
 import { repairClass, verificationStatus, type CheckName, type VerificationReport, type VerificationResult } from "./evidence";
+import { missingProgram, missingProgramLine } from "./missing-program";
 import { SANDBOX_CHECK_BLOCKED } from "./command";
 import { checkResultForModel, evidenceForModel } from "./model-output";
 import type { VerifierRegistry } from "./registry";
@@ -310,20 +311,27 @@ export async function verifyAndRepair(options: VerificationOptions): Promise<Ver
       }
       repairable = [...repairable, ...labFailures];
     }
+    // A check whose own program this computer doesn't have (go for `go test`): a retry or a repair can't install it.
+    const askable = unfinished.filter((result) => !missingProgram(result));
     if (unfinished.length) {
-      const choice = options.onUnfinished && unfinishedAsks < UNFINISHED_ASKS ? await options.onUnfinished(unfinished, signal) : undefined;
-      unfinishedAsks++;
+      const choice = askable.length && options.onUnfinished && unfinishedAsks < UNFINISHED_ASKS ? await options.onUnfinished(askable, signal) : undefined;
+      if (askable.length) unfinishedAsks++;
       if (signal.aborted) return report("blocked", "Verification cancelled.");
       if (choice === "retry" || choice === "more-time") {
         // More time: a limit the slow check can finish in (see longerLimit); a retry keeps the limit it had.
-        const timeoutMs = choice === "more-time" ? longerLimit(Math.max(0, ...unfinished.map((result) => timedOutAfter(result) ?? 0))) : undefined;
-        await run(unfinished.map((result) => result.name), timeoutMs ? { timeoutMs } : {});
+        const timeoutMs = choice === "more-time" ? longerLimit(Math.max(0, ...askable.map((result) => timedOutAfter(result) ?? 0))) : undefined;
+        await run(askable.map((result) => result.name), timeoutMs ? { timeoutMs } : {});
         continue;
       }
-      if (choice === "repair") repairable = [...new Set([...repairable, ...unfinished])];
+      if (choice === "repair") repairable = [...new Set([...repairable, ...askable])];
       else if (!repairable.length && !hostFailures && failures.every((result) => result.ended && result.ended !== "blocked")) {
         // It never ran to the end, so it neither passed nor failed: incomplete (exit 2), not a failure of the code.
-        return report("incomplete", `${unfinished.map((result) => `${result.name} ${result.ended === "timeout" ? "timed out" : "could not start"}`).join(", ")}; it did not finish, so Casper did not repair it.`);
+        const missing = [...new Set(unfinished.map(missingProgram).filter((name): name is string => Boolean(name)))];
+        const notRun = unfinished.filter((result) => !missingProgram(result));
+        return report("incomplete", [
+          ...missing.map((program) => `${unfinished.filter((result) => missingProgram(result) === program).map((result) => result.name).join(", ")} could not start: ${missingProgramLine(program)}, so Casper did not repair it. Install ${program}, then /verify runs it again.`),
+          ...notRun.length ? [`${notRun.map((result) => `${result.name} ${result.ended === "timeout" ? "timed out" : "could not start"}`).join(", ")}; it did not finish, so Casper did not repair it.`] : [],
+        ].join(" "));
       }
     }
     // A check the sandbox blocked is not the code failing: ask once whether to run it outside, never repair it.
