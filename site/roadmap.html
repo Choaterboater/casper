@@ -78,6 +78,7 @@
           </li>
           <li><a href="#released">Released</a>
             <ul>
+              <li><a href="#v0243">v0.2.43: fewer false alarms</a></li>
               <li><a href="#v0242">v0.2.42: missing programs</a></li>
               <li><a href="#v0241">v0.2.41: logins and ssh names</a></li>
               <li><a href="#v0240">v0.2.40: /look and steadier runs</a></li>
@@ -119,7 +120,7 @@
         <h2 id="next-h">Next release</h2>
         <aside class="callout soon">
           <strong class="callout-title">Built, not released</strong>
-          <p>Nothing on the main branch is waiting: everything built so far is in v0.2.42. New work shows here before the next preview.</p>
+          <p>Nothing on the main branch is waiting: everything built so far is in v0.2.43. New work shows here before the next preview.</p>
         </aside>
       </section>
 
@@ -361,10 +362,23 @@
         and on the <a href="https://github.com/Choaterboater/casper/releases">Releases page</a>.</p>
         <div class="stack">
 
+        <details class="card release" id="v0243" aria-labelledby="v0243-h" open>
+          <summary class="release-heading">
+            <h3 id="v0243-h">v0.2.43 · Timeouts on time, fewer false alarms, and tests for plain scripts</h3>
+            <span class="badge ok">current preview</span>
+          </summary>
+          <ul>
+            <li><strong>Timeouts on time.</strong> A timed-out command the AI doesn't retry with its next command shows when it happens, not under the final answer.</li>
+            <li><strong>Fewer false alarms.</strong> Code that reads a password from a file, or a secrets path in a compose volume, is no longer called a secret in a command. macOS <code>sed -i ''</code> edits are no longer refused as changing a configured check.</li>
+            <li><strong>No app check for pictures.</strong> A picture in <code>assets/</code>, where <code>make_picture</code> saves, in a folder with no web framework no longer starts an app check and ends the task Incomplete.</li>
+            <li><strong>Tests for plain scripts.</strong> A folder of plain Python scripts with its own <code>unittest</code> file gets <code>python3 -m unittest discover</code> as its test check.</li>
+          </ul>
+        </details>
+
         <details class="card release" id="v0242" aria-labelledby="v0242-h" open>
           <summary class="release-heading">
             <h3 id="v0242-h">v0.2.42 · Missing programs named, and checks only for the AI's changes</h3>
-            <span class="badge ok">current preview</span>
+            <span class="badge">previous preview</span>
           </summary>
           <ul>
             <li><strong>Missing programs named.</strong> A check whose own program isn't installed, such as <code>go</code> for <code>go test</code>, says to install it instead of offering Retry or Fix it anyway.</li>
@@ -377,7 +391,7 @@
         <details class="card release" id="v0241" aria-labelledby="v0241-h" open>
           <summary class="release-heading">
             <h3 id="v0241-h">v0.2.41 · Logins on any home, ssh by name, and no project push</h3>
-            <span class="badge">previous preview</span>
+            <span class="badge">released</span>
           </summary>
           <ul>
             <li><strong>ssh by name.</strong> A refused ssh login, BatchMode too, names the machine your ssh config gives that address, whatever user was typed. One No in the password box answers the rest of that command's password asks, and each request says to reach such a machine by its name.</li>
@@ -387,7 +401,7 @@
           </ul>
         </details>
 
-        <details class="card release" id="v0240" aria-labelledby="v0240-h" open>
+        <details class="card release" id="v0240" aria-labelledby="v0240-h">
           <summary class="release-heading">
             <h3 id="v0240-h">v0.2.40 · /look, steadier OpenRouter runs, ssh hosts by name, and a Home Assistant skill</h3>
             <span class="badge">released</span>
@@ -1202,7 +1216,7 @@
   <footer class="site-footer">
     <div class="container footer-inner">
       <div>
-        <p><strong>Casper 0.2.42</strong> · early preview, unsigned</p>
+        <p><strong>Casper 0.2.43</strong> · early preview, unsigned</p>
         <p><a href="https://github.com/Choaterboater/casper/blob/main/LICENSE">MIT licence</a> · © 2026 Choaterboater</p>
         <p>Built on the <a href="https://github.com/earendil-works/pi">Pi SDK</a>. Other parts keep their own licences (<a href="https://github.com/Choaterboater/casper/blob/main/THIRD_PARTY_NOTICES.txt">notices</a>).</p>
       </div>
