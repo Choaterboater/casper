@@ -98,6 +98,31 @@ test("checklist progress reports done/not done and never treats an unreported or
   expect(spec.steps.map(step => step.title)).toEqual(["Add tasks", "Save tasks"]);
 });
 
+// A plan for a Home Assistant prompt: its First version had an intro line, four bold sub-headings and nested bullets,
+// and became 39 steps ("*MyQ garage opening**" among them); the finished prompt's receipt said "1 of 39 steps done".
+test("a First version with sub-headings gives one step per heading; nested bullets are details, not steps", () => {
+  const firstVersion = [
+    "Deliver one researched, copy-ready prompt requiring the following.",
+    "**Dashboard and app functionality**",
+    "- Preserve working features in `build_dashboards.py`.",
+    "- Cover every configured app:",
+    "  - **Media:** Emby, Plex.",
+    "  - **Automation:** Sonarr, Radarr.",
+    "**MyQ garage opening**",
+    "- Trigger from a physical opening.",
+    "**“Alex is home!” announcement**",
+    "- Require **more than 60 minutes** away.",
+  ];
+  expect(new PlanBuild({ steps: [], tests: [], firstVersion }, () => {}).steps.map(step => step.title))
+    .toEqual(["Dashboard and app functionality", "MyQ garage opening", "“Alex is home!” announcement"]);
+  // No headings: top-level bullets only; nested ones stay with their parent.
+  expect(new PlanBuild({ steps: [], tests: [], firstVersion: ["- Board view", "  - drag and drop", "- **Save** tasks"] }, () => {}).steps.map(step => step.title))
+    .toEqual(["Board view", "Save tasks"]);
+  // Plain prose lines with no list still give steps.
+  expect(new PlanBuild({ steps: [], tests: [], firstVersion: ["Create, edit and move a task."] }, () => {}).steps.map(step => step.title))
+    .toEqual(["Create, edit and move a task."]);
+});
+
 test("VISUAL/EDITOR Markdown edit round-trip, missing editor and nonzero exit", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "casper-plan-editor-"));
   const visual = process.env.VISUAL, editor = process.env.EDITOR;
