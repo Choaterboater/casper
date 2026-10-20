@@ -112,3 +112,19 @@ test("the screen's redaction keeps ordinary words after token, secret and passwo
   expect(redactPreview("cli -token abc123 run")).toBe("cli -token <redacted> run");
   expect(redactPreview("password=hunter2 token: abc123")).toBe("password=<redacted> token: <redacted>");
 });
+
+// A Home Assistant task: two commands with no secret in them made the receipt say "change it after this task".
+test("code that reads a password from a file, and a secrets path in a volume line, are not a secret in a command", () => {
+  for (const command of [
+    `python3 - <<'EOF'\nenv = open("/srv/glance/secrets/glance.env").read()\npw = re.search(r"GLANCE_LOGIN_PASSWORD=(.*)", env).group(1).strip()\nEOF`,
+    "cat > compose.yml <<'EOF'\n    volumes:\n      - /srv/mcp/secrets/mcp_http_bearer_token_chatbot:/run/secrets/mcp_http_bearer_token:ro\nEOF",
+    "password = getpass.getpass()",
+  ]) {
+    expect([command, hideCommandSecrets(command).hidden]).toEqual([command, 0]);
+  }
+  // The real thing next to them still goes.
+  for (const command of ["pw = Hunter2-lab!", "password: S3cret-value!", "api_token: sk-live-0123456789abcdef", "pw: `swordfish`",
+    "MIST_API_TOKEN=abc123def456 python3 bridge.py", "curl -u admin:Pa55w0rd! https://192.0.2.10/api"]) {
+    expect([command, hideCommandSecrets(command).hidden > 0]).toEqual([command, true]);
+  }
+});
