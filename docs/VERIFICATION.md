@@ -59,9 +59,9 @@ permissions, so say yes only for a project you trust.
 `Checks skipped — only documentation changed (...)`; `/verify` runs them anyway. A check with a declared
 scope that covers those files (a docs test) still runs. YAML and JSON are not skipped: a check may read them.
 
-**Only a running app's database changed.** A SQLite journal (`.db-wal`, `.db-shm`, `.db-journal`, and the same
+**Only a running app's database changed.** A SQLite database and its journal (`.db`, `.db-wal`, `.db-shm`, `.db-journal`, and the same
 for `.sqlite`) is what an app running next to its code writes all the time; when only those changed, the receipt
-says `Checks skipped — only a running app's database files changed (...)`. The database file itself still counts.
+says `Checks skipped — only a running app's database files changed (...)`. The database file itself counts as data too.
 
 **Changed by another program.** When the AI only read, searched or ran one plain `ssh <machine> '...'` (work on
 another machine), files that changed in the folder meanwhile are another program's (an editor, a second session):

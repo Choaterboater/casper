@@ -107,9 +107,10 @@ export type AutoCheckSkip = "no-changes" | "no-checks" | "not-covered" | "docs-o
 /** Prose nothing runs: Markdown, plain text and the like. (Not yaml or json: a check may read those.) */
 const DOC_FILE = /\.(?:md|mdx|markdown|txt|rst|adoc)$/i;
 export const isDocPath = (file: string): boolean => DOC_FILE.test(file);
-/** A running app's SQLite journal (glance.db-wal, -shm, -journal): the app writes it all the time, no check reads it.
- * On a NAS whose app ran next to its code, every request ran go test and go build for it. */
-const APP_DATA_FILE = /\.(?:db|sqlite3?|db3)-(?:wal|shm|journal)$/i;
+/** A running app's SQLite database and its journal (glance.db, -wal, -shm, -journal): the app writes them all the time,
+ * and no check reads a binary database as code. On a NAS whose app ran next to its code, every request ran go test and
+ * go build for them. */
+const APP_DATA_FILE = /\.(?:db|sqlite3?|db3)(?:-(?:wal|shm|journal))?$/i;
 export const isAppDataPath = (file: string): boolean => APP_DATA_FILE.test(file);
 
 /** The checks auto mode runs after a model turn. `changedPaths` undefined means the change set
