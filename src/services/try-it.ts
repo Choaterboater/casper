@@ -20,6 +20,8 @@ export interface AppSmokeReport {
   reused?: true;
   /** Offer mode deliberately leaves this observation for /verify, not an unfinished attempt. */
   deferred?: true;
+  /** Nothing in the folder starts the app (no command or service): a note, not an unfinished attempt. */
+  nothingToStart?: true;
 }
 
 export const APP_SMOKE_START_MS = 15_000;
