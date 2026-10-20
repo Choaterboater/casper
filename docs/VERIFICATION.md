@@ -1094,7 +1094,9 @@ playbooks (see [NETWORK-CHECKS.md](NETWORK-CHECKS.md)).
 
 From v0.2.19 a Python project with `test*.py` files that use `unittest`, and no pytest, gets
 `python3 -m unittest discover -s tests` (or `discover` at the top). pytest-style files are not
-counted, because `unittest` would run zero of them and still say OK.
+counted, because `unittest` would run zero of them and still say OK. A folder of plain Python scripts (no
+`pyproject.toml` or requirements file, not your home folder) with a top-level `test*.py` that uses
+`unittest` gets `python3 -m unittest discover` too, so tests the AI writes there are run and recorded by Casper.
 
 `/project` shows the commands Casper found.
 
