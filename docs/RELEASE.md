@@ -14,11 +14,29 @@ when releasing. Existing historical notes below stay as written; feature tests c
 reference docs, not a per-PR release-note or roadmap entry. Release-prep checks verify the version and
 installer targets (`tests/release-install.test.ts`, `tests/release-targets.test.ts`).
 
-Casper distributes an unsigned **v0.2.44 preview**, not a stable release. The installers
-download from `https://github.com/Choaterboater/casper/releases/download/v0.2.44`,
+Casper distributes an unsigned **v0.2.45 preview**, not a stable release. The installers
+download from `https://github.com/Choaterboater/casper/releases/download/v0.2.45`,
 because GitHub's `latest/download` link skips preview releases. The first published
 preview was **v0.1.0**. A published release is never changed; every fix ships under a
 new version.
+
+## v0.2.45: sign in for the AI's browser, the right network server, and fewer false Incompletes
+
+### Added
+
+- You can sign in to a site for the AI's browser in a window it never sees, so it can check signed-in pages.
+
+### Changed
+
+- With two network servers connected, the AI asks Casper's own server first and tries the other before saying nothing was found.
+- A plan's First version gives one step per part, not one per line.
+
+### Fixed
+
+- A cold Chrome start no longer counts against a page open's time, and a page open that runs out says so.
+- A quoted name in a command is no longer read as a secret.
+- A refused read of `~/.ssh` no longer makes a task Incomplete.
+- Page files with nothing to start them get a note instead of an Incomplete task.
 
 ## v0.2.44: app databases are data, clearer sign-ins, and real reviewer lines
 
