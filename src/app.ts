@@ -1,4 +1,5 @@
 import type { SideQuestionUsage } from "./app/side-question";
+import { leavesFilesHere } from "./app/local-effect";
 import { execFile } from "node:child_process";
 import type { DebugSession } from "./debug/session";
 import { promisify } from "node:util";
@@ -336,7 +337,9 @@ export class CasperApp {
   readonly pageNotice: DevServerNotice = { shown: false };
   /** What may have changed this task's code since it started: a check the model records after that has no
    * before-the-change baseline. `before` is the task's starting tree, compared only after a shell command. */
-  taskEdits?: { before?: Map<string, string>; edited: boolean; shell: boolean; turnEnded: boolean; tools?: boolean };
+  taskEdits?: { before?: Map<string, string>; edited: boolean; shell: boolean; turnEnded: boolean; tools?: boolean;
+    /** A tool ran that may change files here (not only reads, searches or a plain ssh to another machine). */
+    local?: boolean };
   readonly sessionHomeDir?: string;
   sessionWorkspace?: SessionWorkspaceManager;
   sessionWorkspaceStart?: Promise<SessionWorkspaceManager>;
@@ -546,7 +549,10 @@ export class CasperApp {
       announceLongChecks: () => this.onEvent === undefined,
       onToolEnd: event => {
         this.observations.observeToolEnd(event, this.projectContext?.model.commands);
-        if (this.taskEdits) this.taskEdits.tools = true;
+        if (this.taskEdits) {
+          this.taskEdits.tools = true;
+          if (!leavesFilesHere(event.toolName, event.input, this.activeWorkspaceRoot())) this.taskEdits.local = true;
+        }
         if (event.sessionOnlyCheck) return;
         if (["bash", "powershell", "edit", "write"].includes(event.toolName)) this.browser?.invalidate();
         // A shell command's files are unknown, so it marks every running service stale.

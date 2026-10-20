@@ -59,6 +59,15 @@ permissions, so say yes only for a project you trust.
 `Checks skipped — only documentation changed (...)`; `/verify` runs them anyway. A check with a declared
 scope that covers those files (a docs test) still runs. YAML and JSON are not skipped: a check may read them.
 
+**Only a running app's database changed.** A SQLite journal (`.db-wal`, `.db-shm`, `.db-journal`, and the same
+for `.sqlite`) is what an app running next to its code writes all the time; when only those changed, the receipt
+says `Checks skipped — only a running app's database files changed (...)`. The database file itself still counts.
+
+**Changed by another program.** When the AI only read, searched or ran one plain `ssh <machine> '...'` (work on
+another machine), files that changed in the folder meanwhile are another program's (an editor, a second session):
+they are listed as `Changed meanwhile by another program, not the AI (not checked)`, and are not checked, offered
+as "The work is in ..." or kept for undo. Any other tool, or a shell command of any other shape, keeps them the AI's.
+
 From v0.2.16, checks run without AI provider keys (`OPENROUTER_API_KEY`, `ANTHROPIC_API_KEY`,
 `OPENAI_API_KEY` and the other names Pi reads) and without Casper's own secret variables;
 everything else in your environment, network product tokens such as `MIST_API_TOKEN` included, is
