@@ -87,8 +87,9 @@ test("only a running app's database journal changed: no checks, and the receipt 
   const commands = { test: "go test ./...", build: "go build ./..." };
   expect(planAutoChecks({ commands, changedPaths: ["data/glance.db-wal", "data/glance.db-shm"] })).toEqual({ run: [], skipped: "app-data" });
   expect(planAutoChecks({ commands, changedPaths: ["data/app.sqlite-journal", "README.md"] })).toEqual({ run: [], skipped: "docs-only" });
-  // The database itself, or code beside it, still runs them.
-  expect(planAutoChecks({ commands, changedPaths: ["data/glance.db"] }).run).toEqual(["test", "build"]);
+  // The database file itself too (the app wrote it, not the AI); code beside them still runs the checks.
+  expect(planAutoChecks({ commands, changedPaths: ["data/glance.db", "data/glance.db-wal", "docs/debug-report.md"] })).toEqual({ run: [], skipped: "docs-only" });
+  expect(planAutoChecks({ commands, changedPaths: ["data/glance.db"] })).toEqual({ run: [], skipped: "app-data" });
   expect(planAutoChecks({ commands, changedPaths: ["data/glance.db-wal", "main.go"] }).run).toEqual(["test", "build"]);
   const receipt = formatReceipt({ execution: "completed", changedPaths: ["data/glance.db-wal"], autoSkipped: "app-data", verificationMode: "auto" }, { surface: "interactive" });
   expect(receipt).toContain("– Checks skipped — only a running app's database files changed (data/glance.db-wal); /verify runs them anyway.");

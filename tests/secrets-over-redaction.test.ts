@@ -119,12 +119,13 @@ test("code that reads a password from a file, and a secrets path in a volume lin
     `python3 - <<'EOF'\nenv = open("/srv/glance/secrets/glance.env").read()\npw = re.search(r"GLANCE_LOGIN_PASSWORD=(.*)", env).group(1).strip()\nEOF`,
     "cat > compose.yml <<'EOF'\n    volumes:\n      - /srv/mcp/secrets/mcp_http_bearer_token_chatbot:/run/secrets/mcp_http_bearer_token:ro\nEOF",
     "password = getpass.getpass()",
+    "date -u +%Y-%m-%dT%H:%M:%SZ",
   ]) {
     expect([command, hideCommandSecrets(command).hidden]).toEqual([command, 0]);
   }
   // The real thing next to them still goes.
   for (const command of ["pw = Hunter2-lab!", "password: S3cret-value!", "api_token: sk-live-0123456789abcdef", "pw: `swordfish`",
-    "MIST_API_TOKEN=abc123def456 python3 bridge.py", "curl -u admin:Pa55w0rd! https://192.0.2.10/api"]) {
+    "MIST_API_TOKEN=abc123def456 python3 bridge.py", "curl -u admin:Pa55w0rd! https://192.0.2.10/api", "smbclient //nas/share -U admin%Pa55w0rd!"]) {
     expect([command, hideCommandSecrets(command).hidden > 0]).toEqual([command, true]);
   }
 });

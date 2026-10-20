@@ -630,7 +630,8 @@ test("cancellation while polling prevents late provider completion from saving",
     } finally { await runtime.dispose(); input.destroy(); }
   `);
   const result = JSON.parse(output);
-  expect(result.result).toEqual({ status: "cancelled", effect: "unknown" });
+  // The login file is as it was, so Casper can say nothing was saved instead of "save outcome unknown".
+  expect(result.result).toEqual({ status: "cancelled", effect: "none" });
   expect(result.safe).toBe(true);
   expect(await Bun.file(path.join(f.env.PI_CODING_AGENT_DIR, "auth.json")).text()).toBe("{}");
 });
@@ -650,7 +651,7 @@ test("hostile device fields fail closed without saving or rendering controls", a
     } finally { await runtime.dispose(); input.destroy(); }
   `);
   const result = JSON.parse(output);
-  expect(result.result).toEqual({ status: "failed", effect: "unknown", reason: "provider" });
+  expect(result.result).toEqual({ status: "failed", effect: "none", reason: "provider" });
   expect(result.screen).not.toContain("TITLE");
   expect(await Bun.file(path.join(f.env.PI_CODING_AGENT_DIR, "auth.json")).text()).toBe("{}");
 });
