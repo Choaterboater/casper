@@ -94,6 +94,19 @@ for (const rich of [true, false]) {
   });
 }
 
+test("a timeout the next command doesn't retry shows then, not under the answer at the end of the task", () => {
+  const s = screen();
+  const failures = () => s.folds.flatMap((fold) => fold.failures).map((failure) => failure.title);
+  s.send(...call("1", "bash", { command: "ssh nas 'ls -l /config'" }, "Command timed out after 30 seconds", true), words("Trying a narrower listing."));
+  // Kept back for the retry the next command may be.
+  expect(failures()).toEqual([]);
+  s.send(...call("2", "bash", { command: "ssh nas 'ls /config/www'" }, "hero.jpg"), words("Found it."));
+  // It was something else: the timeout shows now, while the work goes on (message_end comes once, at the task's end).
+  expect(failures()).toEqual([expect.stringContaining("ssh nas")]);
+  s.send(...call("3", "read", { path: "a.ts" }, "x"), words("Done."), done);
+  expect(failures()).toHaveLength(1);
+});
+
 test("real read errors and failed checks mentioning timeout remain failures", () => {
   const s = screen();
   s.send(...call("1", "read", { path: "a.ts" }, "EACCES: permission denied", true),
