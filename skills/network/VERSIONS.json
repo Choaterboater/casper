@@ -20,7 +20,7 @@
     "sha256": "7f81e4fd24b5b3742d277a16ffcdbf90c29b48770755ec0f2bb422305719792f"
   },
   "network-mist-api": {
-    "version": 4,
-    "sha256": "2bf70664c26e6a804c1cca42ebf17baf731fd53b73962dfbed05ebf2411a5127"
+    "version": 5,
+    "sha256": "9f5cc2e89b1d79d670f4cb09c36cdd632bc25f4f32dc4991a454473b7d2dffa6"
   }
 }
