@@ -1,5 +1,4 @@
 import { expect, test } from "bun:test";
-import { existsSync } from "node:fs";
 import { mkdir, mkdtemp, readFile, readdir, realpath, stat, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
