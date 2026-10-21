@@ -1023,7 +1023,7 @@ export class BrowserSession {
   private readonly metadataAllowed = new Set<string>();
   private guard?: MetadataGuard;
   /** The running action's deadline, held while a question waits for the person. */
-  private deadline?: { hold: () => void; resume: () => void };
+  private deadline?: { hold: () => void; resume: () => void; renew: () => void };
   constructor(private readonly options: BrowserSessionOptions) {}
 
   assertCleanup(): void { if (this.cleanupError && !this.cleanupError.acknowledged) throw this.cleanupError; }
@@ -1081,7 +1081,10 @@ export class BrowserSession {
     let ranOut = false;
     const expire = () => { ranOut = true; stop(); };
     let timer = setTimeout(expire, limit);
-    this.deadline = { hold: () => clearTimeout(timer), resume: () => { clearTimeout(timer); timer = setTimeout(expire, limit); } };
+    // A held deadline (a cold Chrome start, a sign-in window) stays held through a renewal: only resume restarts it.
+    let held = false;
+    const restart = () => { clearTimeout(timer); timer = setTimeout(expire, limit); };
+    this.deadline = { hold: () => { held = true; clearTimeout(timer); }, resume: () => { held = false; restart(); }, renew: () => { if (!held) restart(); } };
     try {
       if (input.action === "check" || input.action === "replay") return await this.check(input, combined);
       if (input.action === "withdraw") return await this.withdraw(input);
@@ -1958,7 +1961,7 @@ export class BrowserSession {
         } catch (error) {
           if (this.controller.signal.aborted || attempt >= 2) throw error;
           await this.discardChrome();
-          this.deadline?.resume();
+          this.deadline?.renew();
         } finally { clearTimeout(timer); }
       }
     })();
