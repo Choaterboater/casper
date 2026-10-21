@@ -165,6 +165,7 @@ export const COMMAND_REGISTRY: readonly CommandSpec[] = [
     waits: ANY, subcommands: [
       { name: "critique", args: "[page or url]", description: "Score 10 usability rules at 390 and 1280 wide; a report", waits: true },
       { name: "audit", args: "[page or url]", description: "Accessibility, speed, theming, phone width, integrity; a report", waits: true },
+      { name: "guidelines", args: "[page or url]", description: "Vercel's Web Interface Guidelines, rule by rule; a report", aliases: ["vercel"], waits: true },
       { name: "polish", args: "[page or url]", description: "Fix broken, then states, layout, looks, cleanup; screenshots again", waits: true },
       { name: "layout", args: "[page or url]", description: "Spacing, grouping and reading order", waits: true },
       { name: "type", args: "[page or url]", description: "Sizes, weights, line length and wrapping", aliases: ["typeset"], waits: true },

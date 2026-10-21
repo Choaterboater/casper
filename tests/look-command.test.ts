@@ -23,20 +23,24 @@ async function folder(name: string): Promise<string> {
   return base;
 }
 
-const NAMES = ["critique", "audit", "polish", "layout", "type", "colour", "quieter", "adapt", "harden", "clarify"];
-const REPORTS = ["critique", "audit"];
+const NAMES = ["critique", "audit", "guidelines", "polish", "layout", "type", "colour", "quieter", "adapt", "harden", "clarify"];
+const REPORTS = ["critique", "audit", "guidelines"];
 const URL_PAGE: LookPage = { kind: "url", url: "http://127.0.0.1:5173/" };
 /** Each command's file starts with its own heading. */
 const heading = (name: string) => `# ${name[0]!.toUpperCase()}${name.slice(1)}\n`;
 
-test("the ten commands, each with a small file of its own that credits impeccable and says it was changed", () => {
+test("the eleven commands, each with a small file of its own that credits its source and says it was changed", () => {
   expect(LOOK_COMMANDS.map(({ name }) => name)).toEqual(NAMES);
   expect(LOOK_COMMANDS.filter(({ fixes }) => !fixes).map(({ name }) => name)).toEqual(REPORTS);
   for (const command of LOOK_COMMANDS) {
     expect({ name: command.name, small: Buffer.byteLength(command.body) <= MAX_LOOK_BODY_BYTES }).toEqual({ name: command.name, small: true });
     expect(command.body.startsWith(heading(command.name))).toBe(true);
-    expect(command.body).toContain("Adapted and trimmed from pbakaus/impeccable reference/");
-    expect(command.body).toContain("(Apache-2.0, Copyright 2025\nPaul Bakaus). Changed: shortened and rewritten for Casper.");
+    if (command.name === "guidelines") {
+      expect(command.body).toContain("Adapted and trimmed from vercel-labs/web-interface-guidelines command.md (MIT, Copyright (c)\n2025 Vercel Labs). Changed: shortened and rewritten for Casper.");
+    } else {
+      expect(command.body).toContain("Adapted and trimmed from pbakaus/impeccable reference/");
+      expect(command.body).toContain("(Apache-2.0, Copyright 2025\nPaul Bakaus). Changed: shortened and rewritten for Casper.");
+    }
     // Report commands change nothing; fixing ones end by looking again.
     if (command.fixes) expect(command.body).toMatch(/[Rr]eplay[^\n]*(\n[^\n]*)?screenshot/);
     else expect(command.body).toContain("Report only: change no files.");
@@ -45,6 +49,8 @@ test("the ten commands, each with a small file of its own that credits impeccabl
   for (const line of ["390 wide and at 1280 wide", "Nielsen's 10 heuristics 0 to 4", "P0 to P3", "3 questions"]) expect(body("critique")).toContain(line);
   for (const line of ["`diagnostics`", "`inspect`", "`no-horizontal-overflow`", "`no-overlap` of the header and the main content",
     "Accessibility", "Performance", "Theming", "Responsive", "Integrity", "out of 20"]) expect(body("audit")).toContain(line);
+  for (const line of ["390 and at 1280 wide", "`diagnostics`", "`no-horizontal-overflow`", "`no-overlap`", "44 by 44px", "Interaction", "Forms",
+    "`prefers-reduced-motion`", "`env(safe-area-inset-*)`", "Content", "Performance", "Theming", "URL state", "rule, where (file:line or selector),\n   fix"]) expect(body("guidelines")).toContain(line);
   expect(body("polish").indexOf("broken")).toBeLessThan(body("polish").indexOf("missing states"));
   expect(body("polish").indexOf("missing states")).toBeLessThan(body("polish").indexOf("hierarchy and responsive"));
   expect(body("polish").indexOf("hierarchy and responsive")).toBeLessThan(body("polish").indexOf("visual:"));
@@ -62,13 +68,14 @@ test("parsing: a command, a page or link after it, a number from the list, other
   expect(parseLookArgs("critique")).toEqual({ command: findLookCommand("critique")! });
   expect(parseLookArgs("adapt /settings")).toEqual({ command: findLookCommand("adapt")!, target: "/settings" });
   expect(parseLookArgs("POLISH http://127.0.0.1:5173/")).toEqual({ command: findLookCommand("polish")!, target: "http://127.0.0.1:5173/" });
-  expect(parseLookArgs("3")).toEqual({ command: findLookCommand("polish")! });
+  expect(parseLookArgs("4")).toEqual({ command: findLookCommand("polish")! });
   expect(parseLookArgs("color")).toEqual({ command: findLookCommand("colour")! });
   expect(parseLookArgs("typeset")).toEqual({ command: findLookCommand("type")! });
+  expect(parseLookArgs("vercel")).toEqual({ command: findLookCommand("guidelines")! });
   const unknown = parseLookArgs("bogus");
   expect("problem" in unknown && unknown.problem).toStartWith("[look] There is no /look bogus. Usage: /look <command> [page or url]");
   expect("problem" in unknown && unknown.problem).toContain(" 1. critique");
-  expect("problem" in parseLookArgs("11")).toBe(true);
+  expect("problem" in parseLookArgs("12")).toBe(true);
   expect("problem" in parseLookArgs("audit /a /b")).toBe(true);
   // The list is numbered, one command a line.
   expect(lookList().split("\n").slice(1).map((line) => line.trim().split(/\s+/).slice(0, 2).join(" "))).toEqual(NAMES.map((name, i) => `${i + 1}. ${name}`));
@@ -78,6 +85,7 @@ test("the command table, the alias spellings and /help all know /look", () => {
   const spec = findCommand("look")!;
   expect(spec.subcommands!.map(({ name }) => name)).toEqual(NAMES);
   expect(canonicalLine("/look color /x")).toBe("/look colour /x");
+  expect(canonicalLine("/look vercel")).toBe("/look guidelines");
   for (const line of ["/look", "/look critique", "/look bogus", "/look adapt /settings"]) expect(commandProblem(line)).toBeUndefined();
   for (const name of NAMES) expect(FULL_HELP_TEXT).toMatch(new RegExp(`/look [a-z|]*\\b${name}\\b`));
 });

@@ -188,6 +188,7 @@ Local commands:
   /preview stop                     Stop sharing it
   /look [command] [page or url]     Review or polish a page in the real browser (the dev server, plain files or a link); alone, the numbered list
   /look critique|audit              A report only, no edits: 10 usability rules at 390 and 1280 wide, or a11y, speed, theming, phone width, integrity
+  /look guidelines                  A report only: Vercel's Web Interface Guidelines, one line per finding with the fix (also /look vercel)
   /look polish|layout|type          Fix in order (broken, states, layout, looks, cleanup), the spacing, or the type; ends with fresh screenshots
   /look colour|quieter              Colours through the theme only, with contrast in light and dark; or calm a loud page
   /look adapt|harden|clarify        390, 768 and 1280 wide with 44px targets; long text, empty, loading and error states; wording only
