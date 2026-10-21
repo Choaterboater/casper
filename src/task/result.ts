@@ -16,6 +16,7 @@ import type { AcceptanceResult } from "../verify/acceptance";
 import { ROUND_MAX_TURNS, type RequirementsReview } from "./review";
 import { formatLimit } from "./spend";
 import { BRANCH_MOVED_LINE, GIT_MOVEMENT_UNKNOWN } from "./git-movement";
+import { configChanges, type ConfigChanges } from "./config-files";
 import { formatCost, formatDuration, lineText, redactPreview } from "../tui/format";
 import { planReceipt, planSummary, type PlanStepReport } from "../flows/plan-build";
 
@@ -324,7 +325,7 @@ export function formatTaskResult(task: TaskResult): string {
   }
 
   lines.push(receiptLine("verification", report ? formatVerificationReport(report, { compact: true }) : "no Casper verification recorded."));
-  if (task.proof) lines.push(receiptLine("proof", proofLine(task.proof, safe)));
+  if (task.proof) lines.push(receiptLine("proof", proofLine(task.proof, safe).line));
   if (task.acceptance) lines.push(receiptLine("acceptance", acceptanceLine(task.acceptance, safe)));
   if (task.review) lines.push(receiptLine("review", reviewLine(task.review, safe).replace(/\n/g, "; ")));
   // The cases the task was handed; the short receipt names them only when one is not met.
@@ -412,6 +413,51 @@ export interface ReceiptOptions {
   seenNotes?: ReadonlySet<string>;
 }
 
+/** Where a receipt line belongs: line 1 (the verdict); why the change is not verified (`why`: the proof, and checks
+ * Casper did not run or count); the checks; what changed, with risky config lines (`config`) and other machines
+ * (`devices`) apart; what needs you (`open`); notes; undo; and the commands to run next. */
+export type ReceiptSection = "verdict" | "why" | "checks" | "changed" | "config" | "devices" | "open" | "notes" | "undo" | "next";
+
+/** The receipt's main kinds of line: each also comes in parts (status, detail, actions). */
+export type ReceiptKind = "verdict" | "check" | "changed" | "repairs" | "proof" | "checklist" | "undo" | "not-verified";
+
+/** One receipt line, where it belongs and, for the main kinds, its parts. */
+export interface ReceiptItem {
+  /** The line as the text receipt prints it. */
+  line: string;
+  section: ReceiptSection;
+  kind?: ReceiptKind;
+  /** What happened, in the line's words: the verdict's name ("Failed", "Checks passed · not proven"), a check's
+   * "passed" or "timed out", "Not proven", "Undo can't put back". */
+  status?: string;
+  /** The evidence or the reason: "exit 1", "15 files: …", "the tests pass without the change too". */
+  detail?: string;
+  /** What to type next, as typed here: a command ("/verify repair test", 'casper "/verify test"') or a request ('"add tests"'). */
+  actions?: string[];
+  /** The check, or the other machine, the line is about. */
+  name?: string;
+  /** How long a check ran, when a second or more ("1.3s"). */
+  time?: string;
+  /** Said with line 1 because it went well, in these words ("" says nothing); only on the short receipt. */
+  fold?: string;
+}
+
+type LineInfo = Omit<ReceiptItem, "line" | "fold">;
+type Parts = Omit<LineInfo, "section">;
+
+/** The short receipt (what formatShortReceipt prints) as items: line 1, then every other line in the order shown. */
+export interface ReceiptView {
+  /** Line 1; none when the receipt is only undo lines. */
+  verdict?: ReceiptItem;
+  /** All is well: line 1's words on the one-line receipt ("✓ Verified"), before the folded items' words. */
+  short?: string;
+  /** What went well (with `fold`) first, then the rest: what needs you (⚠) first, the session notes said before, the
+   * checklist, undo. A line printed as two (a review cut off with a gap) is two items. */
+  items: ReceiptItem[];
+  /** The config files this task changed (the task's own and its repairs'), which no text receipt names apart. */
+  config: ConfigChanges;
+}
+
 /** A receipt note about the session's state rather than the task: its key (what it says, so a change says it in full
  * again) and the words it shrinks to once said. */
 interface SessionNote { key: string; short: string }
@@ -457,20 +503,36 @@ export function answerClaimsBrowserPass(answer: string): boolean {
 
 export function formatReceipt(task: TaskResult, options: ReceiptOptions = {}): string {
   const { lines, undo } = receiptParts(task, options);
-  return [...lines, ...undo].join("\n");
+  return [...lines, ...undo.map((item) => item.line)].join("\n");
 }
 
-/** The receipt as the terminal shows it after a task: one line when all is well ("✓ Verified · test passed ·
- * 3 files changed"), and each problem on its own short line under it. The full form stays in formatReceipt
- * (--json `text`, saved receipt summaries) and formatTaskResult (/receipt). */
 /** "The AI looked at 4 screenshots of the pages (advice, not a check)". */
 function pagesShownText(count: number): string {
   return `The AI looked at ${count} screenshot${count === 1 ? "" : "s"} of the pages (advice, not a check)`;
 }
 
+/** The receipt as the terminal shows it after a task: one line when all is well ("✓ Verified · test passed ·
+ * 3 files changed"), and each problem on its own short line under it. The full form stays in formatReceipt
+ * (--json `text`, saved receipt summaries) and formatTaskResult (/receipt). */
 export function formatShortReceipt(task: TaskResult, options: ReceiptOptions = {}): string {
-  const { lines, undo, folds, short } = receiptParts(task, options, true);
-  if (!lines.length) return undo.join("\n");
+  const { verdict, short, items } = receiptView(task, options);
+  const rest = items.filter((item) => item.fold === undefined).map((item) => item.line);
+  if (!verdict) return rest.join("\n");
+  const parts = items.flatMap((item) => item.fold ? [item.fold] : []);
+  // All well: one line. Otherwise the verdict says what is wrong, and what went well shares one line under it.
+  // Check names stay as typed: "✓ test passed", never "Test".
+  const head = short !== undefined ? [[short, ...parts].join(" · ")] : [verdict.line, ...(parts.length ? [`✓ ${parts.join(" · ")}`] : [])];
+  return [...head, ...rest].join("\n");
+}
+
+/** The short receipt as items, each with its section, for a terminal that lays the receipt out in rows. */
+export function receiptView(task: TaskResult, options: ReceiptOptions = {}): ReceiptView {
+  const { lines, undo, folds, short, info } = receiptParts(task, options, true);
+  const config = configChanges([...new Set([...task.changedPaths ?? [], ...task.changedDuringChecks ?? []])]);
+  const about = (line: string): LineInfo => info.get(line) ?? { section: "notes" };
+  // A line printed as two (a review cut off with a gap) is two items, each in its own section.
+  const items = (line: string): ReceiptItem[] => line.split("\n").map((part) => ({ line: part, ...(info.get(part) ?? about(line)) }));
+  if (!lines.length) return { items: undo, config };
   const notes = sessionNotes(task);
   // Said in full on an earlier receipt this session: one short line at the end says them all.
   const again = (line: string) => Boolean(options.seenNotes?.has(notes.get(line)?.key ?? "\0"));
@@ -479,17 +541,14 @@ export function formatShortReceipt(task: TaskResult, options: ReceiptOptions = {
   const folded = (line: string) => folds.has(line) && (short !== undefined || !(line.startsWith("↻ ") || line === "– No files changed"));
   // Checks first, then the files, then repairs: "✓ Verified · test passed · 3 files changed · after 1 repair".
   const rank = (line: string) => line.startsWith("↻ ") ? 2 : line.startsWith("✓ Changed ") || line === "– No files changed" ? 1 : 0;
-  const parts = body.filter(folded).sort((a, b) => rank(a) - rank(b)).map((line) => folds.get(line)!).filter(Boolean);
-  // All well: one line. Otherwise the verdict says what is wrong, and what went well shares one line under it.
-  // Check names stay as typed: "✓ test passed", never "Test".
-  const head = short !== undefined ? [[short, ...parts].join(" · ")] : [verdict, ...(parts.length ? [`✓ ${parts.join(" · ")}`] : [])];
-  const safe = lineText;
+  const well = body.filter(folded).sort((a, b) => rank(a) - rank(b)).map((line): ReceiptItem => ({ line, ...about(line), fold: folds.get(line)! }));
   // The problems come right after the verdict, a warning to act on (⚠) first; the checklist's line follows them.
   const rest = body.filter((line) => !folded(line) && !again(line));
   const urgent = (line: string) => line.startsWith("⚠ ");
   const repeated = body.filter(again).map((line) => notes.get(line)!.short);
-  const same = repeated.length ? [`– Same as before: ${repeated.join(" · ")} (/receipt)`] : [];
-  return [...head, ...rest.filter(urgent), ...rest.filter((line) => !urgent(line)), ...same, ...checklistLines(task, safe), ...undo].join("\n");
+  const same: ReceiptItem[] = repeated.length ? [{ line: `– Same as before: ${repeated.join(" · ")} (/receipt)`, section: "notes" }] : [];
+  return { verdict: { line: verdict!, ...about(verdict!) }, ...(short !== undefined ? { short } : {}), config,
+    items: [...well, ...rest.filter(urgent).flatMap(items), ...rest.filter((line) => !urgent(line)).flatMap(items), ...same, ...checklistLines(task, lineText), ...undo] };
 }
 
 /** True when every failing check also failed on the files from before the change and was left as it is. */
@@ -503,114 +562,155 @@ function failingBeforeOnly(report: VerificationReport | undefined): boolean {
 /** The request's checklist on the short receipt: said only when the model's own review lists something not done
  * or the checks did not pass, so the cases are not confirmed. /receipt lists every case. The model's open items
  * come from its answer (the request and project docs), not the checklist, so they are not counted against it. */
-function checklistLines(task: TaskResult, safe: (text: string) => string): string[] {
+function checklistLines(task: TaskResult, safe: (text: string) => string): ReceiptItem[] {
   const cases = task.checklist?.length ?? 0;
   if (!cases) return [];
   const review = task.review;
   const open = review && "open" in review ? review.open : [];
   if (open.length && !review?.incomplete) {
-    return [`⚠ ${open.length} ${open.length === 1 ? "requirement" : "requirements"} not met, the model says: ${open.map(safe).join("; ")}`];
+    const status = `${open.length} ${open.length === 1 ? "requirement" : "requirements"} not met`;
+    const said = `the model says: ${open.map(safe).join("; ")}`;
+    return [{ line: `⚠ ${status}, ${said}`, section: "open", kind: "checklist", status, detail: said }];
   }
   const changed = Boolean(task.changedPaths?.length || task.changedDuringChecks?.length || (!task.changedPaths && task.possibleMutations));
   if (!changed || checksPassed(task.verification, task)) return [];
   const why = task.execution !== "completed" || task.turnLimit !== undefined || task.spendLimit !== undefined ? "the task did not finish" : !task.verification ? "no checks ran"
     : task.verification.status === "pass" ? "the checks do not prove the change"
     : failingBeforeOnly(task.verification) ? "a check fails with and without this change" : "the checks did not pass";
-  return [`– ${cases} ${cases === 1 ? "case" : "cases"} from your request not confirmed: ${why} (/receipt lists them)`];
+  const status = `${cases} ${cases === 1 ? "case" : "cases"} from your request not confirmed`;
+  return [{ line: `– ${status}: ${why} (/receipt lists them)`, section: "why", kind: "checklist", status, detail: why, actions: ["/receipt"] }];
 }
 
 /** The receipt's lines (verdict first), its undo lines, and the short form's pieces: `folds` maps a line that
  * says all is well to the few words it becomes on the one-line receipt ("" drops it); `short` is the verdict
- * word when nothing is wrong. `onScreen`: the plan checklist is one line (/receipt lists every step). */
-function receiptParts(task: TaskResult, options: ReceiptOptions, onScreen = false): { lines: string[]; undo: string[]; folds: Map<string, string>; short?: string } {
+ * word when nothing is wrong; `info` gives each line's section and parts. `onScreen`: the plan checklist is one line
+ * (/receipt lists every step). */
+function receiptParts(task: TaskResult, options: ReceiptOptions, onScreen = false):
+  { lines: string[]; undo: ReceiptItem[]; folds: Map<string, string>; short?: string; info: Map<string, LineInfo> } {
   const safe = lineText;
   const slash = (command: string) => options.surface === "one-shot" ? `casper "${command}"` : command;
-  const lines: string[] = [...cleanupReceiptLines(task.cleanup ?? [])];
+  const lines: string[] = [];
+  const info = new Map<string, LineInfo>();
   const folds = new Map<string, string>();
-  const fold = (line: string, short: string) => { lines.push(line); folds.set(line, short); };
-  if (task.changedPaths?.length) fold(`✓ Changed ${pathList(task.changedPaths, safe)}`, changedShort(task.changedPaths, safe));
-  else if (task.changedPaths && task.autoSkipped === "no-changes" && !task.verification) lines.push("– No files changed, so Casper ran no checks");
-  else if (task.changedPaths) fold("– No files changed", "no files changed");
-  else if (task.possibleMutations) lines.push(task.snapshotFailure ? changesUnknownLine(safe(task.snapshotFailure.reason)) : "– Changes unknown — Casper could not compare the workspace");
-  if (!task.changedPaths && task.snapshotFailure?.edited.length) lines.push(`– Changed (seen by Casper's edit and write tools): ${pathList(task.snapshotFailure.edited, safe, false)}`);
+  const add = (section: ReceiptSection, line: string, parts: Parts = {}) => { lines.push(line); info.set(line, { section, ...parts }); };
+  const fold = (section: ReceiptSection, line: string, short: string, parts: Parts = {}) => { add(section, line, parts); folds.set(line, short); };
+  // Cleanup Casper could not confirm needs you, its processes with it.
+  for (const report of task.cleanup ?? []) for (const line of cleanupReceiptLines([report])) add(report.state === "stopped" ? "notes" : "open", line);
+  const changedPart = (status: string, detail?: string): Parts => ({ kind: "changed", status, ...(detail ? { detail } : {}) });
+  if (task.changedPaths?.length) {
+    const list = pathList(task.changedPaths, safe);
+    fold("changed", `✓ Changed ${list}`, changedShort(task.changedPaths, safe), changedPart("Changed", list));
+  }
+  else if (task.changedPaths && task.autoSkipped === "no-changes" && !task.verification) add("changed", "– No files changed, so Casper ran no checks", changedPart("No files changed", "Casper ran no checks"));
+  else if (task.changedPaths) fold("changed", "– No files changed", "no files changed", changedPart("No files changed"));
+  else if (task.possibleMutations) {
+    const reason = task.snapshotFailure ? safe(task.snapshotFailure.reason) : undefined;
+    add("changed", reason ? changesUnknownLine(reason) : "– Changes unknown — Casper could not compare the workspace", changedPart("Changes unknown", reason ?? "Casper could not compare the workspace"));
+  }
+  if (!task.changedPaths && task.snapshotFailure?.edited.length) {
+    const list = pathList(task.snapshotFailure.edited, safe, false);
+    add("changed", `– Changed (seen by Casper's edit and write tools): ${list}`, changedPart("Changed (seen by Casper's edit and write tools)", list));
+  }
 
   const report = task.verification;
   if (report?.repairAttempts) {
     const repairs = `${report.repairAttempts} ${report.repairAttempts === 1 ? "repair" : "repairs"}${task.bigModel ? ` (the last on ${task.bigModel.oneOff ? "" : "your big model "}${safe(task.bigModel.model)})` : ""}`;
-    fold(`↻ Casper tried ${repairs}`, `after ${repairs}`);
+    fold("checks", `↻ Casper tried ${repairs}`, `after ${repairs}`, { kind: "repairs", status: "tried", detail: repairs });
   }
   for (const result of report?.results ?? []) {
-    const line = checkLine(result, safe, slash, !!report?.repairAttempts);
-    if (result.status === "pass" && result.freshness !== "stale" && result.kind !== "report") fold(line, `${result.name} passed${result.reused ? " earlier" : ""}${result.label ? ` (${safe(result.label)}${result.command ? ` · ${safe(result.command)}` : ""})` : ""}`);
-    else lines.push(line);
+    const { line, ...parts } = checkLine(result, safe, slash, !!report?.repairAttempts);
+    if (result.status === "pass" && result.freshness !== "stale" && result.kind !== "report") fold("checks", line, `${result.name} passed${result.reused ? " earlier" : ""}${result.label ? ` (${safe(result.label)}${result.command ? ` · ${safe(result.command)}` : ""})` : ""}`, parts);
+    else add("checks", line, parts);
   }
-  if (report?.status === "blocked" && report.reason) lines.push(`✗ Checks stopped — ${safe(report.reason).replace(/\.$/, "")}`);
+  if (report?.status === "blocked" && report.reason) {
+    const reason = safe(report.reason).replace(/\.$/, "");
+    add("checks", `✗ Checks stopped — ${reason}`, { kind: "check", status: "stopped", detail: reason });
+  }
 
   const recorded = new Set(report?.results.map((result) => result.name));
   for (const observed of task.observedChecks ?? []) {
     if (recorded.has(observed.name)) continue;
-    lines.push(`– Not verified — ${observed.name} ran via bash only (${safe(observed.command)}: ${observed.toolStatus === "success" ? "passed" : "failed"}). Run ${slash(`/verify ${observed.name}`)} to record a check.`);
+    const ran = `${observed.name} ran via bash only (${safe(observed.command)}: ${observed.toolStatus === "success" ? "passed" : "failed"})`;
+    const verify = slash(`/verify ${observed.name}`);
+    add("why", `– Not verified — ${ran}. Run ${verify} to record a check.`, { kind: "not-verified", name: observed.name, status: "Not verified", detail: ran, actions: [verify] });
   }
 
   // A strong proof is what "Verified" says; a weak one keeps its line.
   if (task.proof) {
-    const line = proofLine(task.proof, safe);
-    if (line.startsWith("✓ Proven:")) fold(line, ""); else lines.push(line);
+    const { line, ...parts } = proofLine(task.proof, safe);
+    if (line.startsWith("✓ Proven:")) fold("why", line, "", parts); else add("why", line, parts);
   }
   if (task.acceptance) {
     const line = acceptanceLine(task.acceptance, safe);
-    if (task.acceptance.status === "pass") fold(line, "tests written from the request pass"); else lines.push(line);
+    if (task.acceptance.status === "pass") fold("checks", line, "tests written from the request pass");
+    else add(line.startsWith("⚠ ") ? "open" : line.startsWith("✗ ") ? "checks" : "notes", line);
   }
   // The model's own "all covered" claim is not evidence: the short receipt leaves it out. A count short of its
   // total ("3 of 5") and its gaps keep their line; with a checklist the gaps become the checklist's line.
   if (task.review) {
     const line = reviewLine(task.review, safe);
     const asCases = Boolean(task.checklist?.length && !task.review.incomplete && "open" in task.review && task.review.open.length);
-    if (line.startsWith("– The model's review: all ") || asCases) fold(line, ""); else lines.push(line);
+    // The model's admitted gaps need you; the rest is its own claim, a note. A review cut off with a gap is two lines.
+    const section = (text: string): ReceiptSection => text.startsWith("⚠ ") ? "open" : "notes";
+    if (line.startsWith("– The model's review: all ") || asCases) fold(section(line), line, ""); else add(section(line), line);
+    for (const part of line.split("\n")) info.set(part, { section: section(part) });
   }
-  if (task.changedDuringChecks?.length) lines.push(`– Changed while checking: ${pathList(task.changedDuringChecks, safe, false)}`);
-  if (task.changedWhilePlanning?.length) lines.push(`– Changed while planning: ${pathList(task.changedWhilePlanning, safe, false)}`);
-  if (task.changedNotByModel?.length) lines.push(`– Changed meanwhile by another program, not the AI (not checked): ${pathList(task.changedNotByModel, safe, false)}`);
-  lines.push(...(onScreen ? planSummary(task.planSteps) : planReceipt(task.planSteps)));
-  if (task.branchChangesUnknown) lines.push(`– ${task.branchMoved ? "The branch moved during this task; " : ""}${GIT_MOVEMENT_UNKNOWN}; undo is unavailable`);
-  else if (task.branchMoved) lines.push(BRANCH_MOVED_LINE);
+  if (task.changedDuringChecks?.length) add("changed", `– Changed while checking: ${pathList(task.changedDuringChecks, safe, false)}`);
+  if (task.changedWhilePlanning?.length) add("changed", `– Changed while planning: ${pathList(task.changedWhilePlanning, safe, false)}`);
+  if (task.changedNotByModel?.length) add("changed", `– Changed meanwhile by another program, not the AI (not checked): ${pathList(task.changedNotByModel, safe, false)}`);
+  for (const line of onScreen ? planSummary(task.planSteps) : planReceipt(task.planSteps)) add("notes", line);
+  if (task.branchChangesUnknown) add("notes", `– ${task.branchMoved ? "The branch moved during this task; " : ""}${GIT_MOVEMENT_UNKNOWN}; undo is unavailable`);
+  else if (task.branchMoved) add("notes", BRANCH_MOVED_LINE);
 
   const changed = Boolean(task.changedPaths?.length || (!task.changedPaths && task.possibleMutations));
   if (!report && !task.observedChecks?.length && task.execution === "completed") {
-    if (task.autoSkipped === "no-checks") lines.push(options.checksHintShown ? "– Not verified — no checks set up" : NO_CHECKS_LINE);
-    else if (task.autoSkipped === "app-data") lines.push(`– Checks skipped — only a running app's database files changed${task.changedPaths?.length ? ` (${pathList(task.changedPaths, safe, false)})` : ""}; ${slash("/verify")} runs them anyway.`);
-    else if (task.autoSkipped === "docs-only") lines.push(`– Checks skipped — only documentation changed${task.changedPaths?.length ? ` (${pathList(task.changedPaths, safe, false)})` : ""}; ${slash("/verify")} runs them anyway.`);
-    else if (task.autoSkipped === "not-covered") lines.push("– Not verified — no configured check covers the changed files.");
+    const why = (line: string, status: string, detail?: string, action?: string) =>
+      add("why", line, { kind: "not-verified", status, ...(detail ? { detail } : {}), ...(action ? { actions: [action] } : {}) });
+    const only = (what: string) => `only ${what} changed${task.changedPaths?.length ? ` (${pathList(task.changedPaths, safe, false)})` : ""}`;
+    if (task.autoSkipped === "no-checks") {
+      if (options.checksHintShown) why("– Not verified — no checks set up", "Not verified", "no checks set up");
+      else why(NO_CHECKS_LINE, "Not checked", "no tests yet", '"add tests"');
+    }
+    else if (task.autoSkipped === "app-data") why(`– Checks skipped — ${only("a running app's database files")}; ${slash("/verify")} runs them anyway.`, "Checks skipped", only("a running app's database files"), slash("/verify"));
+    else if (task.autoSkipped === "docs-only") why(`– Checks skipped — ${only("documentation")}; ${slash("/verify")} runs them anyway.`, "Checks skipped", only("documentation"), slash("/verify"));
+    else if (task.autoSkipped === "not-covered") why("– Not verified — no configured check covers the changed files.", "Not verified", "no configured check covers the changed files");
     else if (changed && task.verificationMode === "off") {
-      lines.push(`– Not verified — checks are off for this run. ${options.surface === "one-shot" ? "Run casper --verify to have Casper check." : "Run /verify to check these changes."}`);
-    } else if (changed && task.verificationMode === "offer") lines.push(`– Not verified — run ${slash("/verify")} to check these changes.`);
+      why(`– Not verified — checks are off for this run. ${options.surface === "one-shot" ? "Run casper --verify to have Casper check." : "Run /verify to check these changes."}`,
+        "Not verified", "checks are off for this run", options.surface === "one-shot" ? "casper --verify" : "/verify");
+    } else if (changed && task.verificationMode === "offer") why(`– Not verified — run ${slash("/verify")} to check these changes.`, "Not verified", undefined, slash("/verify"));
   }
 
-  if (task.appSmoke) lines.push(appSmokeLine(task.appSmoke, safe));
-  if (report?.smoke) lines.push(smokeLine(report.smoke, task.services, safe));
-  else if (report?.smokeSkipped) lines.push(`– Smoke not run: ${report.smokeSkipped}`);
+  if (task.appSmoke) add("checks", appSmokeLine(task.appSmoke, safe));
+  if (report?.smoke) add("checks", smokeLine(report.smoke, task.services, safe));
+  else if (report?.smokeSkipped) add("checks", `– Smoke not run: ${report.smokeSkipped}`);
   // Page text is already scrubbed and cut short by the page check.
-  if (report?.pages) lines.push(...formatPageReport(report.pages).flatMap((line) => line.split("\n")).map(safe));
-  else if (report?.pagesSkipped) lines.push(`– Pages not checked: ${report.pagesSkipped}`);
-  for (const note of task.pageNotes ?? []) lines.push(safe(note));
-  if (task.pagesShown) lines.push(`– ${pagesShownText(task.pagesShown)}`);
-  if (task.partsNotReviewed?.length) lines.push(`– Not reviewed: ${formatNotReviewed(task.partsNotReviewed, safe)}`);
-  if (task.crewChecks) lines.push(`– ${crewChecksText(task.crewChecks)}`);
-  if (task.security) lines.push(`– Security tools: ${securityText(task.security)} (what the tools found; not proof the code has no problems)`);
-  for (const remote of task.remoteChanges ?? []) lines.push(remote.changes.length
-    ? `– Changed on ${safe(remote.host)} (from the commands Casper saw): ${remote.changes.map(safe).join("; ")}`
-    : `– Ran commands on ${safe(remote.host)} over ssh; ${REMOTE_UNKNOWN}`);
-  for (const remote of task.remoteNotRun ?? []) lines.push(`– Not run on ${safe(remote.host)}: ${remoteNotRunText(remote.commands)}`);
+  if (report?.pages) for (const line of formatPageReport(report.pages).flatMap((line) => line.split("\n")).map(safe)) add("checks", line);
+  else if (report?.pagesSkipped) add("checks", `– Pages not checked: ${report.pagesSkipped}`);
+  for (const note of task.pageNotes ?? []) add("notes", safe(note));
+  if (task.pagesShown) add("notes", `– ${pagesShownText(task.pagesShown)}`);
+  if (task.partsNotReviewed?.length) add("notes", `– Not reviewed: ${formatNotReviewed(task.partsNotReviewed, safe)}`);
+  if (task.crewChecks) add("checks", `– ${crewChecksText(task.crewChecks)}`);
+  if (task.security) add("checks", `– Security tools: ${securityText(task.security)} (what the tools found; not proof the code has no problems)`);
+  for (const remote of task.remoteChanges ?? []) {
+    const host = safe(remote.host);
+    if (remote.changes.length) {
+      const changes = remote.changes.map(safe).join("; ");
+      add("devices", `– Changed on ${host} (from the commands Casper saw): ${changes}`, { name: host, detail: changes });
+    } else add("devices", `– Ran commands on ${host} over ssh; ${REMOTE_UNKNOWN}`, { name: host, detail: `ran commands over ssh; ${REMOTE_UNKNOWN}` });
+  }
+  for (const remote of task.remoteNotRun ?? []) {
+    add("devices", `– Not run on ${safe(remote.host)}: ${remoteNotRunText(remote.commands)}`, { name: safe(remote.host), detail: remoteNotRunText(remote.commands) });
+  }
   // Something to do: a warning, said before the notes.
-  if (task.secretInCommand) lines.push(`⚠ ${SECRET_IN_COMMAND}`);
-  if (task.secretInFiles?.length) lines.push(`– ${secretInFilesText(task.secretInFiles, safe)}`);
+  if (task.secretInCommand) add("open", `⚠ ${SECRET_IN_COMMAND}`);
+  if (task.secretInFiles?.length) add("open", `– ${secretInFilesText(task.secretInFiles, safe)}`);
   // Only the exception is said: a task whose shell commands and checks ran with your own permissions.
-  if (task.sandbox && !task.sandbox.held) lines.push(sandboxOffLine(safe(task.sandbox.reason)));
-  else if (task.sandbox && labRan(report)) lines.push(`– Lab checks ran outside the sandbox (${LAB_OUTSIDE_WHY})`);
-  for (const folder of task.outsideWrites ?? []) lines.push(`– Wrote outside the project: ${safe(folder)} (you allowed it; no undo copy)`);
-  for (const folder of task.outsideAllowed ?? []) lines.push(`– Allowed writes outside the project: ${safe(folder)} (no undo copy)`);
-  for (const risky of task.riskyLines ?? []) lines.push(`– Risky config lines (not a check): ${safe(risky.file)}:${risky.line} ${safe(risky.text)} — ${risky.reason}`);
-  if (task.riskyMore) lines.push(`– Risky config lines (not a check): and ${task.riskyMore} more`);
+  if (task.sandbox && !task.sandbox.held) add("notes", sandboxOffLine(safe(task.sandbox.reason)));
+  else if (task.sandbox && labRan(report)) add("notes", `– Lab checks ran outside the sandbox (${LAB_OUTSIDE_WHY})`);
+  for (const folder of task.outsideWrites ?? []) add("changed", `– Wrote outside the project: ${safe(folder)} (you allowed it; no undo copy)`);
+  for (const folder of task.outsideAllowed ?? []) add("notes", `– Allowed writes outside the project: ${safe(folder)} (no undo copy)`);
+  for (const risky of task.riskyLines ?? []) add("config", `– Risky config lines (not a check): ${safe(risky.file)}:${risky.line} ${safe(risky.text)} — ${risky.reason}`);
+  if (task.riskyMore) add("config", `– Risky config lines (not a check): and ${task.riskyMore} more`);
   if (task.browser) {
     // Checks the AI withdrew as written wrong: named with its reason, never counted for or against the result.
     const withdrawn = task.browser.checks.filter((check) => check.status === "withdrawn");
@@ -618,8 +718,8 @@ function receiptParts(task: TaskResult, options: ReceiptOptions, onScreen = fals
     const failed = checks.filter((check) => check.status === "fail").map((check) => safe(check.name));
     // The answer may say the checks passed; the receipt is Casper's record, so it says where they differ.
     const claimed = task.browserClaimed ? " — the answer above says they passed" : "";
-    if (task.browser.status === "pass") fold(`✓ Browser checks passed (${checks.length})`, `browser checks passed (${checks.length})`);
-    else if (task.browser.status === "fail") lines.push(`✗ Browser checks failed: ${failed.join(", ")}${claimed}`);
+    if (task.browser.status === "pass") fold("checks", `✓ Browser checks passed (${checks.length})`, `browser checks passed (${checks.length})`);
+    else if (task.browser.status === "fail") add("checks", `✗ Browser checks failed: ${failed.join(", ")}${claimed}`);
     else {
       // Incomplete: count what passed, name what did not finish, and say why a pass does not count
       // (a later edit or command made it stale, or Casper can't tie it to the final files).
@@ -632,14 +732,14 @@ function receiptParts(task: TaskResult, options: ReceiptOptions, onScreen = fals
       const notes = [open.length ? `not finished: ${open.join(", ")}` : "",
         stale ? `${every(stale) ? "all" : stale} ran before a later edit or command (replay to count)` : "",
         untied ? `Casper can't tie ${every(untied) ? "them" : `${untied} of them`} to the final files` : ""].filter(Boolean);
-      if (passed.length) lines.push(`– Browser checks: ${passed.length} of ${checks.length} passed${notes.length ? `; ${notes.join("; ")}` : ""}`);
-      else if (checks.length || claimed) lines.push(claimed ? `– Browser checks did not finish${claimed}; Casper saw no passing browser check` : "– Browser checks incomplete");
+      if (passed.length) add("checks", `– Browser checks: ${passed.length} of ${checks.length} passed${notes.length ? `; ${notes.join("; ")}` : ""}`);
+      else if (checks.length || claimed) add("checks", claimed ? `– Browser checks did not finish${claimed}; Casper saw no passing browser check` : "– Browser checks incomplete");
     }
-    if (withdrawn.length) lines.push(`– ${withdrawn.length} ${withdrawn.length === 1 ? "check" : "checks"} withdrawn by the AI: ${withdrawn
+    if (withdrawn.length) add("checks", `– ${withdrawn.length} ${withdrawn.length === 1 ? "check" : "checks"} withdrawn by the AI: ${withdrawn
       .map((check) => `${safe(check.name)}${check.withdrawn ? ` (${safe(check.withdrawn)})` : ""}`).join(", ")}`);
   }
-  const verdict = withVerdict(task, lines, options);
-  return { lines: verdict.lines, undo: undoLines(task, options, safe), folds, ...(verdict.short ? { short: verdict.short } : {}) };
+  const verdict = withVerdict(task, lines, options, info);
+  return { lines: verdict.lines, undo: undoLines(task, options, safe), folds, info, ...(verdict.short ? { short: verdict.short } : {}) };
 }
 
 /** "changed a.ts, b.ts" for a few files, "12 files changed" past three. */
@@ -664,20 +764,27 @@ export function undoPathsShown(task: Pick<TaskResult, "undo">, undoNamed?: Reado
 
 /** The receipt's last lines about undo: what it can't put back, why it is not available, and (one-shot) the commands.
  * The interactive receipt's "Next: 1 Show diff · 2 Undo" row is printed by the app. */
-function undoLines(task: TaskResult, options: ReceiptOptions, safe: (text: string) => string): string[] {
+function undoLines(task: TaskResult, options: ReceiptOptions, safe: (text: string) => string): ReceiptItem[] {
   const undo = task.undo;
   if (!undo) return [];
   // A folder that is not a project is said once, on the "Changes unknown" line.
-  if (!undo.available) return undo.reason === UNDO_NOTHING_CHANGED || undo.reason === UNDO_NOT_PROJECT ? [] : [`– Undo not available: ${safe(undo.reason).replace(/\.$/, "")}`];
-  const lines: string[] = [];
+  if (!undo.available) {
+    if (undo.reason === UNDO_NOTHING_CHANGED || undo.reason === UNDO_NOT_PROJECT) return [];
+    const reason = safe(undo.reason).replace(/\.$/, "");
+    return [{ line: `– Undo not available: ${reason}`, section: "undo", kind: "undo", status: "Undo not available", detail: reason }];
+  }
+  const items: ReceiptItem[] = [];
   const left = undo.left?.filter((entry) => !options.undoNamed?.has(entry.path)) ?? [];
-  if (left.length) lines.push(`– Undo can't put back: ${left.slice(0, RECEIPT_PATH_LIMIT).map((entry) => `${safe(entry.path)} (${safe(entry.why)})`).join(", ")}${left.length > RECEIPT_PATH_LIMIT ? ` … +${left.length - RECEIPT_PATH_LIMIT} more` : ""}`);
+  if (left.length) {
+    const named = `${left.slice(0, RECEIPT_PATH_LIMIT).map((entry) => `${safe(entry.path)} (${safe(entry.why)})`).join(", ")}${left.length > RECEIPT_PATH_LIMIT ? ` … +${left.length - RECEIPT_PATH_LIMIT} more` : ""}`;
+    items.push({ line: `– Undo can't put back: ${named}`, section: "undo", kind: "undo", status: "Undo can't put back", detail: named });
+  }
   if (options.surface === "one-shot") {
     const cd = options.folder ? `--cd ${shellFolder(safe(options.folder))} ` : "";
     const n = task.receipt ? ` ${task.receipt}` : "";
-    lines.push(`Undo: casper ${cd}/undo${n} · Diff: casper ${cd}/diff${n}`);
+    items.push({ line: `Undo: casper ${cd}/undo${n} · Diff: casper ${cd}/diff${n}`, section: "next", kind: "undo", actions: [`casper ${cd}/undo${n}`, `casper ${cd}/diff${n}`] });
   }
-  return lines;
+  return items;
 }
 
 /** Line 1 of every receipt: what the run proved, in one line. "Verified" means the checks passed on the
@@ -687,11 +794,19 @@ export function receiptVerdict(task: TaskResult, options: ReceiptOptions = {}): 
   return formatReceipt(task, options).split("\n")[0] || undefined;
 }
 
-function withVerdict(task: TaskResult, body: string[], options: ReceiptOptions): { lines: string[]; short?: string } {
+function withVerdict(task: TaskResult, body: string[], options: ReceiptOptions, info: Map<string, LineInfo>): { lines: string[]; short?: string } {
   const safe = lineText;
-  const promote = (prefix: string, fallback: string): string[] => {
+  // Line 1 in parts: its name, the reason after " — " (without a closing "Run …" or "Say …" sentence) and its commands.
+  const head = (line: string, status: string, parts: { detail?: string; actions?: string[] } = {}): string => {
+    const detail = parts.detail ?? (line.includes(" — ") ? line.slice(line.indexOf(" — ") + 3).replace(/\.(?: (?:Run|Say) .*)?$/, "") : undefined);
+    info.set(line, { section: "verdict", kind: "verdict", status, ...(detail ? { detail } : {}), ...(parts.actions?.length ? { actions: parts.actions } : {}) });
+    return line;
+  };
+  const promote = (prefix: string, fallback: string, status: string): string[] => {
     const index = body.findIndex((line) => line.startsWith(prefix));
-    return index < 0 ? [fallback, ...body] : [body[index]!, ...body.slice(0, index), ...body.slice(index + 1)];
+    if (index < 0) return [head(fallback, status), ...body];
+    const moved = body[index]!, was = info.get(moved);
+    return [head(moved, status, { ...(moved.includes(" — ") ? {} : { detail: was?.detail }), actions: was?.actions }), ...body.slice(0, index), ...body.slice(index + 1)];
   };
   const report = task.verification;
   // The verdict lines for checks that passed are the same whatever the outcome calls them: "✓ Verified" only with
@@ -711,40 +826,44 @@ function withVerdict(task: TaskResult, body: string[], options: ReceiptOptions):
       const limit = result.ended === "timeout" ? /^Timed out after (\d+)ms$/.exec(result.reason ?? "") : null;
       return limit ? `${result.name} timed out after ${duration(Number(limit[1]))}` : failedChecks[index]!;
     });
-    const again = timedOut.length ? `; ${timedOut.map((result) => options.surface === "one-shot" ? `casper "/verify ${result.name}"` : `/verify ${result.name}`).join(", ")} runs it again` : "";
-    return [`✗ Not checked — ${what.join(", ")}, so the change was not tested${again}`,
+    const again = timedOut.map((result) => options.surface === "one-shot" ? `casper "/verify ${result.name}"` : `/verify ${result.name}`);
+    const reason = `${what.join(", ")}, so the change was not tested`;
+    return [head(`✗ Not checked — ${reason}${again.length ? `; ${again.join(", ")} runs it again` : ""}`, "Not checked", { detail: reason, actions: again }),
       ...body.filter((line) => !timedOut.some((result) => line.startsWith(`✗ ${result.name} timed out`)))];
   };
   let lines: string[];
   let short: string | undefined;
   switch (outcome) {
     case "cancelled":
-      lines = ["✗ Stopped — cancelled; changes already made are kept", ...body]; break;
+      lines = [head("✗ Stopped — cancelled; changes already made are kept", "Stopped"), ...body]; break;
     case "failed":
       if (task.execution === "failed") {
         // Casper checked the edits the model left: say how they fared, then what to do next.
         const checked = !report?.results.length ? "" : failedChecks.length ? `; on those changes ${failedChecks.join(", ")}` : "; the checks pass on those changes";
-        const next = `– Next: ${modelErrorNext(task.modelError, options.surface === "one-shot")
-          ?? (options.surface === "one-shot" ? "casper --model <provider/id> \"…\" to try another model" : "/model to try another model, then ask again")}`;
+        const nextStep = modelErrorNext(task.modelError, options.surface === "one-shot")
+          ?? (options.surface === "one-shot" ? "casper --model <provider/id> \"…\" to try another model" : "/model to try another model, then ask again");
+        const next = `– Next: ${nextStep}`;
+        info.set(next, { section: "next", detail: nextStep });
         const verdict = task.changedPaths?.length === 0 && !task.possibleMutations
           ? "✗ Failed — the model run failed before changing any files" : `✗ Failed — the model run failed; changes already made are kept${checked}`;
-        lines = [verdict, ...body, next];
+        lines = [head(verdict, "Failed"), ...body, next];
       }
       else if (onlyUnfinished) lines = notChecked();
       // Every failing check failed on the files from before too, and the user left it: the change did not cause it.
       else if (failedChecks.length && failingBeforeOnly(report)) {
-        lines = [`– Not caused by this change — ${report!.failingBefore!.join(", ")} already failed before it; left as it is`, ...body];
+        lines = [head(`– Not caused by this change — ${report!.failingBefore!.join(", ")} already failed before it; left as it is`, "Not caused by this change"), ...body];
       }
-      else if (failedChecks.length) lines = [`✗ Failed — ${failedChecks.join(", ")}`, ...body];
-      else if (report?.pages?.status === "fail") lines = [`✗ Failed — ${safe(pageFailureSummary(report.pages) ?? "a page failed")}`, ...body];
-      else if (task.appSmoke?.status === "fail") lines = [`✗ Failed — app smoke: ${safe(redactPreview(task.appSmoke.reason ?? "the request failed"))}`, ...body];
-      else if (report?.status === "blocked") lines = [`✗ Failed — checks stopped${report.reason ? `: ${safe(report.reason).replace(/\.$/, "").toLowerCase()}` : ""}`, ...body];
-      else lines = ["✗ Failed — browser checks failed", ...body];
+      else if (failedChecks.length) lines = [head(`✗ Failed — ${failedChecks.join(", ")}`, "Failed"), ...body];
+      else if (report?.pages?.status === "fail") lines = [head(`✗ Failed — ${safe(pageFailureSummary(report.pages) ?? "a page failed")}`, "Failed"), ...body];
+      else if (task.appSmoke?.status === "fail") lines = [head(`✗ Failed — app smoke: ${safe(redactPreview(task.appSmoke.reason ?? "the request failed"))}`, "Failed"), ...body];
+      else if (report?.status === "blocked") lines = [head(`✗ Failed — checks stopped${report.reason ? `: ${safe(report.reason).replace(/\.$/, "").toLowerCase()}` : ""}`, "Failed"), ...body];
+      else lines = [head("✗ Failed — browser checks failed", "Failed"), ...body];
       break;
-    case "incomplete":
+    case "incomplete": {
       // The checks never ran to the end (timed out, could not start, blocked by the sandbox): name them, as when failed.
       if (onlyUnfinished && report?.status === "incomplete" && task.spendLimit === undefined && task.turnLimit === undefined) { lines = notChecked(); break; }
-      lines = [task.spendLimit !== undefined
+      const stopped = task.spendLimit !== undefined || task.turnLimit !== undefined;
+      const line = task.spendLimit !== undefined
         ? `– Incomplete — stopped at ${formatCost(task.spendLimit.spent)}, the ${formatLimit(task.spendLimit.limit)} limit for one task (spend.pauseAt); changes so far are kept; ${options.surface === "one-shot" ? "casper --continue" : "send another request"} to go on`
         : task.turnLimit !== undefined
         ? `– Incomplete — stopped after ${task.turnLimit} ${task.turnLimit === 1 ? "turn" : "turns"} (--max-turns); changes so far are kept; ${options.surface === "one-shot" ? "casper --continue" : "send another request"} to go on`
@@ -759,29 +878,33 @@ function withVerdict(task: TaskResult, body: string[], options: ReceiptOptions):
         // Every browser check ran and passed, but not on the final files: say that, not "not every check ran".
         : task.browser?.status === "incomplete" && report?.status !== "incomplete" && countedBrowserChecks(task.browser.checks).length > 0
           && countedBrowserChecks(task.browser.checks).every((check) => check.status === "pass") ? `– Incomplete — ${browserPassedVerdict(countedBrowserChecks(task.browser.checks))}`
-        : "– Incomplete — not every check ran", ...body];
+        : "– Incomplete — not every check ran";
+      lines = [head(line, line === NO_CHECKS_LINE ? "Not checked" : line.startsWith("– Did not act") ? "Did not act" : "Incomplete", {
+        actions: line === NO_CHECKS_LINE ? ['"add tests"'] : stopped && options.surface === "one-shot" ? ["casper --continue"] : [] }), ...body];
       break;
+    }
     case "verified":
     case "passed": {
       const proof = task.proof;
       if (proof?.status === "proven" && provesChange(proof)) {
         const weak = loadFailure(proof);
-        lines = [weak ? "✓ Verified — the checks pass; without the change the tests could not even load"
-          : "✓ Verified — the checks pass, and the tests fail without the change", ...body];
+        lines = [head(weak ? "✓ Verified — the checks pass; without the change the tests could not even load"
+          : "✓ Verified — the checks pass, and the tests fail without the change", "Verified"), ...body];
         if (!weak) short = "✓ Verified";
-      } else if (!changed) { lines = [task.changedPaths ? "✓ Checks passed — no files changed" : "✓ Checks passed", ...body]; short = "✓ Checks passed"; }
+      } else if (!changed) { lines = [head(task.changedPaths ? "✓ Checks passed — no files changed" : "✓ Checks passed", "Checks passed"), ...body]; short = "✓ Checks passed"; }
       else {
         const why = proof?.status === "unavailable" ? proof.reason
           : proof?.status === "proven" ? `without the change ${proof.check} ${proof.without.ended === "timeout" ? "timed out" : "could not start"}, so it did not show the old code failing`
           : task.proofSkipped ?? "Casper did not compare the tests with and without the change";
-        lines = [`– Checks passed — not proven: ${safe(why).replace(/\.$/, "")}`, ...body];
+        const reason = safe(why).replace(/\.$/, "");
+        lines = [head(`– Checks passed — not proven: ${reason}`, "Checks passed · not proven", { detail: reason }), ...body];
       }
       break;
     }
     case "not_verified":
-      lines = body.includes(NO_CHECKS_LINE) ? promote(NO_CHECKS_LINE, NO_CHECKS_LINE) : promote("– Not verified", `– Not verified — ${notVerifiedReason(task)}`); break;
+      lines = body.includes(NO_CHECKS_LINE) ? promote(NO_CHECKS_LINE, NO_CHECKS_LINE, "Not checked") : promote("– Not verified", `– Not verified — ${notVerifiedReason(task)}`, "Not verified"); break;
     case "unchanged":
-      lines = body.length ? promote("– No files changed", "– No files changed") : body; break;
+      lines = body.length ? promote("– No files changed", "– No files changed", "No files changed") : body; break;
   }
   return { lines, ...(short ? { short } : {}) };
 }
@@ -872,58 +995,73 @@ function loadFailure(proof: ChangeProof): RegExpExecArray | null {
     .exec(proof.without.output ?? "");
 }
 
-function proofLine(proof: ChangeProof, safe: (text: string) => string): string {
+/** The proof's line and its parts: "Proven", "Proven, weakly" or "Not proven", and what showed it. */
+function proofLine(proof: ChangeProof, safe: (text: string) => string): { line: string } & Parts {
+  const say = (mark: string, status: string, detail: string, separator = ": ") => ({ line: `${mark} ${status}${separator}${detail}`, kind: "proof" as const, status, detail });
   if (proof.status === "proven") {
     const { exitCode, ended, reason } = proof.without;
     // Tests that could not even load without the change (a missing function to import) are weaker evidence
     // than a failing assertion: say which it was.
     const load = loadFailure(proof);
-    if (ended === "fail" && load) return `✓ Proven, weakly: without this change ${proof.check} could not load (exit ${exitCode}, ${load[0]}), and it passes with the change`;
-    if (ended === "fail") return `✓ Proven: ${proof.check} fails without this change (exit ${exitCode}) and passes with it`;
+    if (ended === "fail" && load) return say("✓", "Proven, weakly", `without this change ${proof.check} could not load (exit ${exitCode}, ${load[0]}), and it passes with the change`);
+    if (ended === "fail") return say("✓", "Proven", `${proof.check} fails without this change (exit ${exitCode}) and passes with it`);
     // A timeout, crash or missing command shows the old code did not pass, not that a test caught it.
     const timeout = /^Timed out after (\d+)ms$/.exec(reason ?? "");
     const how = ended === "timeout" ? `timed out${timeout ? ` after ${duration(Number(timeout[1]))}` : ""}`
       : ended === "crash" ? `crashed or was killed (exit ${exitCode})` : `could not start (exit ${exitCode})`;
-    return `✓ Proven, weakly: ${proof.check} passes with this change; without it ${proof.check} ${how} instead of failing`;
+    return say("✓", "Proven, weakly", `${proof.check} passes with this change; without it ${proof.check} ${how} instead of failing`);
   }
   if (proof.status === "unproven") {
-    return `⚠ Not proven: ${proof.check} passes without this change too${proof.testsChanged ? "; the changed tests do not check it" : ", and no test was added or changed"}`;
+    return say("⚠", "Not proven", `${proof.check} passes without this change too${proof.testsChanged ? "; the changed tests do not check it" : ", and no test was added or changed"}`);
   }
-  return `– Not proven — ${safe(proof.reason).replace(/\.$/, "")}`;
+  return say("–", "Not proven", safe(proof.reason).replace(/\.$/, ""), " — ");
 }
 
-function checkLine(result: VerificationResult, safe: (text: string) => string, slash: (command: string) => string, repaired = false): string {
+/** A check's line and its parts: the check, what happened, the evidence (exit, command, reason), its time, and the
+ * command that acts on it. */
+function checkLine(result: VerificationResult, safe: (text: string) => string, slash: (command: string) => string, repaired = false): { line: string } & Parts {
   const name = result.name;
+  const took = result.kind !== "report" && (result.status === "pass" || result.status === "fail") ? elapsed(result.durationMs) : "";
+  const say = (line: string, status: string, detail?: string, action?: string) =>
+    ({ line, kind: "check" as const, name, status, ...(detail ? { detail } : {}), ...(action ? { actions: [action] } : {}), ...(took ? { time: took } : {}) });
   // A report is shown for reading: never a pass, a fail or a reason the change is not verified.
-  if (result.kind === "report") return `– ${name}  ${reportText(result)} (a diff, not a pass/fail check)`;
+  if (result.kind === "report") return say(`– ${name}  ${reportText(result)} (a diff, not a pass/fail check)`, "report", reportText(result));
   // A named check that could not run (a missing tool, a lab check) says why in its own words.
-  if (result.status === "skip" && !isBuiltinCheck(name)) return `– Not verified — ${name} not run: ${safe(result.reason ?? "skipped").replace(/\.$/, "")}`;
+  if (result.status === "skip" && !isBuiltinCheck(name)) {
+    const reason = safe(result.reason ?? "skipped").replace(/\.$/, "");
+    return say(`– Not verified — ${name} not run: ${reason}`, "not run", reason);
+  }
   if (result.status === "skip") {
-    return result.command ? `– Not verified — ${name} was skipped.` : `– Not verified — ${name} has no command here. Say ${name === "test" ? '"add tests"' : `"set up ${name}"`}.`;
+    const ask = name === "test" ? '"add tests"' : `"set up ${name}"`;
+    return result.command ? say(`– Not verified — ${name} was skipped.`, "was skipped") : say(`– Not verified — ${name} has no command here. Say ${ask}.`, "has no command here", undefined, ask);
   }
   if (result.status === "pass") {
-    if (result.freshness === "stale") return `– Not verified — stale: files changed after the last passing ${name}. Run ${slash(`/verify ${name}`)}.`;
+    if (result.freshness === "stale") {
+      return say(`– Not verified — stale: files changed after the last passing ${name}. Run ${slash(`/verify ${name}`)}.`, "stale", `files changed after the last passing ${name}`, slash(`/verify ${name}`));
+    }
     // A reused pass did not run again: the time shown is the earlier run's, so the receipt says so.
     const how = [result.label ? safe(result.label) : "", result.command ? safe(result.command) : ""].filter(Boolean).join(" · ");
-    const took = elapsed(result.durationMs);
     const inside = how && took ? `${how}, ${took}` : how || took;
-    return `✓ ${name} passed${result.reused ? " earlier in this task, reused" : ""}${inside ? ` (${inside})` : ""}`;
+    return say(`✓ ${name} passed${result.reused ? " earlier in this task, reused" : ""}${inside ? ` (${inside})` : ""}`, result.reused ? "passed earlier in this task, reused" : "passed", how);
   }
   const timeout = /^Timed out after (\d+)ms$/.exec(result.reason ?? "");
   // Unfinished checks are not the code failing: Casper does not repair them, so it does not offer to.
   if (result.ended === "timeout") {
-    return `✗ ${name} timed out${timeout ? ` after ${duration(Number(timeout[1]))}` : ""} — it did not finish, so it was not checked; ${slash(`/verify ${name}`)} to run it again (a session offers more time)`;
+    const after = timeout ? `after ${duration(Number(timeout[1]))}` : undefined;
+    return say(`✗ ${name} timed out${after ? ` ${after}` : ""} — it did not finish, so it was not checked; ${slash(`/verify ${name}`)} to run it again (a session offers more time)`,
+      "timed out", after, slash(`/verify ${name}`));
   }
   // The sandbox refused something the check tried: the same words the AI sees, so it does not retry it.
-  if (result.ended === "blocked") return `✗ ${name} — ${safe(result.reason ?? "blocked by the sandbox")}`;
+  if (result.ended === "blocked") {
+    const reason = safe(result.reason ?? "blocked by the sandbox");
+    return say(`✗ ${name} — ${reason}`, "blocked", reason);
+  }
   // Its own program isn't on this computer: the config is fine, so the line says what to install.
   const missing = missingProgram(result);
-  if (missing) return `✗ ${name} could not start — ${missingProgramLine(missing)}; install it, then ${slash(`/verify ${name}`)}`;
-  if (result.ended === "no_start" && !isBuiltinCheck(name)) {
-    return `✗ ${name} could not start (${typeof result.exitCode === "number" ? `exit ${result.exitCode}` : safe(result.reason ?? "no exit status").replace(/\.$/, "").toLowerCase()}) — check verify.checks.${name} in .casper/project.yaml`;
-  }
+  if (missing) return say(`✗ ${name} could not start — ${missingProgramLine(missing)}; install it, then ${slash(`/verify ${name}`)}`, "could not start", missingProgramLine(missing), slash(`/verify ${name}`));
   if (result.ended === "no_start") {
-    return `✗ ${name} could not start (${typeof result.exitCode === "number" ? `exit ${result.exitCode}` : safe(result.reason ?? "no exit status").replace(/\.$/, "").toLowerCase()}) — check verify.${name} in .casper/project.yaml`;
+    const why = typeof result.exitCode === "number" ? `exit ${result.exitCode}` : safe(result.reason ?? "no exit status").replace(/\.$/, "").toLowerCase();
+    return say(`✗ ${name} could not start (${why}) — check verify.${isBuiltinCheck(name) ? "" : "checks."}${name} in .casper/project.yaml`, "could not start", why);
   }
   const why = typeof result.exitCode === "number" ? `exit ${result.exitCode}`
     : timeout ? `timed out after ${duration(Number(timeout[1]))}`
@@ -932,9 +1070,10 @@ function checkLine(result: VerificationResult, safe: (text: string) => string, s
   // A lab check touches lab devices: no one-key repair offer, only running it again (it asks first).
   // Once you chose "Ask the model to fix it", the repair line above says so; the receipt never says it did not.
   if (result.kind === "lab") {
-    return `✗ ${name} failed on the lab (${why}) — log above;${repaired ? "" : " Casper did not ask the model to fix it."} ${slash(`/verify ${name}`)} runs it again (asks first)`;
+    return say(`✗ ${name} failed on the lab (${why}) — log above;${repaired ? "" : " Casper did not ask the model to fix it."} ${slash(`/verify ${name}`)} runs it again (asks first)`,
+      "failed on the lab", why, slash(`/verify ${name}`));
   }
-  return `✗ ${name} failed (${why}) — log above; ${slash(`/verify repair ${name}`)} to fix`;
+  return say(`✗ ${name} failed (${why}) — log above; ${slash(`/verify repair ${name}`)} to fix`, "failed", why, slash(`/verify repair ${name}`));
 }
 
 const duration = formatDuration;
