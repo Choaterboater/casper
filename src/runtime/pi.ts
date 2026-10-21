@@ -756,6 +756,8 @@ export class PiRuntime implements AgentRuntime {
         registerLocalServers(catalog, [found]);
       }
     }
+    // Found by itself on this computer (it may have started after Casper's first look): its models are usable now.
+    for (const found of result.found ?? []) { rememberLocalServer(found); registerLocalServers(catalog, [found]); }
     return { names: result.added.map(({ server }) => server.name), lines: result.lines };
   }
 

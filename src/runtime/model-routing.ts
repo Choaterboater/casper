@@ -64,6 +64,11 @@ export function resolveModelSelection(query: string, models: readonly ModelRefer
     if (colon !== -1) {
       const suffix = selector.slice(colon + 1).toLowerCase();
       if (!isEffortSelection(suffix)) {
+        // `ollama/qwen3.5:9b`: a colon that is part of a model's name, not an effort. Name the whole model.
+        const base = selector.slice(0, colon);
+        if (suffix && !base.startsWith("@") && !exactModel(base, models)) {
+          throw new Error(`Unknown model selector "${selector}". Use /model to see available models.`);
+        }
         throw new Error(`Unknown effort suffix "${suffix}"; use auto, off, minimal, low, medium, high, xhigh, or max.`);
       }
       effort ??= suffix;

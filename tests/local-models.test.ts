@@ -747,6 +747,26 @@ test("a server you added is looked at with its kind, next to this computer's; no
   expect([...open.seen, ...locked.seen, ...ollama.seen].filter((entry) => entry.authorization)).toEqual([]);
 });
 
+test("a server saved on this computer as a kind its answers contradict doesn't hide the one found there, and says so once", async () => {
+  const ollama = serve({ ...ollamaRoutes, "GET /api/version": { version: "0.40.6" }, "GET /v1/models": { data: [{ id: "qwen3:8b", owned_by: "library" }] } });
+  // Every look at 127.0.0.1:11434 goes to the fake Ollama; nothing else answers.
+  const fetcher = ((url: string | URL | Request, init?: RequestInit) => {
+    const target = new URL(String(url instanceof Request ? url.url : url));
+    if (target.host !== "127.0.0.1:11434") return Promise.reject(Object.assign(new TypeError("Unable to connect"), { code: "ConnectionRefused" }));
+    return fetch(`${ollama.url}${target.pathname}`, init);
+  }) as typeof fetch;
+  const wrong = { name: "llama-cpp-127-0-0-1-11434", address: "http://127.0.0.1:11434", kind: "llama.cpp" as const };
+  const found = await discoverLocalServers({ env: {}, fetch: fetcher, saved: [wrong] });
+  expect(found.servers.map((server) => [server.provider, server.saved ?? false])).toEqual([["ollama", false], [wrong.name, true]]);
+  expect(found.servers.find((server) => server.provider === "ollama")?.models.map((model) => model.id)).toContain("qwen3:8b");
+  expect(found.problems).toEqual([{ provider: wrong.name, saved: true, root: wrong.address, cause: "other",
+    text: `${wrong.name} is saved as llama.cpp, but Ollama answers at ${wrong.address}: its models are under ollama/… too, found by themselves. Forget ${wrong.name} to list them once.` }]);
+  // Saved as Ollama, it still replaces the automatic look (no model twice), and so does a variable naming the address.
+  const right = await discoverLocalServers({ env: {}, fetch: fetcher, saved: [{ ...wrong, kind: "ollama" }] });
+  expect(right.servers.map((server) => server.provider)).toEqual([wrong.name]);
+  expect(right.problems).toEqual([]);
+});
+
 test("a request to one of your servers carries only the word local, never a sign-in saved under its name", async () => {
   const box = serve({ "POST /v1/chat/completions": () => Response.json({ error: "stop here" }, { status: 400 }) });
   const dir = await mkdtemp(path.join(os.tmpdir(), "casper-server-key-"));

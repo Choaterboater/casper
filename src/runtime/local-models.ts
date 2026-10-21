@@ -7,7 +7,7 @@ import { detectServer, type Detected } from "./model-servers";
  * Each is probed at its usual loopback address, or where its variable points (which may be another computer). A
  * server that does not answer is skipped without a word unless its variable is set; then Casper says why, in plain
  * words. A provider of the same name in your models.json, or one of your providers at the same address, wins: the
- * found one is not added. */
+ * found one is not added (a server you saved on this computer as a kind its answers contradict does not hide it). */
 export interface LocalServerKind {
   /** The provider name: the first half of the model name (ollama/qwen3:8b). */
   id: "ollama" | "lm-studio" | "llama.cpp" | "vllm" | "sglang" | "mlx";
@@ -309,7 +309,7 @@ function fixedRoot(kind: LocalServerKind, env: Record<string, string | undefined
 
 /** One server kind's look: at its variable's address when set, else its usual one on this computer. */
 async function lookAt(kind: LocalServerKind, env: Record<string, string | undefined>, fetcher: typeof fetch, options: DiscoverOptions,
-  automatic: (root: string) => Promise<Detected>): Promise<LocalFound> {
+  automatic: (root: string) => Promise<Detected>, contested = false): Promise<LocalFound> {
   const { root, variable } = fixedRoot(kind, env);
   if (!root) return { provider: kind.id, problem: { provider: kind.id, cause: "address", text: `${variable} is set to an address Casper can't use, so ${kind.name} isn't in /model.` } };
   const budget = options.timeoutMs ?? probeBudget(root);
@@ -324,6 +324,11 @@ async function lookAt(kind: LocalServerKind, env: Record<string, string | undefi
       const slot = detected.kind === "openai" ? "mlx" : detected.kind;
       if (slot !== kind.id) return { provider: kind.id, replaced: true };
       return { provider: kind.id, server: { provider: kind.id, name: KIND_LABEL[detected.kind], baseUrl: `${root}/v1`, models: detected.models } };
+    }
+    // A server you saved as another kind is at this address: only what answers there says it is this kind.
+    if (contested) {
+      const detected = await automatic(root);
+      if (detected.state !== "found" || detected.kind !== kind.id) return { provider: kind.id };
     }
     const models = await modelsAt(kind.id, fetcher, root, signal, env);
     return { provider: kind.id, server: { provider: kind.id, name: kind.name, baseUrl: `${root}/v1`, models } };
@@ -379,10 +384,15 @@ export async function discoverLocalServers(options: DiscoverOptions = {}): Promi
   const fetcher = options.fetch ?? fetch;
   const saved = options.saved ?? [];
   // A server you added at the address a fixed kind is looked for wins: that one is not looked at (no model twice).
+  // Unless it is this computer's usual address and saved as another kind (llama.cpp saved where Ollama answers): then
+  // the fixed look still checks what answers there, so ollama/… is not hidden by a kind the server contradicts.
+  const contested = new Map<string, ModelServer>();
   const fixed = options.auto === false ? [] : LOCAL_SERVERS.filter((kind) => {
-    const { root } = fixedRoot(kind, env);
+    const { root, variable } = fixedRoot(kind, env);
     if (!root) return true;
-    if (saved.some((server) => sameAddress(server.address, root))) return false;
+    const there = saved.find((server) => sameAddress(server.address, root));
+    if (there && !variable && there.kind !== kind.id && onThisComputer(root)) { contested.set(kind.id, there); return true; }
+    if (there) return false;
     // A variable is an explicit choice of reader. It owns that root, even when another local kind shares its port.
     return !LOCAL_SERVERS.some((other) => {
       if (other.id === kind.id) return false;
@@ -399,13 +409,20 @@ export async function discoverLocalServers(options: DiscoverOptions = {}): Promi
     }
     return probe;
   };
-  const looks = [...fixed.map((kind) => () => lookAt(kind, env, fetcher, options, automatic)), ...saved.map((server) => () => lookAtSaved(server, env, fetcher, options))];
+  const looks = [...fixed.map((kind) => () => lookAt(kind, env, fetcher, options, automatic, contested.has(kind.id))), ...saved.map((server) => () => lookAtSaved(server, env, fetcher, options))];
   const found = await Promise.all(looks.map(async (look) => {
     const result = await look();
     try { options.each?.(result); } catch { /* a listener's failure is not the look's */ }
     return result;
   }));
-  return { servers: found.flatMap((entry) => entry.server ? [entry.server] : []), problems: found.flatMap((entry) => entry.problem ? [entry.problem] : []),
+  // Said once, on your server's row in /model and in doctor: the same server under two names, and which to keep.
+  const twice = found.flatMap((entry): LocalProblem[] => {
+    const mine = entry.server && contested.get(entry.provider);
+    const kind = LOCAL_SERVERS.find(({ id }) => id === entry.provider);
+    return mine && kind ? [{ provider: mine.name, saved: true, root: mine.address, cause: "other",
+      text: `${mine.name} is saved as ${KIND_LABEL[mine.kind]}, but ${kind.name} answers at ${mine.address}: its models are under ${kind.id}/… too, found by themselves. Forget ${mine.name} to list them once.` }] : [];
+  });
+  return { servers: found.flatMap((entry) => entry.server ? [entry.server] : []), problems: [...found.flatMap((entry) => entry.problem ? [entry.problem] : []), ...twice],
     looked: [...fixed.filter((kind) => !found.some((entry) => entry.provider === kind.id && entry.replaced)).map((kind) => kind.id), ...saved.map((server) => server.name)] };
 }
 
@@ -421,6 +438,14 @@ export function configureLocalServers(next: { auto?: boolean; saved?: readonly M
   const same = merged.auto === settings.auto && JSON.stringify(merged.saved) === JSON.stringify(settings.saved);
   settings = merged;
   if (!same && round) round.at = Number.NEGATIVE_INFINITY;
+}
+
+/** The local kind Casper looks for by itself at `root` on this computer (its usual address, or where its variable
+ * points), when the looks are on: adding a server there would only list its models twice. */
+export function foundByItself(root: string, kind: ServerKind, env: Record<string, string | undefined> = process.env): LocalServerKind | undefined {
+  if (!settings.auto || lookingOff(env) || !onThisComputer(root)) return undefined;
+  const slot = kind === "openai" ? "mlx" : kind;
+  return LOCAL_SERVERS.find((local) => local.id === slot && sameAddress(fixedRoot(local, env).root ?? "", root));
 }
 
 /** The servers you added, as the looks know them. */
