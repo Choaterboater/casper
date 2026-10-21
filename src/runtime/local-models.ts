@@ -456,9 +456,10 @@ export function localLooksWanted(): boolean { return settings.auto || settings.s
 
 /** What the runtime calls: tests replace `discover` (tests/support/preload.ts) so no test reaches a real server.
  * `staleMs`: a model asked for by name that isn't there sends Casper looking once more only when the last look is
- * older than this. */
-export const localModelDefaults: { discover: typeof discoverLocalServers; ttlMs: number; staleMs: number; detectFetch?: typeof fetch } =
-  { discover: discoverLocalServers, ttlMs: 24 * 60 * 60 * 1000, staleMs: 15_000 };
+ * older than this. `coldMs`: how long a model named on a server on this computer that hasn't answered yet (Ollama just
+ * started) is waited for, looking again, before Casper says it didn't answer. */
+export const localModelDefaults: { discover: typeof discoverLocalServers; ttlMs: number; staleMs: number; coldMs: number; detectFetch?: typeof fetch } =
+  { discover: discoverLocalServers, ttlMs: 24 * 60 * 60 * 1000, staleMs: 15_000, coldMs: 6_000 };
 
 /** One look at the servers: the whole result, and each server's own end, so a wait for one isn't a wait for all. */
 interface Round {
@@ -547,6 +548,14 @@ export function localServersHereSettled(env: Record<string, string | undefined> 
     return root !== undefined && onThisComputer(root);
   });
   return Promise.all(here.map((kind) => localServerSettled(kind.id))).then((servers) => servers.filter((server) => server !== undefined));
+}
+
+/** The local kind `provider` names when Casper looks for it on this computer (its usual address, or a variable
+ * pointing here), with that address; undefined for another computer or a server you added. */
+export function localKindHere(provider: string, env: Record<string, string | undefined> = process.env): { kind: LocalServerKind; root: string } | undefined {
+  const kind = LOCAL_SERVERS.find(({ id }) => id === provider);
+  const root = kind && fixedRoot(kind, env).root;
+  return kind && root && onThisComputer(root) ? { kind, root } : undefined;
 }
 
 /** True once a server on this computer answers with models in the current look (starting one if none is out), false
