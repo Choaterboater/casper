@@ -174,7 +174,7 @@ export class InteractiveTerminal {
   setWork(view?: WorkView): void {
     const lines = [...view?.rows ?? [], ...(view?.status ? [view.status] : [])];
     const pane = lines.length ? this.activityPane() : this.pane;
-    if (pane) { pane.show(lines); this.surface?.setWork(view?.status ? { rows: [], status: view.status } : undefined); return; }
+    if (pane) { pane.show(lines); this.surface?.setWork(view?.status ? { rows: [], status: view.status, ...(view.intent ? { intent: view.intent } : {}) } : undefined); return; }
     this.surface?.setWork(view);
   }
   /** Live crew rows stay on the main screen even when the optional steps pane is open. */
