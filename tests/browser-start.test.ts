@@ -53,7 +53,9 @@ browserTest("the installed browser starts, opens a local page and closes", async
   await mkdir(project); await mkdir(state);
   const server = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => new Response("<!doctype html><title>Start fixture</title><h1>Hello Casper</h1>", { headers: { "content-type": "text/html" } }) });
   cleanup.push(["page server", () => server.stop(true)]);
-  const session = new BrowserSession({ projectRoot: project, stateDirectory: state, executablePath: executable });
+  // This test is about Chrome starting, not the open's 15 s: in the loaded Windows suite the first open after a cold
+  // start has run past 15 s with Chrome up (a 17.7 s failure), so it gets 30 s.
+  const session = new BrowserSession({ projectRoot: project, stateDirectory: state, executablePath: executable, actionTimeoutMs: 30_000 });
   cleanup.push(["browser", () => session.close()]);
   const folder = realUserFolder();
   const opened = await withEnv(folder ? { USERPROFILE: folder } : {}, () => session.run({ action: "open", url: `http://127.0.0.1:${server.port}/` }));

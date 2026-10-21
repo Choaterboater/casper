@@ -187,6 +187,17 @@ browserTest("after two fresh starts a third crash closes the session for good", 
   expect((await readFile(starts, "utf8")).trim().split("\n")).toHaveLength(2);
 }, 30_000);
 
+// The fresh start after one that never answered is still part of the cold start: it doesn't use up the open's time either.
+(process.platform === "win32" ? test.skip : browserTest)("a fresh Chrome start after one that never answered doesn't use up the open's time", async () => {
+  const root = await realpath(await mkdtemp(path.join(os.tmpdir(), "casper-slow-chrome-")));
+  cleanup.push(() => removeTempDir(root));
+  const starts = path.join(root, "starts"), wrapper = path.join(root, "chrome");
+  await writeFile(wrapper, `#!/bin/sh\necho start >> "${starts}"\nif [ "$(wc -l < "${starts}")" -le 1 ]; then exec sleep 60; fi\nsleep 2\nexec "${executable}" "$@"\n`, { mode: 0o755 });
+  const f = await fixture({ executablePath: wrapper, firstStartMs: 1_000, actionTimeoutMs: 1_500 });
+  expect(await f.session.run({ action: "open", url: f.url })).toMatchObject({ title: "Browser fixture" });
+  expect((await readFile(starts, "utf8")).trim().split("\n")).toHaveLength(2);
+}, 30_000);
+
 // On a busy machine a cold Chrome start took most of an open's 15 s, and the open ended in a bare AbortError.
 (process.platform === "win32" ? test.skip : browserTest)("a slow Chrome start doesn't use up the open's time, and an open that runs out says so", async () => {
   const root = await realpath(await mkdtemp(path.join(os.tmpdir(), "casper-slow-start-")));
