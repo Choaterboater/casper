@@ -62,3 +62,23 @@ browserTest("the installed browser starts, opens a local page and closes", async
   expect(JSON.stringify(opened)).toContain("Start fixture");
   await session.close();
 }, 60_000);
+
+// No Chrome found (or a bad path, or puppeteer failing to load) used to leave the session "starting" for good, every
+// later call getting the same old error even after Chrome was installed.
+test("a start that fails before Chrome launches leaves the session idle, and the next start tries again", async () => {
+  const root = await realpath(await mkdtemp(path.join(os.tmpdir(), "casper-browser-unavailable-")));
+  cleanup.push(["temp folder", () => removeTempDir(root)]);
+  const project = path.join(root, "project"), state = path.join(root, "state");
+  await mkdir(project); await mkdir(state);
+  const options = { projectRoot: project, stateDirectory: state, executablePath: "not-an-absolute-path" };
+  const session = new BrowserSession(options);
+  cleanup.push(["browser", () => session.close()]);
+  const open = { action: "open", url: "http://127.0.0.1:9/" } as const;
+  await expect(session.run(open)).rejects.toThrow("Browser unavailable");
+  expect(session.status().state).toBe("idle");
+  // A fresh attempt reads the options again: an absolute path that isn't there now fails at launch instead.
+  options.executablePath = path.join(root, "no-chrome");
+  const second = await session.run(open).then(() => "opened", (error: Error) => error.message);
+  expect(second).not.toContain("Browser unavailable");
+  expect(session.status().state).toBe("idle");
+}, 30_000);

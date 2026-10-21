@@ -154,6 +154,27 @@ browserTest("after two fresh starts a third crash closes the session for good", 
   expect((await readFile(starts, "utf8")).trim().split("\n")).toHaveLength(2);
 }, 30_000);
 
+// The fresh start's Chrome came up but its page didn't: that Chrome was left running, unowned, on the profile the
+// next start then reused.
+(process.platform === "win32" ? test.skip : browserTest)("a fresh start whose page fails stops its Chrome, and the next open starts clean", async () => {
+  const root = await realpath(await mkdtemp(path.join(os.tmpdir(), "casper-failed-retry-")));
+  cleanup.push(() => removeTempDir(root));
+  const starts = path.join(root, "starts"), pids = path.join(root, "pids"), wrapper = path.join(root, "chrome");
+  await writeFile(wrapper, `#!/bin/sh\necho start >> "${starts}"\nif [ "$(wc -l < "${starts}")" -le 1 ]; then exec sleep 60; fi\necho $$ >> "${pids}"\nexec "${executable}" "$@"\n`, { mode: 0o755 });
+  // A long action limit: a loaded machine can take most of 15 s to start the second Chrome.
+  const f = await fixture({ executablePath: wrapper, firstStartMs: 1_000, actionTimeoutMs: 40_000 });
+  const session = f.session as unknown as { newPage(): Promise<unknown> };
+  const newPage = session.newPage;
+  session.newPage = async () => { session.newPage = newPage; throw new Error("synthetic page failure"); };
+  await expect(f.session.run({ action: "open", url: f.url })).rejects.toThrow("synthetic page failure");
+  expect(f.session.status()).toMatchObject({ state: "idle", ownedBrowserPid: undefined });
+  const [failed] = (await readFile(pids, "utf8")).trim().split("\n").map(Number);
+  const alive = (pid: number) => { try { process.kill(pid, 0); return true; } catch { return false; } };
+  for (let i = 0; i < 200 && alive(failed!); i++) await new Promise(resolve => setTimeout(resolve, 25));
+  expect(alive(failed!)).toBe(false);
+  expect(await f.session.run({ action: "open", url: f.url })).toMatchObject({ title: "Browser fixture" });
+}, 90_000);
+
 // On a busy machine a cold Chrome start took most of an open's 15 s, and the open ended in a bare AbortError.
 (process.platform === "win32" ? test.skip : browserTest)("a slow Chrome start doesn't use up the open's time, and an open that runs out says so", async () => {
   const root = await realpath(await mkdtemp(path.join(os.tmpdir(), "casper-slow-start-")));
