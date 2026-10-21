@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import type { CasperApp } from "../src/app";
 import { applySessionCheckOverrides, checkChangeOptions } from "../src/app/check-changes";
-import { CHECK_CHANGE_CHOICES, CHECK_CHANGE_QUESTION, CheckChangeGuard, guardedFileTools, type CheckChange, type CheckChangeOptions } from "../src/runtime/check-changes";
+import { CHECK_CHANGE_CHOICES, CHECK_CHANGE_QUESTION, CheckChangeGuard, ensureFolder, guardedFileTools, type CheckChange, type CheckChangeOptions } from "../src/runtime/check-changes";
 import type { ProjectModel } from "../src/project/model";
 import { VerifierRegistry } from "../src/verify/registry";
 import { VerificationTask } from "../src/verify/task";
@@ -300,4 +300,23 @@ test("native write aliases cannot bypass protection of named check scripts", asy
   await expect(project.call("write", { path: "alias.ts", content: "skip" })).rejects.toThrow("needs your OK");
   expect(await project.guard.shellReason("echo skip > alias.ts")).toContain("Use native edit/write");
   expect(await project.script()).toContain("real test");
+});
+
+test("the write tool leaves a folder that is there alone: a drive root (C:\\) refuses mkdir on Windows", async () => {
+  const made: string[] = [];
+  const eperm = Object.assign(new Error("EPERM: operation not permitted, mkdir 'C:\\'"), { code: "EPERM" });
+  const fs = (folders: string[]) => ({
+    stat: (async (folder: string) => {
+      if (!folders.includes(folder)) throw Object.assign(new Error("ENOENT"), { code: "ENOENT" });
+      return { isDirectory: () => true };
+    }) as unknown as typeof import("node:fs/promises").stat,
+    mkdir: (async (folder: string) => { if (folder === "C:\\") throw eperm; made.push(folder); return undefined; }) as unknown as typeof import("node:fs/promises").mkdir,
+  });
+  await ensureFolder("C:\\", fs(["C:\\"]));
+  expect(made).toEqual([]);
+  // A folder that isn't there yet is still made, with its parents.
+  await ensureFolder("C:\\work\\new", fs(["C:\\"]));
+  expect(made).toEqual(["C:\\work\\new"]);
+  // A root that really isn't there still says why.
+  await expect(ensureFolder("C:\\", fs([]))).rejects.toThrow("EPERM");
 });

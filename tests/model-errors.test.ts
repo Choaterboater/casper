@@ -200,7 +200,7 @@ test("a model error thrown to the prompt loop gets the plain cause line too", as
 });
 
 test("a provider that rejects tools is said plainly, without the raw text in the first line", () => {
-  const plain = "can't use tools, so it can't edit files or run commands here. Pick another model with /model, or use it for questions only.";
+  const plain = "can't use tools, and Casper sends them with every request, so it can't answer here, not even a question. Pick another model with /model.";
   expect(explainModelError('400 {"error":{"message":"registry.ollama.ai/library/gemma:2b does not support tools"}}')).toEqual({ cause: "tools", line: `gemma:2b ${plain}` });
   expect(explainModelError("400 tools are not supported")?.line).toBe(`This model ${plain}`);
   expect(explainModelError("Tool use is not supported by this model")?.cause).toBe("tools");
