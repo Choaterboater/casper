@@ -9,7 +9,7 @@ import { isSecretFile } from "../secrets/files";
 import { checkInputs } from "../task/check-inputs";
 import type { ProjectCommand } from "../project/model";
 import type { TreeChanges } from "../task/changes";
-import { argvText, runCommandCheck, type CommandCheckOptions } from "./command";
+import { argvText, runCommandCheck, SLOW_TEST, type CommandCheckOptions } from "./command";
 import type { VerificationResult } from "./evidence";
 
 /** Whether the tests show the change works: they fail on the code without the change (the change's
@@ -277,6 +277,8 @@ export class ChangeBaseline {
       if (result.exitCode === null) {
         return { status: "unavailable", check, reason: `${check} could not run without the change (${(result.reason ?? "no exit status").replace(/\.$/, "").toLowerCase()})` };
       }
+      // A test that hit its own time limit did not finish (command.ts keeps exit 1): the old code was not seen failing.
+      if (result.reason === SLOW_TEST) return { status: "unavailable", check, reason: `${check} did not finish without the change: ${SLOW_TEST}` };
       const evidence = withoutRun({ ...result, exitCode: result.exitCode });
       if (result.status === "pass") return { status: "unproven", check, command, testsChanged: tests.length > 0, without: evidence };
       // A copy that cannot run the tests at all would look like proof: the current code must pass there too.

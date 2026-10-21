@@ -5,6 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { diffSnapshots, snapshotTree } from "../src/task/changes";
 import { ChangeBaseline, isCodePath, isTestPath, withoutEnded } from "../src/verify/proof";
+import { SLOW_TEST } from "../src/verify/command";
 import { removeTempDir } from "./support/temp-dir";
 import { childTestLimit } from "./support/limits";
 
@@ -73,6 +74,15 @@ test.skipIf(!Bun.which("sh"))("a failure without the change that is a crash, not
   expect({ exitCode: without?.exitCode, ended: without?.ended }).toEqual({ exitCode: 139, ended: "crash" });
   expect(without?.output?.length).toBeLessThanOrEqual(500);
   expect(without?.output).toContain("\ncrashing\n");
+});
+
+test("a test that hit its own time limit without the change is not proof: Casper could not compare", async () => {
+  // Exit 1 with a runner's per-test timeout line: the old code was never seen failing.
+  const slow = `if (${says("src/sum.js", "fixed")}) process.exit(0);\nconsole.log("(fail) slow test\\nerror: this test timed out after 5000ms"); process.exit(1);\n`;
+  const proof = await prove({ "src/sum.js": "broken\n", "tests/check.js": slow }, async (root) => {
+    await write(root, { "src/sum.js": "fixed\n" });
+  }, CHECK);
+  expect(proof).toEqual({ status: "unavailable", check: "test", reason: `test did not finish without the change: ${SLOW_TEST}` });
 });
 
 test("how the run without the change ended: a test failure, a timeout, a crash or a command that could not start", () => {
