@@ -11,7 +11,7 @@ casper-skill:
     weak: ["mqtt", "zigbee", "zwave", "z-wave"]
     context: ["integration", "integrations", "automation", "automations", "dashboard", "dashboards", "entity", "entities", "broker"]
     unless: ["chatbot", "ai assistant"]
-  version: 1
+  version: 2
 ---
 # Home Assistant
 
@@ -78,6 +78,14 @@ WRITE: `DELETE /api/config/config_entries/entry/<entry_id>` removes an entry.
   container runs as; HA's MQTT entry then takes the broker, port 1883 and that user's login in its setup flow.
 - Behind a reverse proxy HA answers 400 until `configuration.yaml` has `http: use_x_forwarded_for: true` and
   the proxy's address in `trusted_proxies`.
+- Automations and scripts go in `automations.yaml` / `scripts.yaml` (or HA's editor), where the person can
+  read and change them; a custom component for a rule is code they can't see.
+- Keys and tokens go in `secrets.yaml`, used as `!secret name`; never in other YAML or code.
+- Ready means set up and seen working: never because an entity with that name exists. Check numbers add up.
+- Re-read the live files right before a deploy; someone may have changed them since you read them.
+- A restart resets every entity's `last_changed`; for "away over an hour" keep the time in a trigger-based
+  template sensor.
+- To check a dashboard in the browser, sign in first and wait past the "Loading" screen.
 - One sensor ID used twice ("does not generate unique IDs") is usually two paths or names ending the same
   in the source app; HA keeps the first and ignores the other.
 

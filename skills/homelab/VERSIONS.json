@@ -4,8 +4,8 @@
     "sha256": "e187fd3729dc1cec8f8a515955598442d99897103bb778a1b9852f93c67a87ad"
   },
   "homelab-home-assistant": {
-    "version": 1,
-    "sha256": "3aaaf6715e1430e18b6dbd916f096e8f0e5cdf5b1f1c40b926bd8c3640d5a4c9"
+    "version": 2,
+    "sha256": "3c618e1b7c40d63a9f93705473cdbea39df0735906eaf2e89afe8f1c3676f1e3"
   },
   "homelab-media-stack": {
     "version": 1,
