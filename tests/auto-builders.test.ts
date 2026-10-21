@@ -298,7 +298,8 @@ test("a builder's private paths stay private in its copy, and it gets the sessio
   expect(options.privatePaths).toEqual(expect.arrayContaining([path.join(repo, "secret.txt"), path.join(options.cwd, "secret.txt")]));
   expect(options.shell).toBeDefined();
   // The same hidden-secret check as the main session: the marker never goes back into a file.
-  expect(options.beforeToolGate!("write", { path: "b.txt", content: "password <secret hidden>" })).toBe(NOT_WRITTEN_REASON);
+  // The copy is gone by now, so the overwrite names the file that is still in the project.
+  expect(options.beforeToolGate!("write", { path: path.join(repo, "b.txt"), content: "password <secret hidden>" })).toBe(NOT_WRITTEN_REASON);
   expect(options.beforeToolGate!("edit", { path: "b.txt", edits: [{ oldText: "x", newText: "<line hidden: secret>" }] })).toBe(NOT_WRITTEN_REASON);
   expect(options.beforeToolGate!("bash", { command: "sed -i 's/x/<secret hidden>/' b.txt" })).toBe(NOT_RUN_REASON);
   expect(options.beforeToolGate!("write", { path: "/elsewhere/b.txt", content: "x" })).toContain("outside your copy");

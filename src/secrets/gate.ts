@@ -1,3 +1,5 @@
+import { lstatSync } from "node:fs";
+import { resolveToolPath } from "../platform/project-paths";
 import { LINE_MARKER, SECRET_MARKER } from "./scrub";
 
 /** Refusal for a native edit or write whose new text still holds the marker. */
@@ -17,14 +19,21 @@ function hasMarker(value: unknown, depth = 0): boolean {
 
 /**
  * The hidden-secret check for native tools. The AI only ever saw "<secret hidden>", so new text or
- * a command that carries it back would overwrite a real secret with the marker.
+ * a command that carries it back would overwrite a real secret with the marker. A write that creates a new
+ * file (nothing at its path under `cwd`) replaces nothing, so it may quote the marker.
  */
-export function hiddenSecretGate(toolName: string, input: Record<string, unknown> | undefined): string | undefined {
+export function hiddenSecretGate(toolName: string, input: Record<string, unknown> | undefined, cwd?: string): string | undefined {
   if (!input) return undefined;
   // The service tool's ad-hoc start command is a shell command too.
   if (toolName === "bash" || toolName === "powershell" || toolName === "service") return hasMarker(input.command) ? NOT_RUN_REASON : undefined;
+  if (toolName === "write" && cwd && typeof input.path === "string" && input.path && isNewFile(resolveToolPath(input.path, cwd))) return undefined;
   if (toolName === "edit" || toolName === "write") return hasMarker(input) ? NOT_WRITTEN_REASON : undefined;
   // An lsp rename writes its new name into files.
   if (toolName === "lsp" && input.operation === "rename") return hasMarker(input.newName) ? NOT_WRITTEN_REASON : undefined;
   return undefined;
+}
+
+/** Nothing at all is there; a link, even a broken one, counts as there. */
+function isNewFile(file: string): boolean {
+  try { lstatSync(file); return false; } catch { return true; }
 }

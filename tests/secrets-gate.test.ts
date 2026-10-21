@@ -1,7 +1,11 @@
 import { expect, test } from "bun:test";
+import { mkdtemp, symlink, writeFile } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
 import { hiddenSecretGate, NOT_RUN_REASON, NOT_WRITTEN_REASON } from "../src/secrets/gate";
 import { Scrubber } from "../src/secrets/netconan";
 import { scrubToolOutput } from "../src/secrets/tool-output";
+import { removeTempDir } from "./support/temp-dir";
 
 const scrubber = new Scrubber({ env: { CASPER_NETCONAN: "off" } });
 
@@ -11,6 +15,22 @@ test("new text with <secret hidden> is not written; old text may hold it; normal
   expect(hiddenSecretGate("edit", { path: "a.cfg", edits: [{ oldText: "key <secret hidden>", newText: "" }] })).toBeUndefined();
   expect(hiddenSecretGate("edit", { path: "a.cfg", edits: [{ oldText: "vlan 10", newText: "vlan 20" }] })).toBeUndefined();
   expect(hiddenSecretGate("write", { path: "a.cfg", content: "<line hidden: secret>" })).toBe(NOT_WRITTEN_REASON);
+});
+
+test("a write that creates a new file may quote the marker; overwriting a file or editing one may not", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "casper-secrets-gate-"));
+  try {
+    await writeFile(path.join(root, "a.cfg"), "key RealKey\n");
+    await symlink(path.join(root, "gone.cfg"), path.join(root, "link.cfg"));
+    const note = "The scrubber showed <secret hidden> in place of a plain word.\n";
+    expect(hiddenSecretGate("write", { path: "notes/false-positive.md", content: note }, root)).toBeUndefined();
+    expect(hiddenSecretGate("write", { path: path.join(root, "new.md"), content: note }, root)).toBeUndefined();
+    expect(hiddenSecretGate("write", { path: "a.cfg", content: "key <secret hidden>\n" }, root)).toBe(NOT_WRITTEN_REASON);
+    expect(hiddenSecretGate("write", { path: "link.cfg", content: note }, root)).toBe(NOT_WRITTEN_REASON);
+    expect(hiddenSecretGate("edit", { path: "new.md", edits: [{ oldText: "x", newText: note }] }, root)).toBe(NOT_WRITTEN_REASON);
+    // Without a folder to look in, every write with the marker is still refused.
+    expect(hiddenSecretGate("write", { path: "notes/false-positive.md", content: note })).toBe(NOT_WRITTEN_REASON);
+  } finally { await removeTempDir(root); }
 });
 
 test("a shell command with the marker is not run; other commands and tools pass", () => {
