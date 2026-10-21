@@ -240,6 +240,42 @@ test("changes the AI made on another machine over ssh reach the receipt, marked 
   expect(formatReceipt({ execution: "completed", ...quiet.snapshot([]) })).not.toContain("Changed on");
 });
 
+test("a secret the AI wrote into a file is one receipt line naming the file, never the value", async () => {
+  const { addsSecret, hideCommandSecrets } = await import("../src/secrets/files");
+  const { formatReceipt } = await import("../src/task/result");
+  const jwt = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJmaXh0dXJlIn0.c2lnbmF0dXJlLWZpeHR1cmUtMDEyMzQ1Njc4OQ";
+  const key = "9f8e7d6c5b4a39281706f5e4d3c2b1a0";
+  const yaml = (lines: string[]) => `weather:\n  platform: sample\n${lines.join("\n")}\n`;
+  expect(addsSecret("config/app.yaml", "", yaml([`  api_key: ${key}`]), {})).toBe(true);
+  expect(addsSecret("config/app.yaml", "", yaml([`  token: ${jwt}`]), {})).toBe(true);
+  expect(addsSecret("config/app.yaml", "", yaml([`  headers:`, `    Authorization: "Bearer ${jwt}"`]), {})).toBe(true);
+  // Placeholders and references to a value kept elsewhere are not secrets.
+  for (const value of ["!secret weather_key", "!env_var WEATHER_KEY", "${WEATHER_KEY}", "\"${WEATHER_KEY}\"", "\"{{ weather_key }}\"", "<your-api-key>", "YOUR_API_KEY", "changeme", "xxxxxxxx"]) {
+    expect(addsSecret("config/app.yaml", "", yaml([`  api_key: ${value}`]), {})).toBe(false);
+  }
+  expect(addsSecret("src/app.ts", "", "const token = process.env.WEATHER_TOKEN;\n", {})).toBe(false);
+  // Only what the write adds counts: a key the file already had, moved or re-indented, is not new.
+  expect(addsSecret("config/app.yaml", yaml([`  api_key: ${key}`]), yaml(["  scan_interval: 60", `    api_key: ${key}`]), {})).toBe(false);
+  // An env or secrets file is where secrets belong (Home Assistant's secrets.yaml too).
+  for (const file of [".env", "config/secrets.yaml", "deploy/prod.tfvars"]) expect(addsSecret(file, "", `weather_key: ${key}\n`, {})).toBe(false);
+  // A file written over ssh from a here-document is in the command itself: the command's own line covers it.
+  expect(hideCommandSecrets(`ssh build-server 'cat > /opt/app/app.yaml' <<'EOF'\n${yaml([`  api_key: ${key}`])}EOF`, {}).hidden).toBeGreaterThan(0);
+
+  const write = (file: string, isError = false) => ({ type: "tool_end" as const, toolName: "write", toolCallId: "call", input: { path: file, secretWritten: file }, isError });
+  const observations = new TaskObservations();
+  observations.observeToolEnd(write("config/app.yaml"), {});
+  observations.observeToolEnd(write("config/app.yaml"), {});
+  // A write that failed put nothing in the file.
+  observations.observeToolEnd(write("config/other.yaml", true), {});
+  const snapshot = observations.snapshot(["config/app.yaml"]);
+  expect(snapshot.secretInFiles).toEqual(["config/app.yaml"]);
+  expect(snapshot.secretInCommand).toBeUndefined();
+  const receipt = formatReceipt({ execution: "completed", ...snapshot });
+  expect(receipt).toContain("– A secret was written into config/app.yaml (not shown). Keep secrets in an env file or a secrets store.");
+  expect(formatTaskResult({ execution: "completed", ...snapshot })).toContain("secret       A secret was written into config/app.yaml (not shown).");
+  expect(formatReceipt({ execution: "completed", ...new TaskObservations().snapshot([]) })).not.toContain("A secret was written");
+});
+
 test("commands to another machine that Casper stopped are said on the receipt: nothing reached it through them", async () => {
   const { formatReceipt, formatTaskResult: full } = await import("../src/task/result");
   const observations = new TaskObservations();

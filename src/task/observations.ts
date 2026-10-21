@@ -10,7 +10,7 @@ import type { ObservedCheck, TaskResult } from "./result";
 import { remoteChanges } from "./remote-changes";
 import { leavesLocalFilesAlone } from "../flows/plan";
 
-type TaskObservationSnapshot = Required<Pick<TaskResult, "observedEdits" | "observedChecks" | "possibleMutations" | "usage">> & Pick<TaskResult, "changedPaths" | "changedDuringChecks" | "testRunner" | "remoteChanges" | "remoteNotRun" | "secretInCommand">;
+type TaskObservationSnapshot = Required<Pick<TaskResult, "observedEdits" | "observedChecks" | "possibleMutations" | "usage">> & Pick<TaskResult, "changedPaths" | "changedDuringChecks" | "testRunner" | "remoteChanges" | "remoteNotRun" | "secretInCommand" | "secretInFiles">;
 
 /** One retained tool call, newest last. Output is already bounded by the runtime adapter. */
 export interface RetainedToolOutput {
@@ -76,6 +76,8 @@ export class TaskObservations {
   private readonly remoteStopped = new Map<string, { host: string; commands: number }>();
   /** A secret appeared in a command the AI sent (hidden on screen; the AI has it). */
   private secretInCommand = false;
+  /** Files the AI's writes and edits added a secret to, as a person would type them. */
+  private readonly secretFiles = new Set<string>();
 
   /** Counts the main conversation's model responses and totals their reported usage. A delegated
    * subagent's model calls are added by `recordDelegatedUsage`; until every delegate call has
@@ -151,6 +153,7 @@ export class TaskObservations {
     const looked = event.toolName === "bash" && typeof event.input?.command === "string" && leavesLocalFilesAlone(event.input.command);
     if ((["bash", "powershell", "edit", "write"].includes(event.toolName) && !looked) || (event.toolName === "lsp" && event.input?.operation === "rename")) this.mutationToolRan = true;
     if (event.input?.secretHidden) this.secretInCommand = true;
+    if (event.input?.secretWritten && !event.isError && this.secretFiles.size < OBSERVED_EDITS_LIMIT) this.secretFiles.add(event.input.secretWritten);
     // A command Casper or the sandbox refused did not reach the other machine.
     // Not one refused for reading a private place here (~/.ssh): that is about this computer, and the AI reaching the
     // machine another way afterwards left a finished task saying "Incomplete — a command to <machine> did not run".
@@ -222,6 +225,7 @@ export class TaskObservations {
       ...(this.remote.size ? { remoteChanges: [...this.remote.values()].map(({ host, changes }) => ({ host, changes: [...changes] })) } : {}),
       ...(this.remoteStopped.size ? { remoteNotRun: [...this.remoteStopped.values()].map((entry) => ({ ...entry })) } : {}),
       ...(this.secretInCommand ? { secretInCommand: true as const } : {}),
+      ...(this.secretFiles.size ? { secretInFiles: [...this.secretFiles] } : {}),
       possibleMutations: (this.mutationToolRan || this.edits.size > 0) && !changedPaths,
       usage: { turns: this.turns, ...tokenFields(this.delegationReports < this.delegations ? null : this.split),
         ...(this.helpers.length ? { helpers: structuredClone(this.helpers) } : {}), ...(this.delegationReports < this.delegations ? { tokens: null, estimatedCost: null }

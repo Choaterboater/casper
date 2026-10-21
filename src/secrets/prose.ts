@@ -13,8 +13,8 @@ import { SECRET_MARKER, type ScrubTextResult } from "./scrub";
 interface Span { start: number; end: number; kind: SecretKind }
 
 const UUID = String.raw`[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}`;
-/** Words that are placeholders or code, never a value. */
-const NOT_A_VALUE = /^(?:str|string|int|bool|none|null|nil|true|false|undefined|required|optional|secret|password|token|changeme|example|xxx+|redacted|hidden|n\/a|na|tbd|todo|unknown|same|none\.?|empty|blank)$/i;
+/** Words that are placeholders or code, never a value; YAML tags that name a value kept elsewhere (`!secret weather_key`). */
+const NOT_A_VALUE = /^(?:!secret|!env_var|!include|!vault|str|string|int|bool|none|null|nil|true|false|undefined|required|optional|secret|password|token|changeme|example|xxx+|redacted|hidden|n\/a|na|tbd|todo|unknown|same|none\.?|empty|blank)$/i;
 
 /** A word that looks like a secret, not a plain word: a digit with a letter, a symbol, or a long number. */
 function secretLike(value: string): boolean {

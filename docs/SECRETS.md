@@ -90,6 +90,14 @@ through. Check what a tool returns before you share it.
 - **Commands the AI sent: always (from v0.2.19).** A secret the AI typed into a command is hidden
   before Casper shows the command, keeps it in `/output` and records, or puts it on the receipt. The
   AI already has it, so the receipt says `A secret appeared in a command; change it after this task.`
+- **Secrets the AI wrote into files: a receipt note.** When the AI's `write` or `edit` adds a line
+  that the rules above read as a secret (an API key, a token, a password) to a file, the receipt
+  names the file, never the value: `A secret was written into config/app.yaml (not shown). Keep
+  secrets in an env file or a secrets store.` Nothing is stopped or asked. A reference to a value
+  kept elsewhere (`!secret weather_key`, `${WEATHER_KEY}`, `{{ weather_key }}`), a placeholder, and
+  a write to a `.env`, `secrets.yaml` or other secret file (where secrets belong) get no line. A
+  file written over ssh from a local file (`ssh host 'cat > f' < f`) is not read; a here-document
+  in the command is, and gets the command line above.
 - **Your own secret environment values: always (from v0.2.16).** Exact copies of the
   values of Casper's secret-named environment variables (`OPENROUTER_API_KEY`,
   `MIST_API_TOKEN`, `CENTRAL_CLIENT_SECRET`, `SLACK_WEBHOOK_URL`, `SENTRY_DSN` ...;
