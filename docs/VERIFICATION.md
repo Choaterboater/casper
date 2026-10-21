@@ -656,7 +656,10 @@ you may add test files" is still a code change.
    copy cannot run the tests, and the receipt says Casper could not compare (never a false proof).
    The receipt names the exit code of the run without the change. A run that did not end as a
    test failure is weaker evidence and reads **Proven, weakly**: a timeout, a crash or signal (a
-   shell's exit above 128), or a command that could not start (exit 126 or 127). A run with no exit
+   shell's exit above 128), or a command that could not start (exit 126 or 127). Only the crash
+   still makes the change Verified: a run that timed out or could not start did not show the old
+   code failing, so it is not proof, and line 1 reads `– Checks passed — not proven: without the
+   change test timed out, so it did not show the old code failing`. A run with no exit
    status at all (killed before it could report one), or one in which a test hit its own time limit
    (see Timed out or could not start), is not proof: Casper could not compare.
 4. **If it passes without the change**, the change is **not proven**. Casper spends one repair

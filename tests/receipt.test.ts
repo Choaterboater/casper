@@ -166,6 +166,21 @@ test("the receipt says whether the tests prove the change, and never calls an un
     .toBe("– Not proven — the workspace has more than 20000 files");
 });
 
+test("a run without the change that timed out or never started is not Verified; a crash still is", () => {
+  const task = (without: Extract<NonNullable<TaskResult["proof"]>, { status: "proven" }>["without"]) => done({ changedPaths: ["src/sum.js"], verificationMode: "auto",
+    verification: report([check()]), proof: { status: "proven", check: "test", command: "npm run test", testsChanged: true, without } });
+  const timedOut = task({ exitCode: 143, ended: "timeout", reason: "Timed out after 20000ms" });
+  const noStart = task({ exitCode: 127, ended: "no_start" });
+  const crashed = task({ exitCode: 139, ended: "crash" });
+  expect([timedOut, noStart, crashed].map((result) => taskOutcome(result.verification, result))).toEqual(["not_verified", "not_verified", "verified"]);
+  expect(taskExitCode(timedOut.verification, timedOut, { requireVerification: true })).toBe(3);
+  expect(formatReceipt(timedOut).split("\n")[0]).toBe("– Checks passed — not proven: without the change test timed out, so it did not show the old code failing");
+  expect(formatReceipt(noStart).split("\n")[0]).toBe("– Checks passed — not proven: without the change test could not start, so it did not show the old code failing");
+  // The proof line keeps saying what happened.
+  expect(formatReceipt(timedOut)).toContain("✓ Proven, weakly: test passes with this change; without it test timed out after 20s instead of failing");
+  expect(formatReceipt(crashed).split("\n")[0]).toBe("✓ Verified — the checks pass, and the tests fail without the change");
+});
+
 test("line 1 is the verdict: verified only when the tests fail without the change, and otherwise why not", () => {
   const changed = { changedPaths: ["src/sum.js"], verificationMode: "auto" as const, verification: report([check()]) };
   const first = (task: TaskResult, options = {}) => formatReceipt(task, options).split("\n")[0];
