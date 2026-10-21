@@ -656,7 +656,8 @@ you may add test files" is still a code change.
    The receipt names the exit code of the run without the change. A run that did not end as a
    test failure is weaker evidence and reads **Proven, weakly**: a timeout, a crash or signal (a
    shell's exit above 128), or a command that could not start (exit 126 or 127). A run with no exit
-   status at all (killed before it could report one) is not proof: Casper could not compare.
+   status at all (killed before it could report one), or one in which a test hit its own time limit
+   (see Timed out or could not start), is not proof: Casper could not compare.
 4. **If it passes without the change**, the change is **not proven**. Casper spends one repair
    round (within `repair.maxAttempts`) asking the model to add a test that fails without the
    change, then reruns the checks and the comparison.
