@@ -154,6 +154,8 @@ export interface TaskResult {
   remoteNotRun?: Array<{ host: string; commands: number }>;
   /** A secret appeared in a command the AI sent: hidden on screen, in records and here, but the AI has it. */
   secretInCommand?: true;
+  /** Files the AI's writes and edits added a secret to (never the value): a note, nothing was stopped. */
+  secretInFiles?: string[];
   /** Whether the shell sandbox held this task's shell commands and checks, and why not ("--no-sandbox"). */
   sandbox?: { held: true } | { held: false; reason: string };
   /** Folders outside the project this task wrote to after you allowed them (~/ form). Casper keeps no undo copy. */
@@ -292,6 +294,13 @@ export const SECRET_IN_COMMAND = "A secret appeared in a command; change it afte
 /** More paths than this are summarized; the full list stays in the result. */
 const RECEIPT_PATH_LIMIT = 8;
 
+/** The receipt's line when the AI wrote a secret into files; the value is never shown. */
+export function secretInFilesText(files: string[], safe: (text: string) => string): string {
+  const shown = files.slice(0, RECEIPT_PATH_LIMIT).map(safe).join(", ");
+  const more = files.length > RECEIPT_PATH_LIMIT ? ` … +${files.length - RECEIPT_PATH_LIMIT} more` : "";
+  return `A secret was written into ${shown}${more} (not shown). Keep secrets in an env file or a secrets store.`;
+}
+
 export function formatTaskResult(task: TaskResult): string {
   const report = task.verification;
   const safe = lineText;
@@ -335,6 +344,7 @@ export function formatTaskResult(task: TaskResult): string {
     ? `${remote.changes.map(safe).join("; ")} (from the commands Casper saw)` : REMOTE_UNKNOWN));
   for (const remote of task.remoteNotRun ?? []) lines.push(receiptLine(`not on ${safe(remote.host)}`.slice(0, 12), remoteNotRunText(remote.commands)));
   if (task.secretInCommand) lines.push(receiptLine("secret", SECRET_IN_COMMAND));
+  if (task.secretInFiles?.length) lines.push(receiptLine("secret", secretInFilesText(task.secretInFiles, safe)));
   if (task.sandbox) lines.push(receiptLine("sandbox", task.sandbox.held
     ? `shell commands and checks held${labRan(report) ? `; ${LAB_OUTSIDE}` : ""}` : `not sandboxed (${safe(task.sandbox.reason)})`));
   const outside = [
@@ -587,6 +597,7 @@ function receiptParts(task: TaskResult, options: ReceiptOptions, onScreen = fals
   for (const remote of task.remoteNotRun ?? []) lines.push(`– Not run on ${safe(remote.host)}: ${remoteNotRunText(remote.commands)}`);
   // Something to do: a warning, said before the notes.
   if (task.secretInCommand) lines.push(`⚠ ${SECRET_IN_COMMAND}`);
+  if (task.secretInFiles?.length) lines.push(`– ${secretInFilesText(task.secretInFiles, safe)}`);
   // Only the exception is said: a task whose shell commands and checks ran with your own permissions.
   if (task.sandbox && !task.sandbox.held) lines.push(sandboxOffLine(safe(task.sandbox.reason)));
   else if (task.sandbox && labRan(report)) lines.push(`– Lab checks ran outside the sandbox (${LAB_OUTSIDE_WHY})`);

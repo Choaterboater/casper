@@ -9,7 +9,9 @@ import { hideCommandSecrets } from "../secrets/files";
  * activity; never an edit body or an arbitrary argument. */
 export interface ToolObservationInput { role?: "explorer" | "reviewer" | "builder"; goal?: string; of?: number; path?: string; command?: string; operation?: string; pattern?: string; check?: string; url?: string; query?: string;
   /** The command held a secret the AI typed into it; `command` has it hidden. */
-  secretHidden?: true }
+  secretHidden?: true;
+  /** This write or edit added a secret to the file: the file as a person would type it, never the value. */
+  secretWritten?: string }
 
 /** Pi 1.1.0's native edit/write path syntax (its resolver is not an SDK export).
  * Expand once at the adapter boundary; the result is a literal filesystem path. */

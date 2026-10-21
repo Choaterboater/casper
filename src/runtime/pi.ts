@@ -48,7 +48,7 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { gitGuardReason } from "./git-guard";
-import { classifyPath, fileToolGate, gitInternalsCommand, privatePathCommand, realpathLongest, resolveToolPath, shellTempPath } from "../platform/project-paths";
+import { classifyPath, displayPath, fileToolGate, gitInternalsCommand, privatePathCommand, realpathLongest, resolveToolPath, shellTempPath } from "../platform/project-paths";
 /** The AI's tools that take a file or folder `path`. */
 const FILE_PATH_TOOLS = new Set(["read", "edit", "write", "grep", "find", "ls", "lsp"]);
 import { withoutProviderKeys } from "../platform/environment";
@@ -58,6 +58,7 @@ import { cacheRetentionFor, type PromptCacheSetting } from "./cache";
 import { LoopGuard } from "./loop-guard";
 import { ToolHistory, TOOL_HISTORY_ENTRY } from "./tool-history";
 import { ELISION_NOTE, elisionTexts, newElisions } from "./elision";
+import { addsSecret } from "../secrets/files";
 import { ToolArgumentRepair } from "./tool-repair";
 import { nativeEditPath, observationInput, editPatch, observationOutput, patchLineCounts, writeLineCounts, type ToolObservationInput } from "./observation";
 import type {
@@ -539,9 +540,12 @@ class PiRuntimeSession implements RuntimeSession {
           if (this.toolInputs.size < 64) this.toolInputs.set(event.toolCallId, input);
           // A write reports no diff: keep the old text (small files only) to count +N -M when it ends.
           const content = event.toolName === "write" ? Reflect.get(Object(event.args), "content") : undefined;
-          if (typeof content === "string" && input.path !== undefined && this.writes.size < 64) {
-            this.writes.set(event.toolCallId, { before: readSmallText(path.resolve(this.runtime.cwd, input.path)), after: content });
-          }
+          const file = input.path === undefined ? undefined : path.resolve(this.runtime.cwd, input.path);
+          const before = typeof content === "string" && file !== undefined ? readSmallText(file) : undefined;
+          if (typeof content === "string" && file !== undefined && this.writes.size < 64) this.writes.set(event.toolCallId, { before, after: content });
+          // A secret the AI writes into a file is a receipt line naming the file (src/secrets/files.ts addsSecret).
+          const texts = file === undefined ? undefined : elisionTexts(event.toolName, Object(event.args), before ?? undefined);
+          if (file !== undefined && texts && addsSecret(file, texts.before, texts.after)) input.secretWritten = displayPath(file, this.runtime.cwd);
           this.emit({ type: "tool_start", toolName: event.toolName, toolCallId: event.toolCallId, input });
           break;
         }

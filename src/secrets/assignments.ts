@@ -106,6 +106,8 @@ function assignmentSpans(line: string, strict: boolean): Span[] {
     const auth = !named && snakeKey(name) === "auth";
     const keyed = !named && !auth && plainKeyName(name);
     if (!raw || !indices || !(named || auth || keyed)) continue;
+    // A YAML tag that names a value kept elsewhere: Home Assistant's `api_key: !secret weather_key`, `!env_var`, Ansible's `!vault`.
+    if (/^!(?:secret|env_var|include|vault)\b/.test(raw)) continue;
     // A file name inside a path is not a key: a compose volume `- /srv/secrets/api_token:/run/secrets/api_token:ro`.
     if (!strict && (match[1] === "/" || match[1] === "\\")) continue;
     // `grep password= src/`: a path or option after "name= " (no space before =, one after) is an argument, not the value.

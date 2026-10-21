@@ -72,6 +72,8 @@ export interface ReceiptEvent {
   remoteNotRun: Array<{ host: string; commands: number }>;
   /** A secret appeared in a command the AI sent: change it after this task. */
   secretInCommand: boolean;
+  /** Files the AI's writes and edits added a secret to (never the value); empty when none. */
+  secretInFiles: string[];
   /** Acknowledged owned-process incidents, including live PID and scrubbed command previews. */
   cleanup?: NonNullable<TaskResult["cleanup"]>;
   /** This task's model use; null when no model task ran (a local command). */
@@ -284,6 +286,7 @@ export function receiptEvent(report: VerificationReport | undefined, task: TaskR
     remoteChanges: (task?.remoteChanges ?? []).map((remote) => ({ host: terminalText(remote.host), changes: remote.changes.map((change) => terminalText(change)) })),
     remoteNotRun: (task?.remoteNotRun ?? []).map((remote) => ({ host: terminalText(remote.host), commands: remote.commands })),
     secretInCommand: task?.secretInCommand === true,
+    secretInFiles: (task?.secretInFiles ?? []).map((file) => terminalText(file)),
     ...(task?.cleanup?.length ? { cleanup: redactCleanup(task.cleanup) } : {}),
     usage: task?.usage ? { ...task.usage } : commandUsage ? { ...commandUsage } : null,
     proof: task?.proof ? redactProof(task.proof) : null,

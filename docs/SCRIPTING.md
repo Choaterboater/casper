@@ -133,7 +133,7 @@ A run ends with exactly one `receipt` event, or, when Casper stops before it can
 | `usage` | `input`, `cacheRead`, `cacheWrite`, `output`, `tokens`, `estimatedCost`, `helper`? | Each model turn ends, even without text. Unknown fields are null. Helper turns carry their run id. |
 | `check` | `name`, `command`, `status` (`pass`/`fail`/`skip`), `exit`, `ms`, `recordedBy`, `reused`, `ended`?, `kind`?, `label`?, `hosts`?, `summary`? | Casper recorded a check. `recordedBy` is `casper` (auto mode, `/verify`, repair) or `casper_check` (the model asked for it). `ended` appears only on a failure that was not the code failing: `timeout`, `no_start` (could not execute, or the shell's exit 126/127), or (v0.2.17) `blocked` (the shell sandbox refused something the check tried; the receipt text says what). Named checks (`verify.checks.<name>`, v0.2.16) may add `kind` (`report`: a diff that never passes or fails; `lab`: your own lab devices), `label` (a few words such as `dry run not guaranteed`), `hosts` (lab checks) and `summary` (reports). |
 | `phase` | `phase` (`task`, `checklist`, `checks`, `smoke`, `pages`, `review`, `proof`, `acceptance`, `repair`), `state` (`start`/`end`), `atMs` | A stage of Casper's work starts or ends. `pages` and configured `smoke` run inside `checks`; a new completion `smoke` runs after final checks, unless existing evidence is reused. |
-| `receipt` | `outcome`, `exitCode`, `execution`, `changed`, `changedDuringChecks`, `verificationMode`, `checks`, `repairAttempts`, `turnLimit`, `spendLimit`, `remoteChanges`, `remoteNotRun`, `secretInCommand`, `usage`, `proof`, `proofSkipped`, `review`, `acceptance`, `checklist`, `services`, `smoke`, `pages`, `checksPassed`, `repairModels`, `bigModel`, `security`, `task`, `undo`, `sandbox`, `changedWhilePlanning`, `pageNotes`, `verdict`, `text` | The run finished. |
+| `receipt` | `outcome`, `exitCode`, `execution`, `changed`, `changedDuringChecks`, `verificationMode`, `checks`, `repairAttempts`, `turnLimit`, `spendLimit`, `remoteChanges`, `remoteNotRun`, `secretInCommand`, `secretInFiles`, `usage`, `proof`, `proofSkipped`, `review`, `acceptance`, `checklist`, `services`, `smoke`, `pages`, `checksPassed`, `repairModels`, `bigModel`, `security`, `task`, `undo`, `sandbox`, `changedWhilePlanning`, `pageNotes`, `verdict`, `text` | The run finished. |
 | `error` | `message` | Something failed. |
 
 ### Receipt fields
@@ -161,7 +161,8 @@ A run ends with exactly one `receipt` event, or, when Casper stops before it can
   commands to other machines Casper stopped before they reached them (`[{ "host": …, "commands": 3 }]`):
   a run that can't ask never lets them through, and any such command makes the run `incomplete` (exit 2)
   even when the local checks passed. `secretInCommand` is `true` when a secret appeared in
-  a command the AI sent; change that secret after the task.
+  a command the AI sent; change that secret after the task. `secretInFiles` lists the files the AI's
+  writes and edits added a secret to (never the value); empty when none.
 - `verdict` is line 1 of `text`: `✓ Verified — …` only when the tests fail without the change;
   otherwise `– Checks passed — not proven: …`, `✓ Checks passed — no files changed`,
   `✗ Failed — …`, `✗ Not checked — …` (only unfinished checks), `– Incomplete — …`,
@@ -279,7 +280,7 @@ previews: tokens, keys and passwords become `<redacted>`.
 
 ```json
 {"v":1,"type":"check","name":"test","command":"npm run test","status":"pass","exit":0,"ms":412,"recordedBy":"casper","reused":false}
-{"v":1,"type":"receipt","outcome":"verified","exitCode":0,"execution":"completed","changed":["sum.js"],"changedDuringChecks":[],"verificationMode":"auto","checks":[{"name":"test","command":"npm run test","status":"pass","exit":0,"ms":412,"fresh":true}],"repairAttempts":0,"turnLimit":null,"spendLimit":null,"remoteChanges":[],"remoteNotRun":[],"secretInCommand":false,"usage":{"turns":2,"tokens":18342,"estimatedCost":0.0041},"proof":{"status":"proven","check":"test","command":"npm run test","testsChanged":true,"without":{"exitCode":1,"ended":"fail","output":"expected 3, got 2"}},"proofSkipped":null,"review":null,"acceptance":null,"checklist":null,"services":[],"smoke":null,"verdict":"✓ Verified — the checks pass, and the tests fail without the change","text":"✓ Verified — the checks pass, and the tests fail without the change\n✓ Changed 1 file: sum.js\n✓ test passed (npm run test, 0.4s)\n✓ Proven: test fails without this change (exit 1) and passes with it"}
+{"v":1,"type":"receipt","outcome":"verified","exitCode":0,"execution":"completed","changed":["sum.js"],"changedDuringChecks":[],"verificationMode":"auto","checks":[{"name":"test","command":"npm run test","status":"pass","exit":0,"ms":412,"fresh":true}],"repairAttempts":0,"turnLimit":null,"spendLimit":null,"remoteChanges":[],"remoteNotRun":[],"secretInCommand":false,"secretInFiles":[],"usage":{"turns":2,"tokens":18342,"estimatedCost":0.0041},"proof":{"status":"proven","check":"test","command":"npm run test","testsChanged":true,"without":{"exitCode":1,"ended":"fail","output":"expected 3, got 2"}},"proofSkipped":null,"review":null,"acceptance":null,"checklist":null,"services":[],"smoke":null,"verdict":"✓ Verified — the checks pass, and the tests fail without the change","text":"✓ Verified — the checks pass, and the tests fail without the change\n✓ Changed 1 file: sum.js\n✓ test passed (npm run test, 0.4s)\n✓ Proven: test fails without this change (exit 1) and passes with it"}
 ```
 
 ### `jq` recipes

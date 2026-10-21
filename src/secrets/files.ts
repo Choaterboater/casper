@@ -160,3 +160,20 @@ export function scrubPlainSecrets(text: string, options: PlainScrubOptions = {})
 export function hideCommandSecrets(command: string, env?: NodeJS.ProcessEnv): ScrubTextResult {
   return scrubPlainSecrets(command, env ? { env } : {});
 }
+
+/**
+ * Whether a write or edit adds a secret to a file: the lines of `after` that `before` did not have (blanks around
+ * them ignored), read with the same always-on rules as a command. A .env, credential or key file is where secrets
+ * belong, so a secret written there is not one to mention.
+ */
+export function addsSecret(filePath: string, before: string, after: string, env?: NodeJS.ProcessEnv): boolean {
+  if (isSecretFile(filePath)) return false;
+  const old = new Map<string, number>();
+  for (const line of before.split(/\r?\n/)) old.set(line.trim(), (old.get(line.trim()) ?? 0) + 1);
+  const added = after.split(/\r?\n/).filter((line) => {
+    const left = old.get(line.trim()) ?? 0;
+    if (left) old.set(line.trim(), left - 1);
+    return !left && line.trim() !== "";
+  });
+  return added.length > 0 && scrubPlainSecrets(added.join("\n"), env ? { env } : {}).hidden > 0;
+}

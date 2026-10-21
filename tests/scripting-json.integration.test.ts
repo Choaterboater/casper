@@ -59,7 +59,7 @@ shellCheckTest("--json streams v1 JSON Lines on stdout: session, text, tools, Ca
     { v: 1, type: "phase", phase: "proof", state: "end", atMs: "<ms>" },
     { v: 1, type: "receipt", outcome: "verified", exitCode: 0, execution: "completed", changed: ["sum.js"], changedDuringChecks: [],
       verificationMode: "auto", checks: [{ name: "test", command: "grep -q fixed sum.js", status: "pass", exit: 0, ms: "<ms>", fresh: true }],
-      repairAttempts: 0, turnLimit: null, spendLimit: null, remoteChanges: [], remoteNotRun: [], secretInCommand: false, usage: { turns: 3, tokens: 360, estimatedCost: "<cost>", input: 300, cacheRead: 0, cacheWrite: 0, output: 60 },
+      repairAttempts: 0, turnLimit: null, spendLimit: null, remoteChanges: [], remoteNotRun: [], secretInCommand: false, secretInFiles: [], usage: { turns: 3, tokens: 360, estimatedCost: "<cost>", input: 300, cacheRead: 0, cacheWrite: 0, output: 60 },
       // The check fails on sum.js as it was, so it proves the fix.
       proof: { status: "proven", check: "test", command: "grep -q fixed sum.js", testsChanged: false, without: { exitCode: 1, ended: "fail" } },
       proofSkipped: null,

@@ -585,7 +585,7 @@ export async function runModelTask(app: CasperApp, prompt: string, options: { fl
         && !app.lastTaskResult.testRunner;
       // A stop at --max-turns or at the spend limit is always said on a receipt.
       if ((classification.intent !== "general" && !answeredOnly) || execution !== "completed" || wroteToolCall || app.taskTurnLimit !== undefined || app.taskSpendStop !== undefined || verification || browser?.checks.length || observations.possibleMutations || observations.changedPaths?.length || observations.changedDuringChecks?.length || observations.observedEdits.length || observations.observedChecks.length
-        || app.planBuild || branchMoved || observations.remoteChanges?.length || observations.remoteNotRun?.length || observations.secretInCommand || app.cleanupReports.length) {
+        || app.planBuild || branchMoved || observations.remoteChanges?.length || observations.remoteNotRun?.length || observations.secretInCommand || observations.secretInFiles?.length || app.cleanupReports.length) {
         // A folder the task made too big to compare is not a project folder either: no undo, for the same reason.
         if (!changedPaths && app.snapshotFailure && tooManyFiles(app.snapshotFailure)) undoStart.snapshot = { unavailable: UNDO_NOT_PROJECT };
         // The second copy and the saved receipt; the change summary lists only this task's files.

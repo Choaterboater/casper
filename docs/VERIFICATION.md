@@ -311,6 +311,7 @@ The lines below the verdict give the evidence:
 – Not run on 198.51.100.20 (build-server): 3 commands Casper stopped before they reached it
 – Incomplete — commands to 198.51.100.20 (build-server) did not run
 ⚠ A secret appeared in a command; change it after this task.
+– A secret was written into config/app.yaml (not shown). Keep secrets in an env file or a secrets store.
 ```
 
 The machines a task reached over ssh (at most the last three) are named on each later request of the conversation,
