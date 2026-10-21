@@ -20,6 +20,15 @@ export class PlanBuild {
       ...step, status: "not-done", reason: execution === "completed" ? NOT_REPORTED : `build ${execution}`,
     });
   }
+  /** The changed row, counts and the next open step: the whole checklist is already in the prompt. */
+  private reply(index: number): Record<string, unknown> {
+    const next = this.steps.findIndex((step, at) => at !== index && (step.status === "pending" || step.status === "active"));
+    return {
+      updated: { step: index + 1, ...this.steps[index] },
+      done: this.steps.filter(step => step.status === "done").length, of: this.steps.length,
+      ...(next >= 0 ? { next: { step: next + 1, title: this.steps[next]!.title } } : {}),
+    };
+  }
   tool(): RuntimeTool {
     return {
       name: "plan_step", description: "Update the accepted plan's checklist. Report active before a step, done after it, or not-done with a reason. This is a model report, not test evidence.",
@@ -38,7 +47,7 @@ export class PlanBuild {
           const next = this.steps.findIndex(step => step.status === "pending" || step.status === "active");
           if (next >= 0) this.progress(next); else this.show("Plan checklist reported · checking the result");
         }
-        return { text: JSON.stringify(this.steps) };
+        return { text: JSON.stringify(this.reply(index)) };
       },
     };
   }
