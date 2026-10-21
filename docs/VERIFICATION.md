@@ -1190,7 +1190,9 @@ file; the project file wins (see [CONFIGURATION.md](CONFIGURATION.md)).
   on further work or proves that unobserved descendants have stopped. An unattended run records
   unconfirmed cleanup in the receipt and exits nonzero, without a picker.
   The AI shell uses the same tree ownership for its explicit timeouts and cancellation; its
-  configured slow-command background handoff is unchanged.
+  configured slow-command background handoff is unchanged. An AI shell command that ran to its end
+  but whose cleanup is unconfirmed still gives the AI its output and exit code, with a note that
+  Casper could not confirm what it started has stopped.
 - The model's `casper_check` tool takes only a check name (`typecheck`, `lint`, `test`, `build`,
   or from v0.2.16 a named check that is not a lab check), not a command, scope, folder or timeout.
   Check output the model reads (`casper_check` replies and repair prompts) has secret values

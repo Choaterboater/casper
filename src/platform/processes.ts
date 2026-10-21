@@ -12,6 +12,8 @@ export type CleanupOutcome = "stopped" | "unknown";
 
 export class ProcessCleanupError extends Error {
   acknowledged = false;
+  /** Set when the command itself had exited (with this code) before its cleanup could not be confirmed. */
+  exitCode?: number;
   acknowledge(): void { this.acknowledged = true; }
   constructor(private readonly owner?: OwnedProcesses) { super("Owned process cleanup is unconfirmed."); }
   running(): Promise<CleanupProcess[]> { return this.owner?.remaining() ?? Promise.resolve([]); }

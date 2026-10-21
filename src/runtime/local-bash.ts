@@ -71,19 +71,26 @@ export function createOwnedBashOperations(): BashOperations {
     if (signal?.aborted) abort();
     try {
       const code = await exited;
-      await cleanup();
-      if (!closed) {
-        await new Promise<void>(resolve => {
-          const wait = setTimeout(resolve, 250);
-          drain = () => { clearTimeout(wait); resolve(); };
-          if (closed) drain();
-        });
+      const exitCode = code ?? (child.signalCode ? 128 + (constants.signals[child.signalCode] ?? 0) : 1);
+      try {
+        await cleanup();
+        if (!closed) {
+          await new Promise<void>(resolve => {
+            const wait = setTimeout(resolve, 250);
+            drain = () => { clearTimeout(wait); resolve(); };
+            if (closed) drain();
+          });
+        }
+        if (!closed) throw new ProcessCleanupError(owner);
+      } catch (error) {
+        // The command ran to its end, so its result is still worth telling.
+        if (error instanceof ProcessCleanupError && !outputError && !signal?.aborted && !timedOut) error.exitCode ??= exitCode;
+        throw error;
       }
-      if (!closed) throw new ProcessCleanupError(owner);
       if (outputError) throw outputError;
       if (signal?.aborted) throw new Error("aborted");
       if (timedOut) throw new Error(`timeout:${timeout}`);
-      return { exitCode: code ?? (child.signalCode ? 128 + (constants.signals[child.signalCode] ?? 0) : 1) };
+      return { exitCode };
     } finally {
       clearTimeout(timer);
       process.removeListener("exit", onExit);
