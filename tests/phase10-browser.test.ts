@@ -175,6 +175,45 @@ browserTest("after two fresh starts a third crash closes the session for good", 
   expect(await f.session.run({ action: "open", url: f.url })).toMatchObject({ title: "Browser fixture" });
 }, 90_000);
 
+// On a loaded Windows runner a cold start's Chrome died rather than running out of time: it gets one more try, and only one.
+(process.platform === "win32" ? test.skip : browserTest)("a start whose Chrome dies gets one more try, and only one; then the next open starts afresh", async () => {
+  const root = await realpath(await mkdtemp(path.join(os.tmpdir(), "casper-dying-chrome-")));
+  cleanup.push(() => removeTempDir(root));
+  const starts = path.join(root, "starts"), works = path.join(root, "works"), wrapper = path.join(root, "chrome");
+  // Dies at once for the first two starts, and after that until the works file is there.
+  await writeFile(wrapper, `#!/bin/sh\necho start >> "${starts}"\nn=$(wc -l < "${starts}")\nif [ "$n" -le 2 ]; then exit 1; fi\nif [ "$n" -gt 3 ] && [ ! -f "${works}" ]; then exit 1; fi\nexec "${executable}" "$@"\n`, { mode: 0o755 });
+  const count = async () => (await readFile(starts, "utf8")).trim().split("\n").length;
+  const f = await fixture({ executablePath: wrapper });
+  // Died, died, then the spare try works.
+  expect(await f.session.run({ action: "open", url: f.url })).toMatchObject({ title: "Browser fixture" });
+  expect(await count()).toBe(3);
+  await f.session.close();
+  // A Chrome that keeps dying: three starts, then the error, and the session is idle again.
+  const g = await fixture({ executablePath: wrapper });
+  await expect(g.session.run({ action: "open", url: g.url })).rejects.toThrow();
+  expect(await count()).toBe(6);
+  expect(g.session.status()).toMatchObject({ state: "idle" });
+  await writeFile(works, "");
+  expect(await g.session.run({ action: "open", url: g.url })).toMatchObject({ title: "Browser fixture" });
+  expect(await count()).toBe(7);
+}, 60_000);
+
+// A signed-in session whose first start never answered kept going on a fresh, signed-out profile.
+(process.platform === "win32" ? test.skip : browserTest)("a fresh start after one that never answered keeps a signed-in profile", async () => {
+  const root = await realpath(await mkdtemp(path.join(os.tmpdir(), "casper-signed-retry-")));
+  cleanup.push(() => removeTempDir(root));
+  const starts = path.join(root, "starts"), wrapper = path.join(root, "chrome"), profile = path.join(root, "profile");
+  await writeFile(wrapper, `#!/bin/sh\necho start >> "${starts}"\nif [ "$(wc -l < "${starts}")" -le 1 ]; then exec sleep 60; fi\nexec "${executable}" "$@"\n`, { mode: 0o755 });
+  await mkdir(profile); await writeFile(path.join(profile, "signed-in-marker"), "cookies");
+  const f = await fixture({ executablePath: wrapper, firstStartMs: 1_000 });
+  // As a finished sign-in window leaves it: the session's own profile, signed in.
+  Object.assign(f.session as unknown as Record<string, unknown>, { profile, signedIn: true });
+  expect(await f.session.run({ action: "open", url: f.url })).toMatchObject({ title: "Browser fixture" });
+  expect((await readFile(starts, "utf8")).trim().split("\n")).toHaveLength(2);
+  expect((f.session as unknown as { profile?: string }).profile).toBe(profile);
+  expect(await readFile(path.join(profile, "signed-in-marker"), "utf8")).toBe("cookies");
+}, 30_000);
+
 // On a busy machine a cold Chrome start took most of an open's 15 s, and the open ended in a bare AbortError.
 (process.platform === "win32" ? test.skip : browserTest)("a slow Chrome start doesn't use up the open's time, and an open that runs out says so", async () => {
   const root = await realpath(await mkdtemp(path.join(os.tmpdir(), "casper-slow-start-")));

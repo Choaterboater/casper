@@ -473,7 +473,9 @@ After a forced SIGKILL of Casper or a power loss, cleanup may not happen.
   or a Chrome whose processes can't be confirmed stopped, closes the session as before.
 - A first Chrome start that has not answered after 8 seconds is stopped and replaced by one
   fresh start, and the running action's deadline starts again. For an `open`, the whole
-  cold start, both tries, is outside its deadline, which starts once Chrome is up.
+  cold start, both tries, is outside its deadline, which starts once Chrome is up. A start
+  whose Chrome died (rather than ran out of time) gets one more try, and only one; a
+  session signed in through `signin` keeps its signed-in profile for these tries.
 - Viewport: 240–1920 × 240–1080; default 1280 × 800.
 - Inspection: 8,000 text characters, 40 controls; diagnostics: 30 console and
   30 network entries, 8 KiB server output. Network URL queries/fragments omitted.

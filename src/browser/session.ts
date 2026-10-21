@@ -1959,6 +1959,8 @@ export class BrowserSession {
       } catch (error) { this.startup = undefined; throw error; }
       // A first Chrome start on a cold machine sometimes never answers (seen on fresh Windows runners): that attempt
       // is stopped after FIRST_START_MS and one fresh Chrome is started, with the running action's deadline renewed.
+      // A start whose Chrome died (it didn't just run out of time; seen on loaded Windows runners) gets one more try.
+      let spare = 1;
       for (let attempt = 1; ; attempt++) {
         const slow = new AbortController();
         const timer = attempt === 1 ? setTimeout(() => slow.abort(new Error("Chrome did not answer")), this.options.firstStartMs ?? FIRST_START_MS) : undefined;
@@ -1966,9 +1968,13 @@ export class BrowserSession {
           return await this.launch(puppeteer, executablePath, AbortSignal.any([this.controller.signal, slow.signal]));
         } catch (error) {
           if (this.controller.signal.aborted) throw error;
+          // Died: Chrome never came up or went away, not stopped for being slow and not a page that failed to open.
+          const died = !slow.signal.aborted && !this.browser?.connected;
           // The fresh start failed too: a Chrome it got up (its page didn't open) is stopped, not left running.
-          if (attempt >= 2) { if (this.browser) await this.discardChrome(); throw error; }
-          await this.discardChrome();
+          // Either way the session is left idle, so the next action starts afresh rather than getting this error for good.
+          if (attempt >= 2 && !(died && spare-- > 0)) { if (this.browser) await this.discardChrome(); this.startup = undefined; throw error; }
+          // A signed-in profile is kept for the fresh start (its cookies are the sign-in); any other start gets a new one.
+          if (this.signedIn) await this.stopChromeKeepProfile(); else await this.discardChrome();
           this.deadline?.renew();
         } finally { clearTimeout(timer); }
       }
@@ -1982,7 +1988,12 @@ export class BrowserSession {
     signal.throwIfAborted();
     const browser = this.browser = await puppeteer.launch({ executablePath, headless: true, pipe: true, userDataDir: this.profile,
       handleSIGINT: false, handleSIGTERM: false, handleSIGHUP: false, signal, timeout: 10_000,
-      env: browserEnvironment(this.profile) });
+      env: browserEnvironment(this.profile) }).catch((error: unknown) => {
+      // On Windows Puppeteer calls any start that failed "already running" for the profile once the lockfile is there,
+      // and the Chrome it just started makes that lockfile itself. Not signed in, the profile is this session's alone.
+      if (!this.signedIn && /already running for/.test(String(error))) throw new Error("Chrome stopped, or stopped answering, while it started", { cause: error });
+      throw error;
+    });
     const chrome = browser.process();
     if (chrome) this.chromeOwner = ownSpawnedTree(chrome.pid, () => chrome.exitCode === null && chrome.signalCode === null);
     browser.on("disconnected", () => { if (!this.controller.signal.aborted && browser === this.browser) void this.chromeStopped(); });
