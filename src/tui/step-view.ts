@@ -179,9 +179,9 @@ export interface FailedStep { title: string; output?: string; home?: string }
 const FAILURE_ROWS = 8;
 
 /**
- * A failed step in an error box: its line as the title, then the last lines it printed as they were (not run together),
- * secrets redacted and the home folder as ~. When more came before, the first row says how many and that Ctrl+T shows
- * them all.
+ * A failed step in an amber box (the work goes on; only the receipt is red): its line as the title, then the last lines
+ * it printed as they were (not run together), secrets redacted and the home folder as ~. When more came before, the
+ * first row says how many and that Ctrl+T shows them all.
  */
 export function renderFailureBox(failure: FailedStep, width: number, color: boolean): string[] {
   const inner = Math.max(1, width - 4);
@@ -193,5 +193,5 @@ export function renderFailureBox(failure: FailedStep, width: number, color: bool
     ? [...wrapped.slice(0, FAILURE_ROWS - 3), ...wrapped.slice(-2)] : wrapped;
   const above = earlier ? `${earlier} ${focused ? "other" : "earlier"} ${earlier === 1 ? "line" : "lines"}` : "more output";
   const body = [...(cut ? [tint(`… ${above} · Ctrl+T shows all`, "muted", color)] : []), ...rows];
-  return renderPanel(failure.title, body, width, color, "error");
+  return renderPanel(failure.title, body, width, color, "warning");
 }

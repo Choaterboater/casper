@@ -757,7 +757,7 @@ export class TerminalSurface {
   get rawStepsShown(): boolean { return this.rawSteps; }
 
   /** The open group's steps, two columns in under the AI's words: a running step's • is the spinner, a finished step
-   * keeps its mark in its colour, and a command's latest output line hangs dim under it. */
+   * keeps its mark in its colour (a failed one amber: the work goes on), and a command's latest output line hangs dim under it. */
   private readonly liveRows: Component = {
     render: width => this.shownRows.map(row => {
       if (row.startsWith("↳ ")) return this.muted(truncateToWidth(`    ${row}`, width));
@@ -765,7 +765,7 @@ export class TerminalSurface {
       if (mark?.[1] === "–") return this.muted(truncateToWidth(`  ${row}`, width));
       if (!mark) return truncateToWidth(`  ${row}`, width);
       const glyph = mark[1] === BUSY_GLYPH ? this.accent(SPINNER_FRAMES[this.spinnerFrame]!)
-        : tint(mark[1]!, mark[1] === "✓" ? "success" : mark[1] === "✗" ? "error" : mark[1] === "–" ? "muted" : "warning", this.io.color);
+        : tint(mark[1]!, mark[1] === "✓" ? "success" : "warning", this.io.color);
       return truncateToWidth(`  ${glyph} ${row.slice(mark[0].length)}`, width);
     }),
     invalidate() {},

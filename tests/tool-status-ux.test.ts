@@ -8,6 +8,7 @@ import { renderEditBox, renderFailureBox } from "../src/tui/step-view";
 import type { WorkView } from "../src/tui/surface";
 import { renderFold, type FoldView, type InteractiveTerminal } from "../src/tui/terminal";
 import { commandCheck, githubLabel, outcomeNote, runningCheck } from "../src/tui/tool-status";
+import { activeThemeName, useTheme } from "../src/tui/theme";
 import { ansiCells, cellsFor } from "./support/ansi-cells";
 
 const open: RuntimeEventView[] = [];
@@ -324,9 +325,13 @@ test("Pi's shell still says a non-zero exit as `Command exited with code N`, the
 });
 
 test("a shell answer's note is dim in the fold's colour bytes, never red", () => {
-  const s = screen();
-  s.send(...call("1", "bash", { command: "rg -n TODO" }, "(no output)\n\nCommand exited with code 1", true), done);
-  const cells = ansiCells(s.folds.flatMap(fold => renderFold(fold, 120, false, true)));
-  const note = cellsFor(cells, "– bash · rg TODO — nothing found");
-  expect(note.every(cell => cell.dim && cell.foreground === "default")).toBe(true);
+  const previous = activeThemeName();
+  useTheme("default");
+  try {
+    const s = screen();
+    s.send(...call("1", "bash", { command: "rg -n TODO" }, "(no output)\n\nCommand exited with code 1", true), done);
+    const cells = ansiCells(s.folds.flatMap(fold => renderFold(fold, 120, false, true)));
+    const note = cellsFor(cells, "– bash · rg TODO — nothing found");
+    expect(note.every(cell => cell.dim && cell.foreground === "default")).toBe(true);
+  } finally { useTheme(previous); }
 });
