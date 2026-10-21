@@ -29,7 +29,11 @@ async function run(respond: (count: number) => Response, body: string) {
   const home = path.join(root, "home"); const project = path.join(root, "project"); const agent = path.join(home, ".pi/agent");
   await mkdir(agent, { recursive: true }); await mkdir(project); await mkdir(path.join(home, ".casper"));
   const payloads: Array<{ messages: Array<{ role: string; content: unknown }> }> = [];
-  const server = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: async request => { payloads.push(await request.json()); return respond(payloads.length); } });
+  // Only the model's POSTs: in the full suite a stray GET / from another test once reached this port and failed the test.
+  const server = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: async request => {
+    if (request.method !== "POST") return new Response("not found", { status: 404 });
+    payloads.push(await request.json()); return respond(payloads.length);
+  } });
   servers.push(server);
   await writeFile(path.join(agent, "models.json"), JSON.stringify({ providers: { fixture: {
     baseUrl: `http://127.0.0.1:${server.port}/v1`, api: "openai-completions", apiKey: "local-fixture-not-a-secret", models: [{ id: "fixture" }] } } }));
