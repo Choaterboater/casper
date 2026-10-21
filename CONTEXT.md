@@ -88,7 +88,8 @@ _Avoid_: Self-reported completion, test-suite pass
 
 **Verified**:
 The receipt outcome for a change whose configured checks passed fresh and whose tests fail
-without it and pass with it. It promises nothing about stated requirements no test covers;
+without it and pass with it (a run without it that timed out or could not start is not a
+failure). It promises nothing about stated requirements no test covers;
 the receipt is to name those rather than stay silent (docs/adr/0001).
 _Avoid_: Correct, complete, done
 

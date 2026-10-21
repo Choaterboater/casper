@@ -204,6 +204,12 @@ export function checksPassed(report?: VerificationReport, task?: TaskResult): bo
   return !(stale || task?.proof?.status === "unproven" || admittedGaps || observationsOnly || rejected || dryRunOnly(verification));
 }
 
+/** A proof that can say Verified: a run without the change that timed out or never started did not show the old code
+ * failing, so it keeps its "Proven, weakly" line and is not proof (a crash is still kept as evidence). */
+function provesChange(proof?: ChangeProof): boolean {
+  return proof?.status === "proven" && proof.without.ended !== "timeout" && proof.without.ended !== "no_start";
+}
+
 /** Every pass is a lab dry run ("dry run not guaranteed"): some modules still change devices in check mode,
  * so such a pass is shown but is never grounds for Verified or Checks passed. */
 function dryRunOnly(report: VerificationReport): boolean {
@@ -232,7 +238,7 @@ export function taskOutcome(report?: VerificationReport, task?: TaskResult): Tas
   if (status === "pass") {
     if (!checksPassed(report, task)) return "not_verified";
     if (!changed) return "unchanged";
-    return task?.proof?.status === "proven" ? "verified" : "not_verified";
+    return provesChange(task?.proof) ? "verified" : "not_verified";
   }
   return changed || task?.autoSkipped === "no-checks" ? "not_verified" : "unchanged";
 }
@@ -758,14 +764,16 @@ function withVerdict(task: TaskResult, body: string[], options: ReceiptOptions):
     case "verified":
     case "passed": {
       const proof = task.proof;
-      if (proof?.status === "proven") {
+      if (proof?.status === "proven" && provesChange(proof)) {
         const weak = loadFailure(proof);
         lines = [weak ? "✓ Verified — the checks pass; without the change the tests could not even load"
           : "✓ Verified — the checks pass, and the tests fail without the change", ...body];
         if (!weak) short = "✓ Verified";
       } else if (!changed) { lines = [task.changedPaths ? "✓ Checks passed — no files changed" : "✓ Checks passed", ...body]; short = "✓ Checks passed"; }
       else {
-        const why = proof?.status === "unavailable" ? proof.reason : task.proofSkipped ?? "Casper did not compare the tests with and without the change";
+        const why = proof?.status === "unavailable" ? proof.reason
+          : proof?.status === "proven" ? `without the change ${proof.check} ${proof.without.ended === "timeout" ? "timed out" : "could not start"}, so it did not show the old code failing`
+          : task.proofSkipped ?? "Casper did not compare the tests with and without the change";
         lines = [`– Checks passed — not proven: ${safe(why).replace(/\.$/, "")}`, ...body];
       }
       break;
