@@ -69,6 +69,19 @@ test("question answer format enforces 1–3 questions with 2–4 options", () =>
   for (const text of ["not json", "null", '{"questions":[{}]}', '{"questions":[{"question":"","options":[]}]}']) expect(planQuestions(text)).toBeUndefined();
 });
 
+test("a plan_step reply is the changed row, the counts and the next open step, not the whole checklist", async () => {
+  const titles = Array.from({ length: 18 }, (_, at) => `Step title number ${at + 1}`);
+  const build = new PlanBuild({ steps: titles, tests: [], firstVersion: [] }, () => {});
+  const reply = JSON.parse((await build.tool().execute({ step: 1, status: "done" })).text);
+  expect(reply).toEqual({ updated: { step: 1, title: titles[0], status: "done" }, done: 1, of: 18, next: { step: 2, title: titles[1] } });
+  expect(JSON.parse((await build.tool().execute({ step: 2, status: "active" })).text).next).toEqual({ step: 3, title: titles[2] });
+  const skipped = JSON.parse((await build.tool().execute({ step: 18, status: "not-done", reason: "Needs a login" })).text);
+  expect(skipped.updated).toEqual({ step: 18, title: titles[17], status: "not-done", reason: "Needs a login" });
+  for (let step = 2; step <= 17; step++) await build.tool().execute({ step, status: "done" });
+  const last = JSON.parse((await build.tool().execute({ step: 17, status: "done" })).text);
+  expect(last).toEqual({ updated: { step: 17, title: titles[16], status: "done" }, done: 17, of: 18 });
+});
+
 const unreportedSteps = () => new PlanBuild(plan, () => {}).finish("completed");
 
 test("checklist progress reports done/not done and never treats an unreported or stopped step as done", async () => {
