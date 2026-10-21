@@ -35,12 +35,14 @@ const PAGES: Record<string, string> = {
   "/welcome": "<!doctype html><title>Welcome</title><h1>Welcome</h1><form><input type=\"email\" autocomplete=\"username\"><input type=\"password\"><button>Continue</button></form>",
 };
 
-async function fixture(options: { settleMs?: number } = {}) {
+async function fixture(options: { settleMs?: number; navigationTimeoutMs?: number } = {}) {
   const root = await realpath(await mkdtemp(path.join(os.tmpdir(), "casper-browser-apps-")));
   cleanup.push(() => removeTempDir(root));
   const project = path.join(root, "project"), state = path.join(root, "state");
   await mkdir(project); await mkdir(state);
   const server = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch(request) {
+    // Half a page, and then nothing: the document never finishes loading.
+    if (new URL(request.url).pathname === "/half") return new Response(new ReadableStream({ start(stream) { stream.enqueue(new TextEncoder().encode("<!doctype html><title>Half</title><p>Half a page")); } }), { headers: { "content-type": "text/html" } });
     const page = PAGES[new URL(request.url).pathname];
     return page ? new Response(page, { headers: { "content-type": "text/html", "cache-control": "no-store" } }) : new Response("not found", { status: 404 });
   } });
@@ -83,11 +85,25 @@ browserTest("the wait before reading a page ends at its cap on a page that never
     // The cap and a busy machine's slack: never the action's own 15 s.
     expect(took).toBeLessThan(6_000);
   }
-  // A page that is still settles at once (after its half second of quiet).
+  // A page that is still settles at once (after a brief look: nothing changed).
   await f.session.run({ action: "open", url: `${f.url}/still` });
   const started = performance.now();
   await f.session.run({ action: "inspect" });
   expect(performance.now() - started).toBeLessThan(1_400);
+}, 40_000);
+
+browserTest("a page already drawn is read at once, and one whose open ran out of time is read as it is, without waiting", async () => {
+  const f = await fixture({ settleMs: 10_000, navigationTimeoutMs: 1_000 });
+  await f.session.run({ action: "open", url: `${f.url}/still` });
+  const started = performance.now();
+  for (let i = 0; i < 10; i++) await f.session.run({ action: "inspect" });
+  // Ten reads of a page that doesn't change: a brief look each, not the half second of quiet a page just drawn gets (5 s).
+  expect(performance.now() - started).toBeLessThan(3_500);
+  await expect(f.session.run({ action: "open", url: `${f.url}/half` })).rejects.toThrow("Navigation timeout of 1000 ms exceeded");
+  const after = performance.now();
+  await f.session.run({ action: "screenshot" });
+  // Still loading, so its wait would run to the 10 s cap.
+  expect(performance.now() - after).toBeLessThan(5_000);
 }, 40_000);
 
 browserTest("a screenshot identical to the last one is free; the limit says what is left and what to do instead", async () => {
