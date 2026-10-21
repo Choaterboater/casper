@@ -96,9 +96,10 @@ browserTest("a page already drawn is read at once, and one whose open ran out of
   const f = await fixture({ settleMs: 10_000, navigationTimeoutMs: 1_000 });
   await f.session.run({ action: "open", url: `${f.url}/still` });
   const started = performance.now();
-  for (let i = 0; i < 10; i++) await f.session.run({ action: "inspect" });
-  // Ten reads of a page that doesn't change: a brief look each, not the half second of quiet a page just drawn gets (5 s).
-  expect(performance.now() - started).toBeLessThan(3_500);
+  for (let i = 0; i < 20; i++) await f.session.run({ action: "inspect" });
+  // Twenty reads of a page that doesn't change: a brief look each (about 5 s), not the half second of quiet a page just
+  // drawn gets (10 s).
+  expect(performance.now() - started).toBeLessThan(8_000);
   await expect(f.session.run({ action: "open", url: `${f.url}/half` })).rejects.toThrow("Navigation timeout of 1000 ms exceeded");
   const after = performance.now();
   await f.session.run({ action: "screenshot" });
