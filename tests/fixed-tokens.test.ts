@@ -3,11 +3,13 @@ import { execFileSync } from "node:child_process";
 import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { createBashToolDefinition } from "@earendil-works/pi-coding-agent";
 import { CasperApp } from "../src/app";
 import { browserDefaults } from "../src/browser/discovery";
 import { loadProjectContext } from "../src/project/context";
 import { systemPromptAppend, DEFAULT_SYSTEM_PROMPT_APPEND, LEAN_SYSTEM_PROMPT_APPEND } from "../src/app/prompt";
 import { projectGuidance, type GuidanceModel, type GuidanceSetting } from "../src/runtime/guidance";
+import { withStepTitle } from "../src/runtime/pi";
 import type { AgentRuntime, RuntimeSession, RuntimeStartOptions, RuntimeTool } from "../src/runtime/types";
 import { SkillRegistry } from "../src/skills/registry";
 import { removeTempDir } from "./support/temp-dir";
@@ -29,6 +31,8 @@ const BUDGET = {
   tools: { browser: 3_500, casper_read_untrusted: 1_100, casper_check: 950, delegate: 950, casper_session: 350, casper_page: 400 } as Record<string, number>,
   /** In a Git repository delegate also offers builders (about 50 tokens more). */
   delegateWithBuilders: 1_150,
+  /** Decision 25: the shell's optional step title, added to Pi's bash tool for every request (129 characters). */
+  stepTitle: 130,
 };
 
 const cleanup: Array<() => unknown> = [];
@@ -172,4 +176,10 @@ test("big hosted models get exactly the full text and descriptions; off restores
     expect(off.system).toBe(off.fullSystem);
     expect(off.toolText).toBe(hosted.toolText);
   }
+});
+
+test("the shell's optional step title adds only its own small budget to every request (decision 25)", () => {
+  const base = createBashToolDefinition(process.cwd()).parameters;
+  expect(JSON.stringify(withStepTitle(base)).length - JSON.stringify(base).length).toBeLessThan(BUDGET.stepTitle);
+  expect(Object.keys(withStepTitle(base).properties)).toEqual([...Object.keys(base.properties), "description"]);
 });

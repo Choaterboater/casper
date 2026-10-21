@@ -266,7 +266,13 @@ such as `sudo -u root` or `env -i` before it; a script of
 several commands names its programs and leaves out `cd`, `export`, `echo` headings, loop words and comments
 (`git rev-parse, git log, git diff`), and a heredoc script says its program and length (`python3 script (12 lines)`).
 `/output` shows the whole command, secrets hidden. The `✓` or `✗` says how a call ended, so there
-is no "completed".
+is no "completed". The AI may give a shell step a title (the shell tool's optional `description`, at most 8 words; one
+line, secrets hidden, at most 80 characters). The row then shows the title with the real program,
+`✓ Run the unit tests · bun test`, and the folded row names the step by its title, said done:
+`└ Checked the port config · Ran the unit tests (12s)` (a title that starts with an uncommon verb is kept as written).
+A title never shows alone, and approval boxes, permission checks, receipts, `/output` and `--json` use the real
+command only; a step with no title keeps its usual label. The title costs every request about 30 tokens
+([decision 25](adr/0002/25-visibility-over-a-smaller-prompt.md)).
 
 On a rich terminal the steps show where they happen: under the AI's words, in plain words updated in
 place. Searches, reads and folder listings share one line that counts them,

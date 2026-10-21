@@ -414,7 +414,8 @@ export function toolTarget(input: ToolEvent["input"], fit: ToolLineFit = {}, lab
 export function formatToolActivity(event: ToolEvent, elapsedMs?: number, fit: ToolLineFit = {}): string {
   const target = toolTarget(event.input, fit, command => commandLabel(redactPreview(command)));
   const text = target ? redactPreview(String(target)).replace(/\s+/g, " ").slice(0, 180) : "";
-  const name = terminalText(event.toolName).slice(0, 80);
+  // A shell step's title stands where the tool's name would, always with the real program after it.
+  const name = event.description ? terminalText(event.description).replace(/\s+/g, " ").slice(0, 80) : terminalText(event.toolName).slice(0, 80);
   // A path keeps its end (the file name); a command or pattern keeps its start.
   const isPath = typeof event.input?.pattern !== "string" && typeof event.input?.path === "string";
   const room = (rest: string) => fit.width === undefined ? Infinity : fit.width - 1 - [...`✓ ${name} · `].length - [...rest].length;
@@ -436,7 +437,7 @@ export function formatToolActivity(event: ToolEvent, elapsedMs?: number, fit: To
   if (note) return `${NOTE_GLYPH} ${name}${line(` — ${note}${elapsed}`, elapsed)}`;
   const tests = event.input?.check === "test" || (event.input?.command && commandCheck(event.input.command) === "test");
   const summary = event.isError && tests ? testFailureSummary(event.output?.text ?? "") : undefined;
-  if (summary) return `✗ ${summary}${elapsed}`;
+  if (summary) return `✗ ${event.description ? `${name} · ` : ""}${summary}${elapsed}`;
   const github = !event.isError && ["bash", "powershell"].includes(event.toolName) && githubLabel(event.input, event.output?.text);
   if (github) {
     const label = [...`✓ ${github}${elapsed}`];

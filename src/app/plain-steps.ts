@@ -14,6 +14,8 @@ export interface PlainStep {
   toolName: string;
   kind: StepKind;
   input?: ToolObservationInput;
+  /** A shell step's title from the AI, shown with its program. */
+  description?: string;
   path?: string;
   startedAt: number;
   endedAt?: number;
@@ -78,8 +80,16 @@ function commandLine(step: PlainStep, now: number, options: PlainOptions): strin
   const named = check ?? (checkId ? CHECK_WORDS[checkId] : undefined);
   const label = named ?? (command ? commandLabel(redactPreview(command), 60).replace(/ …$/, "") : "a command");
   const human = runningCheck(step.input, options.commands) ?? githubLabel(step.input, "", true);
+  const github = !step.failed && !running(step) && githubLabel(step.input);
+  // A titled step: the AI's title, then the program that really runs.
+  if (step.description && !github) {
+    const title = redactPreview(step.description).replace(/\s+/g, " ");
+    const program = command ? commandLabel(redactPreview(command), 60).replace(/ …$/, "") : label;
+    if (running(step)) return `${BUSY_GLYPH} ${title} · ${program}${runningElapsed(now - step.startedAt)}`;
+    if (step.failed) return `✗ ${title} · ${(named === "tests" ? testFailureSummary(step.output ?? "") : undefined) ?? `${program} failed`}`;
+    return `✓ ${title} · ${program}${took(step.endedAt! - step.startedAt)}`;
+  }
   if (running(step)) return `${BUSY_GLYPH} ${human ? redactPreview(human).replace(/\s+/g, " ") : `Running ${label}`}${runningElapsed(now - step.startedAt)}`;
-  const github = !step.failed && githubLabel(step.input);
   if (github) return `✓ ${github}${took(step.endedAt! - step.startedAt)}`;
   if (step.failed) {
     const summary = named === "tests" ? testFailureSummary(step.output ?? "") : undefined;

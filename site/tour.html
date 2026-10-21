@@ -299,7 +299,8 @@ on in ~/.casper/config.yaml)</pre>
             <h3>Steps under the AI's words</h3>
             <p>Each tool call is a live row under the AI's words, a spinner while it runs and <code>✓</code> or
             <code>✗</code> once done, with one status row above the prompt saying what runs and that Esc stops it, led by the
-            AI's own line for that group of steps (<code>Fixing the port test · Running bun test · 4s</code>). A failed
+            AI's own line for that group of steps (<code>Fixing the port test · Running bun test · 4s</code>). A shell step
+            the AI titled shows its title with the real program (<code>✓ Run the unit tests · bun test</code>). A failed
             step is amber while the AI is still working; red is kept for a failed result and an error that stops work. A search that
             found nothing or a <code>diff</code> that found a difference is a grey note (<code>– bash · rg TODO — nothing found</code>),
             not a failure. When the AI
