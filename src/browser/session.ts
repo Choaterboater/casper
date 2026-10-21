@@ -807,7 +807,8 @@ const PAGE_SETTLED = async (quiet: number, brief: number, limit: number): Promis
 /** How long the page may stay still before screenshot, inspect, diagnostics or a check reads it, how long a page
  * already loaded and not changing is watched, and the most it is waited for. */
 const SETTLE_QUIET_MS = 500;
-const SETTLE_BRIEF_MS = 100;
+// A quarter second: at a tenth, a page whose timer stalled on a busy machine looked still while it was changing.
+const SETTLE_BRIEF_MS = 250;
 const SETTLE_MS = 3_000;
 
 /** Paths of sign-in and authorize pages (Home Assistant's /auth/authorize, /login, /signin, /oauth/authorize). */
