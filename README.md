@@ -107,8 +107,9 @@ Ctrl+D on an empty prompt exits. [Keys and commands](docs/TERMINAL_UX.md#quick-r
 
 ## What it does
 
-- **Receipts and proof.** Line 1 says `Verified`, `Checks passed — not proven`, `Failed` and so on.
-  `Verified` means the checks pass and a test fails without the change. [Receipts](docs/VERIFICATION.md#receipts)
+- **Receipts and proof.** Line 1 says `Verified`, `Checks passed — not proven`, `Failed` and so on, and
+  `/help receipt` says what each means and what to do. `Verified` means the checks pass and a test fails without the
+  change. [Receipts](docs/VERIFICATION.md#receipts)
 - **Checks and repair.** After an edit, Casper runs the checks and sends real failures back for
   three repair tries by default. Web pages are opened and checked too. [Verification](docs/VERIFICATION.md)
 - **One numbered box for every yes.** `1 No · 2 Yes, this once · 3 Yes, for this session ·

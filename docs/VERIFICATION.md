@@ -285,8 +285,16 @@ Failed, and amber with `⚠` for the rest (not verified, not checked, incomplete
 check's whole log. Below 50 columns the card falls back to the lines above, and the plain terminal, one-shot runs,
 `--json` and saved receipts always have the lines.
 
-The per-file change table is behind `Diff` (`/diff`) and `--verbose`, and `/receipt` shows
-the full form below. The `--json` receipt's `text` and saved receipts keep the full form.
+The per-file change table is behind `Diff` (`/diff`) and `--verbose`. `/receipt` (or `/receipt <n>` for a saved one)
+shows every line in full: on a session's rich terminal it is the same card with every row expanded under plain labels
+(Changes, Config, Devices, Checks, Proof, Tests from your request, Model's review, Shell runs (not counted), Notes,
+Undo, Next), each check with its command and time, every changed file, and the proof even when it is strong. With
+`--verbose`, and on the plain terminal, it is the full form below. The `--json` receipt's `text` and saved receipts
+keep the full form.
+
+`/help receipt` says what each verdict means and what to do about it: Verified, Checks passed · not proven, Not
+verified, Not checked, Incomplete, Failed and Stopped. The first receipt of a session that is not a pass ends with a
+grey `What these words mean: /help receipt`, once.
 
 The full form's line 1 is the verdict, one of:
 

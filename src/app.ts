@@ -387,6 +387,7 @@ export class CasperApp {
     output: { write: (text) => app.output.write(text) },
     get terminal() { return app.terminal; },
     get interactive() { return app.interactive; },
+    get verbose() { return app.verbose; },
     get liveSession() { return app.session; },
     get homeDir() { return app.sessionHomeDir ?? os.homedir(); },
     stateDirectory: () => app.projectContext?.stateDirectory,

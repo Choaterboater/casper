@@ -17,7 +17,7 @@ import { editPlanFile } from "./plan-editor";
 import type { HelperActivity } from "../agents/manager";
 import { crewTranscriptLine } from "./crew-panel";
 import { modelReasonLine } from "./model-reason";
-import { CARD_MIN_COLUMNS, cardNextRows, cardRows, receiptCard, type CardTone } from "./receipt-card";
+import { CARD_MIN_COLUMNS, cardHintRows, cardMinColumns, cardNextRows, cardRows, receiptCard, RECEIPT_HINT, type CardTone, type ReceiptCard } from "./receipt-card";
 import type { ReceiptView } from "../task/result";
 
 export { numberPrompt } from "./choices";
@@ -118,9 +118,12 @@ export class InteractiveTerminal {
   private title?: string;
   private undoHost?: () => void;
   private busySubmit?: (line: string, plain?: boolean) => true | string;
-  /** The receipt card just drawn, for the next-step row that follows it: its edge's tone, and whether it has a Next row
-   * of its own. Forgotten once anything else is written or the prompt is back. */
-  private card?: { tone: CardTone; next: boolean };
+  /** The receipt card just drawn, for the next-step row that follows it: its edge's tone, whether it has a Next row of
+   * its own, and whether the pointer to what its words mean goes last. Forgotten once anything else is written or the
+   * prompt is back. */
+  private card?: { tone: CardTone; next: boolean; hint: boolean };
+  /** The first problem receipt of the session has shown where its words are explained. */
+  private receiptHintShown = false;
 
   constructor(private readonly input: Readable, private readonly output: TerminalOutput,
     private readonly onInterrupt: () => void, private readonly onEOF: () => void, private readonly host?: TerminalHost) {
@@ -342,22 +345,33 @@ export class InteractiveTerminal {
    * under the edge. The plain terminal gets the lines as they are. */
   writeResult(text: string, view?: ReceiptView): void {
     this.card = undefined;
-    if (!this.surface) { this.writeReceipt(text); return; }
-    const lines = terminalText(text).split("\n");
-    const card = view && receiptCard(view, this.color);
-    const tone = card?.tone ?? (/^✓/.test(lines[0] ?? "") ? "success" : /^(?:✗|\[error\])/.test(lines[0] ?? "") ? "error" : "warning");
-    const edge = tint("▌", tone, this.color);
-    if (!card) {
+    const card = this.surface && view ? receiptCard(view, this.color) : undefined;
+    if (!this.surface || !card) {
+      if (!this.surface) { this.writeReceipt(text); return; }
+      const lines = terminalText(text).split("\n");
+      const tone = /^✓/.test(lines[0] ?? "") ? "success" : /^(?:✗|\[error\])/.test(lines[0] ?? "") ? "error" : "warning";
+      const edge = tint("▌", tone, this.color);
       // A block of its own: a blank row before it.
       this.surface.write(lines.map(line => line ? `${edge} ${this.styleLine(line, true)}` : line).join("\n"), "group");
       return;
     }
+    this.writeCard(card, text);
+    // The first problem receipt of a session ends with where its words are explained, after the next-step keys.
+    if (card.rows.length) this.card = { tone: card.tone, next: card.rows.some(row => row.label === "Next"), hint: card.tone !== "success" && !this.receiptHintShown };
+  }
+
+  /** A receipt card on the rich terminal, in a block of its own; too narrow for its label column, or on the plain
+   * terminal, `text` (the receipt's own lines) instead, under the card's edge on the rich one, a failure red. */
+  writeCard(card: ReceiptCard, text: string): void {
+    this.card = undefined;
+    if (!this.surface) { this.writeReceipt(text); return; }
+    const lines = terminalText(text).split("\n").filter(Boolean);
     const color = this.color;
-    // Too narrow for the label column: the receipt's lines under the edge, line 1 in the result's colour.
-    const narrow = (width: number) => lines.filter(Boolean).flatMap((line, index) =>
-      wrapTextWithAnsi(index ? this.styleLine(line, true) : tint(line, tone, color), Math.max(1, width - 2)).map(row => `${edge} ${row}`));
-    this.surface.writeBlock({ render: width => width >= CARD_MIN_COLUMNS ? cardRows(card, width, color) : narrow(width), invalidate() {} }, "group");
-    if (card.rows.length) this.card = { tone, next: card.rows.some(row => row.label === "Next") };
+    const edge = tint("▌", card.tone, color);
+    // Line 1 in the result's colour, the rest as the receipt colours them.
+    const narrow = (width: number) => lines.flatMap((line, index) =>
+      wrapTextWithAnsi(index ? this.styleLine(line, true) : tint(line, card.tone, color), Math.max(1, width - 2)).map(row => `${edge} ${row}`));
+    this.surface.writeBlock({ render: width => width >= cardMinColumns(card) ? cardRows(card, width, color) : narrow(width), invalidate() {} }, "group");
   }
 
   assistant(delta: string): void {
@@ -383,13 +397,20 @@ export class InteractiveTerminal {
   offerNext(row: NextRow | undefined): void {
     const card = this.card;
     this.card = undefined;
-    if (!row) { this.nextKeys = undefined; this.surface?.offerNext(undefined); return; }
+    if (this.surface && card?.hint) this.receiptHintShown = true;
+    const hint = (width: number) => card?.hint ? width >= CARD_MIN_COLUMNS ? cardHintRows(card.tone, width, this.color)
+      : [tint(RECEIPT_HINT, "muted", this.color)] : [];
+    if (!row) {
+      this.nextKeys = undefined; this.surface?.offerNext(undefined);
+      if (this.surface && card?.hint) this.surface.writeBlock({ render: hint, invalidate() {} }, "attached");
+      return;
+    }
     if (this.surface && card) {
       // Under a receipt card, on its edge: the keys join its Next row.
       const color = this.color;
       const lines = terminalText(row.line).split("\n");
-      this.surface.writeBlock({ render: width => width >= CARD_MIN_COLUMNS ? cardNextRows(row.line, card.tone, !card.next, width, color)
-        : lines.flatMap(line => wrapTextWithAnsi(this.styleLine(line), Math.max(1, width))), invalidate() {} }, "attached");
+      this.surface.writeBlock({ render: width => [...width >= CARD_MIN_COLUMNS ? cardNextRows(row.line, card.tone, !card.next, width, color)
+        : lines.flatMap(line => wrapTextWithAnsi(this.styleLine(line), Math.max(1, width))), ...hint(width)], invalidate() {} }, "attached");
       this.surface.offerNext(row.keys);
       return;
     }

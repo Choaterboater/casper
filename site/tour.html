@@ -98,17 +98,15 @@
 
 <span class="prompt">❯</span> <span class="you">/receipt</span>
 
-<span class="dim">[task]</span> Execution completed
-       changes      2 files changed: src/sum.js, tests/sum.test.js
-       verification Checks pass (command execution): 1 pass, 0 fail, 0 skip; 0 repair attempt(s).
-test: scope undeclared; current files unverified; reuse disabled. Requested behavior is not
-independently certified.
-       proof        ✓ Proven: test fails without this change (exit 1) and passes with it
-       sandbox      not sandboxed (off unless you turn it on: /sandbox on, or sandbox: on in
-~/.casper/config.yaml)
-       undo         available (/undo 1)</pre>
+<span class="ok">▌</span> <span class="ok">✓ Verified</span>: the checks pass, and the tests fail without the change
+<span class="ok">▌</span>   <span class="dim">Changes</span>                   2 files: src/sum.js, tests/sum.test.js
+<span class="ok">▌</span>   <span class="dim">Checks</span>                    <span class="ok">✓</span> test passed (bun test)
+<span class="ok">▌</span>   <span class="dim">Proof</span>                     <span class="ok">✓</span> Proven: test fails without this change (exit 1) and passes with it
+<span class="ok">▌</span>   <span class="dim">Notes                     Shell commands and checks were not sandboxed (off unless you turn it</span>
+<span class="ok">▌</span>                             <span class="dim">on: /sandbox on, or sandbox: on in ~/.casper/config.yaml)</span>
+<span class="ok">▌</span>   <span class="dim">Undo</span>                      available: /undo 1</pre>
           <figcaption>Asking Casper to fix a bug. The AI edits two files; Casper runs the test, proves
-          the fix, and prints the receipt. Then <code>/receipt</code> shows the detail (no model call).</figcaption>
+          the fix, and prints the receipt. Then <code>/receipt</code> shows every line of it (no model call).</figcaption>
         </figure>
         <div class="grid two">
           <article class="card">
@@ -118,6 +116,8 @@ independently certified.
             <p class="verdict warn">⚠ Not verified: the tests pass without the change too</p>
             <p class="verdict bad">✗ Failed: test failed</p>
             <p class="verdict warn">⚠ Not checked: test timed out, so the change was not tested</p>
+            <p>Not sure what a word means? <code>/help receipt</code> says, with what to do about it. The first
+            receipt in a session that is not a pass ends with that hint, once.</p>
           </article>
           <article class="card">
             <h3>Why it matters</h3>

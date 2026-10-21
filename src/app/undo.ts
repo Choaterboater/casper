@@ -11,7 +11,8 @@ import { tildePath } from "../new/scaffold";
 import { readProjectText, removeProjectFile, writeProjectFile } from "../platform/files";
 import type { RuntimeSession } from "../runtime/types";
 import { RECEIPTS_KEPT, ReceiptStore, type ReceiptUndo, type StoredReceipt } from "../task/receipts";
-import { formatTaskResult, receiptVerdict, UNDO_NOTHING_CHANGED, type TaskResult } from "../task/result";
+import { formatTaskResult, receiptVerdict, receiptView, UNDO_NOTHING_CHANGED, type TaskResult } from "../task/result";
+import { receiptDetail } from "../tui/receipt-card";
 import path from "node:path";
 import { HASH_LIMIT } from "../task/changes";
 import { coveredBy, leftOutWhy, UndoStore, type LeftOut, type UndoApplied, type UndoPlan, type UndoSnapshot } from "../task/undo";
@@ -25,6 +26,8 @@ export interface UndoHost {
   readonly output: OutputWriter;
   readonly terminal: InteractiveTerminal;
   readonly interactive: boolean;
+  /** --verbose: /receipt prints the full form, never the card. */
+  readonly verbose?: boolean;
   /** The conversation, only when it is already running (undo never starts a model session). */
   readonly liveSession?: RuntimeSession;
   readonly homeDir: string;
@@ -637,11 +640,23 @@ export class TaskUndo {
       return true;
     }
     if (found === "unreadable") { this.refuse(`Receipt ${Number(argument)} can't be read.`); return true; }
-    this.write(`Task ${found.n} · ${time(found.createdAt)} · ${terminalText(found.request).replace(/\s+/g, " ")}\n${summary(found)}\n`);
-    if (found.task) this.write(`${formatTaskResult({ ...found.task, receipt: found.n })}\n`);
+    const task = found.task && { ...found.task, receipt: found.n };
+    const card = task && this.host.terminal.rich && !this.host.verbose;
+    // The card's line 1 is the verdict, so it needs no summary line above it.
+    this.write(`Task ${found.n} · ${time(found.createdAt)} · ${terminalText(found.request).replace(/\s+/g, " ")}\n${card ? "" : `${summary(found)}\n`}`);
+    if (task) showReceiptDetail(this.host, task);
     if (found.undo && "undone" in found.undo && found.undo.undone) this.write(`– Undone at ${time(found.undo.undone.at)}; /redo ${found.n} puts the files back.\n`);
     return true;
   }
+}
+
+/** A task's receipt in detail (/receipt): on a session's rich terminal the receipt card with every row expanded;
+ * with --verbose, and on the plain terminal, the full form. */
+export function showReceiptDetail(host: { readonly terminal: InteractiveTerminal; readonly output: OutputWriter; readonly verbose?: boolean }, task: TaskResult): void {
+  const card = host.terminal.rich && !host.verbose ? receiptDetail(receiptView(task, { full: true }), task, host.terminal.color) : undefined;
+  if (card) host.terminal.writeCard(card, formatTaskResult(task));
+  // --verbose and the plain terminal: the full form, a failure red as on the receipt.
+  else host.terminal.writeReceipt(`${formatTaskResult(task)}\n`);
 }
 
 function time(iso: string): string {

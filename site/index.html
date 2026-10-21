@@ -209,12 +209,12 @@ on in ~/.casper/config.yaml)</pre>
         </div>
         <figure class="capture">
 <pre class="term receipt-capture" data-title="casper — ~/project">▌ <span class="ok">✓ Verified · test passed · changed src/sum.js, tests/sum.test.js</span>
-       changes      2 files changed: src/sum.js, tests/sum.test.js
-       verification Checks pass (command execution): 1 pass, 0 fail, 0 skip; 0 repair attempt(s).
-test: scope undeclared; current files unverified; reuse disabled. Requested behavior is not
-independently certified.
-       proof        <span class="ok">✓</span> Proven: test fails without this change (exit 1) and passes with it</pre>
-          <figcaption>Cropped from the "Fix a bug" run and its <code>/receipt</code> detail. <code>Next: 1 Show diff · 2 Undo</code> puts the files back.</figcaption>
+<span class="prompt">❯</span> <span class="you">/receipt</span>
+<span class="ok">▌</span> <span class="ok">✓ Verified</span>: the checks pass, and the tests fail without the change
+<span class="ok">▌</span>   <span class="dim">Changes</span>                   2 files: src/sum.js, tests/sum.test.js
+<span class="ok">▌</span>   <span class="dim">Checks</span>                    <span class="ok">✓</span> test passed (bun test)
+<span class="ok">▌</span>   <span class="dim">Proof</span>                     <span class="ok">✓</span> Proven: test fails without this change (exit 1) and passes with it</pre>
+          <figcaption>Cropped from the "Fix a bug" run and its <code>/receipt</code> card. <code>2 Undo</code> on the receipt's Next row puts the files back; <code>/help receipt</code> says what each verdict means.</figcaption>
         </figure>
       </section>
 

@@ -20,12 +20,10 @@
 
 ❯ /receipt
 
-[task] Execution completed
-       changes      2 files changed: src/sum.js, tests/sum.test.js
-       verification Checks pass (command execution): 1 pass, 0 fail, 0 skip; 0 repair attempt(s).
-test: scope undeclared; current files unverified; reuse disabled. Requested behavior is not
-independently certified.
-       proof        ✓ Proven: test fails without this change (exit 1) and passes with it
-       sandbox      not sandboxed (off unless you turn it on: /sandbox on, or sandbox: on in
-~/.casper/config.yaml)
-       undo         available (/undo 1)
+▌ ✓ Verified: the checks pass, and the tests fail without the change
+▌   Changes                   2 files: src/sum.js, tests/sum.test.js
+▌   Checks                    ✓ test passed (bun test)
+▌   Proof                     ✓ Proven: test fails without this change (exit 1) and passes with it
+▌   Notes                     Shell commands and checks were not sandboxed (off unless you turn it
+▌                             on: /sandbox on, or sandbox: on in ~/.casper/config.yaml)
+▌   Undo                      available: /undo 1

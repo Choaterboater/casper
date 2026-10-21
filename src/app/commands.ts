@@ -9,7 +9,7 @@ import type { DebugRequest, DebugSession } from "../debug/session";
 import { formatSubagentReport, SUBAGENT_LIMITS, SubagentManager, type SubagentRole } from "../agents/manager";
 import { formatReferenceResult, type ReferenceLibrary } from "../references/library";
 import { ProjectMemory } from "../memory/store";
-import { HELP_TEXT, FULL_HELP_TEXT, HOTKEYS_TEXT, LOGIN_HELP, helpFor, unknownCommandMessage, wrapHelp } from "../tui/help";
+import { HELP_TEXT, FULL_HELP_TEXT, HOTKEYS_TEXT, LOGIN_HELP, RECEIPT_HELP, helpFor, unknownCommandMessage, wrapHelp } from "../tui/help";
 import { loadUserCommands, userCommandsHelp } from "./user-commands";
 import { conversationCommand, runLogout } from "./peer-commands";
 import { chooseModel, severalModelsMessage } from "./model-words";
@@ -55,7 +55,8 @@ import { detectedMigrations, MIGRATIONS_CHECK } from "../verify/migrations-check
 import { detectedE2e, E2E_CHECK } from "../verify/e2e";
 import { COMPOSE_CHECK, detectedCompose } from "../verify/compose";
 import { TOOL_CALL_LIMIT, type TaskObservations } from "../task/observations";
-import { formatTaskResult, NO_CHECKS_FOUND, type PartNotReviewed, type TaskResult } from "../task/result";
+import { NO_CHECKS_FOUND, type PartNotReviewed, type TaskResult } from "../task/result";
+import { showReceiptDetail } from "./undo";
 import { UndoStore } from "../task/undo";
 import { tildePath } from "../new/scaffold";
 import { conversationLabel, matchConversation, recentTurnLines } from "../sessions/resume";
@@ -98,6 +99,8 @@ export interface CommandHost {
   savedModel(): Promise<string | undefined>;
   readonly terminal: InteractiveTerminal;
   readonly interactive: boolean;
+  /** --verbose: /receipt prints the full form, never the card. */
+  readonly verbose?: boolean;
   /** /permissions all: the shell's questions are answered "Yes, for this session" until you quit or type /permissions ask. */
   stopAsking: boolean;
   readonly closing: boolean;
@@ -221,7 +224,9 @@ export async function runSlashCommand(host: CommandHost, prompt: string): Promis
       // Laid out for this terminal's width; piped output gets the text unchanged.
       // Your own commands close /help and /help all, in a group of their own.
       const mine = word && word !== "all" ? "" : userCommandsHelp(loadUserCommands(host.homeDir()));
-      host.output.write(wrapHelp(!word ? HELP_TEXT + mine : word === "all" ? FULL_HELP_TEXT + mine : helpFor(word), host.interactive ? host.terminal.columns : undefined));
+      // /help receipt is what a receipt's words mean, not every line that mentions receipts.
+      const text = !word ? HELP_TEXT + mine : word === "all" ? FULL_HELP_TEXT + mine : /^receipts?$/i.test(word) ? RECEIPT_HELP : helpFor(word);
+      host.output.write(wrapHelp(text, host.interactive ? host.terminal.columns : undefined));
       return;
     }
     if (/^\/login(?:\s|$)/.test(prompt)) {
@@ -458,7 +463,7 @@ export async function runSlashCommand(host: CommandHost, prompt: string): Promis
     if (prompt === "/receipt") {
       const task = host.getLastTaskResult();
       if (!task) throw new Error("No task receipt yet; /receipt shows the detailed receipt of the last model task.");
-      host.terminal.writeReceipt(`${formatTaskResult(task)}\n`);
+      showReceiptDetail(host, task);
       return;
     }
     if (/^\/output(?:\s|$)/.test(prompt)) {

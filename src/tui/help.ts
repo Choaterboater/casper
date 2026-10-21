@@ -26,6 +26,18 @@ export const LOGIN_HELP = `Sign-in needs an interactive terminal. Run casper and
 Never paste keys or tokens into chat.
 `;
 
+/** `/help receipt`: what each verdict on a receipt's first line means, and what to do about it. */
+export const RECEIPT_HELP = `What a receipt's first line means, and what to do:
+  ✓ Verified                    The checks pass and a test fails without the change, so it is proven. Review it as usual.
+  ⚠ Checks passed · not proven  The checks pass, but nothing showed they test the change (no comparison ran, or a refactor needs none). Look at the change, or ask for a test that fails without it.
+  ⚠ Not verified                The checks don't show the change works: the tests pass without it too, a check ran only through bash, or a pass is from before the last edit. Do what the receipt says, often /verify.
+  ⚠ Not checked                 The change was not tested: a check timed out or could not start, or there are no tests yet. Run it again with /verify <check>, or say "add tests".
+  ⚠ Incomplete                  The task stopped early: a turn or spend limit, commands Casper stopped, or a check that never ran. Send another request to go on.
+  ✗ Failed                      A check fails on the final files, or the model run failed. Ctrl+T shows the log; /verify repair <check> asks the model to fix it.
+  ⚠ Stopped                     You stopped the task. What changed so far is kept: /diff shows it, /undo puts it back.
+Green is proven or passed, amber needs a look, red failed. /receipt shows every line of the last receipt.
+`;
+
 /** The keys, in /help all and /hotkeys. */
 export const KEYS_HELP = "Esc stops work. Ctrl+C cancels work; idle, it clears a draft; twice on empty exits. Shift+Tab cycles effort. Ctrl+O opens or closes crew details while helpers are shown; otherwise it toggles raw steps. Alt+O always toggles raw steps (every tool call) or plain ones again. Ctrl+T shows the last step in full (an edit's diff, a command's output, a plan's Details). Ctrl+G in a plan opens its saved Markdown using VISUAL or EDITOR, then rereads and shows it again. Ctrl+X turns MCP writes off and refuses an open change box. Ctrl+L redraws the screen. Ctrl+V (Alt+V on Windows) pastes a picture from the clipboard as [image 1], or the path of a file you copied in Finder, Explorer or a file manager (a picture file goes with the request); a dropped picture file works too. Shift+Enter (when supported) or Ctrl+J inserts a newline; Up/Down recalls history. Tab completes commands and file paths (@). Enter during work sends your line to the AI (it reads it at its next step) or queues it for after the task; Esc gives queued lines back. A queued line never answers an approval.";
 
@@ -112,7 +124,8 @@ Local commands:
   /copy [n]                         Copy the last answer, or its code block n, to the clipboard
   /export [file]                    Save this conversation to ~/.casper/exports, or to [file] in the project: Markdown, or every message as .jsonl
   /rename <title>                   Name this conversation (the window title and /resume)
-  /receipt                          Detailed evidence receipt of the last model task (freshness, scope), also after a restart
+  /receipt                          Detailed evidence receipt of the last model task (freshness, scope), also after a restart; in a terminal a card with every line
+  /help receipt                     What a receipt's first line means (Verified, Not checked, Failed …) and what to do about each
   /receipt <n>, /receipt list       A saved receipt, or the last 10 (saved with secrets hidden)
   /permissions                      Whether Casper asks, one line per kind, and a box to stop asking until you quit
   /permissions details              Everything allowed here, where it came from and every way to be asked less

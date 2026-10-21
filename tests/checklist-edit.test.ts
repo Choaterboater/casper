@@ -153,7 +153,8 @@ test("interactive: the cases are made quietly, reach the task prompt, and /recei
     fixture.input.write("/receipt\r");
     await fixture.screen.until(() => Bun.stripANSI(fixture.screen.output.slice(from)).includes("the 6th call is rejected"));
     const receipt = Bun.stripANSI(fixture.screen.output.slice(from)).replaceAll("\r\n", "\n");
-    expect(receipt).toContain("checklist    2 cases from your request (handed to the model to test; not evidence)");
+    // On this terminal /receipt is the receipt card with every row expanded: the cases are on "Tests from your request".
+    expect(receipt.replace(/\s*\n▌\s+/g, " ").replace(/\s+/g, " ")).toContain("Tests from your request 2 cases from your request (handed to the model to test; not evidence)");
     expect(receipt).toContain("- limit(0) throws");
   } finally { await fixture.close(); }
 });
