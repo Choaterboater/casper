@@ -9,7 +9,6 @@ import { canonicalLine, runsDuringWork, sessionFlag } from "../tui/commands";
 import { commandProblem } from "../tui/help";
 import { loadUserCommands, usableCommands } from "./user-commands";
 import { leadingImagePath } from "./images";
-import { opened } from "./new-project";
 import { updateFooter } from "./footer";
 import { backgroundTasks } from "./task-tools";
 import { handleSlashCommand } from "./command-loop";

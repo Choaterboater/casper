@@ -124,7 +124,7 @@ test("Ctrl+C cancels the effort picker instead of arming exit behind it", async 
     async start() {
       return {
         getStatus: (): RuntimeStatus => ({ provider: "fixture", model: "demo", auth: "configured", thinkingLevel: "high", configuredEffort: "high", availableThinkingLevels: ["off", "low", "medium", "high"] }),
-        setEffort: async (level: string, persist: boolean) => ({ provider: "fixture", model: "demo", auth: "configured", thinkingLevel: level === "auto" ? "high" : level, configuredEffort: level, availableThinkingLevels: ["off", "low", "medium", "high"] }),
+        setEffort: async (level: string, _persist: boolean) => ({ provider: "fixture", model: "demo", auth: "configured", thinkingLevel: level === "auto" ? "high" : level, configuredEffort: level, availableThinkingLevels: ["off", "low", "medium", "high"] }),
         getState: () => ({ cwd: project, isStreaming: false }),
         subscribe: () => () => {},
         abort: async () => {},
@@ -154,7 +154,7 @@ test("Ctrl+C cancels the effort picker instead of arming exit behind it", async 
     loadLSPConfiguration: async () => ({ servers: [], diagnostics: [] }),
     loadReferenceConfiguration: async () => ({ sources: [], diagnostics: [] }),
   });
-  const interactive = app.runInteractive(project);
+  void app.runInteractive(project);
   try {
     await until(text => Bun.stripANSI(text).includes("idle"));
     const beforePicker = output.length;

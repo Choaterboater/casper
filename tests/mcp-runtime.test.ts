@@ -473,7 +473,7 @@ test("a failing clock hook stops the call before it is sent and keeps the connec
 
 test("/mcp connect to a server that can't start says why once, with no second generic error", async () => {
   const { CasperApp } = await import("../src/app");
-  const { mkdtemp, rm } = await import("node:fs/promises");
+  const { mkdtemp } = await import("node:fs/promises");
   const os = await import("node:os");
   const path = await import("node:path");
   const root = await mkdtemp(path.join(os.tmpdir(), "casper-mcp-missing-"));

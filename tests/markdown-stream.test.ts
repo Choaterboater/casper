@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { visibleWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
+import { visibleWidth } from "@earendil-works/pi-tui";
 import { markdownTheme } from "../src/tui/format";
 import { stablePrefixEnd, StreamingMarkdown } from "../src/tui/markdown-stream";
 import { Transcript } from "../src/tui/transcript";

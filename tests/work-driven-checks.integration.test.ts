@@ -691,7 +691,7 @@ test("concurrent requests for the same scoped check execute once and return one 
 
 test("check guidance lists available commands regardless of request words; docs-only and no-change work select none", async () => {
   const root = await fixture();
-  const { app, prompts, output } = createApp(root, async (prompt, tools, options) => {
+  const { app, prompts } = createApp(root, async (prompt, tools, options) => {
     checkTool(tools);
     expect(prompt).toContain(`test=${command}`);
     expect(prompt).toContain(`build=${checkCommand("append:build-runs")}`);

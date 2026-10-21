@@ -7,7 +7,7 @@ import type { ServiceSpec } from "./config";
 import { detectWebService, isDetectedWebService, type DetectedWebService, type DetectInput } from "./detect";
 import type { ServiceManager } from "./manager";
 import { changedPages, type PagePlan, type PagesSetting } from "./pages";
-import { a11yNotes, feelNotes, formatOpeningLine, lookNotes, formatServerLine, pageStatus, type PageReport, type PageResult, type PageStatus } from "./page-report";
+import { a11yNotes, feelNotes, formatOpeningLine, lookNotes, formatServerLine, pageStatus, type PageReport, type PageResult } from "./page-report";
 
 export * from "./page-report";
 

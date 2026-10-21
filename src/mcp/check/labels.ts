@@ -34,11 +34,6 @@ function properties(tool: CheckTool): Record<string, unknown> {
   return record(schema) && record(schema.properties) ? schema.properties : {};
 }
 
-function required(tool: CheckTool): string[] {
-  const schema = tool.inputSchema;
-  return record(schema) && Array.isArray(schema.required) ? schema.required.filter((name): name is string => typeof name === "string") : [];
-}
-
 /** Whether the server labeled the tool at all: readOnlyHint or destructiveHint set to true or false. */
 export function hasLabel(tool: CheckTool): boolean {
   return typeof tool.annotations?.readOnlyHint === "boolean" || typeof tool.annotations?.destructiveHint === "boolean";

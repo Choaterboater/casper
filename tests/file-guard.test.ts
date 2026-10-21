@@ -4,7 +4,7 @@ import { realpathSync } from "node:fs";
 import { mkdir, mkdtemp, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { classifyPath, fileToolGate, gitInternalsCommand, hooksPathTargets, otherLoginFiles, PRIVATE_PATHS, privatePathCommand, resolveToolPath, shellTempPath, windowsShellPath } from "../src/platform/project-paths";
+import { classifyPath, fileToolGate, gitInternalsCommand, hooksPathTargets, otherLoginFiles, PRIVATE_PATHS, privatePathCommand, shellTempPath, windowsShellPath } from "../src/platform/project-paths";
 import { POSIX } from "./support/platform";
 import { removeTempDir } from "./support/temp-dir";
 import { cleanEnv } from "./support/env";

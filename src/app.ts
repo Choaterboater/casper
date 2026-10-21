@@ -37,10 +37,9 @@ import { scrubToolOutput } from "./secrets/tool-output";
 import type { Readable } from "node:stream";
 import { loadProjectContext, type ProjectContext } from "./project/context";
 import { broadFolder, inspectProject, type ProjectInfo } from "./project/inspect";
-import type { ChildProject } from "./project/child";
 import { forgetSshSecrets } from "./ssh/login";
 import { useTelemetrySetting } from "./runtime/openrouter-attribution";
-import type { AgentRuntime, RuntimeAuthProvider, RuntimeSession, RuntimeImage, RuntimeTool, RuntimeShell } from "./runtime/types";
+import type { AgentRuntime, RuntimeSession, RuntimeImage, RuntimeTool, RuntimeShell } from "./runtime/types";
 import { SkillRegistry, skillRegistryOptions } from "./skills/registry";
 import type { TaskResult, TaskUsage } from "./task/result";
 import { TaskObservations } from "./task/observations";
@@ -78,7 +77,7 @@ import { detectHostTerminal } from "./tui/host-terminal";
 import { RuntimeEventMapper, type CasperEvent } from "./app/json-events";
 import { StepRail } from "./app/steps";
 import type { Install } from "./update/command";
-import { sandboxReceipt, sandboxBannerLine, sandboxStartupNotes, sandboxStatusLine, type RunAllowances } from "./app/sandbox";
+import { sandboxReceipt, sandboxBannerLine, sandboxStartupNotes, type RunAllowances } from "./app/sandbox";
 import type { ShellSandbox, ShellSandboxOptions } from "./sandbox/manager";
 import type { LoginHost } from "./mcp/network/ask-login";
 import type { NetworkProduct } from "./mcp/network/logins";
@@ -91,7 +90,7 @@ import { updateFooter, displayLevel, expandLastStep } from "./app/footer";
 import { submitDuringWork, cycleEffort } from "./app/during-work";
 import { browserSession, serviceManager, stopDebugger, backgroundTasks } from "./app/task-tools";
 import type { BigModelChoice } from "./app/big-model";
-import { openProjectCommand, offerWorkFolder } from "./app/workspace";
+import { openProjectCommand } from "./app/workspace";
 import { ensureSessionWorkspace, handleBranchCommand, handleSwitchCommand } from "./app/session-branches";
 import { setCheckProgress } from "./verify/progress";
 import type { PageSession } from "./pages/session";
@@ -723,10 +722,6 @@ export class CasperApp {
   /** Local command dispatch moved to app/commands.ts; the app is the command host. */
   handleSlashCommand(prompt: string): Promise<VerificationReport | undefined> { return handleSlashCommand(this, prompt); }
 
-  /** After the receipt: "The work is in ~/Documents/sample-tools. 1 Stay here · 2 Switch there". Enter stays. A run
-   * that can't ask says the command to use. */
-  private async offerWorkFolder(child: ChildProject): Promise<void> { return offerWorkFolder(this, child); }
-
   /**
    * `/project <name>`: a project folder inside this one (typed as a path, or the name of one Casper finds two
    * levels down). Before the model starts Casper opens it; a name that isn't there offers "1 Stay in Documents ·
@@ -890,10 +885,6 @@ export class CasperApp {
 
   /** Ends every allowed change kind and session answer, on every server. */
   endAllowances(): boolean { return this.broker?.endAllowances() ?? false; }
-
-  /** Ctrl+X: writes off for every server at once, and every allowed kind and session answer ended. Returns whether
-   * any of those were in force. */
-  private revertWrites(): boolean { return revertWrites(this); }
 
   /**
    * The network server's setup host: questions in the numbered approval box (only the person, never the AI's ask tool),

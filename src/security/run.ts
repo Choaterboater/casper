@@ -15,6 +15,8 @@ import { ranToEnd, SECURITY_TOOLS, toolArgs, type SecurityToolSpec, type ToolArg
 import { SECURITY_TOOL_ORDER, type IgnoreEntry, type IgnoreFile, type SecurityFinding, type SecurityToolId } from "./types";
 
 /**
+ * Casper's security checks: pinned, offline-by-default tools (gitleaks, ruff S, semgrep with Casper's own
+ * MCP and FastAPI rules, zizmor, osv-scanner, ansible-lint, and opt-in Cisco mcp-scanner).
  * The security check engine behind /security-review and `casper security`. Shaped like `casper mcp check`:
  * each tool is one step, and a tool that is missing, crashes or times out is "not run" with a reason and
  * never stops the others. No model is called here: this is tools only, and costs no tokens.

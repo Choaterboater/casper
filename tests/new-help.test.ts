@@ -49,7 +49,7 @@ test("casper new --help and casper update --help print help, not an error", asyn
 
 test("/project new with a lone kind word where Casper can't ask builds that kind under its usual name", async () => {
   const { CasperApp } = await import("../src/app");
-  const { mkdtemp, rm } = await import("node:fs/promises");
+  const { mkdtemp } = await import("node:fs/promises");
   const os = await import("node:os");
   const root = await mkdtemp(path.join(os.tmpdir(), "casper-new-kind-"));
   const built: { template: string; name: string }[] = [];
@@ -65,7 +65,7 @@ test("/project new with a lone kind word where Casper can't ask builds that kind
 
 test("/project new --help in a session prints the help and asks nothing", async () => {
   const { CasperApp } = await import("../src/app");
-  const { mkdtemp, rm } = await import("node:fs/promises");
+  const { mkdtemp } = await import("node:fs/promises");
   const os = await import("node:os");
   const root = await mkdtemp(path.join(os.tmpdir(), "casper-new-help-"));
   const built: string[] = [];

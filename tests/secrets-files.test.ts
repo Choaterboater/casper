@@ -109,7 +109,7 @@ test("a webhook or DSN on this machine (localhost, 127.x, ::1) is not a login an
 });
 
 test("keys in Casper's login file are hidden wherever they show up", async () => {
-  const { mkdtemp, writeFile, rm } = await import("node:fs/promises");
+  const { mkdtemp, writeFile } = await import("node:fs/promises");
   const os = await import("node:os"); const path = await import("node:path");
   const dir = await mkdtemp(path.join(os.tmpdir(), "casper-login-values-"));
   try {

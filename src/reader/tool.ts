@@ -14,7 +14,6 @@ import { looksLikeInstructions, MAX_TEXT_BYTES, readUntrusted, type ReaderComple
 import { QUOTED_KEY } from "./schema";
 
 export const READER_TOOL = "casper_read_untrusted";
-const COMMAND_TIMEOUT_SECONDS = 60;
 
 export interface ReaderToolOptions {
   /** The project folder; paths are read as the AI's read tool reads them, with the same private places refused. */

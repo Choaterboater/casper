@@ -19,7 +19,6 @@ import type { PartNotReviewed } from "../task/result";
 import { assembleTaskTools, picturesRequested } from "./capabilities";
 import { webTools } from "../web/tools";
 import type { BackgroundTask } from "./background";
-import { opened } from "./new-project";
 import { askToolFor } from "./approvals";
 import { phase } from "./footer";
 import { appReaderTool } from "./reader";

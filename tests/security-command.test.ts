@@ -10,7 +10,7 @@ import { SECURITY_OFFLINE_LINE } from "../src/security/format";
 import { SkillRegistry } from "../src/skills/registry";
 import { approvalsPath } from "../src/security/suppressions";
 import { COMMANDS } from "../src/tui/commands";
-import { FULL_HELP_TEXT, HELP_TEXT } from "../src/tui/help";
+import { FULL_HELP_TEXT } from "../src/tui/help";
 import { FAKE_PROGRAM_SETUP_MS, fakeTools, fixtureRepo, gitIn, prepareFakePrograms } from "./fixtures/security-tools/setup";
 import { removeTempDir } from "./support/temp-dir";
 

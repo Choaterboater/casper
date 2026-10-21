@@ -6,7 +6,7 @@ import type { RuntimeImage, RuntimeModelPickerHost, RuntimePickerIO, RuntimePick
 import { imageLabel, imageMimeType, MAX_IMAGE_BYTES, MAX_IMAGES, promptPath } from "../app/images";
 import { readClipboardFiles } from "./clipboard-files";
 import { commandMenu, COMMANDS, findCommand, fitDescriptions, type MenuCommand, menuRunsDuringWork } from "./commands";
-import { BUSY_GLYPH, dim, formatElapsed, hasLineControls, hasTerminalControls, markdownTheme, NOT_RUN_GLYPH, PROMPT_GLYPH, terminalText, tint } from "./format";
+import { BUSY_GLYPH, dim, formatElapsed, hasLineControls, hasTerminalControls, markdownTheme, PROMPT_GLYPH, terminalText, tint } from "./format";
 import { answerRecord, answerRecordText, choiceHint, KEY_PICK_MAX, keyChoice, MODEL_REASON_PREFIX, OTHER_CHOICE, typedChoice, type PickRecord } from "./choices";
 import { typedDuringTask } from "./give-way";
 import { GLYPHS } from "./glyphs";
