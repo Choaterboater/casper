@@ -54,7 +54,7 @@ export function changesInRemoteText(text: string): string[] {
 }
 
 /** Where a remote command went, as the receipt names it: "198.51.100.20 (build-server)", and the address it is kept by. */
-function machine(raw: RawTarget, home?: string): { host: string; address: string } {
+export function remoteMachine(raw: RawTarget, home?: string): { host: string; address: string } {
   const target = resolveTarget(raw, home);
   return { host: targetLabel(target).replace(/^another machine \((.*)\)$/, "$1"), address: target.unclear ? target.typed : target.host };
 }
@@ -68,7 +68,7 @@ export function remoteChanges(command: string, home?: string): Array<{ host: str
   const out = new Map<string, { host: string; changes: string[] }>();
   const add = (target: RawTarget, changes: string[], ran = false) => {
     if (!changes.length && !ran) return;
-    const { host, address } = machine(target, home);
+    const { host, address } = remoteMachine(target, home);
     const entry = out.get(address) ?? { host, changes: [] };
     if (host.length > entry.host.length) entry.host = host;
     for (const change of changes) if (!entry.changes.includes(change)) entry.changes.push(change);

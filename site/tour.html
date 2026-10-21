@@ -300,7 +300,9 @@ on in ~/.casper/config.yaml)</pre>
             <p>Each tool call is a live row under the AI's words, a spinner while it runs and <code>✓</code> or
             <code>✗</code> once done, with one status row above the prompt saying what runs and that Esc stops it, led by the
             AI's own line for that group of steps (<code>Fixing the port test · Running bun test · 4s</code>). A shell step
-            the AI titled shows its title with the real program (<code>✓ Run the unit tests · bun test</code>). A failed
+            the AI titled shows its title with the real program (<code>✓ Run the unit tests · bun test</code>). A change to
+            config, a device, another machine or this computer's setup stays in view on a <code>◆</code> row (<code>◆ Changed on
+            build-server: installed a service</code>, <code>◆ installed left-pad</code>), with config diffs and what was sent in a box. A failed
             step is amber while the AI is still working; red is kept for a failed result and an error that stops work. A search that
             found nothing or a <code>diff</code> that found a difference is a grey note (<code>– bash · rg TODO — nothing found</code>),
             not a failure. When the AI

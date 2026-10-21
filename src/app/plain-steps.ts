@@ -4,9 +4,11 @@
 
 import type { ToolObservationInput } from "../runtime/observation";
 import type { ProjectCommand } from "../project/model";
-import { BUSY_GLYPH, commandLabel, displayPath, formatDuration, redactPreview, runningElapsed, type ToolLineFit } from "../tui/format";
+import { BUSY_GLYPH, CHANGE_GLYPH, commandLabel, displayPath, formatDuration, redactPreview, runningElapsed, type ToolLineFit } from "../tui/format";
 import { describeSteps } from "../tui/step-view";
 import type { StepKind } from "./fold";
+import type { StepChange } from "./changes";
+import { isConfigFile } from "../task/config-files";
 import { CHECK_NAMES, commandCheck, githubLabel, runningCheck, testFailureSummary } from "../tui/tool-status";
 
 /** A step of the open group, as the plain list needs it. */
@@ -31,6 +33,8 @@ export interface PlainStep {
   /** A running command's latest output row (`↳ …`), shown under it. */
   tailRow?: string;
   output?: string;
+  /** What it changed beyond the project's code: shown as its ◆ rows once it ends. */
+  changes?: readonly StepChange[];
 }
 
 export interface PlainOptions { fit?: ToolLineFit; commands?: Partial<Record<ProjectCommand, string>> }
@@ -110,15 +114,25 @@ function otherLine(step: PlainStep, fit: ToolLineFit): string {
 export function plainSteps(steps: readonly PlainStep[], now: number, options: PlainOptions = {}): string[] {
   const fit = options.fit ?? {};
   const looks = steps.filter(step => step.kind === "read" && !step.notRun && !step.note);
-  const edits = steps.filter(step => step.kind === "edit" && !step.notRun && !step.retried && !step.failed);
+  const config = (step: PlainStep) => step.kind === "edit" && isConfigFile(where(step, fit));
+  const edits = steps.filter(step => step.kind === "edit" && !step.notRun && !step.retried && !step.failed && !config(step));
+  const configs = steps.filter(step => config(step) && !step.notRun && !step.retried && !step.failed);
   const rows: string[] = [];
-  let looked = false, edited = false;
+  let looked = false, edited = false, configured = false;
   for (const step of steps) {
     if (step.notRun || step.note) { rows.push(step.line); continue; }
     if (step.retried) continue;
+    // A change stays in view on its own rows, never as "Ran …".
+    if (step.changes?.length && !running(step)) { rows.push(...step.changes.map(change => `${CHANGE_GLYPH} ${change.row}`)); continue; }
     if (step.kind === "read") {
       if (!looked) rows.push(lookingLine(looks, now));
       looked = true;
+    } else if (config(step) && !step.failed) {
+      if (!configured) {
+        configured = true;
+        const busy = configs.some(running);
+        rows.push(`${busy ? BUSY_GLYPH : CHANGE_GLYPH} ${busy ? "Changing" : "Changed"} config: ${names(configs.map(edit => where(edit, fit)))}`);
+      }
     } else if (step.kind === "edit") {
       if (step.failed) rows.push(`✗ Couldn't edit ${where(step, fit)}`);
       else if (!edited) {

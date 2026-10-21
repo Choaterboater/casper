@@ -130,7 +130,9 @@ file and set no variable.
    ([Turning writes on](#turning-writes-on)). The box names the product
    (`Change in Mist: ...`), and a disruptive, firmware, delete or admin change asks every
    time, unless you picked `Yes to everything` on that product (then nothing asks until
-   Ctrl+X or the session ends). The real tool's kind comes from the server's `find_tool` and can only make a
+   Ctrl+X or the session ends). Every change Casper sends shows on screen as a `◆ Changed in <server>: <tool>` row with
+   what was sent, masked as in the box, also when nothing asked ([TERMINAL_UX.md](TERMINAL_UX.md)).
+   The real tool's kind comes from the server's `find_tool` and can only make a
    call stricter. A tool `find_tool` never named asks every time, with no
    "Yes, for this session".
    If the AI calls `access_check` first, it is told that a product with no login is

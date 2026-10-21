@@ -1,11 +1,12 @@
 import type { InteractiveTerminal } from "../tui/terminal";
-import { BUSY_GLYPH, commandLabel, formatDuration, formatElapsed, formatToolActivity, lastOutputLine, lineText, NOT_RUN_GLYPH, NOTE_GLYPH, redactPreview, runningElapsed, terminalText, toolTarget } from "../tui/format";
+import { BUSY_GLYPH, CHANGE_GLYPH, commandLabel, formatDuration, formatElapsed, formatToolActivity, lastOutputLine, lineText, NOT_RUN_GLYPH, NOTE_GLYPH, redactPreview, runningElapsed, terminalText, toolTarget } from "../tui/format";
 import type { RuntimeEvent } from "../runtime/types";
 import type { OutputWriter } from "./commands";
 import { SPEND_STOP_REASON } from "../task/spend";
 import type { HelperActivity } from "../agents/manager";
 import { inlineDiff, type DisplayLevel } from "../tui/display";
 import { planFold, stepKind, type StepKind } from "./fold";
+import { shellChanges, type StepChange } from "./changes";
 import os from "node:os";
 import path from "node:path";
 import { tildePath } from "../new/scaffold";
@@ -68,6 +69,8 @@ interface Step {
   input?: ToolStart["input"];
   /** A shell step's title from the AI, shown with its command. */
   description?: string;
+  /** What it changed beyond this project's code: ◆ rows that stay in view (another machine, a device, the setup). */
+  changes?: StepChange[];
   startedAt: number;
   endedAt?: number;
   /** The start event, to redraw the running line with its elapsed time. */
@@ -105,6 +108,8 @@ interface Step {
 const NOT_RUN = " — not run (spend limit)";
 /** After a tool call Casper refused before it ran (a private place, another machine, your No). */
 const REFUSED = " — not run";
+/** A change Casper sent for the AI outside a shell command (an MCP write): a step that is only its ◆ row. */
+const CHANGE_STEP = "casper_change";
 
 /**
  * Casper's own refusals start with "Not run:" and end with words for the model ("Ask the user instead").
@@ -281,7 +286,8 @@ export class RuntimeEventView {
     const tailRow = (step: Step) => step.tail && this.level() !== "quiet" ? `${TAIL_MARK}${lastOutputLine(step.tail, width)}` : undefined;
     // The raw steps (Ctrl+O, and the steps pane): every call on its own row.
     const lines = this.steps.flatMap(step => {
-      if (step.endedAt !== undefined || !step.start) return [step.line];
+      // A finished step keeps its line, then what it changed beyond the code; a change Casper sent for the AI is only that.
+      if (step.endedAt !== undefined || !step.start) return [...(step.toolName === CHANGE_STEP ? [] : [step.line]), ...(step.changes ?? []).map(change => `${CHANGE_GLYPH} ${change.row}`)];
       // Still running: after 10 s say for how long, and for a command show the last line it printed.
       const suffix = runningElapsed(now - step.startedAt);
       const head = suffix ? `${formatToolActivity(step.start, undefined, this.fit(2 + suffix.length))}${suffix}` : step.line;
@@ -427,7 +433,7 @@ export class RuntimeEventView {
     this.endSpeech();
     this.ensureLineBreak();
     if (!this.terminal.rich) {
-      for (const step of done) this.output.write(`${step.printed ?? step.line}\n`);
+      for (const step of done) this.output.write(`${step.printed ?? step.line}\n${(step.changes ?? []).map(change => `${CHANGE_GLYPH} ${change.row}\n`).join("")}`);
       this.endedWithNewline = true;
       return;
     }
@@ -435,12 +441,12 @@ export class RuntimeEventView {
     const fold = planFold(done.map(step => ({
       toolName: step.toolName, kind: step.kind, printed: step.printed ?? step.line, title: step.title ?? step.line,
       ...(step.input ? { input: step.input } : {}), ...(step.path !== undefined ? { path: step.path } : {}),
-      ...(step.description ? { description: step.description } : {}),
+      ...(step.description ? { description: step.description } : {}), ...(step.changes?.length ? { changes: step.changes } : {}),
       ...(step.endedAt !== undefined ? { elapsedMs: step.endedAt - step.startedAt } : {}),
       ...(step.failed ? { failed: true } : {}), ...(step.retried ? { retried: true } : {}), ...(step.notRun || step.note ? { notRun: true } : {}),
       ...(step.output ? { output: step.output } : {}), ...(step.lines ? { lines: step.lines } : {}), ...(step.diff ? { diff: step.diff } : {}),
     })), this.level(), { ...fit, home: this.callbacks.homeDir?.() ?? os.homedir() });
-    if (fold.parts.length || fold.lines.length || fold.edits.length || fold.failures.length) this.terminal.writeFold(fold);
+    if (fold.parts.length || fold.lines.length || fold.edits.length || fold.failures.length || fold.config?.length || fold.changes?.length) this.terminal.writeFold(fold);
     // Ctrl+T shows the last box in full: the group's whole diff, or what the failed step printed.
     const failed = done.filter(step => step.failed && !step.retried && step.expanded).at(-1);
     const patches = done.filter(step => !step.failed && step.diff).map(step => step.diff!);
@@ -484,6 +490,23 @@ export class RuntimeEventView {
 
   /** What ctrl+t shows next, set by Casper itself (the plan's cases and details). */
   showOnExpand(step: ExpandedStep): void { this.expanded = step; }
+
+  /** A change Casper sent for the AI outside a shell command (an MCP write, after a box's yes or Yes to everything):
+   * a ◆ row in the open group that stays in view at every level, with what was sent (secrets already hidden) for its
+   * box. The plain terminal prints the row. */
+  noteChange(row: string, sent: readonly string[] = []): void {
+    const change: StepChange = { row: lineText(redactPreview(row)), ...(sent.length ? { sent: sent.map(line => redactPreview(line)) } : {}) };
+    if (sent.length) this.expanded = { title: change.row, body: change.sent!.join("\n"), diff: false };
+    if (!this.terminal.rich) {
+      this.endSpeech(); this.ensureLineBreak();
+      this.output.write(`${CHANGE_GLYPH} ${change.row}\n`);
+      this.endedWithNewline = true;
+      return;
+    }
+    const now = this.now();
+    this.steps.push({ toolName: CHANGE_STEP, kind: "other", startedAt: now, endedAt: now, line: `${CHANGE_GLYPH} ${change.row}`, changes: [change] });
+    this.renderBox();
+  }
 
   /** While set, the model's words are kept off the screen (Casper shows them its own way after the turn) and the
    * Working box says this instead. */
@@ -712,18 +735,26 @@ export class RuntimeEventView {
         const label = formatToolActivity({ type: "tool_start", toolName: event.toolName, ...(event.input ? { input: event.input } : {}), ...(event.description ? { description: event.description } : {}) }, undefined, this.fit()).slice(BUSY_GLYPH.length + 1);
         this.expanded = event.diff && !event.isError ? { title: label, body: event.diff, diff: true }
           : { title: `${label}${notRun ? " · not run" : note ? ` · ${note}` : event.isError ? " · failed" : ""}`, body: (refusal ?? event.output?.text ?? "").replace(/\n$/, "") || "(no output text)", diff: false };
+        // What a shell command changed beyond this project's code (another machine, a device, this computer's setup):
+        // rows that stay in view, at every level.
+        const changes = !notRun && stepKind(event.toolName) === "command" && typeof event.input?.command === "string"
+          ? shellChanges(event.input.command, event.output?.text ?? "", !event.isError, this.callbacks.homeDir?.()) : [];
+        const changeRows = changes.map(change => `${CHANGE_GLYPH} ${change.row}\n`).join("");
         if (!this.terminal.rich) {
           this.fold();
           if (recovery) {
             this.steps.push({ toolName: event.toolName, kind: stepKind(event.toolName), input: event.input, startedAt: started ?? this.now(), endedAt: this.now(),
-              failed: true, recovery, line: endLine(0, true), printed: endLine(0, true) });
+              failed: true, recovery, line: endLine(0, true), printed: endLine(0, true), ...(changes.length ? { changes } : {}) });
             break;
           }
-          // quiet: only what went wrong (or never ran); detailed: each edit's small diff under its line.
-          if (this.level() === "quiet" && !event.isError) break;
+          // quiet: only what went wrong (or never ran), and what changed; detailed: each edit's small diff under its line.
+          if (this.level() === "quiet" && !event.isError) {
+            if (changeRows) { this.endSpeech(); this.ensureLineBreak(); this.output.write(changeRows); this.endedWithNewline = true; }
+            break;
+          }
           this.endSpeech();
           this.ensureLineBreak();
-          this.output.write(`${this.level() === "detailed" ? this.withDiff(endLine(0, true), event.isError ? undefined : event.diff) : endLine(0, true)}\n`);
+          this.output.write(`${this.level() === "detailed" ? this.withDiff(endLine(0, true), event.isError ? undefined : event.diff) : endLine(0, true)}\n${changeRows}`);
           this.endedWithNewline = true;
           break;
         }
@@ -755,6 +786,7 @@ export class RuntimeEventView {
         step.expanded = this.expanded;
         if (event.lines && !event.isError) step.lines = event.lines;
         if (event.diff && !event.isError) step.diff = event.diff;
+        if (changes.length) step.changes = changes;
         this.renderBox();
         break;
       }

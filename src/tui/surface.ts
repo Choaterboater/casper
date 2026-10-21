@@ -102,7 +102,7 @@ export function statusWords(status: string, intent: string | undefined, room: nu
 }
 
 /** Marks a live row may start with, and the colour each takes; a running step's • becomes the spinner. */
-const LIVE_MARK = /^(✓|✗|○|•|–) /;
+const LIVE_MARK = /^(✓|✗|○|•|–|◆) /;
 const SHELL_QUESTION = /^(?:(?:Builder \d+: )?(?:Run this command\?|Reach .+\?|Run outside the sandbox with your GitHub login\?)|Builder \d+ wants to run:)/;
 
 /** Your request as Casper shows it again: ❯ and the words, bold, hanging under the mark, on the theme's userBg bar
@@ -778,6 +778,7 @@ export class TerminalSurface {
       if (mark?.[1] === "–") return this.muted(truncateToWidth(`  ${row}`, width));
       if (!mark) return truncateToWidth(`  ${row}`, width);
       const glyph = mark[1] === BUSY_GLYPH ? this.accent(SPINNER_FRAMES[this.spinnerFrame]!)
+        : mark[1] === "◆" ? tint(mark[1], "accent", this.io.color, "1")
         : tint(mark[1]!, mark[1] === "✓" ? "success" : "warning", this.io.color);
       return truncateToWidth(`  ${glyph} ${row.slice(mark[0].length)}`, width);
     }),

@@ -14,6 +14,8 @@ export const BUSY_GLYPH = "•";
 export const NOT_RUN_GLYPH = "○";
 /** A note: something to know that is neither done nor failed (not verified, not checked, a retry). */
 export const NOTE_GLYPH = "–";
+/** A change that stays in view: config, a device, another machine or the setup on this computer (accent, bold). */
+export const CHANGE_GLYPH = "◆";
 
 /** Controls, escapes and bidi overrides. Newlines and tabs are kept; a clean delta skips the sanitizer. */
 const UNSAFE_TERMINAL = /[\u0000-\u0008\u000b-\u001f\u007f-\u009f\u202a-\u202e\u2066-\u2069]/u;
