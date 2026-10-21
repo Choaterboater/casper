@@ -141,6 +141,9 @@ test("the full suite runs files in parallel, slowest first, with the eval tests 
   // Windows runs each part on two workers: spawned CLIs and servers need CPU/memory headroom.
   const windows = load("windows-preview.yml").jobs.suite!.steps.map((step) => step.run ?? "").join("\n");
   expect(windows).toMatch(/bun test --parallel=2 --timings=tests\/timings\.json @files/);
+  // The browser start test leaves the parallel parts and runs alone once.
+  expect(windows).toContain("$files = @($files | Where-Object { $_ -ne 'tests/browser-start.test.ts' })");
+  expect(windows).toMatch(/^bun test tests\/browser-start\.test\.ts 2>&1/m);
 });
 
 test("the release counts only whole-suite runs: a push, nightly or manual run on Linux, macOS and Windows, never a pull request's", () => {

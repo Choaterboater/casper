@@ -239,9 +239,19 @@ jobs:
         run: |
           $files = @(bun tools/test-shard.ts 6 ${{ matrix.part }} $env:TIER)
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          # The browser start test runs alone below: beside the part's other files its cold Chrome start died.
+          $files = @($files | Where-Object { $_ -ne 'tests/browser-start.test.ts' })
           "Part ${{ matrix.part }} ($env:TIER): $($files.Count) files"
           "Part ${{ matrix.part }}: $env:TIER tier, $($files.Count) files" | Add-Content -Path $env:GITHUB_STEP_SUMMARY
           bun test --parallel=2 --timings=tests/timings.json @files 2>&1 | Tee-Object -FilePath .artifacts/windows-verification/full-suite-${{ matrix.part }}.log
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Browser start test (runs alone, after part 2)
+        # In the loaded parallel suite its cold Chrome start died ("already running", UV_EBADF waitpid, "Chrome stopped
+        # unexpectedly"); alone it passes (deflake 10/10 on windows-2025).
+        if: ${{ !cancelled() && matrix.part == 2 && env.TIER == 'full' }}
+        timeout-minutes: 3
+        run: |
+          bun test tests/browser-start.test.ts 2>&1 | Tee-Object -FilePath .artifacts/windows-verification/browser-start.log
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Real debugger test (runs alone, as in bun run test)
         if: matrix.part == 3 && env.TIER == 'full'
