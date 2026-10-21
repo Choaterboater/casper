@@ -1947,10 +1947,15 @@ export class BrowserSession {
   private start(): Promise<Page> {
     if (this.page && !this.page.isClosed()) return Promise.resolve(this.page);
     return this.startup ??= (async () => {
-      const supplied = this.options.executablePath ?? process.env.CASPER_BROWSER_EXECUTABLE;
-      const executablePath = await discoverBrowser(supplied);
-      if (!executablePath || !path.isAbsolute(executablePath)) throw new Error("Browser unavailable: install Chrome yourself or set CASPER_BROWSER_EXECUTABLE to an absolute executable path");
-      const { default: puppeteer } = await import("puppeteer-core");
+      // A start that fails before any Chrome (none found, a bad path, puppeteer not loading) leaves the session idle,
+      // so the next action tries again rather than getting this error for good.
+      let executablePath: string, puppeteer: typeof import("puppeteer-core").default;
+      try {
+        const found = await discoverBrowser(this.options.executablePath ?? process.env.CASPER_BROWSER_EXECUTABLE);
+        if (!found || !path.isAbsolute(found)) throw new Error("Browser unavailable: install Chrome yourself or set CASPER_BROWSER_EXECUTABLE to an absolute executable path");
+        executablePath = found;
+        ({ default: puppeteer } = await import("puppeteer-core"));
+      } catch (error) { this.startup = undefined; throw error; }
       // A first Chrome start on a cold machine sometimes never answers (seen on fresh Windows runners): that attempt
       // is stopped after FIRST_START_MS and one fresh Chrome is started, with the running action's deadline renewed.
       for (let attempt = 1; ; attempt++) {
@@ -1959,7 +1964,9 @@ export class BrowserSession {
         try {
           return await this.launch(puppeteer, executablePath, AbortSignal.any([this.controller.signal, slow.signal]));
         } catch (error) {
-          if (this.controller.signal.aborted || attempt >= 2) throw error;
+          if (this.controller.signal.aborted) throw error;
+          // The fresh start failed too: a Chrome it got up (its page didn't open) is stopped, not left running.
+          if (attempt >= 2) { if (this.browser) await this.discardChrome(); throw error; }
           await this.discardChrome();
           this.deadline?.renew();
         } finally { clearTimeout(timer); }
