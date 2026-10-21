@@ -41,6 +41,126 @@ export function runningCheck(input: ToolObservationInput | undefined, commands?:
 export function emptyLookup(tool: string, text: string): boolean {
   return ["grep", "find", "ls"].includes(tool) && /^(?:No matches found|No files found matching pattern|\(empty directory\))\.?$/i.test(text.trim());
 }
+
+/** Programs whose exit 1 is their answer, not a failure, and the note that says it. */
+const EXIT_ANSWERS: Record<string, string> = {
+  grep: "nothing found", egrep: "nothing found", fgrep: "nothing found", rg: "nothing found", ag: "nothing found", ack: "nothing found",
+  findstr: "nothing found", diff: "files differ", cmp: "files differ", test: "false", "[": "false", "[[": "false",
+  which: "not installed", where: "not installed", type: "not installed", pgrep: "no process found",
+};
+/** Notes that are a finished command's answer: a retry that ends with one has finished. */
+const ANSWER_NOTES = new Set([...Object.values(EXIT_ANSWERS), "changes found"]);
+/** PowerShell aliases with another meaning (Where-Object, Get-Content, Compare-Object) and words only bash has. */
+const NOT_POWERSHELL = new Set(["where", "type", "diff", "test", "[", "[[", "command"]);
+/** An exit 1 that printed one of these is a real error, not an answer. */
+const EXIT_ERRORS = /No such file|Permission denied|Access is denied|invalid option|unrecognized option|illegal option|unknown option|Is a directory|cannot open/i;
+
+/** A one-line shell command as its simple commands (quotes taken off, redirections such as `2>/dev/null` left out) and
+ * the operator after each. Undefined for what a plain reading can't follow: `$(…)`, backticks, a subshell, a heredoc,
+ * a background `&`, an open quote, a line break. */
+function shellCommands(line: string): Array<{ words: string[]; op?: string }> | undefined {
+  const commands: Array<{ words: string[]; op?: string }> = [];
+  let words: string[] = [];
+  let word: string | undefined;
+  let target = false;
+  const end = () => {
+    if (word !== undefined) { if (target) target = false; else words.push(word); }
+    word = undefined;
+  };
+  const close = (op?: string) => {
+    end();
+    if (target || !words.length) return false;
+    commands.push({ words, ...(op ? { op } : {}) });
+    words = [];
+    return true;
+  };
+  for (let at = 0; at < line.length; at++) {
+    const char = line[at]!;
+    if (char === "'") {
+      const shut = line.indexOf("'", at + 1);
+      if (shut < 0) return undefined;
+      word = (word ?? "") + line.slice(at + 1, shut);
+      at = shut;
+      continue;
+    }
+    if (char === "\"") {
+      let text = "";
+      for (at++; at < line.length && line[at] !== "\""; at++) {
+        if (line[at] === "`" || line.startsWith("$(", at)) return undefined;
+        if (line[at] === "\\" && /["\\$`]/.test(line[at + 1] ?? "")) at++;
+        text += line[at];
+      }
+      if (at >= line.length) return undefined;
+      word = (word ?? "") + text;
+      continue;
+    }
+    if (char === "\\") {
+      if (at + 1 >= line.length || /[\r\n]/.test(line[at + 1]!)) return undefined;
+      word = (word ?? "") + line[++at];
+      continue;
+    }
+    if (/[`()\r\n]/.test(char) || line.startsWith("$(", at)) return undefined;
+    if (char === " " || char === "\t") { end(); continue; }
+    const two = line.slice(at, at + 2);
+    if (two === "&&" || two === "||") { if (!close(two)) return undefined; at++; continue; }
+    if (char === ";" || char === "|") { if (!close(char)) return undefined; continue; }
+    if (char === ">" || char === "<" || two === "&>") {
+      // A descriptor number just before it (`2>`) is part of the redirection, not a word.
+      if (word !== undefined && !/^\d+$/.test(word)) end(); else word = undefined;
+      if (target || line.startsWith("<<", at)) return undefined;
+      if (char === "&") at++;
+      if (line[at + 1] === ">") at++;
+      const copy = /^&(?:\d+|-)/.exec(line.slice(at + 1));
+      if (copy) at += copy[0].length; else target = true;
+      continue;
+    }
+    if (char === "&") return undefined;
+    word = (word ?? "") + char;
+  }
+  end();
+  if (target) return undefined;
+  if (words.length) commands.push({ words });
+  else if (commands.at(-1)?.op === ";") delete commands.at(-1)!.op;
+  else return undefined;
+  return commands;
+}
+
+/** The note for one simple command whose exit 1 is its answer, or undefined. */
+function exitAnswer(words: readonly string[], powershell: boolean): string | undefined {
+  let at = 0;
+  while (at < words.length - 1 && /^[A-Za-z_][A-Za-z0-9_]*=/.test(words[at]!)) at++;
+  const typed = words[at] ?? "";
+  const exe = /\.exe$/i.test(typed);
+  const program = typed.replace(/^.*[\\/]/, "").replace(/\.exe$/i, "").toLowerCase();
+  const args = words.slice(at + 1);
+  if (powershell && !exe && NOT_POWERSHELL.has(program)) return undefined;
+  if (program === "git") {
+    let sub = 0;
+    while (sub < args.length && /^(?:--no-pager|-C|-c)$/.test(args[sub]!)) sub += args[sub] === "--no-pager" ? 1 : 2;
+    const options = args.slice(sub + 1);
+    const before = options.includes("--") ? options.slice(0, options.indexOf("--")) : options;
+    if (args[sub] === "grep") return "nothing found";
+    if (args[sub] !== "diff") return undefined;
+    if (before.includes("--no-index")) return "files differ";
+    return before.includes("--quiet") || before.includes("--exit-code") ? "changes found" : undefined;
+  }
+  if (program === "command") return /^-[vV]$/.test(args[0] ?? "") ? "not installed" : undefined;
+  return Object.hasOwn(EXIT_ANSWERS, program) ? EXIT_ANSWERS[program] : undefined;
+}
+
+/** Pi's shell calls every non-zero exit an error. `grep` that found nothing, `diff` that found a difference, `test` that
+ * was false: exit 1 is their answer, when the line runs only that kind of program (after a `cd DIR &&`) and printed no
+ * error. Display only: the model still gets the exit code. */
+function shellAnswer(event: ToolEnd, text: string): string | undefined {
+  if (!event.isError || !["bash", "powershell"].includes(event.toolName) || typeof event.input?.command !== "string") return undefined;
+  const status = [...text.matchAll(/(?:^|\n\n)Command exited with code (\d+)(?=\n|$)/g)].at(-1)?.[1];
+  if (status !== "1" || EXIT_ERRORS.test(text)) return undefined;
+  let commands = shellCommands(event.input.command.trim());
+  while (commands && commands.length > 1 && commands[0]!.words[0] === "cd" && commands[0]!.words.length <= 2 && commands[0]!.op === "&&") commands = commands.slice(1);
+  const answers = new Set(commands?.map(command => exitAnswer(command.words, event.toolName === "powershell")));
+  return answers.size === 1 ? [...answers][0] : undefined;
+}
+
 /** Expected lookup misses and designed skips are notes. Permission and parse errors are not. */
 export function outcomeNote(event: ToolEnd): string | undefined {
   const text = event.output?.text ?? "";
@@ -51,7 +171,7 @@ export function outcomeNote(event: ToolEnd): string | undefined {
   if (event.toolName === "casper_check") {
     try { if (JSON.parse(text).status === "skip") return "skipped"; } catch { /* Not a check result. */ }
   }
-  return undefined;
+  return shellAnswer(event, text);
 }
 
 /** Display intent only: negated expectations are not an expected red phase. */
@@ -81,7 +201,8 @@ export function recoveryKind(event: ToolEnd, testFirst = false, commands?: Parti
 }
 export function recoveredBy(kind: RecoveryKind, before: { toolName: string; input?: ToolObservationInput }, after: ToolEnd): boolean {
   const note = outcomeNote(after);
-  if ((after.isError && note !== "nothing found") || before.toolName !== after.toolName || (note && note !== "nothing found")) return false;
+  const answered = note !== undefined && ANSWER_NOTES.has(note);
+  if ((after.isError && !answered) || before.toolName !== after.toolName || (note && !answered)) return false;
   if (kind === "timeout" && ["grep", "find"].includes(before.toolName) && before.input?.pattern === after.input?.pattern) return true;
   if (kind === "conflict") {
     const operation = /\bgit (merge|cherry-pick)\b/.exec(before.input?.command ?? "")?.[1];

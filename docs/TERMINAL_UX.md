@@ -221,6 +221,12 @@ flows such as `/login`. Prose, notices and routine steps stay inline. Panels cap
 and re-lay out when resized; prompt rules and the footer still use the window width.
 A missing guessed path, an empty search, a designed refusal or skip, and a confirmed recovered timeout,
 service hiccup, merge conflict or test-first failure are dim `–` notes, not red boxes. Unrecovered failures stay red.
+A shell command whose exit 1 is its answer is a note too, when the line runs only that kind of program (after a
+`cd DIR &&`): a search that found nothing (`grep`, `rg`, `git grep`, `ag`, `ack`, `findstr`: `nothing found`), `diff` or
+`cmp` (`files differ`), `git diff --quiet` or `--exit-code` (`changes found`), `test`, `[` or `[[` (`false`), `which`,
+`command -v`, `type` or `where` (`not installed`) and `pgrep` (`no process found`). Exit 2 or more, an error it printed
+(No such file, Permission denied, an invalid option) and a line that mixes in other programs stay failures. The AI
+still gets the exit code; Ctrl+T shows it.
 Test statuses name the failing count when known; running checks use human labels such as `Running tests (11 files)`. Color always accompanies a readable label; tool completion
 does not mean a check passed. `NO_COLOR` keeps the structure without color, while
 redirected output and `TERM=dumb` use plain text.

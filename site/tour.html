@@ -298,7 +298,9 @@ on in ~/.casper/config.yaml)</pre>
           <article class="card">
             <h3>Steps under the AI's words</h3>
             <p>Each tool call is a live row under the AI's words, a spinner while it runs and <code>✓</code> or
-            <code>✗</code> once done, with one status row above the prompt saying what runs and that Esc stops it. When the AI
+            <code>✗</code> once done, with one status row above the prompt saying what runs and that Esc stops it. A search that
+            found nothing or a <code>diff</code> that found a difference is a grey note (<code>– bash · rg TODO — nothing found</code>),
+            not a failure. When the AI
             moves on, the steps fold into one row naming what was done (<code>└ read AGENTS.md · ran git status, bun test</code>);
             edits go in one box with a short diff and <code>+N -M</code>, and a failure in a box with the last lines it printed.
             (The stand-in above does not send edit counts.)</p>
