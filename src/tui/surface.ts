@@ -6,7 +6,7 @@ import type { RuntimeImage, RuntimeModelPickerHost, RuntimePickerIO, RuntimePick
 import { imageLabel, imageMimeType, MAX_IMAGE_BYTES, MAX_IMAGES, promptPath } from "../app/images";
 import { readClipboardFiles } from "./clipboard-files";
 import { commandMenu, COMMANDS, findCommand, fitDescriptions, type MenuCommand, menuRunsDuringWork } from "./commands";
-import { BUSY_GLYPH, dim, formatElapsed, hasLineControls, hasTerminalControls, markdownTheme, PROMPT_GLYPH, terminalText, tint } from "./format";
+import { BUSY_GLYPH, dim, formatElapsed, hasLineControls, hasTerminalControls, lineText, markdownTheme, PROMPT_GLYPH, terminalText, tint } from "./format";
 import { answerRecord, answerRecordText, choiceHint, KEY_PICK_MAX, keyChoice, MODEL_REASON_PREFIX, OTHER_CHOICE, typedChoice, type PickRecord } from "./choices";
 import { typedDuringTask } from "./give-way";
 import { GLYPHS } from "./glyphs";
@@ -87,7 +87,19 @@ type AskOption = { label: string; description?: string };
 /** Work in progress for the screen: the steps of the open group (rows under the AI's words) and what Casper is doing or
  * waiting for now (the status row above the prompt). `rows` are the raw steps, one per call (Ctrl+O); `plain` the
  * same steps in plain words, shown by default. */
-export interface WorkView { rows: readonly string[]; plain?: readonly string[]; status?: string }
+/** `intent`: the AI's last line before the running group of tool calls, put before the status row's words. */
+export interface WorkView { rows: readonly string[]; plain?: readonly string[]; status?: string; intent?: string }
+
+/** An intent cut shorter than this says nothing: the row shows the activity alone. */
+const MIN_INTENT = 10;
+
+/** The status row's words in `room` columns: the AI's intent first (`Fixing the port test · Running bun test · 4s`) and
+ * the first to go when the row is narrow; the activity is cut only when it alone does not fit. */
+export function statusWords(status: string, intent: string | undefined, room: number): string {
+  const left = room - visibleWidth(status) - 3;
+  if (intent && left >= MIN_INTENT) return `${truncateToWidth(intent, left, "…")} · ${status}`;
+  return truncateToWidth(status, Math.max(1, room), "…");
+}
 
 /** Marks a live row may start with, and the colour each takes; a running step's • becomes the spinner. */
 const LIVE_MARK = /^(✓|✗|○|•|–) /;
@@ -191,7 +203,7 @@ export class TerminalSurface {
   private readonly selected: (text: string) => string;
   private status = "";
   /** Work in progress: the open group's steps (live rows under the AI's words) and the status row's words. */
-  private work?: { rows: string[]; plain?: string[]; status?: string };
+  private work?: { rows: string[]; plain?: string[]; status?: string; intent?: string };
   /** Ctrl+O: the live steps show raw, one row per call, instead of in plain words. For this session. */
   private rawSteps = false;
   private readonly crew = new CrewPanel();
@@ -723,8 +735,9 @@ export class TerminalSurface {
     const rows = clean(view?.rows ?? []);
     const plain = view?.plain ? clean(view.plain) : undefined;
     const status = view?.status ? terminalText(view.status).replace(/\s+/g, " ").trim() || undefined : undefined;
-    const next = rows.length || plain?.length || status ? { rows, ...(plain ? { plain } : {}), ...(status ? { status } : {}) } : undefined;
-    if (next?.status === this.work?.status && next?.rows.join("\n") === this.work?.rows.join("\n")
+    const intent = status && view?.intent ? lineText(terminalText(view.intent)).replace(/\s+/g, " ").trim() || undefined : undefined;
+    const next = rows.length || plain?.length || status ? { rows, ...(plain ? { plain } : {}), ...(status ? { status } : {}), ...(intent ? { intent } : {}) } : undefined;
+    if (next?.status === this.work?.status && next?.intent === this.work?.intent && next?.rows.join("\n") === this.work?.rows.join("\n")
       && next?.plain?.join("\n") === this.work?.plain?.join("\n")) return;
     this.work = next;
     this.updateSpinner();
@@ -779,8 +792,9 @@ export class TerminalSurface {
     return text ? [" ".repeat(width - visibleWidth(text)) + tint(text, "success", this.io.color)] : [];
   }
 
-  /** The one row above the prompt while work runs: the spinner, what Casper is doing or waiting for, and that Esc
-   * stops it. Nothing while a question or picker waits on you. A narrow window cuts the words, never the key. */
+  /** The one row above the prompt while work runs: the spinner, the AI's intent and what Casper is doing or waiting for,
+   * and that Esc stops it. Nothing while a question or picker waits on you. A narrow window drops the intent, then cuts
+   * the words, never the key. */
   private statusRow(width: number): string[] {
     if (!this.work || this.waiting || this.closed) return [];
     const spin = this.accent(SPINNER_FRAMES[this.spinnerFrame]!);
@@ -788,7 +802,7 @@ export class TerminalSurface {
     const hint = " · Esc stops";
     const room = width - 2 - visibleWidth(hint);
     if (room < 8) return [truncateToWidth(`${spin} ${words}`, width, "…")];
-    return [`${spin} ${truncateToWidth(words, room, "…")}${this.muted(hint)}`];
+    return [`${spin} ${statusWords(words, this.work.intent, room)}${this.muted(hint)}`];
   }
   private configureAutocomplete(): void {
     const provider = this.autocomplete;
