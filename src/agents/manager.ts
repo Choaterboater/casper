@@ -393,6 +393,8 @@ export class SubagentManager {
   createTool(getContext: () => { cwd: string; projectContext: string }, onUsage?: UsageReporter,
     builders?: DelegateBuilders): DelegateTool {
     let dispatched = 0;
+    // A helper that hit its time limit never gave its report: up to two such are handed back to the budget.
+    let refunded = 0;
     const tally = { built: 0, fixes: 0 };
     const offered = Boolean(builders && !builders.off);
     const buildText = !builders ? "" : offered
@@ -441,6 +443,7 @@ export class SubagentManager {
           try { result = await this.run({ ...getContext(), role, goal, context, signal }); }
           catch (error) { dispatched--; throw error; }
           onUsage?.(result.usage, result.known, { role, goal });
+          if (result.status === "timed_out" && refunded < SUBAGENT_LIMITS.maxConcurrent) { refunded++; dispatched--; }
           const isError = result.status !== "completed";
           // The caller already has the goal. Put outcome first so even a byte-
           // bounded preview retains it instead of spending its budget echoing input.
