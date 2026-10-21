@@ -78,6 +78,7 @@
           </li>
           <li><a href="#released">Released</a>
             <ul>
+              <li><a href="#v0246">v0.2.46: local models</a></li>
               <li><a href="#v0245">v0.2.45: browser sign-in</a></li>
               <li><a href="#v0244">v0.2.44: databases are data</a></li>
               <li><a href="#v0243">v0.2.43: fewer false alarms</a></li>
@@ -122,7 +123,7 @@
         <h2 id="next-h">Next release</h2>
         <aside class="callout soon">
           <strong class="callout-title">Built, not released</strong>
-          <p>Nothing on the main branch is waiting: everything built so far is in v0.2.45. New work shows here before the next preview.</p>
+          <p>Nothing on the main branch is waiting: everything built so far is in v0.2.46. New work shows here before the next preview.</p>
         </aside>
       </section>
 
@@ -364,10 +365,24 @@
         and on the <a href="https://github.com/Choaterboater/casper/releases">Releases page</a>.</p>
         <div class="stack">
 
+        <details class="card release" id="v0246" aria-labelledby="v0246-h" open>
+          <summary class="release-heading">
+            <h3 id="v0246-h">v0.2.46 · Local models that work, honest proof, and a browser that waits for web apps</h3>
+            <span class="badge ok">current preview</span>
+          </summary>
+          <ul>
+            <li><strong>Local models that work.</strong> <code>ollama/qwen3:8b</code> style names work, a server that just started is waited for, and models that can't use tools are marked in <code>/model</code>.</li>
+            <li><strong>Honest proof.</strong> A run without the change that timed out or never started no longer makes a change Verified.</li>
+            <li><strong>Pickers that pick.</strong> Arrow keys choose the right row on terminals that report key releases.</li>
+            <li><strong>Browser for web apps.</strong> The AI's browser waits for a web app to finish drawing, reads inside its components, and notices a sign-in page.</li>
+            <li><strong>Guidelines and secrets.</strong> <code>/look guidelines</code> checks a page against Vercel's guidelines, and the receipt says when the AI wrote a secret into a file.</li>
+          </ul>
+        </details>
+
         <details class="card release" id="v0245" aria-labelledby="v0245-h" open>
           <summary class="release-heading">
             <h3 id="v0245-h">v0.2.45 · Sign in for the AI's browser, the right network server, and fewer false Incompletes</h3>
-            <span class="badge ok">current preview</span>
+            <span class="badge">previous preview</span>
           </summary>
           <ul>
             <li><strong>Browser sign-in.</strong> You can sign in to a site for the AI's browser in a window it never sees, so it can check signed-in pages.</li>
@@ -381,7 +396,7 @@
         <details class="card release" id="v0244" aria-labelledby="v0244-h" open>
           <summary class="release-heading">
             <h3 id="v0244-h">v0.2.44 · App databases are data, clearer sign-ins, and real reviewer lines</h3>
-            <span class="badge">previous preview</span>
+            <span class="badge">released</span>
           </summary>
           <ul>
             <li><strong>App databases are data.</strong> A running app's SQLite database file changing, not only its <code>-wal</code> and <code>-shm</code> journals, no longer makes Casper run the project's checks.</li>
@@ -391,7 +406,7 @@
           </ul>
         </details>
 
-        <details class="card release" id="v0243" aria-labelledby="v0243-h" open>
+        <details class="card release" id="v0243" aria-labelledby="v0243-h">
           <summary class="release-heading">
             <h3 id="v0243-h">v0.2.43 · Timeouts on time, fewer false alarms, and tests for plain scripts</h3>
             <span class="badge">released</span>
@@ -1245,7 +1260,7 @@
   <footer class="site-footer">
     <div class="container footer-inner">
       <div>
-        <p><strong>Casper 0.2.45</strong> · early preview, unsigned</p>
+        <p><strong>Casper 0.2.46</strong> · early preview, unsigned</p>
         <p><a href="https://github.com/Choaterboater/casper/blob/main/LICENSE">MIT licence</a> · © 2026 Choaterboater</p>
         <p>Built on the <a href="https://github.com/earendil-works/pi">Pi SDK</a>. Other parts keep their own licences (<a href="https://github.com/Choaterboater/casper/blob/main/THIRD_PARTY_NOTICES.txt">notices</a>).</p>
       </div>

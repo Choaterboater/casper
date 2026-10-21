@@ -14,11 +14,37 @@ when releasing. Existing historical notes below stay as written; feature tests c
 reference docs, not a per-PR release-note or roadmap entry. Release-prep checks verify the version and
 installer targets (`tests/release-install.test.ts`, `tests/release-targets.test.ts`).
 
-Casper distributes an unsigned **v0.2.45 preview**, not a stable release. The installers
-download from `https://github.com/Choaterboater/casper/releases/download/v0.2.45`,
+Casper distributes an unsigned **v0.2.46 preview**, not a stable release. The installers
+download from `https://github.com/Choaterboater/casper/releases/download/v0.2.46`,
 because GitHub's `latest/download` link skips preview releases. The first published
 preview was **v0.1.0**. A published release is never changed; every fix ships under a
 new version.
+
+## v0.2.46: local models that work, honest proof, and a browser that waits for web apps
+
+### Added
+
+- `/look guidelines` reviews a page against Vercel's Web Interface Guidelines and reports what to fix.
+- The receipt says when the AI wrote a secret into a file, naming the file but never the value.
+
+### Changed
+
+- The AI's browser waits for a web app to finish drawing, reads inside its components, and notices a sign-in page.
+- Read-only network calls run while planning; changes still wait for Build.
+- `/model` marks Ollama models that can't use tools, and Casper won't pick one because every request needs tools.
+- The Home Assistant skill keeps rules in automations.yaml and keys behind `!secret`, and counts nothing ready until it works.
+
+### Fixed
+
+- A test that ran out of time without the change, or a run that never started, no longer proves a change Verified.
+- Picker choices can be chosen with the arrow keys on terminals that report key releases.
+- `ollama/qwen3:8b` style names work, and a wrongly saved server no longer hides Ollama on this computer.
+- Casper waits for a local model server that just started instead of saying it has no key.
+- An Ollama window too small for Casper stops the run with the fix, and 32,768 tokens no longer gets advice.
+- A browser that failed to start can be tried again, and a failed second Chrome start leaves no Chrome running.
+- A Chrome that dies while starting gets one more try, and a signed-in browser profile survives it.
+- The shell tool keeps a finished command's output and exit code when its cleanup can't be confirmed.
+- Writing a file in a folder at the top of a Windows drive works.
 
 ## v0.2.45: sign in for the AI's browser, the right network server, and fewer false Incompletes
 
