@@ -65,6 +65,22 @@ Inspection supplies bounded text and control metadata, including selectors for
 IDs; controls without IDs require an explicit CSS selector. Selectors must match
 exactly one element for interactions and element assertions.
 
+Before `inspect`, `screenshot`, `diagnostics` and a check's steps and assertions,
+Casper lets the page finish drawing: it waits for the document to load, then for
+its elements (open shadow roots included) to stop changing for half a second
+while requests go quiet and no loading splash shows (an `aria-busy` region, or a
+page whose only words say Loading). It waits at most 5 seconds and then goes on
+with whatever the page shows; the wait never fails the action. A page that moves
+to another address meanwhile, such as a sign-in redirect, is waited for again.
+
+Web components are read too. `inspect` reads text and controls inside open
+shadow roots (a control there has `inShadowRoot: true`), and a selector that
+matches nothing in the page is looked for inside each open shadow root, as
+Puppeteer's `pierce/` does. `pierce/#title` searches every shadow root at once,
+and `home-panel >>> #toggle` finds `#toggle` anywhere inside `home-panel`. This
+works for clicks, typing, keys, selects and check assertions. Closed shadow roots
+stay out of reach.
+
 `fill` replaces the text in a text, search, tel, url, email or number input, or a
 textarea, and sets a date, time, datetime-local, month, week, color or range field
 the way a picker would. A password field is filled only as a `local-test` on a page
@@ -98,8 +114,9 @@ characters), up to 5 controls added or removed (`controlsAdded`,
 onto the element the action used, nor the same control drawn again). Casper
 compares a short outline of the page's visible text and controls (at most 400
 entries) taken before and after; when none of these changed, `changes` is left out.
-`press` supports `Enter`, `Tab`, `Escape`, `ArrowUp`, `ArrowDown`, `ArrowLeft`,
-`ArrowRight`, `Space` and `Backspace`.
+`press` supports `Enter`, `Tab`, `Escape`, `Space`, `Backspace`, `Delete`,
+`ArrowUp`, `ArrowDown`, `ArrowLeft`, `ArrowRight`, `Home`, `End`, `PageUp` and
+`PageDown`; another key is refused with this list.
 
 ## /look: review and polish a page
 
@@ -268,7 +285,7 @@ finished: a check recorded before the edit is meant to fail then). When the
 expected text is exactly the text of an element inside the matched one (a whole
 confirmation box compared with its heading), the hint on any run is instead `The expected text is
 inside this element with other text: point the selector at the element that holds
-only it (see near).` It still fails. Complex navigation, shadow DOM,
+only it (see near).` It still fails. Complex navigation, closed shadow roots,
 iframes, uploads, authenticated workflows and slow asynchronous readiness are not
 comprehensive browser-test-framework replacements.
 
@@ -346,6 +363,11 @@ unchanged. Screenshots and model claims never count as assertion passes.
 The AI's browser is headless and starts with an empty profile, so a page behind a login (a Home Assistant at
 `http://192.0.2.10:8123`, an admin page) shows only its sign-in form. The `signin` action lets **you** sign in for it:
 
+- A check or replay whose page went to a sign-in page instead of the page it asked for (a path such as
+  `/auth/authorize`, `/login` or `/signin`, or a page whose main form asks for a user name and a password) is neither
+  a pass nor a failure: it is incomplete with the reason `The page went to a sign-in page (<address>) instead of
+  <path>, so nothing was checked. Use the browser's signin action so the person can sign in, then replay this check.`
+  A check of the sign-in page itself is an ordinary check.
 - Casper asks `Open a Chrome window so you can sign in to <site>? The AI won't see what you type.` (`1 No · 2 Yes`).
   It asks every time; there is no "for this session" yes.
 - On Yes, the headless Chrome stops, keeping its profile, and a normal Chrome window opens on that same profile at
@@ -451,6 +473,10 @@ After a forced SIGKILL of Casper or a power loss, cleanup may not happen.
   truncation. Raw observations, URLs, logs and screenshots may still be sensitive.
 - Viewport-only PNGs: 4 MiB each, 16 per session, saved outside the workspace at
   `<project-state>/browser/<run-id>/<number>.png`, directories 0700/files 0600.
+  Each screenshot result says how many are left (`screenshotsLeft`). A screenshot
+  byte-identical to the last one is still sent, with the earlier file's path and a
+  note, and does not count. Past the limit the refusal says retakes of an unchanged
+  screen are free and a check brings a picture of the page it ends on.
   Symlinked artifact destinations are refused. Saved PNGs persist after close;
   remove that run directory manually when no longer needed. No automatic retention
   cleanup or secret detector is provided.

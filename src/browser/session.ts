@@ -10,7 +10,7 @@ import { parseScenario, scopeOf, viewport, type BrowserScenario, type BrowserChe
 import { mkdtemp, realpath, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import type { Browser, HTTPRequest, Page } from "puppeteer-core";
+import type { Browser, ElementHandle, HTTPRequest, JSHandle, Page } from "puppeteer-core";
 import type { ArtifactDirectory } from "../visualize/artifacts";
 import { isolatedEnvironment } from "../platform/environment";
 import { discoverBrowser } from "./discovery";
@@ -33,6 +33,8 @@ export interface BrowserSessionOptions {
   firstStartMs?: number;
   /** An action's own time (default 15 s, a check or replay 30 s); a test seam, never model-supplied. */
   actionTimeoutMs?: number;
+  /** The most a page is waited for to settle before it is read (default 5 s); a test seam, never model-supplied. */
+  settleMs?: number;
   /**
    * Asked once before the AI's browser reaches a cloud metadata address (metadata.ts), by the page itself, a
    * redirect, a frame or a fetch. Without it nobody can say yes, and those addresses are not opened.
@@ -688,6 +690,8 @@ const LOAD_TEXT = 300;
  * so the model has no open, inspect or screenshot to do next. */
 const FINAL_TEXT = 1500;
 const FINAL_ELEMENTS = 20;
+/** The model's screenshots a session may take; a byte-identical retake of the last one doesn't count. */
+const SCREENSHOT_LIMIT = 16;
 /** Final-page pictures a session's checks and replays may send (their own limit; the model's 16 screenshots are apart). */
 const FINAL_PICTURE_LIMIT = 30;
 /** The final page gets at most this long, and none when the check has used most of its 30 s, so it never makes a check overrun. */
@@ -695,16 +699,119 @@ const FINAL_PAGE_MS = 3_000;
 const FINAL_PAGE_AFTER_MS = 25_000;
 /** A check's result with its final page stays this small (JSON bytes), under the 16 KiB result cap, so it is never cut. */
 const FINAL_RESULT_BYTES = 14_000;
-/** What inspect reads (and, shorter, a check's final page): title, visible text, size and the page's controls with a selector. */
-const PAGE_SUMMARY = (textLimit: number, elementLimit: number) => ({ title: document.title.slice(0, 512),
-  text: (document.body?.innerText ?? "").slice(0, textLimit), url: location.href,
-  viewport: { width: innerWidth, height: innerHeight }, width: document.documentElement.scrollWidth,
-  elements: [...document.querySelectorAll("button,a,input,textarea,select,[role=button]")].slice(0, elementLimit).map(el => ({
-    tag: el.tagName, id: el.id.slice(0, 128), name: (el.getAttribute("name") ?? "").slice(0, 128), type: el.getAttribute("type"),
-    label: (el.getAttribute("aria-label") ?? el.textContent ?? "").slice(0, 128),
-    selector: el.id ? `#${CSS.escape(el.id)}` : undefined,
-  })) });
+/** What inspect reads (and, shorter, a check's final page): title, visible text, size and the page's controls with a selector.
+ * Open shadow roots (web components) are read too: body.innerText and querySelectorAll never reach inside them. */
+const PAGE_SUMMARY = (textLimit: number, elementLimit: number) => {
+  const roots: ShadowRoot[] = [];
+  const visit = (root: ParentNode) => { for (const el of root.querySelectorAll("*")) if (el.shadowRoot && roots.length < 1000) { roots.push(el.shadowRoot); visit(el.shadowRoot); } };
+  visit(document);
+  let text = "";
+  if (!roots.length) text = (document.body?.innerText ?? "").slice(0, textLimit);
+  else {
+    // The page as drawn: a host's shadow root in place of its children, a slot's assigned nodes in place of its own.
+    const lines: string[] = [];
+    let size = 0, seen = 0;
+    const walk = (node: Node) => {
+      if (size >= textLimit || ++seen > 30_000) return;
+      if (node.nodeType === Node.TEXT_NODE) {
+        const line = (node.textContent ?? "").replace(/\s+/g, " ").trim();
+        const parent = node.parentElement ?? (node.parentNode instanceof ShadowRoot ? node.parentNode.host : null);
+        if (line && parent?.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true })) { lines.push(line); size += line.length + 1; }
+        return;
+      }
+      if (node instanceof Element && ["SCRIPT", "STYLE", "NOSCRIPT", "TEMPLATE"].includes(node.tagName)) return;
+      const assigned = node instanceof HTMLSlotElement ? node.assignedNodes() : [];
+      for (const child of node instanceof Element && node.shadowRoot ? node.shadowRoot.childNodes : assigned.length ? assigned : node.childNodes) walk(child);
+    };
+    if (document.body) walk(document.body);
+    text = lines.join("\n").slice(0, textLimit);
+  }
+  const controls = "button,a,input,textarea,select,[role=button]";
+  return { title: document.title.slice(0, 512), text, url: location.href,
+    viewport: { width: innerWidth, height: innerHeight }, width: document.documentElement.scrollWidth,
+    elements: [...document.querySelectorAll(controls), ...roots.flatMap(root => [...root.querySelectorAll(controls)])].slice(0, elementLimit).map(el => ({
+      tag: el.tagName, id: el.id.slice(0, 128), name: (el.getAttribute("name") ?? "").slice(0, 128), type: el.getAttribute("type"),
+      label: (el.getAttribute("aria-label") ?? el.textContent ?? "").slice(0, 128),
+      selector: el.id ? `#${CSS.escape(el.id)}` : undefined,
+      ...(el.getRootNode() instanceof ShadowRoot ? { inShadowRoot: true } : {}),
+    })) };
+};
 
+/** Runs in the page: the function every selector of the browser tool goes through. A plain CSS selector is the page's
+ * own querySelectorAll; when it matches nothing there it is tried inside each open shadow root (web components), as
+ * Puppeteer's `pierce/` does. `pierce/<css>` searches every root at once, and `host >>> inner` finds `inner` anywhere
+ * inside `host`, shadow roots included. `everywhere` searches every root for a plain selector too. */
+const FINDER = () => (selector: string, everywhere = false): Element[] => {
+  const deep = (start: ParentNode, css: string): Element[] => {
+    const found = [...start.querySelectorAll(css)];
+    const hosts = [...(start instanceof Element ? [start] : []), ...start.querySelectorAll("*")].filter(el => el.shadowRoot);
+    for (const host of hosts) found.push(...deep(host.shadowRoot!, css));
+    return [...new Set(found)];
+  };
+  if (selector.startsWith("pierce/")) return deep(document, selector.slice("pierce/".length));
+  if (selector.includes(">>>")) {
+    let scope: ParentNode[] = [document];
+    for (const part of selector.split(">>>").map(part => part.trim())) scope = [...new Set(scope.flatMap(root => deep(root, part)))];
+    return scope as Element[];
+  }
+  if (everywhere) return deep(document, selector);
+  const plain = [...document.querySelectorAll(selector)];
+  return plain.length ? plain : deep(document, selector);
+};
+type Find = ReturnType<typeof FINDER>;
+/** Runs `work` with FINDER in the page, then lets it go. */
+async function withFinder<T>(page: Page, work: (find: JSHandle<Find>) => Promise<T>): Promise<T> {
+  const find = await page.evaluateHandle(FINDER);
+  try { return await work(find); } finally { await find.dispose().catch(() => {}); }
+}
+
+/** Runs in the page: waits for the document to finish loading, then for its DOM, open shadow roots included, to stop
+ * changing (nodes and text, not attributes, so a spinner doesn't hold it) for `quiet` ms while no loading splash shows
+ * (a busy region, or a page whose only words say Loading). Gives up at `limit` ms; true when it settled. */
+const PAGE_SETTLED = async (quiet: number, limit: number): Promise<boolean> => {
+  const end = performance.now() + limit;
+  const pause = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+  while (document.readyState !== "complete" && performance.now() < end) await pause(50);
+  let changed = performance.now();
+  const observer = new MutationObserver(() => { changed = performance.now(); });
+  const watched = new WeakSet<Node>();
+  const watch = (root: Document | ShadowRoot) => {
+    if (!watched.has(root)) { watched.add(root); observer.observe(root, { subtree: true, childList: true, characterData: true }); if (root !== document) changed = performance.now(); }
+    for (const el of root.querySelectorAll("*")) if (el.shadowRoot) watch(el.shadowRoot);
+  };
+  const busy = () => {
+    if ([...document.querySelectorAll('[aria-busy="true"]')].some(el => el.checkVisibility())) return true;
+    const words = (document.body?.innerText ?? "").trim();
+    return words.length < 80 && /\bloading\b/i.test(words);
+  };
+  try {
+    watch(document);
+    while (performance.now() < end) {
+      await pause(100);
+      watch(document);
+      if (performance.now() - changed >= quiet && !busy()) return true;
+    }
+    return false;
+  } finally { observer.disconnect(); }
+};
+/** How long the page may stay still before screenshot, inspect, diagnostics or a check reads it, and the most it is waited for. */
+const SETTLE_QUIET_MS = 500;
+const SETTLE_MS = 5_000;
+
+/** Paths of sign-in and authorize pages (Home Assistant's /auth/authorize, /login, /signin, /oauth/authorize). */
+const SIGN_IN_PATH = /\/(?:auth\/authorize|oauth2?\/authorize|log-?in|sign-?in|sign_in|sso)(?:\/|\.html?$|$)/i;
+/** Runs in the page: its main form asks for a user name (or email) and a password, open shadow roots included. */
+const SIGN_IN_FORM = () => {
+  const fields: Element[] = [];
+  const visit = (root: ParentNode) => { for (const el of root.querySelectorAll("input")) fields.push(el); for (const el of root.querySelectorAll("*")) if (el.shadowRoot) visit(el.shadowRoot); };
+  visit(document);
+  const shown = fields.filter(el => el.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true })) as HTMLInputElement[];
+  return shown.some(el => el.type === "password") && shown.some(el => ["text", "email", ""].includes(el.getAttribute("type") ?? "") || /username|email/i.test(el.autocomplete))
+    && shown.filter(el => !["hidden", "checkbox", "radio", "submit", "button"].includes(el.type)).length <= 4;
+};
+
+/** Keys press takes: confirming, moving between controls, editing and moving round a page or a list. */
+const PRESS_KEYS = ["Enter", "Tab", "Escape", "Space", "Backspace", "Delete", "ArrowDown", "ArrowUp", "ArrowLeft", "ArrowRight", "Home", "End", "PageUp", "PageDown"];
 /** Fields fill types into, like a person would. Password and file stay out (checked before this). */
 const TYPED_FIELDS = ["", "text", "search", "tel", "url", "email", "number"];
 /** Fields a person sets through a picker: fill sets their value and fires input and change. */
@@ -739,8 +846,12 @@ async function coverOf(element: import("puppeteer-core").ElementHandle): Promise
     const r = el.getBoundingClientRect();
     const x = r.left + r.width / 2, y = r.top + r.height / 2;
     if (r.width < 1 || r.height < 1 || x < 0 || y < 0 || x >= innerWidth || y >= innerHeight) return { target };
-    const hit = document.elementFromPoint(x, y);
-    if (!hit || el.contains(hit) || hit.contains(el) || (hit.closest("label") as HTMLLabelElement | null)?.control === el) return { target };
+    // Inside a web component the page's hit is its host: look again in each open shadow root down to the element drawn there.
+    let hit = document.elementFromPoint(x, y);
+    for (let inner = hit?.shadowRoot?.elementFromPoint(x, y); hit && inner && inner !== hit; inner = hit.shadowRoot?.elementFromPoint(x, y)) hit = inner;
+    // Contains across shadow roots: up through each root's host.
+    const holds = (outer: Node, node: Node) => { for (let up: Node | null = node; up; up = up.parentNode ?? (up instanceof ShadowRoot ? up.host : null)) if (up === outer) return true; return false; };
+    if (!hit || holds(el, hit) || holds(hit, el) || (hit.closest("label") as HTMLLabelElement | null)?.control === el) return { target };
     // Named by its layer (the fixed toast, not the span inside it).
     let layer: Element = hit;
     for (let up: Element | null = hit; up && up !== document.body; up = up.parentElement)
@@ -862,6 +973,8 @@ export class BrowserSession {
   private server?: BrowserServer | SlotServer | StaticServer;
   private readonly runId = randomUUID();
   private screenshotCount = 0;
+  /** The last screenshot counted: a byte-identical retake is sent again without counting. */
+  private lastScreenshot?: { digest: string; path: string };
   /** Page-check pictures taken this session (their own limit; the model's 16 screenshots are apart). */
   private pagePictures = 0;
   /** Final-page pictures checks and replays sent this session. */
@@ -959,6 +1072,7 @@ export class BrowserSession {
       if (input.action === "check" || input.action === "replay") return await this.check(input, combined);
       if (input.action === "withdraw") return await this.withdraw(input);
       if (input.action === "serve") return await this.serve(input, combined);
+      if (input.action === "diagnostics" && this.page && !this.page.isClosed()) await this.settle(this.page, combined);
       if (input.action === "diagnostics") return { console: structuredClone(this.logs), network: structuredClone(this.requests), dropped: this.dropped,
         server: this.server?.diagnostics(), guidance: "Bounded diagnostics, not verification. URL queries/fragments are omitted; content may still be sensitive." };
       if (input.action === "signin") return await this.signIn(url!, combined);
@@ -979,6 +1093,7 @@ export class BrowserSession {
         return { url: here, title: (await page.title()).slice(0, 512), ...notOpened };
       }
       if (interaction) return { ...await this.interact(input, combined), ...await this.metadataAfter(page, combined) };
+      if (input.action === "inspect" || input.action === "screenshot") await this.settle(page, combined);
       // The page reached for a metadata address since the last action (a script, a timer): asked about here.
       const held = await this.metadataAfter(page, combined);
       if (input.action === "viewport") { const size = viewport({ width: input.width, height: input.height }); await page.setViewport(size); return { viewport: size }; }
@@ -986,15 +1101,20 @@ export class BrowserSession {
         const observation = await page.evaluate(PAGE_SUMMARY, 8000, 40);
         return { ...observation, ...held };
       }
-      if (this.screenshotCount >= 16) throw new Error("Browser screenshot limit reached (16 per session)");
       const bytes = await page.screenshot({ type: "png", fullPage: false });
       combined.throwIfAborted();
       if (bytes.byteLength > 4 * 1024 * 1024) throw new Error("Browser screenshot exceeds 4 MiB");
+      const digest = createHash("sha256").update(bytes).digest("hex");
+      const shot = (saved: string, left: number) => ({ path: saved, bytes: bytes.byteLength, screenshotsLeft: left,
+        url: page.url(), viewport: page.viewport(), guidance: "The picture comes with this result when the model can see images. Capture alone is not verification.", ...held,
+        [SCREENSHOT_PNG]: Buffer.from(bytes).toString("base64") });
+      if (this.lastScreenshot?.digest === digest) return { ...shot(this.lastScreenshot.path, SCREENSHOT_LIMIT - this.screenshotCount),
+        note: "The same picture as the last screenshot: nothing on the screen changed, and it didn't count against the limit." };
+      if (this.screenshotCount >= SCREENSHOT_LIMIT) throw new Error(`Browser screenshot limit reached (${SCREENSHOT_LIMIT} per session, none left). A retake identical to the last screenshot is free, and a check brings a picture of the page it ends on (30 a session).`);
       const saved = await this.savePicture(`${this.screenshotCount + 1}.png`, bytes, combined);
       this.screenshotCount++;
-      return { path: saved, bytes: bytes.byteLength,
-        url: page.url(), viewport: page.viewport(), guidance: "The picture comes with this result when the model can see images. Capture alone is not verification.", ...held,
-        [SCREENSHOT_PNG]: Buffer.from(bytes).toString("base64") };
+      this.lastScreenshot = { digest, path: saved };
+      return shot(saved, SCREENSHOT_LIMIT - this.screenshotCount);
     } catch (error) {
       if (ranOut && !signal?.aborted) throw new Error(`The browser's ${String(input.action)} ran out of time (${Math.round(limit / 1000)} s) and Casper closed the browser; open the page again.`);
       throw error;
@@ -1057,6 +1177,39 @@ export class BrowserSession {
 
   private metadataGuard(): MetadataGuard {
     return this.guard ??= new MetadataGuard({ allowed: address => this.metadataAllowed.has(address), hosts: this.options.metadataHosts, lookup: this.options.lookup });
+  }
+
+  /**
+   * Lets the page finish drawing before it is read: PAGE_SETTLED in the page while requests go quiet (two long-lived
+   * ones aside), at most settleMs, then the action goes on whatever the page shows; never a failure. A page that moves
+   * to another address meanwhile (a sign-in redirect) is waited for again in its new document.
+   */
+  private async settle(page: Page, signal: AbortSignal): Promise<void> {
+    const end = performance.now() + (this.options.settleMs ?? SETTLE_MS);
+    const left = () => Math.round(end - performance.now());
+    if (left() <= 0) return;
+    const requests = page.waitForNetworkIdle({ idleTime: SETTLE_QUIET_MS, timeout: left(), concurrency: 2 }).catch(() => {});
+    while (left() > 0 && !signal.aborted && !page.isClosed()) {
+      try { await page.evaluate(PAGE_SETTLED, SETTLE_QUIET_MS, left()); break; }
+      catch (error) {
+        if (!/context was destroyed|navigat|detached|Cannot find context/i.test(String(error))) break;
+        await new Promise(resolve => setTimeout(resolve, 100));
+      }
+    }
+    await requests;
+    signal.throwIfAborted();
+  }
+
+  /** Why a check counts for nothing when its page went to a sign-in or authorize page (a path such as /auth/authorize
+   * or /login, or a page whose main form asks for a user name and password) instead of the page it asked for, which
+   * was not itself one; undefined when it didn't. */
+  private async signInReason(page: Page, requested: string): Promise<string | undefined> {
+    let here: URL, asked: URL;
+    try { here = new URL(page.url()); asked = new URL(requested); } catch { return undefined; }
+    const trim = (address: URL) => address.pathname.replace(/\/+$/, "") || "/";
+    if (SIGN_IN_PATH.test(asked.pathname) || trim(here) === trim(asked)) return undefined;
+    if (!SIGN_IN_PATH.test(here.pathname) && !await page.evaluate(SIGN_IN_FORM).catch(() => false)) return undefined;
+    return `The page went to a sign-in page (${here.origin}${here.pathname}) instead of ${asked.pathname}, so nothing was checked. Use the browser's signin action so the person can sign in, then replay this check.`;
   }
 
   /** Saves a PNG in this run's folder outside the project (0700 folders, 0600 files); its full path. */
@@ -1397,6 +1550,7 @@ export class BrowserSession {
     const check: BrowserCheck = { ...entry.check, status: "incomplete", freshness: "unavailable", assertions: [], reason: undefined, notes: undefined };
     entry.check = check; entry.fingerprint = undefined; entry.revision = this.revision; entry.ranAt = performance.now();
     const startedAt = performance.now();
+    let opened: Page | undefined;
     try {
       const before = await inputState(this.options.projectRoot, scenario, signal);
       if (recording && localURL(scenario.url)) entry.data = await snapshotAppData(this.options.projectRoot, signal);
@@ -1404,11 +1558,13 @@ export class BrowserSession {
       // The signed-in profile's own context can't be closed: its page is, and a fresh one opens in it.
       if (this.signedIn) await this.page!.close().catch(() => {});
       else await this.page!.browserContext().close();
-      const page = await this.newPage();
+      const page = opened = await this.newPage();
       this.logs.length = 0; this.requests.length = 0; this.dropped = 0;
       await page.setViewport(scenario.viewport);
       const notOpened = await this.openCheck(page, scenario.url, input.action === "replay", check, signal);
       if (notOpened.notOpened) throw new Error(`The page reached for a cloud metadata address (${notOpened.notOpened.join(", ")}) and the person said no`);
+      // A web app's splash ("Loading…") is not the page: its steps and assertions wait for it to draw.
+      await this.settle(page, signal);
       // The steps share 8 s of watching for what they changed, so 12 steps on a busy page stay inside the check's limit.
       const watchBy = performance.now() + 8_000;
       const token = runToken();
@@ -1421,16 +1577,18 @@ export class BrowserSession {
         const after = await this.metadataAfter(page, signal);
         if (after.notOpened) throw new Error(`The page reached for a cloud metadata address (${after.notOpened.join(", ")}) and the person said no`);
       }
+      if (scenario.steps.length) await this.settle(page, signal);
       for (const assertion of scenario.assertions) {
         signal.throwIfAborted();
         // withNear: on a selector that matches nothing or a wrong text, up to 3 real elements most like what was asked for.
-        const evaluate = (withNear = false) => page.evaluate((a, withNear): { pass: boolean; actual: unknown; near?: string[]; inside?: boolean } => {
+        const evaluate = (withNear = false) => withFinder(page, find => page.evaluate((find, a, withNear): { pass: boolean; actual: unknown; near?: string[]; inside?: boolean } => {
           const norm = (value: string | null) => (value ?? "").replace(/\s+/g, " ").trim();
           const nearest = (): string[] => {
             const words = (a.selector ?? "").toLowerCase().match(/[a-z][\w-]{2,}/g) ?? [];
             const expected = a.kind === "text" ? norm(a.expected).toLowerCase() : "";
             const scored: Array<{ score: number; text: string; el: Element }> = [];
-            for (const el of [...document.body?.querySelectorAll("*") ?? []].slice(0, 3000)) {
+            // The body's elements, open shadow roots included.
+            for (const el of find("*", true).filter(el => el !== document.body && el !== document.documentElement && !el.closest("head")).slice(0, 3000)) {
               if (["SCRIPT", "STYLE", "NOSCRIPT", "TEMPLATE"].includes(el.tagName)) continue;
               const tokens = [el.tagName.toLowerCase(), el.id.toLowerCase(), ...[...el.classList].map(c => c.toLowerCase()),
                 ...["name", "aria-label", "data-testid"].map(n => (el.getAttribute(n) ?? "").toLowerCase())].filter(Boolean);
@@ -1446,7 +1604,7 @@ export class BrowserSession {
               `${el.tagName.toLowerCase()}${el.id ? `#${el.id}` : ""}${[...el.classList].slice(0, 2).map(c => `.${c}`).join("")}${text ? ` "${text.slice(0, 60)}"` : ""}`);
           };
           if (a.kind === "no-horizontal-overflow" && !a.selector) return { pass: document.documentElement.scrollWidth <= innerWidth, actual: { width: document.documentElement.scrollWidth, viewport: innerWidth } };
-          const matches = document.querySelectorAll(a.selector!);
+          const matches = find(a.selector!);
           if (matches.length !== 1) return { pass: false, actual: `Expected one element; found ${matches.length}`, ...(withNear && !matches.length ? { near: nearest() } : {}) };
           const el = matches[0]!;
           const r = el.getBoundingClientRect();
@@ -1458,12 +1616,12 @@ export class BrowserSession {
             return { pass, actual: norm(el.textContent).slice(0, 1024), ...(withNear && !pass ? { near: nearest(), inside: [...el.querySelectorAll("*")].some(child => norm(child.textContent) === norm(a.expected)) } : {}) }; }
           const visible = el.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true }) && r.width > 0 && r.height > 0;
           if (a.kind === "visible") return { pass: visible, actual: visible };
-          const other = document.querySelectorAll(a.other);
+          const other = find(a.other);
           if (other.length !== 1) return { pass: false, actual: `Expected one other element; found ${other.length}` };
           const b = other[0]!.getBoundingClientRect();
           const overlap = r.left < b.right && r.right > b.left && r.top < b.bottom && r.bottom > b.top;
           return { pass: visible && b.width > 0 && b.height > 0 && !overlap, actual: { overlap } };
-        }, assertion, withNear);
+        }, find, assertion, withNear));
         let result = await evaluate();
         const deadline = performance.now() + 1000;
         while (!result.pass && performance.now() < deadline) { await new Promise(resolve => setTimeout(resolve, 50)); signal.throwIfAborted(); result = await evaluate(); }
@@ -1475,7 +1633,9 @@ export class BrowserSession {
           ...(result.near?.length ? { near: result.near } : {}),
           ...(result.inside ? { hint: INSIDE_HINT } : result.near && !recording ? { hint: BROKEN_CHECK_HINT } : {}) });
       }
-      check.status = check.assertions.every(a => a.status === "pass") ? "pass" : "fail";
+      // A sign-in page is not the page the check was for: neither a pass nor a failure.
+      const signIn = await this.signInReason(page, scenario.url);
+      check.status = signIn ? "incomplete" : check.assertions.every(a => a.status === "pass") ? "pass" : "fail";
       if (check.status === "fail" && !recording && check.baseline === "pass" && fixedIdentity(scenario.steps))
         for (const assertion of check.assertions) if (assertion.status === "fail") assertion.hint = RUN_HINT;
       const after = await inputState(this.options.projectRoot, scenario, signal);
@@ -1483,6 +1643,7 @@ export class BrowserSession {
         check.freshness = "fresh"; entry.fingerprint = after.fingerprint;
         if (recording) entry.recordedFingerprint = after.fingerprint;
       } else { check.freshness = before.fingerprint && after.fingerprint ? "stale" : "unavailable"; check.reason = before.reason ?? after.reason ?? "Declared inputs changed during browser reproduction."; }
+      if (signIn) check.reason = signIn;
       if (recording) { check.baseline = check.status; entry.recordedRevision = entry.revision; }
       const result = structuredClone(check) as unknown as Record<string, unknown>;
       // The check is decided: reading the page after it can't change that, fail it or make it overrun.
@@ -1490,6 +1651,9 @@ export class BrowserSession {
       return { ...result, ...await this.finalPage(page, signal, FINAL_RESULT_BYTES - Buffer.byteLength(JSON.stringify(result))).catch(() => ({})) };
     } catch (error) {
       check.status = "incomplete"; check.reason = error instanceof ServerGone ? `Could not check. ${error.message}` : "Browser reproduction did not finish; no passing evidence.";
+      // A step that found nothing on a sign-in page: that is the result, said plainly, and the id stays for a replay.
+      const signIn = opened && !signal.aborted && !(error instanceof ServerGone) ? await this.signInReason(opened, scenario.url) : undefined;
+      if (signIn) { check.reason = signIn; if (recording) check.baseline = "incomplete"; return structuredClone(check) as unknown as Record<string, unknown>; }
       // A step selector that matches several elements is a check written wrong, not a page that isn't ready: nothing is
       // kept, so it can't hold the result at incomplete. One that matches nothing may be a feature not built yet.
       if (input.action === "check" && error instanceof Error && /exactly one element; it matches ([2-9]|\d{2,})/.test(error.message)) {
@@ -1615,23 +1779,23 @@ export class BrowserSession {
     const action = String(input.action);
     const value = action === "click" ? undefined : text(input.value, "value", 1024);
     if (action === "click" && input.value !== undefined) throw new Error("Click does not accept a value");
-    if (action === "press" && !["Enter", "Tab", "Escape", "ArrowDown", "ArrowUp", "ArrowLeft", "ArrowRight", "Space", "Backspace"].includes(value!)) throw new Error("Unsupported browser key");
+    if (action === "press" && !PRESS_KEYS.includes(value!)) throw new Error(`Unsupported browser key ${JSON.stringify(value!.slice(0, 20))}; press takes ${PRESS_KEYS.join(", ")}`);
     const page = this.page!;
-    const describe = () => page.evaluate((selector) => {
-      const matches = document.querySelectorAll(selector);
-      if (matches.length !== 1) throw new Error(`Browser selector must match exactly one element; it matches ${matches.length}`);
+    const describe = () => withFinder(page, find => page.evaluate((find, selector) => {
+      const matches = find(selector);
+      if (matches.length !== 1) throw new Error(`Browser selector must match exactly one element; it matches ${matches.length}${matches.length ? "" : " (open shadow roots searched too; host >>> inner names one inside a web component)"}`);
       const el = matches[0]!;
       return { url: location.href, tag: el.tagName, type: el.getAttribute("type") ?? "", autocomplete: el.getAttribute("autocomplete") ?? "",
         target: [el.getAttribute("aria-label"), el.textContent, el.getAttribute("name"), el.getAttribute("href")].filter(Boolean).join(" ").slice(0, 1024) };
-    }, selector);
+    }, find, selector));
     // A check step waits up to 5 s for content that loads later (a time slot, a fetched list): while its selector
     // matches nothing, or its one element is disabled. Several matches still fail at once (a check written wrong).
     if (waitForTarget) {
       const until = performance.now() + 5_000;
-      const pending = () => page.evaluate((selector) => {
-        const matches = document.querySelectorAll(selector);
+      const pending = () => withFinder(page, find => page.evaluate((find, selector) => {
+        const matches = find(selector);
         return matches.length === 0 || (matches.length === 1 && ((matches[0] as HTMLButtonElement).disabled === true || matches[0]!.getAttribute("aria-disabled") === "true"));
-      }, selector).catch((error: unknown) => /context was destroyed|navigat|detached/i.test(String(error))); // a page still opening after the last step
+      }, find, selector)).catch((error: unknown) => /context was destroyed|navigat|detached/i.test(String(error))); // a page still opening after the last step
       while (performance.now() < until && await pending()) { await new Promise(resolve => setTimeout(resolve, 100)); signal.throwIfAborted(); }
     }
     const before = await describe();
@@ -1661,8 +1825,9 @@ export class BrowserSession {
       if (JSON.stringify(await describe()) !== JSON.stringify(before)) throw new Error("Browser target changed during approval; inspect it again");
     }
     signal.throwIfAborted();
-    const element = await page.$(selector);
-    if (!element) throw new Error("Browser target disappeared");
+    const found = await withFinder(page, find => page.evaluateHandle((find, selector) => find(selector)[0] ?? null, find, selector));
+    const element = found.asElement() as ElementHandle<Element> | null;
+    if (!element) { await found.dispose(); throw new Error("Browser target disappeared"); }
     let selected: { value: string; label: string } | undefined;
     let note: string | undefined;
     let outlineBefore: PageOutline | undefined, urlBefore = "", focusHere = false;
@@ -1682,7 +1847,12 @@ export class BrowserSession {
       // Watch what the action changes: the DOM, the address, focus, scrolling, the field's state, requests, dialogs.
       await element.evaluate((el, key) => {
         const watch = { changes: 0, el, active: document.activeElement, observer: new MutationObserver(list => { watch.changes += list.length; }) };
-        watch.observer.observe(document, { subtree: true, childList: true, attributes: true, characterData: true });
+        // Open shadow roots too: a web component's own content changes there.
+        const observe = (root: Document | ShadowRoot) => {
+          watch.observer.observe(root, { subtree: true, childList: true, attributes: true, characterData: true });
+          for (const child of root.querySelectorAll("*")) if (child.shadowRoot) observe(child.shadowRoot);
+        };
+        observe(document);
         Object.defineProperty(window, key, { value: watch, configurable: true });
       }, key);
       const initial = await page.evaluate(watchState, key);
