@@ -201,7 +201,7 @@ test("in the terminal, a provider failure after three automatic retries asks whe
     expect(prompts).toBe(4);
     expect(Bun.stripANSI(screen.output)).toContain("… The model failed · trying again in 4s (3 of 3) · Esc stops");
     input.write("\r"); // Enter picks 1 Stop: no more tokens.
-    await screen.until((output) => { const text = Bun.stripANSI(output); const at = text.lastIndexOf("✗ Failed — the model run failed"); return at >= 0 && text.lastIndexOf("idle") > at; });
+    await screen.until((output) => { const text = Bun.stripANSI(output); const at = text.lastIndexOf("✗ Failed: the model run failed"); return at >= 0 && text.lastIndexOf("idle") > at; });
     expect(prompts).toBe(4);
   } finally {
     input.write("/exit\r");
@@ -303,9 +303,9 @@ test("a check that was already failing before the change is named as such; in th
     expect(Bun.stripANSI(screen.output)).toContain("– test was already failing before this change (Casper ran it on the files from before)");
     input.write("\r"); // Enter picks 1 Leave it: no repair.
     // The receipt says the change did not cause it, instead of leading with ✗ Failed.
-    const verdict = "– Not caused by this change — test already failed before it; left as it is";
+    const verdict = "⚠ Not caused by this change: test already failed before it; left as it is";
     await screen.until((output) => { const text = Bun.stripANSI(output); const at = text.lastIndexOf(verdict); return at >= 0 && text.lastIndexOf("idle") > at; });
-    expect(Bun.stripANSI(screen.output)).not.toContain("✗ Failed — test failed");
+    expect(Bun.stripANSI(screen.output)).not.toContain("✗ Failed: test failed");
     expect(prompts).toBe(1);
     expect(app.getLastTaskResult()?.verification?.repairAttempts).toBe(0);
   } finally {

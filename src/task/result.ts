@@ -438,6 +438,10 @@ export interface ReceiptItem {
   name?: string;
   /** How long a check ran, when a second or more ("1.3s"). */
   time?: string;
+  /** A check's caveat beside its result: a lab check's "dry run not guaranteed". */
+  note?: string;
+  /** Every file a changed line is about, where the line itself stops at eight. */
+  files?: string[];
   /** Said with line 1 because it went well, in these words ("" says nothing); only on the short receipt. */
   fold?: string;
 }
@@ -515,7 +519,11 @@ function pagesShownText(count: number): string {
  * 3 files changed"), and each problem on its own short line under it. The full form stays in formatReceipt
  * (--json `text`, saved receipt summaries) and formatTaskResult (/receipt). */
 export function formatShortReceipt(task: TaskResult, options: ReceiptOptions = {}): string {
-  const { verdict, short, items } = receiptView(task, options);
+  return shortReceiptText(receiptView(task, options));
+}
+
+/** The short receipt's text from its items (formatShortReceipt), for a caller that also draws the card from them. */
+export function shortReceiptText({ verdict, short, items }: ReceiptView): string {
   const rest = items.filter((item) => item.fold === undefined).map((item) => item.line);
   if (!verdict) return rest.join("\n");
   const parts = items.flatMap((item) => item.fold ? [item.fold] : []);
@@ -599,7 +607,7 @@ function receiptParts(task: TaskResult, options: ReceiptOptions, onScreen = fals
   const changedPart = (status: string, detail?: string): Parts => ({ kind: "changed", status, ...(detail ? { detail } : {}) });
   if (task.changedPaths?.length) {
     const list = pathList(task.changedPaths, safe);
-    fold("changed", `✓ Changed ${list}`, changedShort(task.changedPaths, safe), changedPart("Changed", list));
+    fold("changed", `✓ Changed ${list}`, changedShort(task.changedPaths, safe), { ...changedPart("Changed", list), files: task.changedPaths.map(safe) });
   }
   else if (task.changedPaths && task.autoSkipped === "no-changes" && !task.verification) add("changed", "– No files changed, so Casper ran no checks", changedPart("No files changed", "Casper ran no checks"));
   else if (task.changedPaths) fold("changed", "– No files changed", "no files changed", changedPart("No files changed"));
@@ -658,7 +666,8 @@ function receiptParts(task: TaskResult, options: ReceiptOptions, onScreen = fals
   if (task.changedDuringChecks?.length) add("changed", `– Changed while checking: ${pathList(task.changedDuringChecks, safe, false)}`);
   if (task.changedWhilePlanning?.length) add("changed", `– Changed while planning: ${pathList(task.changedWhilePlanning, safe, false)}`);
   if (task.changedNotByModel?.length) add("changed", `– Changed meanwhile by another program, not the AI (not checked): ${pathList(task.changedNotByModel, safe, false)}`);
-  for (const line of onScreen ? planSummary(task.planSteps) : planReceipt(task.planSteps)) add("notes", line);
+  // A plan step the model did not finish (often a question it stopped on) needs you; the rest of the plan is a note.
+  for (const line of onScreen ? planSummary(task.planSteps) : planReceipt(task.planSteps)) add(onScreen && line.startsWith("– Plan:") ? "open" : "notes", line);
   if (task.branchChangesUnknown) add("notes", `– ${task.branchMoved ? "The branch moved during this task; " : ""}${GIT_MOVEMENT_UNKNOWN}; undo is unavailable`);
   else if (task.branchMoved) add("notes", BRANCH_MOVED_LINE);
 
@@ -709,8 +718,11 @@ function receiptParts(task: TaskResult, options: ReceiptOptions, onScreen = fals
   else if (task.sandbox && labRan(report)) add("notes", `– Lab checks ran outside the sandbox (${LAB_OUTSIDE_WHY})`);
   for (const folder of task.outsideWrites ?? []) add("changed", `– Wrote outside the project: ${safe(folder)} (you allowed it; no undo copy)`);
   for (const folder of task.outsideAllowed ?? []) add("notes", `– Allowed writes outside the project: ${safe(folder)} (no undo copy)`);
-  for (const risky of task.riskyLines ?? []) add("config", `– Risky config lines (not a check): ${safe(risky.file)}:${risky.line} ${safe(risky.text)} — ${risky.reason}`);
-  if (task.riskyMore) add("config", `– Risky config lines (not a check): and ${task.riskyMore} more`);
+  for (const risky of task.riskyLines ?? []) {
+    const what = `${safe(risky.file)}:${risky.line} ${safe(risky.text)} — ${risky.reason}`;
+    add("config", `– Risky config lines (not a check): ${what}`, { detail: what });
+  }
+  if (task.riskyMore) add("config", `– Risky config lines (not a check): and ${task.riskyMore} more`, { detail: `and ${task.riskyMore} more` });
   if (task.browser) {
     // Checks the AI withdrew as written wrong: named with its reason, never counted for or against the result.
     const withdrawn = task.browser.checks.filter((check) => check.status === "withdrawn");
@@ -1022,8 +1034,9 @@ function proofLine(proof: ChangeProof, safe: (text: string) => string): { line: 
 function checkLine(result: VerificationResult, safe: (text: string) => string, slash: (command: string) => string, repaired = false): { line: string } & Parts {
   const name = result.name;
   const took = result.kind !== "report" && (result.status === "pass" || result.status === "fail") ? elapsed(result.durationMs) : "";
-  const say = (line: string, status: string, detail?: string, action?: string) =>
-    ({ line, kind: "check" as const, name, status, ...(detail ? { detail } : {}), ...(action ? { actions: [action] } : {}), ...(took ? { time: took } : {}) });
+  const note = result.label ? safe(result.label) : "";
+  const say = (line: string, status: string, detail?: string, action?: string) => ({ line, kind: "check" as const, name, status, ...(detail ? { detail } : {}),
+    ...(action ? { actions: [action] } : {}), ...(took ? { time: took } : {}), ...(note ? { note } : {}) });
   // A report is shown for reading: never a pass, a fail or a reason the change is not verified.
   if (result.kind === "report") return say(`– ${name}  ${reportText(result)} (a diff, not a pass/fail check)`, "report", reportText(result));
   // A named check that could not run (a missing tool, a lab check) says why in its own words.

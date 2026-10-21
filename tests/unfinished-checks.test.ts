@@ -177,7 +177,7 @@ test("in the terminal, a timed-out check asks what to do instead of starting a p
     expect(Bun.stripANSI(screen.output)).toContain("  5. Allow more time from now on");
     input.write("\r"); // Enter picks 1 Stop: nothing runs again and no repair starts.
     // Wait for idle after the receipt: /exit typed while the task is still finishing is kept as a draft.
-    await screen.until((output) => { const text = Bun.stripANSI(output); const receipt = text.lastIndexOf("✗ Not checked — test timed out after 0.3s, so the change was not tested");
+    await screen.until((output) => { const text = Bun.stripANSI(output); const receipt = text.lastIndexOf("⚠ Not checked: test timed out after 0.3s, so the change was not tested");
       return receipt >= 0 && text.lastIndexOf("idle") > receipt; });
     expect(prompts).toBe(1);
     expect(app.getLastTaskResult()?.verification?.repairAttempts).toBe(0);
@@ -290,7 +290,7 @@ test("5 Allow more time from now on saves the longer limit for this project, wit
     expect(Bun.stripANSI(screen.output).replace(/\s+/g, " ")).toContain("[verify] Saved verification.timeoutMs: 60000 in .casper/project.yaml: every check here gets 1m from now on.");
     // The check runs again with the longer limit; /exit waits for the prompt (a line typed during work is a draft).
     await screen.until((output) => { const text = Bun.stripANSI(output); const saved = text.lastIndexOf("[verify] Saved");
-      return /test\s+passed/.test(text.slice(saved)) && text.lastIndexOf("idle") > saved; });
+      return /✓ test\b/.test(text.slice(saved)) && text.lastIndexOf("idle") > saved; });
   } finally {
     input.write("/exit\r");
     await interactive;

@@ -289,14 +289,14 @@ Make this change? → No
 <span class="ok">✓</span> test
 <span class="dim">• Casper checking that the tests fail without the change</span>
 
-▌ <span class="dim">–</span> Not verified — the tests pass without the change too
-▌ <span class="ok">✓</span> test passed · changed src/sum.js
-▌ <span class="warn">⚠</span> Not proven: test passes without this change too, and no test was added or changed
-▌ <span class="accent">↻</span> Casper tried 1 repair
-▌ <span class="dim">–</span> Shell commands and checks were not sandboxed (off unless you turn it on: /sandbox on, or
-sandbox: on in ~/.casper/config.yaml)
-Next: 1 Show diff · 2 Undo</pre>
-            <figcaption>Captured from Casper 0.2.33 with a scripted stand-in for the AI. It adds no test, so the
+<span class="warn">▌</span> <span class="warn">⚠ Not verified</span>: the tests pass without the change too
+<span class="warn">▌</span>   <span class="dim">Checks</span>   <span class="ok">✓</span> test, after 1 repair
+<span class="warn">▌</span>   <span class="dim">Changed</span>  src/sum.js
+<span class="warn">▌</span>   <span class="dim">Proof</span>    <span class="warn">⚠</span> not proven: test passes without this change too, and no test was added or changed
+<span class="warn">▌</span>   <span class="dim">Notes    Shell commands and checks were not sandboxed (off unless you turn it on: /sandbox on,</span>
+<span class="warn">▌</span>            <span class="dim">or sandbox: on in ~/.casper/config.yaml)</span>
+<span class="warn">▌</span>   <span class="dim">Next</span>     1 Show diff · 2 Undo</pre>
+            <figcaption>Captured from Casper with a scripted stand-in for the AI. It adds no test, so the
             verdict stays "Not verified".</figcaption>
           </figure>
           <p>Some changes need no proof: test-only, docs-only and refactor changes. The receipt says

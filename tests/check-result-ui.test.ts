@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import { homedir } from "node:os";
 import type { CasperApp } from "../src/app";
 import { writeCheckResult } from "../src/app/verification";
 import type { VerificationResult } from "../src/verify/evidence";
@@ -13,7 +14,8 @@ const result: VerificationResult = { name: "test", cwd: "/repo", command: "bun t
 
 test("host check boxes show failures, not only a passing tail, and a specific count", () => {
   const lines: string[] = [], panels: Array<{ title: string; body: string; tone: string }> = [];
-  const app = { events: { ensureLineBreak() {} }, verbose: false, modelCheckCalls: 0, interactive: false,
+  let expanded: { title: string; body: string } | undefined;
+  const app = { events: { ensureLineBreak() {}, showOnExpand(step: { title: string; body: string }) { expanded = step; } }, verbose: false, modelCheckCalls: 0, interactive: false,
     output: { write(line: string) { lines.push(line); } }, terminal: { writePanel(title: string, body: string, options: { tone: string }) { panels.push({ title, body, tone: options.tone }); } } } as unknown as CasperApp;
   writeCheckResult(app, result);
   expect(lines).toEqual(["✗ 1 of 130 tests failed\n"]);
@@ -23,7 +25,23 @@ test("host check boxes show failures, not only a passing tail, and a specific co
   expect(panels[0]!.body).toContain("error: Expected: true");
   expect(panels[0]!.body).toContain("129 pass\n1 fail");
   expect(panels[0]!.body).not.toContain("(pass) unrelated case");
+  // Ctrl+T shows the whole log the box was cut from.
+  expect(expanded?.title).toBe("test · exit 1 · 1s");
+  expect(expanded?.body).toContain("(pass) unrelated case 128");
+  expect(expanded?.body).toContain("(fail) validates the server address");
   expect(result.status).toBe("fail"); // Presentation never rewrites evidence.
+});
+
+test("Ctrl+T's log of a failed check hides secrets and shows home as ~, as its box does", () => {
+  let expanded: { body: string } | undefined;
+  const app = { events: { ensureLineBreak() {}, showOnExpand(step: { body: string }) { expanded = step; } }, verbose: false, modelCheckCalls: 0, interactive: false,
+    output: { write() {} }, terminal: { writePanel() {} } } as unknown as CasperApp;
+  writeCheckResult(app, { ...result, stdout: "", stderr: `curl -H "Authorization: Bearer sk-abcdefabcdefabcdef12345678" failed\n${homedir()}/project/a.ts:1 error` });
+  expect(expanded?.body).not.toContain("sk-abcdefabcdefabcdef12345678");
+  expect(expanded?.body).toContain("~/project/a.ts:1 error");
+  expanded = undefined;
+  writeCheckResult(app, { ...result, stdout: "", stderr: "", status: "pass", exitCode: 0 });
+  expect(expanded).toBeUndefined();
 });
 
 test("raw and plain tool rows use the same explicit test failure count", () => {

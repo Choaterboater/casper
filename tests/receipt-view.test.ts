@@ -38,7 +38,7 @@ test("a failure: the verdict, what went well, the repairs and the failing check,
   expect(view.short).toBeUndefined();
   expect(view.items).toEqual([
     { line: "✓ lint passed (npm run lint, 2.1s)", section: "checks", kind: "check", name: "lint", status: "passed", detail: "npm run lint", time: "2.1s", fold: "lint passed" },
-    { line: changed, section: "changed", kind: "changed", status: "Changed", detail: changed.slice("✓ Changed ".length), fold: "15 files changed" },
+    { line: changed, section: "changed", kind: "changed", status: "Changed", detail: changed.slice("✓ Changed ".length), files: many, fold: "15 files changed" },
     { line: "↻ Casper tried 2 repairs", section: "checks", kind: "repairs", status: "tried", detail: "2 repairs" },
     { line: "✗ test failed (exit 1) — log above; /verify repair test to fix", section: "checks", kind: "check", name: "test", status: "failed", detail: "exit 1",
       time: "4s", actions: ["/verify repair test"] },

@@ -22,7 +22,7 @@ takes nothing after its name says so (`Usage: /theme, with nothing after it.`).
 | Esc | Stop the current work |
 | Ctrl+C | Cancel work; when idle, clear the draft; twice on an empty prompt exits |
 | Ctrl+D | Exit when the prompt is empty |
-| Ctrl+T | Show the last step in full: an edit's whole diff, what a command printed, the provider's own words after an `[error]`, or a plan's optional Details (works during work too) |
+| Ctrl+T | Show the last step in full: an edit's whole diff, what a command printed, a failed check's log, the provider's own words after an `[error]`, or a plan's optional Details (works during work too) |
 | Ctrl+G | In a plan, open its saved Markdown in `VISUAL` or `EDITOR`; reread it and show the plan again on return |
 | Ctrl+L | Redraw the screen |
 | Ctrl+V (Alt+V on Windows) | Paste a picture from the clipboard; it shows as `[image 1]` and goes with the request. A file you copied in Finder, Explorer or a file manager goes in as its path, and a picture file goes with the request like a dropped one. With neither on the clipboard, its text is pasted |
@@ -215,6 +215,8 @@ are amber while the work goes on, and the receipt's edge, its `✗` lines (in `-
 `[error]` lines are red. Amber also marks a decision (`── Approval ──`), cyan the accent (banner, `●`, Markdown
 structure), dim the muted status lines. `└` hangs a
 row under the AI's words. A closed box leaves one line, `<question> → <answer>`, with no mark.
+A task's receipt is a card: the verdict on line 1 (`✓` green, `⚠` amber, `✗` red only for a failed result) and
+labelled rows under an edge of the same colour ([receipts](VERIFICATION.md#receipts)).
 Those are the `default` theme's colours; `theme: light` or `high-contrast` (or **Theme** in
 `/settings`) swaps the colours of each role (`src/tui/theme.ts`) and nothing else
 ([CONFIGURATION.md](CONFIGURATION.md#theme)).
@@ -371,7 +373,8 @@ every request until `/plan off`, and the footer badge says `PLAN · /plan off` w
 ### Suggested next steps and plan first
 
 After an interactive receipt, the row under it starts suggestions at 1 when there is no diff or
-undo: `Next: 1 Add a test that proves this bug stays fixed (uses tokens)`. With diff or undo offered,
+undo: `Next: 1 Add a test that proves this bug stays fixed (uses tokens)`. Under a receipt card the row joins the
+card's Next row, on its edge, without the `Next:` word. With diff or undo offered,
 1 stays Show diff, 2 stays Undo, and other steps start at 3. Each step's
 reason is on its own line, and a step that saves something shows the exact text it will write
 (`saves verify.test: uv run pytest in .casper/project.yaml`). Nothing waits: a lone number on the empty

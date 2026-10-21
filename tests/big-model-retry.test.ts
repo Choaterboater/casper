@@ -133,7 +133,8 @@ async function fixture(options: Options = {}) {
 
 /** The question is on screen and ready for a key (the footer says so after the panel is drawn). */
 const waiting = (question: string) => (output: string) => output.includes(question) && output.slice(output.lastIndexOf(question)).includes("? waiting for you");
-const idle = (text: string) => /(?:↻ Casper tried|✓ Verified|– Checks passed|✗ Failed|– Not verified|– No files changed)[\s\S]*idle/.test(text);
+/** The receipt card is drawn (its verdict, or the repairs on its Checks row) and the prompt is back. */
+const idle = (text: string) => /(?:after \d+ repairs?|✓ Verified|Checks passed|✗ Failed|⚠ Not verified|No files changed)[\s\S]*idle/.test(text);
 
 test("at the repair limit Casper offers one more try on the big model; choosing it repairs there and switches back", async () => {
   const f = await fixture({ reason: "fixture/big", tokens: 48_000, price: 15 });
@@ -154,7 +155,7 @@ test("at the repair limit Casper offers one more try on the big model; choosing 
     const shown = f.text();
     expect(shown).toContain("↻ repair 4/4 on your big model fixture/big");
     expect(shown).toContain("[model] Back on fixture/demo for your next request.");
-    expect(shown).toContain("↻ Casper tried 4 repairs (the last on your big model fixture/big)");
+    expect(shown.replace(/\s*\n▌\s+/g, " ")).toContain("after 4 repairs (the last on your big model fixture/big)");
     expect(f.selections).toEqual([{ query: "@reason", persist: false }, { query: "fixture/demo", persist: false }]);
     expect(f.promptModels).toEqual(["fixture/demo", "fixture/demo", "fixture/demo", "fixture/demo", "fixture/big"]);
     expect(app.getLastTaskResult()?.bigModel).toEqual({ model: "fixture/big", attempts: 1 });
@@ -176,7 +177,7 @@ test("Esc or Stop at the repair limit spends nothing more and keeps the receipt 
     expect(f.text().replace(/\s+/g, " ")).toContain("fixture/big reads this conversation (uses tokens), then tries 1 more fix");
     f.input.write("\x1b");
     await f.screen.until(idle);
-    expect(f.text()).toContain("↻ Casper tried 3 repairs");
+    expect(f.text()).toContain("after 3 repairs");
     expect(f.text()).not.toContain("big model fixture/big)");
     expect(f.selections).toEqual([]);
     expect(f.promptModels).toHaveLength(4);
@@ -194,7 +195,7 @@ test("no offer when the conversation is already on the big model, or when it wou
     try {
       await f.screen.until((output) => output.includes("idle"));
       f.input.write("fix the add function in calc.py\r");
-      await f.screen.until((output) => /↻ Casper tried|✓ Verified|– Checks passed/.test(output));
+      await f.screen.until((output) => /after \d+ repairs?|✓ Verified|Checks passed/.test(output));
       await f.screen.until(idle);
       expect(f.text()).not.toContain("What now?");
       if (options.tokens) expect(f.text()).toContain("– Your big model fixture/big can't hold this conversation (about 150k tokens), so it was not offered");
@@ -295,7 +296,7 @@ test("with no big model set, Retry opens the picker for this repair only; No kee
     await f.screen.until((output) => /Back on fixture\/demo[\s\S]*idle/.test(output) && idle(output));
     const shown = f.text();
     expect(shown).toContain("↻ repair 4/4 on fixture/big\n");
-    expect(shown).toContain("↻ Casper tried 4 repairs (the last on fixture/big)");
+    expect(shown.replace(/\s*\n▌\s+/g, " ")).toContain("after 4 repairs (the last on fixture/big)");
     expect(shown).not.toContain("your big model fixture/big");
     expect(f.roles).toEqual({});
     expect(f.selections).toEqual([{ picker: "opened", persist: false }, { query: "fixture/demo", persist: false },

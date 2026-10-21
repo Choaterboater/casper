@@ -17,6 +17,8 @@ import { editPlanFile } from "./plan-editor";
 import type { HelperActivity } from "../agents/manager";
 import { crewTranscriptLine } from "./crew-panel";
 import { modelReasonLine } from "./model-reason";
+import { CARD_MIN_COLUMNS, cardNextRows, cardRows, receiptCard, type CardTone } from "./receipt-card";
+import type { ReceiptView } from "../task/result";
 
 export { numberPrompt } from "./choices";
 
@@ -116,6 +118,9 @@ export class InteractiveTerminal {
   private title?: string;
   private undoHost?: () => void;
   private busySubmit?: (line: string, plain?: boolean) => true | string;
+  /** The receipt card just drawn, for the next-step row that follows it: its edge's tone, and whether it has a Next row
+   * of its own. Forgotten once anything else is written or the prompt is back. */
+  private card?: { tone: CardTone; next: boolean };
 
   constructor(private readonly input: Readable, private readonly output: TerminalOutput,
     private readonly onInterrupt: () => void, private readonly onEOF: () => void, private readonly host?: TerminalHost) {
@@ -278,6 +283,7 @@ export class InteractiveTerminal {
    * titled plain block otherwise. Both title and body are sanitized as untrusted text. `diff`
    * colors unified-diff lines in the theme's diff colours (added, removed, hunk headers). */
   writePanel(title: string, body: string, options: { tone?: PanelTone; diff?: boolean } = {}): void {
+    this.card = undefined;
     const heading = terminalText(title).replace(/\s+/g, " ").trim();
     const plain = terminalText(body).replace(/\n$/, "").split("\n");
     if (!this.surface) { this.write(`${heading}\n${plain.join("\n")}\n`); return; }
@@ -301,6 +307,7 @@ export class InteractiveTerminal {
   writeReceipt(text: string): void { this.writeStyled(text, "line", true); }
 
   private writeStyled(text: string, kind: EntryKind, result: boolean): void {
+    this.card = undefined;
     const styled = terminalText(text).split("\n").map(line => this.styleLine(line, result)).join("\n");
     if (this.surface && /^\[crew\]/.test(terminalText(styled))) {
       this.surface.writeBlock({ render: width => styled.trimEnd().split("\n")
@@ -330,14 +337,27 @@ export class InteractiveTerminal {
   }
 
   /** A task's result (the receipt) on the rich terminal: a colored edge down its left side, success for a pass,
-   * error for a failure, warning for anything in between; its ✗ lines red. The plain terminal gets the lines as they are. */
-  writeResult(text: string): void {
+   * error for a failure, warning for anything in between; its ✗ lines red. With the receipt's items (a session's
+   * receipt), it is the receipt card (receipt-card.ts); otherwise, and on a terminal too narrow for the card, the lines
+   * under the edge. The plain terminal gets the lines as they are. */
+  writeResult(text: string, view?: ReceiptView): void {
+    this.card = undefined;
     if (!this.surface) { this.writeReceipt(text); return; }
     const lines = terminalText(text).split("\n");
-    const tone = /^✓/.test(lines[0] ?? "") ? "success" : /^(?:✗|\[error\])/.test(lines[0] ?? "") ? "error" : "warning";
+    const card = view && receiptCard(view, this.color);
+    const tone = card?.tone ?? (/^✓/.test(lines[0] ?? "") ? "success" : /^(?:✗|\[error\])/.test(lines[0] ?? "") ? "error" : "warning");
     const edge = tint("▌", tone, this.color);
-    // A block of its own: a blank row before it.
-    this.surface.write(lines.map(line => line ? `${edge} ${this.styleLine(line, true)}` : line).join("\n"), "group");
+    if (!card) {
+      // A block of its own: a blank row before it.
+      this.surface.write(lines.map(line => line ? `${edge} ${this.styleLine(line, true)}` : line).join("\n"), "group");
+      return;
+    }
+    const color = this.color;
+    // Too narrow for the label column: the receipt's lines under the edge, line 1 in the result's colour.
+    const narrow = (width: number) => lines.filter(Boolean).flatMap((line, index) =>
+      wrapTextWithAnsi(index ? this.styleLine(line, true) : tint(line, tone, color), Math.max(1, width - 2)).map(row => `${edge} ${row}`));
+    this.surface.writeBlock({ render: width => width >= CARD_MIN_COLUMNS ? cardRows(card, width, color) : narrow(width), invalidate() {} }, "group");
+    if (card.rows.length) this.card = { tone, next: card.rows.some(row => row.label === "Next") };
   }
 
   assistant(delta: string): void {
@@ -361,13 +381,25 @@ export class InteractiveTerminal {
 
   /** Print the receipt's next-step row and offer its keys until the next line or key. Nothing waits on it. */
   offerNext(row: NextRow | undefined): void {
+    const card = this.card;
+    this.card = undefined;
     if (!row) { this.nextKeys = undefined; this.surface?.offerNext(undefined); return; }
+    if (this.surface && card) {
+      // Under a receipt card, on its edge: the keys join its Next row.
+      const color = this.color;
+      const lines = terminalText(row.line).split("\n");
+      this.surface.writeBlock({ render: width => width >= CARD_MIN_COLUMNS ? cardNextRows(row.line, card.tone, !card.next, width, color)
+        : lines.flatMap(line => wrapTextWithAnsi(this.styleLine(line), Math.max(1, width))), invalidate() {} }, "attached");
+      this.surface.offerNext(row.keys);
+      return;
+    }
     // Right under the receipt it belongs to.
     this.write(`${row.line}\n`, "attached");
     if (this.surface) this.surface.offerNext(row.keys); else this.nextKeys = new Map(row.keys);
   }
 
   readCommand(): Promise<string | undefined> {
+    this.card = undefined;
     if (this.surface) return this.surface.readCommand();
     this.endAssistant(); this.busy = false;
     // Lines typed ahead were written before the row existed: they are requests, never picks from it.

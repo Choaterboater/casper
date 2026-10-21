@@ -258,6 +258,33 @@ line, for example:
 ✓ changed README.md
 ```
 
+In a session on a rich terminal the receipt is a card: line 1 is the verdict and why, then labelled rows under a
+coloured edge, for example
+
+```
+▌ ✗ Failed: test failed
+▌   Checks   ✓ lint 2.1s · ✗ test 4s (exit 1), after 2 repairs · Ctrl+T shows the log
+▌   Changed  15 files
+▌   Config   .casper/project.yaml, package.json
+▌   Devices  build-server: installed a service (/etc/systemd/system/app.service)
+▌            from the commands Casper saw, not checked there
+▌   Next     /verify repair test
+▌            1 Show diff · 2 Undo
+```
+
+A row shows only when it has something to say, in this order: **Open** (what needs you, `⚠` first, and a plan step the
+AI did not finish), **Checks** (one per check with its time, the repairs, and checks Casper did not run or count),
+**Changed**, **Config** (the config files the task changed, its lockfiles as one entry, and risky config lines),
+**Devices** (other machines, from the commands Casper saw), **Proof** (only when the proof is missing or weak),
+**Notes** (grey, at most three, then `+N more · /receipt`), **Undo**, and **Next** (what to type, then the numbered
+keys). Config files are package.json and other dependency lists, tsconfig, `.env` files, YAML, TOML and INI files,
+Dockerfiles and compose files, CI workflows, `.casper/project.yaml`, Ansible inventories and variables, and device
+configs (Junos `.set`, `.conf`, `.cfg`). The edge and line 1 are green for Verified or Checks passed, red only for
+Failed, and amber with `⚠` for the rest (not verified, not checked, incomplete, stopped);
+`tests/receipt-card-ansi.test.ts` checks these colours. A clean pass stays one line. Ctrl+T shows the last failed
+check's whole log. Below 50 columns the card falls back to the lines above, and the plain terminal, one-shot runs,
+`--json` and saved receipts always have the lines.
+
 The per-file change table is behind `Diff` (`/diff`) and `--verbose`, and `/receipt` shows
 the full form below. The `--json` receipt's `text` and saved receipts keep the full form.
 
