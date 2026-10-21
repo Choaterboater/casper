@@ -1,6 +1,6 @@
 import {
   CombinedAutocompleteProvider, type AutocompleteProvider, type Component, Editor, getNativeClipboard, type MarkdownTheme,
-  matchesKey, setCapabilityOverrides, TuiMainScreen, truncateToWidth, visibleWidth, wrapTextWithAnsi,
+  isKeyRelease, matchesKey, setCapabilityOverrides, TuiMainScreen, truncateToWidth, visibleWidth, wrapTextWithAnsi,
 } from "@earendil-works/pi-tui";
 import type { RuntimeImage, RuntimeModelPickerHost, RuntimePickerIO, RuntimePickerView } from "../runtime/types";
 import { imageLabel, imageMimeType, MAX_IMAGE_BYTES, MAX_IMAGES, promptPath } from "../app/images";
@@ -365,6 +365,9 @@ export class TerminalSurface {
     });
     this.tui.setFocus(this.editor);
     this.tui.addInputListener(data => {
+      // A terminal speaking the kitty keyboard protocol also reports each key's release, and matchesKey matches both:
+      // Down moved two rows, so a box's second choice landed on the Other row. Only the press counts.
+      if (isKeyRelease(data)) return undefined;
       if (this.exitArmed && !matchesKey(data, "ctrl+c")) this.disarmExit();
       // Ctrl+X turns MCP writes off at once, even while busy or while a question or picker is open; an open
       // approval is denied, so a change can't slip through while writes go off. With nothing on, a picker's own
