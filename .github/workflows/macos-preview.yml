@@ -144,7 +144,7 @@ jobs:
         # runs the file(s) Bun was still running once more on their own (once per job). This is `bun run test`
         # with a separate terminal job; browser (which grew to 300 s under load) and debugger retain their own steps.
         timeout-minutes: 15
-        run: bash tools/stall-guard.sh "$RUNNER_TEMP/macos-preview/full-suite.log" 180 "$RUNNER_TEMP/macos-preview/stall-dump.txt" -- bun run test:suite --shard="$PART"/3 --path-ignore-patterns='tests/phase10-browser.test.ts'
+        run: bash tools/stall-guard.sh "$RUNNER_TEMP/macos-preview/full-suite.log" 180 "$RUNNER_TEMP/macos-preview/stall-dump.txt" -- bun run test:suite --shard="$PART"/3 --path-ignore-patterns='tests/phase10-browser.test.ts' --path-ignore-patterns='tests/phase10-browser-checks.test.ts'
       - name: Retain suite evidence
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -159,7 +159,7 @@ jobs:
     needs: source
     if: ${{ !cancelled() && (github.event_name != 'pull_request' || github.event.pull_request.draft == false) && needs.source.outputs.tier != 'fast' }}
     runs-on: macos-15
-    timeout-minutes: 15
+    timeout-minutes: 20
     defaults:
       run:
         shell: bash
@@ -182,6 +182,11 @@ jobs:
         if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         timeout-minutes: 8
         run: bash tools/stall-guard.sh "$RUNNER_TEMP/macos-preview/browser.log" 180 "$RUNNER_TEMP/macos-preview/stall-dump-browser.txt" -- bun test tests/phase10-browser.test.ts
+      # The browser test's second half (what a check says), split off when the file outgrew a 300 s run.
+      - name: Browser checks test (runs alone, on its own machine)
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        timeout-minutes: 8
+        run: bash tools/stall-guard.sh "$RUNNER_TEMP/macos-preview/browser-checks.log" 180 "$RUNNER_TEMP/macos-preview/stall-dump-browser-checks.txt" -- bun test tests/phase10-browser-checks.test.ts
       - name: Retain browser evidence
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1

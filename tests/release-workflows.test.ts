@@ -135,9 +135,9 @@ test("the full suite runs files in parallel, slowest first, with the eval tests 
   // macOS runs the suite in three parts and the browser test alone on its own machine (under load it grew to 300 s).
   const macJobs = load("macos-preview.yml").jobs;
   const mac = Object.values(macJobs).flatMap((job) => job.steps.map((step) => step.run ?? "")).join("\n");
-  expect(mac).toContain(`-- bun run test:suite --shard="$PART"/3 --path-ignore-patterns='tests/phase10-browser.test.ts'`);
+  expect(mac).toContain(`-- bun run test:suite --shard="$PART"/3 --path-ignore-patterns='tests/phase10-browser.test.ts' --path-ignore-patterns='tests/phase10-browser-checks.test.ts'`);
   expect((macJobs.suite as { strategy?: { matrix?: { part?: number[] } } }).strategy?.matrix?.part).toEqual([1, 2, 3]);
-  expect(macJobs.browser!.steps.map((step) => step.run ?? "").join("\n")).toContain("-- bun test tests/phase10-browser.test.ts");
+  for (const file of ["tests/phase10-browser.test.ts", "tests/phase10-browser-checks.test.ts"]) expect(macJobs.browser!.steps.map((step) => step.run ?? "").join("\n")).toContain(`-- bun test ${file}\n`);
   // Windows runs each part on two workers: spawned CLIs and servers need CPU/memory headroom.
   const windows = load("windows-preview.yml").jobs.suite!.steps.map((step) => step.run ?? "").join("\n");
   expect(windows).toMatch(/bun test --parallel=2 --timings=tests\/timings\.json @files/);

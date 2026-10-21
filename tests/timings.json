@@ -2,7 +2,8 @@
   "version": 1,
   "files": {
     "tests/crew-review.test.ts": 439598,
-    "tests/phase10-browser.test.ts": 287784,
+    "tests/phase10-browser.test.ts": 163000,
+    "tests/phase10-browser-checks.test.ts": 124784,
     "tests/undo-app.integration.test.ts": 259525,
     "tests/work-driven-checks.integration.test.ts": 228433,
     "tests/model-selection.test.ts": 174015,
