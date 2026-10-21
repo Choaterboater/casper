@@ -94,6 +94,8 @@ const BUILT_IN_SCRUBBER: ResultScrubber = { scrubValue: async (value) => ({ ...s
 
 /** The refusal when the AI sends back a secret Casper hid from it. */
 export const HIDDEN_SECRET_REASON = `this change still has ${SECRET_MARKER} in it`;
+/** A call that is not a read, sent during a plan turn. */
+export const PLANNING_REFUSED = "planning only: a call that is not a read waits until the person chooses Build";
 export const HIDDEN_SECRET_NEXT = "Casper hid that secret from the AI, so the AI can't send it back. Type the real value yourself or leave that line out.";
 
 /** The user can ask for a preview at most this many times for one call; then only yes or no is left. */
@@ -242,6 +244,8 @@ export class CapabilityBroker {
   /** Every approved change call (a box's yes, a session answer, allow all), just before it is sent. */
   private readonly onChangeCall?: (server: string, realTool: string) => void;
   private readonly onLoginMissing?: LoginMissingHandler;
+  /** True during a plan turn: only a call that would run without a box (a read) is sent; the rest wait for Build. */
+  private readonly planning?: () => boolean;
   /** What each router server's find_tool said about its inner tools (kind, product), per server. Kept while the
    * server's definition stays the same, so the restart that turns writes on keeps them; a changed definition or a
    * server that is gone starts afresh. At most MAX_HITS_PER_SERVER names a server. */
@@ -249,7 +253,8 @@ export class CapabilityBroker {
   constructor(private readonly manager: MCPManager, private readonly confirm?: ConfirmCapability,
     options: { writesGate?: boolean; scrubber?: ResultScrubber; onSessionCovered?: (server: string, realTool: string) => void; confirmKind?: ConfirmKind;
       onAllowAll?: (server: string, realTool: string) => void; onAllowAllStart?: (server: string) => void; onLoginMissing?: LoginMissingHandler;
-      onChangeCall?: (server: string, realTool: string) => void; secretValues?: () => readonly string[] } = {}) {
+      onChangeCall?: (server: string, realTool: string) => void; secretValues?: () => readonly string[]; planning?: () => boolean } = {}) {
+    if (options.planning) this.planning = options.planning;
     this.secretValues = options.secretValues ?? (() => secretEnvValues());
     if (options.onLoginMissing) this.onLoginMissing = options.onLoginMissing;
     if (options.onAllowAll) this.onAllowAll = options.onAllowAll;
@@ -259,6 +264,11 @@ export class CapabilityBroker {
     this.scrubber = options.scrubber ?? BUILT_IN_SCRUBBER;
     if (options.onSessionCovered) this.onSessionCovered = options.onSessionCovered;
     if (options.onChangeCall) this.onChangeCall = options.onChangeCall;
+  }
+
+  /** Whether a runtime tool name is one of the broker's: find_capability, call_capability or a direct MCP tool. */
+  ownsTool(name: string): boolean {
+    return name === "find_capability" || name === "call_capability" || [...this.capabilities.values()].some((capability) => capability.runtimeName === name);
   }
 
   async prepare(task: string): Promise<RuntimeTool[]> {
@@ -379,6 +389,8 @@ export class CapabilityBroker {
     }), hitKinds);
     if (byRealTool && plan.routed.length === 1 && !plan.routerUnclear && hitKinds.has(plan.routed[0]!.name)) plan.label = "write";
     const label = planLabel(plan);
+    // While planning a read runs (a device's state is research for the plan); a change, or any call that would ask, waits.
+    if (this.planning?.() && needsApproval(plan)) throw new NotExecutedError(PLANNING_REFUSED);
     // A router call is judged by the real tools it runs: a write behind a read router is refused
     // like the write tool itself while writes are off (or for a read-only login).
     this.refuseByPolicy(capability, label);

@@ -39,13 +39,16 @@ describe("the plan turn's tool gate", () => {
 
   test("every other state-changing tool is blocked too: MCP tools, services, the browser, builders", () => {
     for (const tool of ["mcp", "service", "browser", "delegate", "github", "netbox_create_device", "lsp", "plan_step"]) {
-      expect(planToolGate(tool, {})).toBe(`Not run: Planning only: Casper blocks file changes until you choose Build. While planning it allows only read, grep, find, ls, web and GitHub lookups and read-only helpers, not ${tool}.`);
+      expect(planToolGate(tool, {})).toBe(`Not run: Planning only: Casper blocks file changes until you choose Build. While planning it allows only read, grep, find, ls, web, GitHub and MCP lookups and read-only helpers, not ${tool}.`);
     }
     expect(planToolGate("delegate", { role: "builder", goal: "build it" })).toContain("Planning only");
     expect(planToolGate("github", { verb: "rerun", number: 1 })).toContain("Planning only");
   });
 
   test("GitHub lookups and read-only helpers can research for the plan", () => {
+    // MCP tools go on to the broker, which sends only reads while planning (tests/mcp-safety.test.ts).
+    expect(planToolGate("mcp_get_clients_0a1b2c3d", {}, (name) => name.startsWith("mcp_"))).toBeUndefined();
+    expect(planToolGate("mcp_get_clients_0a1b2c3d", {})).toContain("Planning only");
     for (const verb of ["prs", "pr", "ci"]) expect(planToolGate("github", { verb, number: 12 })).toBeUndefined();
     for (const role of ["explorer", "reviewer"]) expect(planToolGate("delegate", { role, goal: "find the router" })).toBeUndefined();
   });

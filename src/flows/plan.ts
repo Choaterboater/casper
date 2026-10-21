@@ -16,9 +16,9 @@ import { remoteTargets } from "../sandbox/remote";
 import { formatChecklistPrompt } from "../task/checklist";
 import { lineText } from "../tui/format";
 
-/** Pi's built-in tools that only look at files, and the web lookups, which only read. GitHub lookups and
- * read-only helpers are let through by planToolGate; every other tool (edit, write, MCP tools, services, the
- * browser, builders...) is blocked while planning, whatever it says about itself. */
+/** Pi's built-in tools that only look at files, and the web lookups, which only read. GitHub lookups, read-only
+ * helpers and MCP tools (which the broker sends only when the call is a read) are let through by planToolGate; every
+ * other tool (edit, write, services, the browser, builders...) is blocked while planning, whatever it says about itself. */
 export const PLANNING_TOOLS = new Set(["read", "grep", "find", "ls", "web_search", "web_fetch"]);
 
 /** Casper's own refusals start with this, so the screen says "— not run" and the receipt does not count them as failed. */
@@ -168,8 +168,10 @@ function isThisMachine(host: string): boolean {
 }
 
 /** The gate for a plan turn, for every tool call. Undefined lets the call run; a reason blocks it. */
-export function planToolGate(toolName: string, input: Record<string, unknown> | undefined): string | undefined {
+export function planToolGate(toolName: string, input: Record<string, unknown> | undefined, capabilityTool?: (name: string) => boolean): string | undefined {
   if (PLANNING_TOOLS.has(toolName)) return undefined;
+  // MCP tools go on to the broker, which sends only reads while planning (a network device's state is research).
+  if (capabilityTool?.(toolName)) return undefined;
   // Looking things up on GitHub (pull requests, one pull request, CI) only reads; a rerun starts work.
   if (toolName === "github" && ["prs", "pr", "ci"].includes(String(input?.verb))) return undefined;
   // Read-only helpers may research for the plan; a builder changes files in its copy, so it waits for Build.
@@ -191,7 +193,7 @@ export function planToolGate(toolName: string, input: Record<string, unknown> | 
     return `${NOT_RUN}${PLANNING_BLOCKED}. While planning it runs only look commands such as ls, cat, grep and git log.${why ? ` ${why}` : ""}`;
   }
   if (toolName === "edit" || toolName === "write") return `${NOT_RUN}${PLANNING_BLOCKED}.`;
-  return `${NOT_RUN}${PLANNING_BLOCKED}. While planning it allows only read, grep, find, ls, web and GitHub lookups and read-only helpers, not ${toolName}.`;
+  return `${NOT_RUN}${PLANNING_BLOCKED}. While planning it allows only read, grep, find, ls, web, GitHub and MCP lookups and read-only helpers, not ${toolName}.`;
 }
 
 /** A person-facing plan. Designed specs need no implementation steps; `tests` also holds "Done means".

@@ -31,7 +31,7 @@ function definition(name: string, mode: string, file: string): MCPServerDefiniti
 }
 async function setup(options: {
   mode?: string; name?: string; confirm?: ConfirmCapability; elicit?: MCPManagerOptions["elicit"]; manager?: MCPManagerOptions; writesGate?: boolean;
-  confirmKind?: ConfirmKind; onChangeCall?: (server: string, tool: string) => void;
+  confirmKind?: ConfirmKind; onChangeCall?: (server: string, tool: string) => void; planning?: () => boolean;
 } = {}) {
   const file = await callsFile();
   const name = options.name ?? "network";
@@ -41,7 +41,7 @@ async function setup(options: {
   });
   const broker = new CapabilityBroker(mcp, options.confirm, {
     ...(options.writesGate ? { writesGate: true } : {}), ...(options.confirmKind ? { confirmKind: options.confirmKind } : {}),
-    ...(options.onChangeCall ? { onChangeCall: options.onChangeCall } : {}),
+    ...(options.onChangeCall ? { onChangeCall: options.onChangeCall } : {}), ...(options.planning ? { planning: options.planning } : {}),
   });
   cleanup.push(() => broker.close());
   await mcp.connect(name);
@@ -102,6 +102,23 @@ test("a one-shot broker (nobody to ask) refuses with 'cannot ask' and sends noth
   const { broker, file, id } = await setup();
   await expect(broker.invoke(id("get_clients"), { confirm: true })).rejects.toThrow("Not executed (needs your approval, and this run cannot ask)");
   expect(toolCalls(await calls(file))).toEqual([]);
+});
+
+test("while planning a read runs and a call that would ask is refused without a box, also behind a router", async () => {
+  let planning = true;
+  const { confirm, boxes } = answering(true);
+  const { broker, file, id } = await setup({ mode: "router", name: "r", confirm, planning: () => planning });
+  expect(broker.ownsTool("call_capability")).toBe(true);
+  expect(broker.ownsTool("edit")).toBe(false);
+  const read = await broker.invoke(id("invoke_read_tool"), { name: "inspect_quantum_flux", arguments: { site: "a" } });
+  expect(JSON.stringify(read)).toContain("counter");
+  await expect(broker.invoke(id("invoke_read_tool"), { name: "port_bounce", arguments: {} })).rejects.toThrow("Not executed (planning only");
+  expect(boxes).toEqual([]);
+  expect(toolCalls(await calls(file))).toHaveLength(1);
+  // After Build the same call asks as usual.
+  planning = false;
+  await broker.invoke(id("invoke_read_tool"), { name: "port_bounce", arguments: {} });
+  expect(boxes).toHaveLength(1);
 });
 
 // --- the approval box --------------------------------------------------------------------------

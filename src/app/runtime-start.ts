@@ -66,8 +66,9 @@ export async function ensureRuntime(app: CasperApp): Promise<RuntimeSession> {
         },
         systemPromptAppend: systemPromptAppend(context),
         leanSystemPromptAppend: systemPromptAppend(context, true),
-        // A plan turn refuses every tool but reading, whatever the tool says about itself.
-        beforeToolGate: (toolName, input, cwd) => (app.planning ? planToolGate(toolName, input) : undefined)
+        // A plan turn refuses every tool but reading, whatever the tool says about itself (an MCP call's own label, not
+        // what it says, decides in the broker).
+        beforeToolGate: (toolName, input, cwd) => (app.planning ? planToolGate(toolName, input, (name) => app.broker?.ownsTool(name) ?? false) : undefined)
           ?? hiddenSecretGate(toolName, input, cwd)
           ?? ((changes) => changes ? editGateReason(app, changes) : undefined)(fileChangeTool(toolName, input)),
         // At the spend pause the next tool call waits for the answer (Stop here is the Enter choice).

@@ -457,8 +457,9 @@ plan move to 3 and 4.
 Choice 3 opens one empty line: type what to change in plain words, such as "drop steps 1 and 4" or "also test X".
 A line ending in `?` ("why step 3?") is a question: the model answers it in words under the same planning gate,
 the plan stays as it is, and the same choices come back. While planning, besides look commands and web lookups,
-the AI may read GitHub (pull requests, one pull request, CI; not a rerun) and send read-only explorer and
-reviewer helpers to research; builders wait for Build.
+the AI may read GitHub (pull requests, one pull request, CI; not a rerun), make MCP calls Casper labels as reads
+(a call that would ask, such as a change, waits for Build) and send read-only explorer and reviewer helpers to
+research; builders wait for Build.
 The model rewrites the whole plan under the same planning gate and shows it again with the same choices. You
 can ask for another change; only an explicit Build starts work. Empty Enter returns to the choices without
 calling the model; Esc stops without building. Choice 3 is not a raw multi-line plan editor. On the plain
