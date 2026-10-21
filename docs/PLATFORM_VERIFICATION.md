@@ -128,6 +128,7 @@ provider credentials.
 
 ```bash
 bun test tests/phase10-browser.test.ts        # needs Chrome/Edge; checks discovery and browser cleanup
+bun test tests/phase10-browser-checks.test.ts # needs Chrome/Edge; what a check says, withdrawals, final page
 bun test tests/phase10-debugger-real.test.ts  # needs CASPER_TEST_DEBUGPY and CASPER_TEST_PYTHON
 bun test tests/phase10-debugger.test.ts       # fake adapter, nothing extra needed
 ```

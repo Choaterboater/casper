@@ -14,7 +14,7 @@ test("every suite file is in exactly one tier, and together the tiers are the wh
 test("known files land in the tier they belong to", async () => {
   const { fast, heavy } = await tiers();
   // Real processes, the sandbox, a PTY or ConPTY, the browser, a language server.
-  for (const file of ["tests/sandbox-live.test.ts", "tests/platform-processes.test.ts", "tests/windows-screen.test.ts", "tests/phase10-browser.test.ts", "tests/phase5-lsp-real.test.ts", "tests/release-workflows.test.ts"]) {
+  for (const file of ["tests/sandbox-live.test.ts", "tests/platform-processes.test.ts", "tests/windows-screen.test.ts", "tests/phase10-browser.test.ts", "tests/phase10-browser-checks.test.ts", "tests/phase5-lsp-real.test.ts", "tests/release-workflows.test.ts"]) {
     expect(heavy, file).toContain(file);
   }
   for (const file of ["tests/test-shard.test.ts", "tests/test-tier.test.ts", "tests/path-inside.test.ts", "tests/help-text.test.ts"]) {
