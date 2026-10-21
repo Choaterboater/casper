@@ -204,6 +204,7 @@ Each mark at the start of a line means one thing, in one colour (the `default` t
 | spinner, `•` | accent spinner, dim `•` line | running now (a step, Casper's own checks, the prompt while Casper works) |
 | `✓` | green | done |
 | `–` | grey (dim) | a note: expected (a search that found nothing), skipped, not verified, not checked, recovered (a retry) |
+| `◆` | accent, bold | a change that stays in view: config, a device, another machine or the setup on this computer |
 | `○` | amber | did not run (refused, stopped at the spend limit) |
 | `✗` | amber | a step failed, and the AI is still working |
 | `▌ ✗` | red | the task's result failed (the receipt), or an error stopped work (`[error]`) |
@@ -230,6 +231,18 @@ replaying a tool result, `/diff` boxing `git status` and the colored unified dif
 failure diagnostics from stderr and stdout in amber (the full output stays in the evidence), and exclusive input
 flows such as `/login`. Prose, notices and routine steps stay inline. Panels cap at 120 columns (plans at 80)
 and re-lay out when resized; prompt rules and the footer still use the window width.
+Changes stay in view, marked `◆`, at every `/details` level and never folded into the `└ … ran …` row. A config file the
+AI edits (package.json, tsconfig, `.env` files, YAML, TOML, INI, `.conf`/`.cfg`, Dockerfiles and compose files, CI
+workflows, `.casper/project.yaml`, Ansible inventories and variables, Junos `.set` files; the same list the receipt uses)
+gets a box of its own, `◆ Changed config`, with up to 40 diff rows per file and then `… N more lines · Ctrl+T shows all`,
+secrets hidden as in the edit box; a lockfile is one row, `◆ lockfile updated (bun.lock)`. A shell command that changed
+another machine or a device shows a row as soon as it ends, `◆ Changed on build-server: installed a service (…)` or
+`◆ Changed on sw1: sent 3 config lines`, with the commands it sent in a box (secrets hidden): the receipt's
+remote-change rules, or device lines that enter config mode, commit or delete. Each change Casper sends to an MCP server,
+also after `Yes to everything`, is a row with what was sent, masked as in its box: `◆ Changed in mist: update_site_setting
+site-1`. Setup on this computer gets named rows when the command worked: `◆ installed left-pad`,
+`◆ committed "fix port" (a1b2c3d)`, `◆ pushed main to origin`, `◆ switched to fix-port`, `◆ deleted 3 files: a, b, c`.
+At `/details quiet` they are rows without their boxes. The old Windows console draws `◆` as `#`.
 A missing guessed path, an empty search, a designed refusal or skip, and a confirmed recovered timeout,
 service hiccup, merge conflict or test-first failure are dim `–` notes, not failure boxes. A failure that was not
 recovered keeps its `✗`, its amber box and Ctrl+T.

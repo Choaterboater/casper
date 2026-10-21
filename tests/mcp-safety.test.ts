@@ -31,7 +31,7 @@ function definition(name: string, mode: string, file: string): MCPServerDefiniti
 }
 async function setup(options: {
   mode?: string; name?: string; confirm?: ConfirmCapability; elicit?: MCPManagerOptions["elicit"]; manager?: MCPManagerOptions; writesGate?: boolean;
-  confirmKind?: ConfirmKind; onChangeCall?: (server: string, tool: string) => void; planning?: () => boolean;
+  confirmKind?: ConfirmKind; onChangeCall?: (server: string, tool: string, sent: unknown) => void; planning?: () => boolean;
 } = {}) {
   const file = await callsFile();
   const name = options.name ?? "network";
@@ -548,4 +548,13 @@ test("every approved change call is reported before it runs, also one a session 
   await broker.invoke(id("set_ssid"), { ssid: "corp" });
   await broker.invoke(id("set_ssid"), { ssid: "guest" });
   expect(changes).toEqual(["network:set_ssid", "network:set_ssid"]);
+});
+
+test("an approved change call hands its arguments to the change row masked as its box masks them", async () => {
+  const { confirm } = answering("yes");
+  const sent: unknown[] = [];
+  const { broker, id } = await setup({ confirm, writesGate: true, onChangeCall: (_server, _tool, args) => { sent.push(args); } });
+  await broker.invoke(id("set_ssid"), { ssid: "corp", wpa_passphrase: "fixture-passphrase-1234" });
+  expect(JSON.stringify(sent)).toContain("corp");
+  expect(JSON.stringify(sent)).not.toContain("fixture-passphrase-1234");
 });

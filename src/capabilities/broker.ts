@@ -11,7 +11,7 @@ import { containsHiddenSecret, scrubText, scrubValue, SECRET_MARKER } from "../s
 import { scrubNote, type ScrubOutcome } from "../secrets/netconan";
 import { DOCS_TOOL_NAMES, DOCS_TOOL_NOTE, docsPinned } from "../mcp/docs";
 import {
-  aiConfirm, buildPlan, canPreview, maskText, needsApproval, planLabel, planMode, previewArguments, previewKey, previewSwitchedOff, sessionAllowed,
+  aiConfirm, buildPlan, canPreview, maskSecrets, maskText, needsApproval, planLabel, planMode, previewArguments, previewKey, previewSwitchedOff, sessionAllowed,
   type ApprovalPlan, type LastPreview,
 } from "./approval";
 import { toolLabel } from "./labels";
@@ -241,8 +241,9 @@ export class CapabilityBroker {
    */
   /** Told when a change runs on the user's "Yes, for this session" without a box (for the transcript). */
   private readonly onSessionCovered?: (server: string, realTool: string) => void;
-  /** Every approved change call (a box's yes, a session answer, allow all), just before it is sent. */
-  private readonly onChangeCall?: (server: string, realTool: string) => void;
+  /** Every approved change call (a box's yes, a session answer, allow all), just before it is sent, with its arguments
+   * masked as the box masks them (for the change row Casper shows). */
+  private readonly onChangeCall?: (server: string, realTool: string, sent: unknown) => void;
   private readonly onLoginMissing?: LoginMissingHandler;
   /** True during a plan turn: only a call that would run without a box (a read) is sent; the rest wait for Build. */
   private readonly planning?: () => boolean;
@@ -253,7 +254,7 @@ export class CapabilityBroker {
   constructor(private readonly manager: MCPManager, private readonly confirm?: ConfirmCapability,
     options: { writesGate?: boolean; scrubber?: ResultScrubber; onSessionCovered?: (server: string, realTool: string) => void; confirmKind?: ConfirmKind;
       onAllowAll?: (server: string, realTool: string) => void; onAllowAllStart?: (server: string) => void; onLoginMissing?: LoginMissingHandler;
-      onChangeCall?: (server: string, realTool: string) => void; secretValues?: () => readonly string[]; planning?: () => boolean } = {}) {
+      onChangeCall?: (server: string, realTool: string, sent: unknown) => void; secretValues?: () => readonly string[]; planning?: () => boolean } = {}) {
     if (options.planning) this.planning = options.planning;
     this.secretValues = options.secretValues ?? (() => secretEnvValues());
     if (options.onLoginMissing) this.onLoginMissing = options.onLoginMissing;
@@ -452,7 +453,7 @@ export class CapabilityBroker {
       }
       if (allCovered) this.onAllowAll?.(plan.server, realToolOf(plan));
       else if (covered && !ownCovered) this.onSessionCovered?.(plan.server, realToolOf(plan));
-      if (answer && label !== "read") this.onChangeCall?.(plan.server, realToolOf(plan));
+      if (answer && label !== "read") this.onChangeCall?.(plan.server, realToolOf(plan), maskSecrets(frozenArgs, { scrubText: (value) => scrubText(redactPreview(value)).text }).value);
       // 6. Call, under the per-server call clock. Only an approved call may carry server questions to the user.
       raw = await this.manager.call(capability.descriptor.source, capability.tool.name, frozenArgs, combined,
         approved ? { approved: { capabilityId: id, realTool: approved, label } } : {});

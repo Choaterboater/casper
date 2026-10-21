@@ -2,8 +2,8 @@ import path from "node:path";
 import { truncateToWidth, visibleWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
 import type { ToolObservationInput } from "../runtime/observation";
 import { diffLines } from "./display";
-import { commandLabel, displayPath, failureLines, formatDuration, redactPreview, terminalText, tint, type ToolLineFit } from "./format";
-import { renderPanel } from "./presentation";
+import { CHANGE_GLYPH, commandLabel, displayPath, failureLines, formatDuration, redactPreview, terminalText, tint, type ToolLineFit } from "./format";
+import { renderPanel, type PanelTone } from "./presentation";
 import { checkName, githubLabel } from "./tool-status";
 
 /** A finished step as the folded row names it. `description`: a shell step's title from the AI. */
@@ -159,7 +159,7 @@ const BOX_FILES = 9;
  * up to twelve diff lines per file (Infinity opts into the full diff). A box that could not show every line ends
  * with how many more and the key that shows them all. The same file edited twice is one entry. Changed lines are cut at the edge, never wrapped.
  */
-export function renderEditBox(files: readonly EditedFile[], width: number, options: { color: boolean; maxLines?: number }): string[] {
+export function renderEditBox(files: readonly EditedFile[], width: number, options: { color: boolean; maxLines?: number; perFile?: number; title?: string; tone?: PanelTone }): string[] {
   const { color } = options;
   width = Math.min(120, width);
   const merged = new Map<string, { added: number; removed: number; counted: boolean; lines: ReturnType<typeof diffLines> }>();
@@ -173,7 +173,7 @@ export function renderEditBox(files: readonly EditedFile[], width: number, optio
   const inner = Math.max(1, width - 4);
   // The normal fold's old group budget must not let the first file consume every preview.
   // Detailed display explicitly opts into the complete diff with Infinity.
-  const perFile = options.maxLines === Infinity ? Infinity : 12;
+  const perFile = options.maxLines === Infinity ? Infinity : options.perFile ?? 12;
   const named = entries.slice(0, BOX_FILES);
   const moreFiles = entries.length - named.length;
   const totalLines = entries.reduce((sum, [, entry]) => sum + entry.lines.length, 0);
@@ -193,8 +193,22 @@ export function renderEditBox(files: readonly EditedFile[], width: number, optio
   if (moreFiles) body.push(tint(`… ${moreFiles} more ${moreFiles === 1 ? "file" : "files"}`, "muted", color));
   const hidden = totalLines - shownLines;
   if (hidden > 0) body.push(tint(`… ${hidden} more ${hidden === 1 ? "line" : "lines"} · Ctrl+T shows all`, "muted", color));
-  const title = `Edited ${entries.length} ${entries.length === 1 ? "file" : "files"}`;
-  return renderPanel(title, body, width, color, "accent");
+  const title = options.title ?? `Edited ${entries.length} ${entries.length === 1 ? "file" : "files"}`;
+  return renderPanel(title, body, width, color, options.tone ?? "accent");
+}
+
+/** Rows of what a change sent, at most, before `… N more lines · Ctrl+T shows all`. */
+const SENT_ROWS = 12;
+/** Diff rows per config file in its box before Ctrl+T: config is worth reading whole. */
+export const CONFIG_BOX_LINES = 40;
+
+/** A change that went elsewhere (another machine, a device, an MCP server) in its own box: the change row as the title,
+ * then what was sent, secrets already hidden, cut at twelve rows. */
+export function renderChangeBox(change: { row: string; sent?: readonly string[] }, width: number, color: boolean): string[] {
+  const sent = (change.sent ?? []).map(line => terminalText(line).replace(/\t/g, "  ").replace(/\n/g, " "));
+  const body = [...sent.slice(0, SENT_ROWS),
+    ...(sent.length > SENT_ROWS ? [tint(`… ${sent.length - SENT_ROWS} more lines · Ctrl+T shows all`, "muted", color)] : [])];
+  return renderPanel(`${CHANGE_GLYPH} ${change.row}`, body, width, color, "accent");
 }
 
 /** The edits as plain lines, for a screen with no boxes: "edited a.ts +3 -1, b.ts". */

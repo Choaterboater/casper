@@ -2,11 +2,11 @@ import { truncateToWidth, wrapTextWithAnsi, type Component } from "@earendil-wor
 import readline from "node:readline";
 import type { Readable, Writable } from "node:stream";
 import type { RuntimeImage, RuntimeModelPickerHost, RuntimePickerIO } from "../runtime/types";
-import { PROMPT_GLYPH, terminalText, tint } from "./format";
+import { CHANGE_GLYPH, PROMPT_GLYPH, terminalText, tint } from "./format";
 import { renderPanel, type PanelTone } from "./presentation";
 import type { ThemeRole } from "./theme";
 import { promptEcho, TerminalSurface, type AskOrigin, type WorkView } from "./surface";
-import { renderEditBox, renderFailureBox, stepRows, type EditedFile, type FailedStep, type StepPart } from "./step-view";
+import { CONFIG_BOX_LINES, renderChangeBox, renderEditBox, renderFailureBox, stepRows, type EditedFile, type FailedStep, type StepPart } from "./step-view";
 import type { EntryKind } from "./transcript";
 import type { MenuCommand } from "./commands";
 import type { NextRow } from "./next-row";
@@ -25,7 +25,7 @@ export { numberPrompt } from "./choices";
  * step (•) muted (the theme's colours); a detailed diff line added or removed. */
 export function styleLine(line: string, color: boolean, result = false): string {
   const role: ThemeRole | undefined = line.startsWith(MODEL_REASON_PREFIX) || line.startsWith("– ") ? "muted"
-    : /^\[error\]/.test(line) || (result && /^✗/.test(line)) ? "error" : /^✓/.test(line) ? "success"
+    : /^\[error\]/.test(line) || (result && /^✗/.test(line)) ? "error" : /^✓/.test(line) ? "success" : /^◆ /.test(line) ? "accent"
     : /^(?:✗|– |○ |⚠ |\[skills\]|\[cancel|\[approval\]|\[ask\]|\[effort\])/.test(line) ? "warning" : /^CASPER/.test(line) ? "accent" : /^(?: \/help · |…|• )/.test(line) ? "muted"
     : /^ {4}\+ /.test(line) ? "diffAdded" : /^ {4}- /.test(line) ? "diffRemoved" : undefined;
   // The text header is bold as well as the accent colour.
@@ -41,6 +41,8 @@ export function renderFold(fold: FoldView, width: number, attached: boolean, col
     [...stepRows(fold.parts, inner, tint(attached ? "└" : "●", "muted", color), color),
       ...fold.lines.flatMap(line => terminalText(line).split("\n")).map(row => styleLine(row, color))],
     fold.edits.length ? renderEditBox(fold.edits, inner, { color, maxLines: fold.editLines }) : [],
+    fold.config?.length ? renderEditBox(fold.config, inner, { color, maxLines: fold.editLines, perFile: CONFIG_BOX_LINES, title: `${CHANGE_GLYPH} Changed config` }) : [],
+    ...(fold.changes ?? []).map(change => renderChangeBox(change, inner, color)),
     ...fold.failures.map(failure => failure.output?.trim() ? renderFailureBox(failure, inner, color) : [styleLine(terminalText(failure.title), color)]),
   ].filter(rows => rows.length);
   return groups.flatMap((rows, index) => [...(index ? [""] : []), ...rows.map(row => truncateToWidth(`${indent}${row}`, width, ""))]);
@@ -58,6 +60,10 @@ export interface FoldView {
   editLines: number;
   /** Steps that failed, each in its own box. */
   failures: FailedStep[];
+  /** Config files the group changed, in a box of their own with their diff. */
+  config?: EditedFile[];
+  /** Changes that went elsewhere (another machine, a device, an MCP server), each in a box with what was sent. */
+  changes?: Array<{ row: string; sent?: string[] }>;
 }
 
 /** The terminal Casper was started in (tmux, iTerm2), when it is a real one. Tests leave it out. */
@@ -310,7 +316,9 @@ export class InteractiveTerminal {
    */
   writeFold(fold: FoldView): void {
     if (!this.surface) {
-      for (const line of [...fold.lines, ...fold.failures.map(failure => failure.title)]) this.write(`${line}\n`);
+      const changed = [...(fold.config?.length ? [`${CHANGE_GLYPH} Changed config: ${[...new Set(fold.config.map(file => file.path))].join(", ")}`] : []),
+        ...(fold.changes ?? []).map(change => `${CHANGE_GLYPH} ${change.row}`)];
+      for (const line of [...fold.lines, ...changed, ...fold.failures.map(failure => failure.title)]) this.write(`${line}\n`);
       return;
     }
     const color = this.color;
