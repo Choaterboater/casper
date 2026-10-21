@@ -754,6 +754,9 @@ no API key or separate sign-in is needed.
   list, and a request on a saved model whose server didn't answer at the start (a VPN not up yet, a
   computer asleep) each look once more before they give up, when the last look ended over 15 seconds ago
   (one that just timed out isn't repeated at once).
+- **Just started.** A model named on a server on this computer (`--model ollama/qwen3:8b` right after
+  Ollama starts) is waited for up to 6 seconds, looking again, before Casper gives up. Then it says the server
+  didn't answer on this computer and may still be starting; a server Casper finds never needs a key.
 - **Nothing signed in?** A server found on this computer counts: the start doesn't say "not signed in", and
   your first request picks the first model found (Ollama's first) and saves it as your default. A server on
   another computer is never picked for you, and doesn't count as signed in: `/model` picks it. A saved model
@@ -939,6 +942,11 @@ above that points at another machine goes there. Check what the model really is 
 Casper's own instructions and tool list take about 4,600 tokens of every request. Local models
 often have a window of 4k to 32k, so Casper says so once per session when the model you picked has a
 window under 16,000 tokens; expect short tasks only, or pick a model with 16k or more.
+
+A window too small for those instructions and tools plus a short turn (Ollama's own default of 4,096,
+for one) can't work: the server cuts the request and the reply comes back cut short. Casper stops before
+calling the model and says the window, what it needs, and the fix: start Ollama with
+`OLLAMA_CONTEXT_LENGTH=32768 ollama serve`, or set `PARAMETER num_ctx 32768` in a Modelfile.
 
 For a window under 32,000 tokens, Casper also keeps a quarter of the window (at least 2,000 tokens)
 free for the reply when it decides whether to compact, instead of the usual 16,384. Without that, an

@@ -4,7 +4,7 @@ import { mkdtemp } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { PiModels } from "../src/runtime/pi-models";
-import { compactionReserveFor, smallWindowWarning } from "../src/runtime/small-window";
+import { compactionReserveFor, fixedRequestTokens, MIN_TURN, smallWindowWarning, windowTooSmall } from "../src/runtime/small-window";
 import { removeTempDir } from "./support/temp-dir";
 
 const dirs: string[] = [];
@@ -28,6 +28,18 @@ test("the reserve is a quarter of a small window, at least 2,000, and absent fro
   expect(compactionReserveFor(32000)).toBeUndefined();
   expect(compactionReserveFor(128000)).toBeUndefined();
   expect(compactionReserveFor(undefined)).toBeUndefined();
+});
+
+test("a window that can't hold Casper's own part and one short turn is named with its fix; one that can is not", () => {
+  const tools = [{ name: "read", description: "Read a file", parameters: { type: "object" } }];
+  const fixed = fixedRequestTokens("x".repeat(14_000), tools);
+  expect(fixed).toBe(Math.ceil((14_000 + JSON.stringify(tools[0]).length) / 4));
+  expect(windowTooSmall(4096, fixed, { id: "qwen3:8b", ollama: true })).toBe(`Ollama serves qwen3:8b a 4,096-token window, and Casper's own instructions and tools need about ${fixed.toLocaleString("en-US")}, leaving no room for your request and the reply. `
+    + "Start Ollama with OLLAMA_CONTEXT_LENGTH=32768 ollama serve, or set PARAMETER num_ctx 32768 in a Modelfile, then try again; or /model to pick another.");
+  expect(windowTooSmall(4096, fixed, { id: "tiny" })).toContain("Pick a model with 16k or more (/model)");
+  expect(windowTooSmall(fixed + MIN_TURN, fixed, { id: "tiny" })).toBeUndefined();
+  expect(windowTooSmall(8192, fixed, { id: "tiny" })).toBeUndefined();
+  expect(windowTooSmall(undefined, fixed, { id: "tiny" })).toBeUndefined();
 });
 
 async function build() {

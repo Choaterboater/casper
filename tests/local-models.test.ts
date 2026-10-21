@@ -674,6 +674,40 @@ test("a saved model whose server didn't answer at start says why, and is used on
   expect(remote).toEqual({ picked: null, chosen: true });
 }, 60_000);
 
+test("Ollama just started: a model named on it is waited for a few seconds, and if it never answers, Casper says so, never \"no key\"", async () => {
+  const { home, project } = await looksHome();
+  // The first looks find nothing (Ollama still starting), then it answers.
+  const late = await startWithLooks(home, project, [[], [], [], here], `
+    const chosen = await session.selectModel({ query: "ollama/qwen3:8b", persist: false });
+    console.log(JSON.stringify({ selected: chosen.selected, status: session.getStatus(), looks }));`);
+  expect(late.selected).toBe(true);
+  expect(late.status).toMatchObject({ provider: "ollama", model: "qwen3:8b", auth: "configured" });
+  expect(late.looks).toBeGreaterThanOrEqual(4);
+  const fresh = await looksHome();
+  const never = await startWithLooks(fresh.home, fresh.project, [[]], `
+    localModelDefaults.coldMs = 600;
+    const began = performance.now();
+    const error = await session.selectModel({ query: "ollama/qwen3:8b", persist: false }).then(() => "selected", (problem) => problem.message);
+    console.log(JSON.stringify({ error, waited: performance.now() - began }));`);
+  expect(never.error).toBe("Ollama didn't answer on this computer (http://127.0.0.1:11434) in 1 s; it may still be starting. Try again in a moment, or /model to choose another.");
+  expect(never.waited).toBeLessThan(10_000);
+}, 60_000);
+
+test("a window that can't hold Casper's own instructions and tools stops before the model is called, with the fix", async () => {
+  const { home, project } = await looksHome();
+  const window = (contextWindow: number) => [{ ...here[0]!, models: [{ id: "qwen3:8b", contextWindow }] }];
+  // A bare runtime sends Pi's own instructions and tools (Casper's add about 4,000 tokens more: 4,096 is blocked in the
+  // app); the sizes are what the session holds, read from it.
+  const tiny = await startWithLooks(home, project, [window(1024)], `
+    await session.selectModel({ query: "ollama/qwen3:8b", persist: false });
+    console.log(JSON.stringify(session.getStatus()));`);
+  expect(tiny.blocked).toMatch(/^Ollama serves qwen3:8b a 1,024-token window, and Casper's own instructions and tools need about [\d,]+, leaving no room for your request and the reply\. Start Ollama with OLLAMA_CONTEXT_LENGTH=32768 ollama serve, or set PARAMETER num_ctx 32768 in a Modelfile, then try again; or \/model to pick another\.$/);
+  const fits = await startWithLooks(home, project, [window(8192)], `
+    await session.selectModel({ query: "ollama/qwen3:8b", persist: false });
+    console.log(JSON.stringify(session.getStatus()));`);
+  expect(fits.blocked).toBeUndefined();
+}, 60_000);
+
 test("ordinary words that name no local server never send Casper looking again", async () => {
   const { home, project } = await looksHome();
   const result = await startWithLooks(home, project, [here], `

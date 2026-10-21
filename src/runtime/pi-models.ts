@@ -10,9 +10,9 @@ import type { RuntimeLoginIO, RuntimeModelInfo, RuntimeModelSelection, RuntimeMo
 import { pickPiModel } from "./pi-model-picker";
 import { anyModelMatches } from "./pi-model-browser";
 import { openRouterRequestHeaders } from "./openrouter-attribution";
-import { compactionReserveFor, smallWindowWarning } from "./small-window";
+import { compactionReserveFor, fixedRequestTokens, SMALL_WINDOW, smallWindowWarning, windowTooSmall } from "./small-window";
 import { lockBusy } from "../platform/files";
-import { isLocalProvider, lastLocalLook, LOCAL_SERVERS, localModelDefaults, onThisComputer, SERVER_SIDE_TIP, servedWindowWarning, wantsServerTip, type LocalDiscovery, type LocalProblem } from "./local-models";
+import { isLocalProvider, lastLocalLook, LOCAL_SERVERS, localKindHere, localModelDefaults, onThisComputer, savedLocalServers, SERVER_SIDE_TIP, servedWindowWarning, wantsServerTip, type LocalDiscovery, type LocalProblem } from "./local-models";
 import { CLAUDE_SUBSCRIPTION } from "./claude-subscription";
 
 type Selection = { reference?: ModelReference; source: "conversation" | "default" | "none"; role?: string; effort?: string; auto?: RuntimeStatus["autoEffort"] };
@@ -74,6 +74,11 @@ export function missingSignIn(provider: string, baseUrl?: string): string {
   const variable = KEY_VARIABLES[provider];
   if (name) return `Not signed in to ${name}. Type /login ${provider}${variable ? `, or set ${variable}` : ""}.`;
   return `No key for ${provider}. ${variable ? `Set ${variable}` : "Set its API key"}, or /model to choose another.`;
+}
+
+/** A server on this computer that didn't answer: it may still be starting. Never "no key": it needs none. */
+export function notAnsweredHere(name: string, root: string): string {
+  return `${name} didn't answer on this computer (${root}) in ${Math.round(localModelDefaults.coldMs / 1000)} s; it may still be starting. Try again in a moment, or /model to choose another.`;
 }
 
 /** The address of a provider set up in models.json with a baseUrl and no apiKey (a local server), else undefined. */
@@ -380,6 +385,18 @@ export class PiModels {
     options.signal?.throwIfAborted();
     await this.localRefresh(options.signal).catch(() => undefined);
   }
+  /** A server on this computer named by a request that hasn't answered yet (Ollama takes a few seconds to start): look
+   * again until it answers (`missing` says no more) or `coldMs` passes. */
+  private async coldStart(provider: string, signal: AbortSignal, missing = () => !this.catalog.getModels(provider).length): Promise<void> {
+    const deadline = Date.now() + localModelDefaults.coldMs;
+    while (this.localRefresh && missing() && Date.now() < deadline) {
+      signal.throwIfAborted();
+      await this.localRefresh(signal).catch(() => undefined);
+      const left = deadline - Date.now();
+      if (missing() && left > 0) await new Promise((resolve) => setTimeout(resolve, Math.min(500, left)));
+    }
+    signal.throwIfAborted();
+  }
   /** The provider part of a `provider/id` selector, when it names a local server. */
   private static localProvider(query: string): string | undefined {
     const slash = query.indexOf("/");
@@ -412,6 +429,17 @@ export class PiModels {
     } catch { return true; }
   }
 
+  /** Why a provider can't be used without a sign-in; a server Casper found on this computer needs none. */
+  private signInProblem(provider: string): string {
+    const here = localKindHere(provider);
+    if (here && this.catalog.getRegisteredProviderConfig(provider)?.apiKey === "local") return notAnsweredHere(here.kind.name, here.root);
+    return missingSignIn(provider, keylessAddress(this.agentDir, provider));
+  }
+  /** A window too small for Casper's own part of a request and one short turn: blocked before the model is called. */
+  private tooSmall(session: AgentSession, model: { provider: string; id: string; contextWindow: number }): string | undefined {
+    const ollama = model.provider === "ollama" || savedLocalServers().some((server) => server.name === model.provider && server.kind === "ollama");
+    return windowTooSmall(model.contextWindow, fixedRequestTokens(session.systemPrompt, session.state.tools), { id: model.id, ollama });
+  }
   private warned = new WeakSet<AgentSession>();
   /** The plain-words warning for a small window, or for an Ollama window under half the model's, once per session and only for the selected main model. */
   smallWindowNotice(session: AgentSession): string | undefined {
@@ -495,7 +523,8 @@ export class PiModels {
       : !model ? this.problemFor.has(reference.provider)
         ? `Model ${reference.provider}/${reference.id} is unavailable: ${this.problemFor.get(reference.provider)!.text} Casper looks again when you ask after 15 seconds; /model picks another.`
         : `Model ${reference.provider}/${reference.id} is unavailable. Use /model to choose another; no fallback was selected.`
-      : auth === "missing" ? missingSignIn(reference.provider, keylessAddress(this.agentDir, reference.provider)) : undefined;
+      : auth === "missing" ? this.signInProblem(reference.provider)
+      : model.contextWindow < SMALL_WINDOW ? this.tooSmall(session, model) : undefined;
     const prices = model?.cost ? [model.cost.input, model.cost.output].filter((price) => typeof price === "number" && Number.isFinite(price)) : [];
     const priced = prices.length ? prices.some((price) => price > 0) : undefined;
     return { provider: reference?.provider, model: reference?.id, thinkingLevel: model ? session.thinkingLevel : undefined,
@@ -616,6 +645,11 @@ export class PiModels {
         const local = PiModels.localProvider(query);
         await this.localWhen(() => this.unresolved(query), { provider: local, again: Boolean(local) || !query.includes("/"), signal });
         signal.throwIfAborted();
+        const here = local ? localKindHere(local) : undefined;
+        if (here && !this.catalog.getModels(local!).length) {
+          await this.coldStart(local!, signal);
+          if (!this.catalog.getModels(local!).length) throw new Error(notAnsweredHere(here.kind.name, here.root));
+        }
         try { resolved = resolveModelSelection(query, this.catalog.getModels(), this.getRoles(), this.defaultReference()); }
         catch (error) {
           if (query.trim().startsWith("@") || !/^Unknown model selector/.test(error instanceof Error ? error.message : "")) {
@@ -686,7 +720,9 @@ export class PiModels {
       const effort = resolved?.effort ?? saved?.effort ?? (this.autoDefault(model) ? "auto" : undefined);
       if (effort && effort !== "auto" && !nearestEffort(effort, getSupportedThinkingLevels(model))) throw new Error(`Unknown effort ${effort} for ${model.provider}/${model.id}.`);
       if (this.staleAuth.has(model.provider)) throw new Error("Credential state needs local refresh. Restart Casper before selecting this provider.");
-      if (!this.catalog.hasConfiguredAuth(model.provider)) throw new Error(`${missingSignIn(model.provider, keylessAddress(this.agentDir, model.provider))} Model unchanged.`);
+      // A server Casper found needs no key: one just added may not be marked signed in yet.
+      if (localKindHere(model.provider) && !this.catalog.hasConfiguredAuth(model.provider)) await this.coldStart(model.provider, signal, () => !this.catalog.hasConfiguredAuth(model.provider));
+      if (!this.catalog.hasConfiguredAuth(model.provider)) throw new Error(`${this.signInProblem(model.provider)} Model unchanged.`);
       await session.setModel(model, { persist: false });
       // Pi commits the model before awaiting model_select extension handlers.
       // Retain that committed conversation state even if cancellation arrived
