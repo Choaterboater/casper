@@ -61,6 +61,7 @@ import { ELISION_NOTE, elisionTexts, newElisions } from "./elision";
 import { addsSecret } from "../secrets/files";
 import { ToolArgumentRepair } from "./tool-repair";
 import { nativeEditPath, observationInput, editPatch, observationOutput, patchLineCounts, stepTitle, writeLineCounts, type ToolObservationInput } from "./observation";
+import { reasoningHeadline } from "./reasoning-headline";
 import type {
   AgentRuntime,
   RuntimeAuthenticationOptions,
@@ -130,6 +131,9 @@ class PiRuntimeSession implements RuntimeSession {
   private readonly unsent: string[] = [];
   private progressChars = 0;
   private progressReported = 0;
+  /** The end of the current reasoning block's text and the headline last sent from it (status row only). */
+  private thinkingTail = "";
+  private headline?: string;
   private promptController?: AbortController;
 
   constructor(
@@ -527,15 +531,26 @@ class PiRuntimeSession implements RuntimeSession {
         case "message_update": {
           const update = event.assistantMessageEvent;
           if (update.type === "text_delta") { this.emit({ type: "assistant_text_delta", delta: update.delta }); break; }
-          if (update.type === "thinking_start" || update.type === "toolcall_start") this.progressChars = 0;
-          else if (update.type === "thinking_delta" || update.type === "toolcall_delta") this.progressChars += update.delta.length;
+          if (update.type === "thinking_start" || update.type === "toolcall_start") {
+            this.progressChars = 0;
+            if (update.type === "thinking_start") { this.thinkingTail = ""; this.headline = undefined; }
+          } else if (update.type === "thinking_delta" || update.type === "toolcall_delta") this.progressChars += update.delta.length;
           else break;
-          // Coalesce: the first event of a block and then every 256 characters.
-          if (this.progressChars !== 0 && this.progressChars - this.progressReported < 256) break;
+          const thinking = update.type.startsWith("thinking");
+          // The reasoning's own words, kept short, only for a status-row headline: worked out again when a sentence or a
+          // title may have ended, never stored or shown anywhere else.
+          let headline = this.headline;
+          if (update.type === "thinking_delta") {
+            this.thinkingTail = (this.thinkingTail + update.delta).slice(-2000);
+            if (/[.!?*\n]/.test(update.delta)) headline = reasoningHeadline(this.thinkingTail);
+          }
+          // Coalesce: the first event of a block, then every 256 characters, and when the headline changes.
+          if (this.progressChars !== 0 && this.progressChars - this.progressReported < 256 && headline === this.headline) break;
           this.progressReported = this.progressChars;
+          this.headline = headline;
           const block = update.partial.content[update.contentIndex];
-          this.emit({ type: "assistant_progress", kind: update.type.startsWith("thinking") ? "thinking" : "tool_call",
-            toolName: block?.type === "toolCall" ? block.name : undefined, chars: this.progressChars });
+          this.emit({ type: "assistant_progress", kind: thinking ? "thinking" : "tool_call",
+            toolName: block?.type === "toolCall" ? block.name : undefined, chars: this.progressChars, ...(thinking && headline ? { headline } : {}) });
           break;
         }
         case "tool_execution_start": {

@@ -88,6 +88,8 @@ export interface ProjectContext {
   routineCommands?: boolean;
   /** `hide_tool_output: off` stops new history masks. Unset: on. */
   hideToolOutput?: boolean;
+  /** `reasoning_headline: off` in the user's config: no reasoning headline in the status row. Unset: on. */
+  reasoningHeadline?: boolean;
   /** `lean_guidance: auto|off` in the user's config. Unset: auto. */
   leanGuidance?: LoadedConfiguration["leanGuidance"];
   /** `slow_commands: off` in the user's config: a command without its own timeout is stopped at the limit. Unset: on. */
@@ -217,6 +219,7 @@ export async function loadProjectContext(
     ...(configuration.browserClicks !== undefined ? { browserClicks: configuration.browserClicks } : {}),
     ...(configuration.routineCommands !== undefined ? { routineCommands: configuration.routineCommands } : {}),
     ...(configuration.hideToolOutput !== undefined ? { hideToolOutput: configuration.hideToolOutput } : {}),
+    ...(configuration.reasoningHeadline !== undefined ? { reasoningHeadline: configuration.reasoningHeadline } : {}),
     ...(configuration.leanGuidance !== undefined ? { leanGuidance: configuration.leanGuidance } : {}),
     ...(configuration.slowCommands !== undefined ? { slowCommands: configuration.slowCommands } : {}),
     ...(configuration.stalledCommands !== undefined ? { stalledCommands: configuration.stalledCommands } : {}),

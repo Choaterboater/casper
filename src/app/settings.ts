@@ -242,6 +242,9 @@ export function settingRows(context: ProjectContext): Setting[] {
     { label: "Work shown", value: display, question: `Work shown: ${display} (${DISPLAY_WORDS[display]}).`, keep: `Keep ${display}`,
       choices: (["quiet", "normal", "detailed"] as const).filter((level) => level !== display)
         .map((level) => ({ label: `${level[0]!.toUpperCase()}${level.slice(1)}`, keys: ["display"], value: level, shown: level })) },
+    onOffRow("Reasoning headline", context.reasoningHeadline !== false,
+      "While the model reasons, the status row shows a short headline of its readable reasoning (its summary's title, or its latest sentence, at most 60 characters, secrets hidden) instead of Reasoning · 3.0k chars. Status row only: never the transcript, the receipt, an export or --json, and not at /details quiet.",
+      ["reasoning_headline"], false, "step"),
     themeRow(context.theme),
     { label: "Untrusted-text reader", value: reader.enabled ? "on" : "off", applies: "task",
       question: `The untrusted-text reader (casper_read_untrusted) is ${reader.enabled ? "on" : "off"}. It reads logs, mail and forms with a separate model that has no tools, and costs tokens only when the AI uses it.`,

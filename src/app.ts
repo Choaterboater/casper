@@ -547,6 +547,7 @@ export class CasperApp {
       display: () => displayLevel(this),
       projectCommands: () => this.projectContext?.model.commands,
       announceLongChecks: () => this.onEvent === undefined,
+      reasoningHeadline: () => this.projectContext?.reasoningHeadline !== false,
       onToolEnd: event => {
         this.observations.observeToolEnd(event, this.projectContext?.model.commands);
         if (this.taskEdits) {

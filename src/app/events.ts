@@ -44,6 +44,8 @@ export interface RuntimeEventCallbacks {
   projectCommands?(): Partial<Record<ProjectCommand, string>> | undefined;
   /** Plain terminal: say once a minute that a long check still runs. Unset: yes. (`--json` says no.) */
   announceLongChecks?(): boolean;
+  /** A short headline of the model's reasoning in the status row (reasoning_headline, decision 24). Unset: yes. */
+  reasoningHeadline?(): boolean;
 }
 
 /** A check Casper itself is running, for the live rows (rich) or the once-a-minute line (plain). */
@@ -198,6 +200,9 @@ export class RuntimeEventView {
   private status?: string;
   private responseActivity?: string;
   private responseStartedAt?: number;
+  /** The model's reasoning headline (decision 24), and the status row's words made from it: status row only. */
+  private headline?: string;
+  private statusHeadline?: string;
   /** When the model or provider last said anything (a response starting, reasoning or a tool call being prepared). */
   private heardAt?: number;
   private waitingFor = "model response";
@@ -319,7 +324,9 @@ export class RuntimeEventView {
     lines.push(...extra);
     plain.push(...extra);
     const status = this.statusText(now, builders);
-    this.terminal.setWork(lines.length || status ? { rows: lines, plain, ...(status ? { status } : {}), ...(status && this.intent ? { intent: this.intent } : {}) } : undefined);
+    const headline = status !== undefined && status === this.status ? this.statusHeadline : undefined;
+    this.terminal.setWork(lines.length || status ? { rows: lines, plain, ...(status ? { status } : {}), ...(status && this.intent ? { intent: this.intent } : {}),
+      ...(headline ? { headline } : {}) } : undefined);
   }
 
   /** The status row's words: what the model is doing or what Casper waits for, else the newest running step (and how
@@ -404,14 +411,17 @@ export class RuntimeEventView {
     if (!this.responseActivity || this.responseStartedAt === undefined) return;
     // Nothing heard for 10 s: say plainly what Casper is waiting for, counting from the last word.
     const silent = this.heardAt === undefined ? 0 : this.now() - this.heardAt;
-    if (runningElapsed(silent)) { this.status = `Waiting for ${this.waitingFor}${runningElapsed(silent)}`; this.renderBox(); return; }
-    this.status = `${this.responseActivity} · ${formatElapsed(this.now() - this.responseStartedAt)}`;
+    if (runningElapsed(silent)) { this.status = `Waiting for ${this.waitingFor}${runningElapsed(silent)}`; this.statusHeadline = undefined; this.renderBox(); return; }
+    const elapsed = formatElapsed(this.now() - this.responseStartedAt);
+    this.status = `${this.responseActivity} · ${elapsed}`;
+    this.statusHeadline = this.headline ? `${this.headline} · ${elapsed}` : undefined;
     this.renderBox();
   }
 
   private clearResponseActivity(): void {
     if (this.activityTimer) clearInterval(this.activityTimer);
     this.activityTimer = undefined; this.responseActivity = undefined; this.responseStartedAt = undefined; this.heardAt = undefined;
+    this.headline = undefined; this.statusHeadline = undefined;
   }
 
   private setStaticActivity(activity?: string): void {
@@ -582,6 +592,9 @@ export class RuntimeEventView {
         const size = event.chars === 0 ? "" : event.chars >= 1024 ? ` · ${(event.chars / 1024).toFixed(1)}k chars` : ` · ${event.chars} chars`;
         this.heardAt = this.now();
         const what = event.kind === "thinking" ? "Reasoning" : `Preparing ${terminalText(event.toolName ?? "tool call")}`;
+        // A short line of the model's readable reasoning, in the status row only: never at quiet or with the setting off.
+        this.headline = event.kind === "thinking" && event.headline && this.level() !== "quiet" && this.callbacks.reasoningHeadline?.() !== false
+          ? lineText(terminalText(event.headline)) : undefined;
         this.setResponseActivity(`${what}${size}`);
         break;
       }

@@ -299,7 +299,8 @@ on in ~/.casper/config.yaml)</pre>
             <h3>Steps under the AI's words</h3>
             <p>Each tool call is a live row under the AI's words, a spinner while it runs and <code>✓</code> or
             <code>✗</code> once done, with one status row above the prompt saying what runs and that Esc stops it, led by the
-            AI's own line for that group of steps (<code>Fixing the port test · Running bun test · 4s</code>). A shell step
+            AI's own line for that group of steps (<code>Fixing the port test · Running bun test · 4s</code>), and while the model
+            reasons, a short headline of its reasoning (<code>Planning the port fix · 12s</code>). A shell step
             the AI titled shows its title with the real program (<code>✓ Run the unit tests · bun test</code>). A change to
             config, a device, another machine or this computer's setup stays in view on a <code>◆</code> row (<code>◆ Changed on
             build-server: installed a service</code>, <code>◆ installed left-pad</code>), with config diffs and what was sent in a box. A failed
