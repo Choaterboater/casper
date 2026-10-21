@@ -821,11 +821,14 @@ nothing answers, `/model` and `casper doctor` say why and repeat these lines.
 The easy way: no variable and no file to edit. In `/model`, go to the last row of the list on the left,
 **`+ Add server`**, and press Enter. Or type `/login` and pick the last row, **Model server on another
 computer** (when `/login` first offers a sign-in it found on this computer, pick **Sign in separately** to
-see that list). This also works for a server on this computer: use `localhost`. Both open the same steps:
+see that list). This also works for a server on this computer at another port: use `localhost`. One at its
+usual port here (Ollama on 11434) is found by itself: Casper says so, lists its models (`ollama/…`) and saves
+nothing. Both open the same steps:
 
 1. **Model server type.** Keep **Detect automatically**, or choose a kind: **Ollama**, **LM Studio**,
    **llama.cpp**, **vLLM**, **SGLang**, **MLX (MLX LM / vllm-mlx)** or **OpenAI-style server**.
-   All kinds are offered as fallbacks when detection can't identify yours. Start that server separately first;
+   All kinds are offered as fallbacks when detection can't identify yours; a kind the server's own answers
+   contradict is not kept (llama.cpp chosen where Ollama answers is saved as Ollama). Start that server separately first;
    Casper doesn't install a backend or download a model. SGLang and MLX use the server's OpenAI-compatible API.
 2. **Where is the server?** Type its address: `192.0.2.10`, `myserver`, `myserver:11434` or
    `http://myserver:8000` (a copied API address such as `…/v1/models` works too). With **Detect automatically**
@@ -877,6 +880,10 @@ name. A server that needs a key goes in `models.json` (below).
 
 - **When.** Your servers are looked at with the others: in the background, each on its own, 10 seconds
   for one on another computer. `localModels: false` doesn't stop them.
+- **At a usual address here.** One you added at a local kind's usual address on this computer is used
+  instead of the automatic look there. If it was saved as another kind (llama.cpp where Ollama answers), the
+  one that answers is found too (`ollama/…`), and its row in `/model` and `casper doctor` say so: forget yours
+  to list them once.
 - **Never picked for you.** A server you added never becomes your model by itself; with no model yet, a
   request opens `/model` on your servers.
 
@@ -967,7 +974,8 @@ ID, `provider/id`, `@default` (your saved default model), or another role, optio
 `:effort`.
 
 - `provider/id` wins over a bare ID; an ID that really contains a colon wins over reading the
-  colon as an effort suffix.
+  colon as an effort suffix. A colon in a name no model has (`ollama/qwen3.5:9b` not pulled yet) is an
+  unknown model, not an unknown effort.
 - Ambiguous IDs, roles that are not set, and loops between roles are errors.
 - An effort suffix you type (`@review:auto`) overrides the role's own suffix.
 - An effort level a model lacks runs as the nearest level above it, else below (so `max` on a

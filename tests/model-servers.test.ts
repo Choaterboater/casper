@@ -111,6 +111,11 @@ test("the kind is told by what only that kind answers, whatever the port", async
   expect(await detectServer(other)).toMatchObject({ state: "found", kind: "openai", models: [{ id: "local-model" }] });
 });
 
+test("a chosen kind the server contradicts is not kept: llama.cpp picked, Ollama answering, is Ollama", async () => {
+  const ollama = serve({ "GET /api/version": { version: "0.40.6" }, "GET /api/tags": { models: [{ name: "qwen3:8b", capabilities: ["completion"] }] }, "GET /v1/models": { data: [{ id: "qwen3:8b", owned_by: "library" }] } });
+  expect(await detectServer(ollama, { kind: "llama.cpp" })).toMatchObject({ state: "found", kind: "ollama", models: [{ id: "qwen3:8b" }] });
+});
+
 test("llama-server --api-key (model lists open, /props locked) wants a key, and is llama.cpp, not Ollama", async () => {
   const props = () => Response.json({ error: { message: "Invalid API Key" } }, { status: 401 });
   const llama = serve({ "GET /props": props, "GET /v1/models": { data: [{ id: "llama-3.2-1b", owned_by: "llamacpp" }] }, "GET /api/tags": { models: [{ name: "llama-3.2-1b" }] } });

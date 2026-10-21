@@ -107,6 +107,31 @@ test("a bare computer finds each server on the usual ports: a name box for each,
   expect(await authText(deps.keyFile)).toBe("");
 });
 
+test("Ollama on its usual port here is found by itself: not saved again, even with llama.cpp picked; its models are offered", async () => {
+  const ollama = serve({ ...ollamaRoutes, "GET /v1/models": { data: [{ id: "qwen3:8b", owned_by: "library" }] } });
+  const deps = await folders();
+  deps.env = {};
+  // 127.0.0.1:11434 goes to the fake Ollama; nothing else answers.
+  deps.fetch = ((url: string | URL | Request, init?: RequestInit) => {
+    const target = new URL(String(url instanceof Request ? url.url : url));
+    if (target.hostname !== "127.0.0.1" || target.port !== "11434") return Promise.reject(Object.assign(new TypeError("Unable to connect"), { code: "ConnectionRefused" }));
+    return fetch(`${ollama}${target.pathname}`, init);
+  }) as typeof fetch;
+  for (const kind of ["Detect automatically", "llama.cpp"]) {
+    const display = scripted([{ choose: kind }, { text: "127.0.0.1:11434" }]);
+    const result = await addModelServers(display, deps);
+    expect(result.added).toEqual([]);
+    expect(result.found).toEqual([{ provider: "ollama", name: "Ollama", baseUrl: "http://127.0.0.1:11434/v1", models: [expect.objectContaining({ id: "qwen3:8b" })] }]);
+    expect(result.lines).toEqual(["Ollama at 127.0.0.1:11434 is found by itself on this computer, as ollama/…; nothing to add. Its models: ollama/qwen3:8b. Pick one in /model."]);
+    expect(display.shown.some((line) => line.includes("Name it."))).toBe(false);
+  }
+  expect(await configText(deps.config)).toBe("");
+  // With the automatic looks off (localModels: false), it is yours to add.
+  configureLocalServers({ auto: false });
+  const off = scripted([{ text: "127.0.0.1:11434" }, {}]);
+  expect((await addModelServers(off, deps)).added.map(({ server }) => server)).toEqual([{ name: "ollama-127-0-0-1", address: "http://127.0.0.1:11434", kind: "ollama" }]);
+});
+
 test("nothing answers: the reason once, what to set on that computer, and Cancel writes nothing", async () => {
   const deps = await folders();
   deps.fetch = (() => Promise.reject(Object.assign(new TypeError("Unable to connect"), { code: "ConnectionRefused" }))) as unknown as typeof fetch;

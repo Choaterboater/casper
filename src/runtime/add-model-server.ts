@@ -1,7 +1,7 @@
 import { addModelServer, DEFAULT_PORT, KIND_NAMES, SERVER_KINDS, removeModelServer, serverNameProblem, type ModelServer } from "../config/model-servers";
 import { NOTHING_ANSWERED_CHOICES } from "../app/safe-choices";
 import type { LoginDisplay } from "../tui/login";
-import { SERVER_SIDE_TIP, wantsServerTip, type LocalModel } from "./local-models";
+import { foundByItself, SERVER_SIDE_TIP, wantsServerTip, type LocalModel, type LocalServer } from "./local-models";
 import { alreadyAt, autoName, detectServer, readableOnTheWire, readAddress, serverLabel, type Detected } from "./model-servers";
 
 /** The add-a-model-server screens, the same from `/model` (`+ Add server`) and `/login`: the kind, address, what answered
@@ -16,11 +16,15 @@ export interface AddServerDeps {
   known: () => ReadonlyArray<{ name: string; root: string }>;
   fetch?: typeof fetch;
   timeoutMs?: number;
+  /** Where the local kinds' variables are read (Casper's environment). */
+  env?: Record<string, string | undefined>;
 }
 
 export interface AddedServer { server: ModelServer; models: LocalModel[] }
 export interface AddResult {
   added: AddedServer[];
+  /** Servers Casper finds by itself on this computer (Ollama on 11434): not saved, their models listed under the kind. */
+  found?: LocalServer[];
   /** Plain lines to print after the screens close (what was added, what was skipped and why). */
   lines: string[];
 }
@@ -36,6 +40,7 @@ export function keyLine(root: string): string {
 export async function addModelServers(display: LoginDisplay, deps: AddServerDeps): Promise<AddResult> {
   const lines: string[] = [];
   const added: AddedServer[] = [];
+  const byItself: LocalServer[] = [];
   const note = "The address is kept in ~/.casper/config.yaml, which the AI can read. No key is asked for or sent.";
   display.setNote(note);
   try {
@@ -85,6 +90,16 @@ export async function addModelServers(display: LoginDisplay, deps: AddServerDeps
       const label = serverLabel(entry.kind, entry.root);
       const existing = alreadyAt(entry.root, deps.known());
       if (existing) { lines.push(`You already have ${label} as ${existing}.`); continue; }
+      // A server on its usual port here is found by itself: adding a server is for other computers and ports.
+      const itself = foundByItself(entry.root, entry.kind, deps.env);
+      if (itself) {
+        byItself.push({ provider: itself.id, name: itself.name, baseUrl: `${entry.root}/v1`, models: entry.models });
+        const names = entry.models.slice(0, 3).map((model) => `${itself.id}/${model.id}`);
+        const more = entry.models.length > 3 ? `, and ${entry.models.length - 3} more` : "";
+        lines.push(`${label} is found by itself on this computer, as ${itself.id}/…; nothing to add. ${names.length
+          ? `Its models: ${names.join(", ")}${more}. Pick one in /model.` : `It has no models yet: ${entry.kind === "ollama" ? "run ollama pull qwen3" : `load a model in ${KIND_NAMES[entry.kind]}`}.`}`);
+        continue;
+      }
       const wire = readableOnTheWire(entry.root);
       const name = await display.textInput(`Name it. The name goes before its models, like ${autoName(entry.kind, entry.root, taken)}/${entry.models[0]?.id ?? "qwen3:8b"}.`, display.signal, {
         title: `Found ${label} · ${plural(entry.models.length)}`,
@@ -110,7 +125,7 @@ export async function addModelServers(display: LoginDisplay, deps: AddServerDeps
     if (cancelled(error) || display.signal.aborted) lines.push(added.length ? "Stopped; nothing more was added." : "No model server was added.");
     else lines.push(`${added.length ? "Stopped" : "No model server was added"}: ${error instanceof Error ? error.message : String(error)}`);
   } finally { display.setNote(""); }
-  return { added, lines };
+  return { added, lines, ...byItself.length ? { found: byItself } : {} };
 }
 
 /** Forget one of your servers: its config entry. */

@@ -66,6 +66,15 @@ test("unknown effort suffixes fail even when an outer suffix would override them
   expect(() => resolveModelSelection("unique:", models, {})).toThrow(/unknown effort/i);
 });
 
+test("a colon in a name no model has is the unknown model, not an unknown effort", () => {
+  expect(() => resolveModelSelection("ollama/qwen3.5:9b", models, {})).toThrow('Unknown model selector "ollama/qwen3.5:9b"');
+  expect(() => resolveModelSelection("ollama/qwen3.5:9b", models, {})).not.toThrow(/effort/i);
+  const tagged = [...models, { provider: "ollama", id: "qwen3.5:9b" }];
+  expect(resolveModelSelection("ollama/qwen3.5:9b", tagged, {})).toEqual({ reference: { provider: "ollama", id: "qwen3.5:9b" } });
+  expect(resolveModelSelection("ollama/qwen3.5:9b:high", tagged, {})).toEqual({ reference: { provider: "ollama", id: "qwen3.5:9b" }, effort: "high" });
+  expect(resolveModelSelection("unique:high", models, {})).toEqual({ reference: { provider: "first", id: "unique" }, effort: "high" });
+});
+
 test("@default resolves the saved provider exactly and participates in alias effort precedence", () => {
   const saved = { provider: "SECOND", id: "SHARED" };
   expect(resolveModelSelection("@default:low", models, {}, saved)).toEqual({ reference: models[1], role: "default", effort: "low" });

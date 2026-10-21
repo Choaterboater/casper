@@ -108,8 +108,8 @@ async function kindAt(fetcher: typeof fetch, root: string, signal: AbortSignal):
   throw failed ? (failed as PromiseRejectedResult).reason : new NotThisServer();
 }
 
-/** Look at one root: what kind of server is there and its models. A chosen kind keeps its name and model reader;
- * detection still checks for a model API and authentication. No key is sent. */
+/** Look at one root: what kind of server is there and its models. A found server is the kind its own answers show; a
+ * chosen kind names one that only answers a plain OpenAI-style list, and one that wants a key. No key is sent. */
 export async function detectServer(root: string, options: { fetch?: typeof fetch; signal?: AbortSignal; timeoutMs?: number; kind?: ServerKind } = {}): Promise<Detected> {
   const fetcher = options.fetch ?? localModelDefaults.detectFetch ?? fetch;
   const budget = options.timeoutMs ?? 10_000;
@@ -120,8 +120,11 @@ export async function detectServer(root: string, options: { fetch?: typeof fetch
   try {
     const detected = await kindAt(fetcher, root, signal);
     kind = options.kind ?? detected;
-    const models = await readServerModels(kind, root, { fetch: fetcher, signal });
-    return { state: "found", root, kind, models };
+    // A chosen kind fills in only what detection can't tell (a plain OpenAI-style list): one the server's own answers
+    // contradict (llama.cpp picked, Ollama answering) would be saved as a kind it isn't.
+    const found = detected === "openai" ? kind : detected;
+    const models = await readServerModels(found, root, { fetch: fetcher, signal });
+    return { state: "found", root, kind: found, models };
   } catch (error) {
     if (options.signal?.aborted) throw error;
     if (error instanceof Locked) {
