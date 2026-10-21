@@ -177,3 +177,18 @@ test("the plain terminal shows Other as the last number and asks \"Your answer: 
     expect(output.split("Pick a server")[1]).not.toContain("Other");
   } finally { terminal.close(); input.destroy(); }
 });
+
+// A kitty-protocol terminal (Ghostty, kitty, WezTerm) also sends each key's release: Down once moved two rows, so the
+// second choice became the Other row and the answer had to be typed.
+test("a key's release does not move or choose again: Down once and Enter pick the second choice", async () => {
+  const session = interactiveTerminal();
+  try {
+    session.terminal.setStatus("fixture"); session.terminal.start();
+    const answer = session.terminal.ask(QUESTION, OPTIONS, false, undefined, "ai");
+    await session.screen.until((output) => output.includes(OTHER_CHOICE));
+    session.input.write("\x1b[B\x1b[1;1:3B");
+    await waitFor(() => box(session.screen.output).includes("❯ 2. Fix and tests"));
+    session.input.write("\r\x1b[13;1:3u");
+    expect(await answer).toEqual(["Fix and tests"]);
+  } finally { session.close(); }
+});
