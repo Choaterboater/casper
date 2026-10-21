@@ -146,6 +146,7 @@ export async function loadWorkspace(app: CasperApp, cwd: string) {
   // turns them on (/mcp writes <name>).
   app.broker = new CapabilityBroker(app.mcp, (call, signal) => confirmCapability(app, call, signal), { writesGate: true, scrubber: app.scrubber,
     secretValues: () => ownSecretValues(app),
+    planning: () => app.planning,
     onSessionCovered: (server, tool) => { if (!app.closing) app.output.write(`[approval] allowed (this session): ${terminalText(server)} · ${terminalText(tool)}\n`); },
     // An MCP change is treated like a shell command: it may change the project's files (or a service's), so later
     // checks are not "before the change", services restart, and the tree is compared to tell.
