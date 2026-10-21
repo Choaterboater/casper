@@ -59,6 +59,8 @@ not proof that the code works.
 
 - A third helper turned away because two are already running does not count
   toward the 4. It can be sent again later.
+- A helper that hits its time limit (status `timed_out`) never gave its report, so
+  it does not count toward the 4 either, at most twice per request.
 - When a helper uses up its turns or tool calls, or is 30 seconds from its time
   limit, it is told to stop and gets one last turn with no tools to report what
   it found so far, marked partial, if the step it is on finishes in time.

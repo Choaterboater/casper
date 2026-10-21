@@ -292,6 +292,25 @@ describe("Phase 8 bounded subagents", () => {
     expect(created).toBe(4);
   });
 
+  test("a delegate that hit its time limit does not spend the task's budget, at most twice", async () => {
+    let created = 0;
+    const agents = manager(() => {
+      created++;
+      // The first three helpers never answer before the 30 ms limit; the rest report at once.
+      if (created > 3) return new ChildRuntime();
+      const finish = gate();
+      const child = new ChildRuntime(async () => { await finish.promise; });
+      child.onAbort = finish.release;
+      return child;
+    }, 30);
+    const tool = agents.createTool(() => task);
+    for (const goal of ["a", "b", "c"]) expect((await tool.execute({ role: "reviewer", goal })).text).toContain('"status":"timed_out"');
+    // Two timeouts were handed back, the third counts: three more fit the budget of four, then it is exhausted.
+    for (const goal of ["d", "e", "f"]) expect((await tool.execute({ role: "reviewer", goal })).isError).toBeUndefined();
+    expect((await tool.execute({ role: "reviewer", goal: "g" })).text).toContain("budget exhausted");
+    expect(created).toBe(6);
+  });
+
   test("concurrency is reserved during lazy startup and late factories cannot prompt after cancellation", async () => {
     const load = gate();
     const children: ChildRuntime[] = [];
