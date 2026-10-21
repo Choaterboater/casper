@@ -115,7 +115,7 @@ export function explainModelError(message: string): { cause: ModelErrorCause; li
   if (rule?.cause === "tools") {
     const named = /([^\s"'`,]*[\w.-])["'`]?\s+does not support tools/i.exec(message)?.[1]?.split("/").pop();
     const model = named && named.length <= 60 ? named : "This model";
-    return { cause: "tools", line: `${model} can't use tools, so it can't edit files or run commands here. Pick another model with /model, or use it for questions only.` };
+    return { cause: "tools", line: `${model} can't use tools, and Casper sends them with every request, so it can't answer here, not even a question. Pick another model with /model.` };
   }
   return rule && { cause: rule.cause, line: rule.line };
 }

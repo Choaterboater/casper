@@ -6,6 +6,7 @@ import { pickerCursor, pickerOptionLines } from "../tui/picker";
 import { stripVTControlCharacters } from "node:util";
 import { terminalText, tint } from "../tui/format";
 import { errorText, refreshFailure } from "./model-errors";
+import { cantUseTools, NO_TOOLS } from "./local-models";
 
 /** The slice of ModelRuntime the browser consumes; `pi-model-picker.ts` passes a sanitized view
  * whose provider/id/name values are already control-character safe. */
@@ -409,7 +410,7 @@ export class ModelBrowser {
     const model = item.model;
     const ctx = fmtTokens(model.contextWindow);
     const price = this.priceText(model);
-    const tags = [model.reasoning ? "reasoning" : "", model.input?.includes("image") ? "vision" : ""].filter(Boolean).join(" · ");
+    const tags = [cantUseTools(model) ? "no tools" : "", model.reasoning ? "reasoning" : "", model.input?.includes("image") ? "vision" : ""].filter(Boolean).join(" · ");
     // Fixed-width segments keep the id column aligned across rows; empty segments pad with
     // spaces so every row's metadata occupies the same width.
     const ctxSegment = ctx ? `${ctx} ctx`.padStart(CTX_WIDTH) : "";
@@ -466,7 +467,7 @@ export class ModelBrowser {
     if (sizes.length) parts.push(this.muted(sizes.join(" · ")));
     const price = this.priceText(model);
     if (price && price !== "plan") parts.push(this.muted(price === "free" ? "free" : `${price} per M`));
-    const tags = [model.reasoning ? "reasoning" : "", model.input?.includes("image") ? "vision" : ""].filter(Boolean).join(" · ");
+    const tags = [cantUseTools(model) ? NO_TOOLS : "", model.reasoning ? "reasoning" : "", model.input?.includes("image") ? "vision" : ""].filter(Boolean).join(" · ");
     if (tags) parts.push(this.muted(tags));
     if (sameRef(this.current, item)) parts.push(this.accent("current"));
     if (sameRef(this.defaultModel, item)) parts.push(this.muted("default"));

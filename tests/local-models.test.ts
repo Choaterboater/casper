@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, realpath, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { ModelRuntime } from "@earendil-works/pi-coding-agent";
-import { clearLocalServers, configureLocalServers, discoverLocalServers, dropLocalServers, forgetLocalServer, localModelDefaults, localServerFound, localServers, localServerSettled, onLocalServer, onThisComputer, probeBudget, registerLocalServers, rememberLocalServer, sameAddress, servedWindowWarning, serverRoot, SERVER_SIDE_TIP, type LocalDiscovery, type LocalFound } from "../src/runtime/local-models";
+import { cantUseTools, clearLocalServers, configureLocalServers, discoverLocalServers, dropLocalServers, forgetLocalServer, localModelDefaults, localServerFound, localServers, localServerSettled, onLocalServer, onThisComputer, probeBudget, registerLocalServers, rememberLocalServer, sameAddress, servedWindowWarning, serverRoot, SERVER_SIDE_TIP, type LocalDiscovery, type LocalFound } from "../src/runtime/local-models";
 import { PiModels } from "../src/runtime/pi-models";
 import { detectServer, readAddress } from "../src/runtime/model-servers";
 import { isolatedEnvironment } from "../src/platform/environment";
@@ -77,8 +77,9 @@ test("finds Ollama, LM Studio, llama.cpp and vLLM where their variables point, w
   expect(found.servers).toEqual([
     { provider: "ollama", name: "Ollama", baseUrl: `${ollama.url}/v1`, models: [
       { id: "qwen3:8b", contextWindow: 32768, trained: 40960, request: { keep_alive: "30m" } },
-      { id: "gemma3:4b", contextWindow: 128000, trained: 131072, servedLater: true, images: true, request: { keep_alive: "30m" } },
-      { id: "custom:latest", contextWindow: 8192, trained: 131072, request: { temperature: 0.6, keep_alive: "30m" } },
+      // Capabilities without "tools" (gemma3's, custom's): Casper's requests, which always carry tools, can't run on them.
+      { id: "gemma3:4b", contextWindow: 128000, trained: 131072, servedLater: true, images: true, tools: false, request: { keep_alive: "30m" } },
+      { id: "custom:latest", contextWindow: 8192, trained: 131072, tools: false, request: { temperature: 0.6, keep_alive: "30m" } },
     ] },
     { provider: "lm-studio", name: "LM Studio", baseUrl: `${lmStudio.url}/v1`, models: [{ id: "qwen2.5-coder-7b", contextWindow: 16384 }, { id: "llava-7b", images: true }] },
     { provider: "llama.cpp", name: "llama.cpp", baseUrl: `${llama.url}/v1`, models: [{ id: "llama-3.2-1b", contextWindow: 8192 }] },
@@ -423,13 +424,38 @@ test("an Ollama window not known until the model loads is read after its first a
   expect(models.smallWindowNotice(session)).toBeUndefined();
 });
 
-test("no notice when Ollama serves at least half the model's window", async () => {
+test("no notice when Ollama serves at least half the model's window, or 32k or more", async () => {
   const runtime = await runtimeIn();
   registerLocalServers(runtime, [{ provider: "ollama", name: "Ollama", baseUrl: "http://127.0.0.1:11434/v1",
-    models: [{ id: "qwen3:8b", contextWindow: 32768, trained: 40960 }, { id: "big:latest", contextWindow: 8192, trained: 131072 }] }]);
+    models: [{ id: "qwen3:8b", contextWindow: 32768, trained: 40960 }, { id: "big:latest", contextWindow: 8192, trained: 131072 },
+      // The suggested fix is 32768: a model served that much is fine, however much more it takes.
+      { id: "qwen3-coder:30b", contextWindow: 32768, trained: 262144 }, { id: "wide:latest", contextWindow: 65536, trained: 262144 }] }]);
   expect(servedWindowWarning(runtime.getModel("ollama", "qwen3:8b")!)).toBeUndefined();
+  expect(servedWindowWarning(runtime.getModel("ollama", "qwen3-coder:30b")!)).toBeUndefined();
+  expect(servedWindowWarning(runtime.getModel("ollama", "wide:latest")!)).toBeUndefined();
   expect(servedWindowWarning(runtime.getModel("ollama", "big:latest")!)).toContain("8,192-token window, though the model takes 131,072");
 });
+
+test("an Ollama model without tools is marked, never picked for you, and refused with why: every request carries tools", async () => {
+  const runtime = await runtimeIn();
+  registerLocalServers(runtime, [{ provider: "ollama", name: "Ollama", baseUrl: "http://127.0.0.1:11434/v1",
+    models: [{ id: "dolphin3:8b", contextWindow: 32768, tools: false }, { id: "qwen3:8b", contextWindow: 32768 }] }]);
+  expect(cantUseTools(runtime.getModel("ollama", "dolphin3:8b")!)).toBe(true);
+  expect(cantUseTools(runtime.getModel("ollama", "qwen3:8b")!)).toBe(false);
+  // A later list that says it can take tools now (a new Ollama, a new tag) clears it.
+  registerLocalServers(runtime, [{ provider: "ollama", name: "Ollama", baseUrl: "http://127.0.0.1:11434/v1", models: [{ id: "dolphin3:8b", contextWindow: 32768 }] }]);
+  expect(cantUseTools(runtime.getModel("ollama", "dolphin3:8b")!)).toBe(false);
+});
+
+test("a run on an Ollama model without tools: selecting it says why, and the first model picked for you is one with tools", async () => {
+  const { home, project } = await looksHome();
+  const servers = [{ ...here[0]!, models: [{ id: "dolphin3:8b", contextWindow: 32768, tools: false as const }, { id: "qwen3:8b", contextWindow: 32768 }] }];
+  const result = await startWithLooks(home, project, [servers], `
+    const refused = await session.selectModel({ query: "ollama/dolphin3:8b", persist: false }).then(() => "selected", (error) => error.message);
+    const picked = await session.selectDefaultModel();
+    console.log(JSON.stringify({ refused, picked: picked?.status.model }));`);
+  expect(result).toEqual({ refused: "dolphin3:8b can't use tools, and Casper sends them with every request, so it can't answer here, not even a question. Pick another model with /model. Model unchanged.", picked: "qwen3:8b" });
+}, 60_000);
 
 test("found once a day per process; /model probes again and keeps each server busy for a moment; a helper never probes", async () => {
   let calls = 0;

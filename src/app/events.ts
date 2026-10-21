@@ -11,6 +11,7 @@ import path from "node:path";
 import { tildePath } from "../new/scaffold";
 import { isOutside } from "../platform/inside";
 import { explainModelError } from "../runtime/model-errors";
+import { ToolCallTags } from "../task/text-tool-call";
 import type { CheckProgressRun } from "../verify/progress";
 import { foundNothing, plainSteps } from "./plain-steps";
 import type { ProjectCommand } from "../project/model";
@@ -183,6 +184,8 @@ export class RuntimeEventView {
   private checkTitle?: string;
   /** The AI's words are on screen now (their message is open): a blank delta then is part of them. */
   private speaking = false;
+  /** A tool-call tag a model wrote as words is not shown (src/task/text-tool-call.ts). */
+  private toolTags = new ToolCallTags();
   private activityTimer?: NodeJS.Timeout;
   private stepTimer?: NodeJS.Timeout;
   private endedWithNewline = true;
@@ -547,6 +550,8 @@ export class RuntimeEventView {
         break;
       }
       case "assistant_response_end": {
+        const rest = this.toolTags.end();
+        if (rest && this.speaking) this.terminal.assistant(rest);
         // Held words of one response are kept apart from the next one's.
         if (this.heldText && this.held.trim() && !this.held.endsWith("\n\n")) this.held += this.held.endsWith("\n") ? "\n" : "\n\n";
         // A failed attempt that will be retried is not the outcome; the retry line says what happens next.
@@ -580,13 +585,14 @@ export class RuntimeEventView {
           if (this.responseActivity !== this.heldText) { this.clearResponseActivity(); this.setResponseActivity(this.heldText); }
           break;
         }
+        const delta = this.toolTags.push(event.delta);
         // Blank space before any words is not the AI moving on: the steps keep gathering in one group.
-        if (!this.speaking && !event.delta.trim()) break;
+        if (!delta || (!this.speaking && !delta.trim())) break;
         // The model moved on: the finished steps fold into one row above its words.
         if (!this.speaking && this.steps.some(step => step.endedAt !== undefined)) this.fold();
         this.setStaticActivity();
         this.speaking = true;
-        this.terminal.assistant(event.delta);
+        this.terminal.assistant(delta);
         this.endedWithNewline = true;
         break;
       case "tool_start": {

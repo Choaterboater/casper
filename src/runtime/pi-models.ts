@@ -12,7 +12,7 @@ import { anyModelMatches } from "./pi-model-browser";
 import { openRouterRequestHeaders } from "./openrouter-attribution";
 import { compactionReserveFor, fixedRequestTokens, SMALL_WINDOW, smallWindowWarning, windowTooSmall } from "./small-window";
 import { lockBusy } from "../platform/files";
-import { isLocalProvider, lastLocalLook, LOCAL_SERVERS, localKindHere, localModelDefaults, onThisComputer, savedLocalServers, SERVER_SIDE_TIP, servedWindowWarning, wantsServerTip, type LocalDiscovery, type LocalProblem } from "./local-models";
+import { cantUseTools, isLocalProvider, lastLocalLook, LOCAL_SERVERS, localKindHere, localModelDefaults, noToolsLine, onThisComputer, savedLocalServers, SERVER_SIDE_TIP, servedWindowWarning, wantsServerTip, type LocalDiscovery, type LocalProblem } from "./local-models";
 import { CLAUDE_SUBSCRIPTION } from "./claude-subscription";
 
 type Selection = { reference?: ModelReference; source: "conversation" | "default" | "none"; role?: string; effort?: string; auto?: RuntimeStatus["autoEffort"] };
@@ -523,6 +523,7 @@ export class PiModels {
       : !model ? this.problemFor.has(reference.provider)
         ? `Model ${reference.provider}/${reference.id} is unavailable: ${this.problemFor.get(reference.provider)!.text} Casper looks again when you ask after 15 seconds; /model picks another.`
         : `Model ${reference.provider}/${reference.id} is unavailable. Use /model to choose another; no fallback was selected.`
+      : cantUseTools(model) ? noToolsLine(model.id)
       : auth === "missing" ? this.signInProblem(reference.provider)
       : model.contextWindow < SMALL_WINDOW ? this.tooSmall(session, model) : undefined;
     const prices = model?.cost ? [model.cost.input, model.cost.output].filter((price) => typeof price === "number" && Number.isFinite(price)) : [];
@@ -719,6 +720,7 @@ export class PiModels {
       const saved = this.recorded(session.sessionManager, model);
       const effort = resolved?.effort ?? saved?.effort ?? (this.autoDefault(model) ? "auto" : undefined);
       if (effort && effort !== "auto" && !nearestEffort(effort, getSupportedThinkingLevels(model))) throw new Error(`Unknown effort ${effort} for ${model.provider}/${model.id}.`);
+      if (cantUseTools(model)) throw new Error(`${noToolsLine(model.id)} Model unchanged.`);
       if (this.staleAuth.has(model.provider)) throw new Error("Credential state needs local refresh. Restart Casper before selecting this provider.");
       // A server Casper found needs no key: one just added may not be marked signed in yet.
       if (localKindHere(model.provider) && !this.catalog.hasConfiguredAuth(model.provider)) await this.coldStart(model.provider, signal, () => !this.catalog.hasConfiguredAuth(model.provider));
@@ -756,7 +758,7 @@ export class PiModels {
     options.signal?.throwIfAborted();
     const local = () => LOCAL_SERVERS.flatMap(({ id }) => {
       const config = this.catalog.getRegisteredProviderConfig(id);
-      return config?.apiKey === "local" && onThisComputer(config.baseUrl ?? "") ? this.catalog.getModels(id) : [];
+      return config?.apiKey === "local" && onThisComputer(config.baseUrl ?? "") ? this.catalog.getModels(id).filter((model) => !cantUseTools(model)) : [];
     })[0];
     const pick = signedIn() ?? local();
     if (!pick) return undefined;

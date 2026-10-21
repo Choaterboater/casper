@@ -1,6 +1,6 @@
 import { constants } from "node:fs";
 import { AsyncLocalStorage } from "node:async_hooks";
-import { access, mkdir, readFile, writeFile } from "node:fs/promises";
+import { access, mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { parse } from "yaml";
 import { createEditToolDefinition, createWriteToolDefinition, type ToolDefinition } from "@earendil-works/pi-coding-agent";
@@ -240,6 +240,13 @@ function shellWriteTargets(text: string, words: string[]): string[] {
   return targets;
 }
 
+/** The write tool's folder step. A folder that is there already is left alone: on Windows, mkdir of a drive root (a
+ * file written in C:\) fails with EPERM even with recursive. `fs` is a test seam. */
+export async function ensureFolder(directory: string, fs: { stat: typeof stat; mkdir: typeof mkdir } = { stat, mkdir }): Promise<void> {
+  try { if ((await fs.stat(directory)).isDirectory()) return; } catch { /* not there yet */ }
+  await fs.mkdir(directory, { recursive: true });
+}
+
 export function guardedFileTools(cwd: string, guard: CheckChangeGuard) {
   const signals = new AsyncLocalStorage<AbortSignal | undefined>();
   const write = (file: string, text: string) => guard.write(file, text, signals.getStore());
@@ -250,7 +257,7 @@ export function guardedFileTools(cwd: string, guard: CheckChangeGuard) {
       writeFile: write,
     } }),
     createWriteToolDefinition(cwd, { operations: {
-      mkdir: async (directory) => { await mkdir(directory, { recursive: true }); },
+      mkdir: (directory) => ensureFolder(directory),
       writeFile: write,
     } }),
   ].map((tool) => {

@@ -39,6 +39,8 @@ export interface LocalModel {
   trained?: number;
   /** Ollama: the window Ollama serves is not known until the model is loaded; Casper reads it after the first answer. */
   servedLater?: true;
+  /** Ollama: its capabilities leave out tools, and Casper sends its tools with every request (dolphin3, gemma3). */
+  tools?: false;
 }
 export interface LocalServer {
   /** One of the local kinds' ids for a server Casper looks for; your own name for one you added. */
@@ -248,6 +250,7 @@ async function ollama(fetcher: typeof fetch, root: string, signal: AbortSignal, 
       ...(trained && (!loaded.has(id) && !numCtx || trained > (served ?? trained)) ? { trained } : {}),
       ...(loaded.has(id) || numCtx ? {} : { servedLater: true as const }),
       ...(capabilities?.includes("vision") ? { images: true } : {}), ...(capabilities?.includes("thinking") ? { thinking: true } : {}),
+      ...(capabilities && !capabilities.includes("tools") ? { tools: false as const } : {}),
       request: { ...modelfileSampling(show?.parameters), keep_alive: keepAlive } };
   }));
   return models.filter((model) => model !== undefined);
@@ -596,11 +599,25 @@ export function forgetLocalServer(name: string): void {
 }
 
 /** Forget what was found and what the looks cover (tests). */
-export function clearLocalServers(): void { round = undefined; lastFound.clear(); listeners.clear(); ollamaWindows.clear(); settings = { auto: true, saved: [] }; }
+export function clearLocalServers(): void { round = undefined; lastFound.clear(); listeners.clear(); ollamaWindows.clear(); toolless.clear(); settings = { auto: true, saved: [] }; }
 
 type Catalog = Pick<ModelRuntime, "getProvider" | "getModels" | "getRegisteredProviderConfig" | "registerProvider">;
 /** Each Ollama model's windows in this process (by address and id): the most it takes, and what Ollama serves. */
 const ollamaWindows = new Map<string, { trained?: number; served?: number }>();
+/** The models a server says can't take tools, by windowKey. */
+const toolless = new Set<string>();
+
+/** Whether a found server said this model can't take tools: every request of Casper's carries them, so it can't work
+ * here, not even for a question. */
+export function cantUseTools(model: { baseUrl?: string; id: string }): boolean {
+  return Boolean(model.baseUrl && toolless.has(windowKey(model.baseUrl, model.id)));
+}
+
+/** What /model and a pick say about a model that can't take tools. */
+export const NO_TOOLS = "no tools · can't edit or run commands";
+export function noToolsLine(id: string): string {
+  return `${id} can't use tools, and Casper sends them with every request, so it can't answer here, not even a question. Pick another model with /model.`;
+}
 const windowKey = (baseUrl: string, id: string) => `${baseUrl.replace(/\/+$/, "")} ${id}`;
 const outputCap = (contextWindow: number) => Math.min(16_384, Math.max(1_024, Math.floor(contextWindow / 4)));
 
@@ -621,10 +638,14 @@ async function learnServedWindow(baseUrl: string, local: LocalModel, model: { co
   model.maxTokens = outputCap(window);
 }
 
-/** One plain notice when Ollama serves a model less than half the window it takes, with how to raise it. */
+/** The window Casper suggests for Ollama, and past which a smaller-than-trained one is not worth a warning. */
+const ENOUGH_WINDOW = 32_768;
+
+/** One plain notice when Ollama serves a model less than half the window it takes (and under 32k), with how to raise it. */
 export function servedWindowWarning(model: { baseUrl?: string; id: string; contextWindow: number }): string | undefined {
   const known = model.baseUrl ? ollamaWindows.get(windowKey(model.baseUrl, model.id)) : undefined;
-  if (!known?.trained || !known.served || known.served * 2 > known.trained) return undefined;
+  // 32k holds Casper's own part and real work: a larger model window isn't worth a warning, nor 32768 as the fix.
+  if (!known?.trained || !known.served || known.served * 2 > known.trained || known.served >= ENOUGH_WINDOW) return undefined;
   const words = (n: number) => n.toLocaleString("en-US");
   return `Ollama runs ${model.id} with a ${words(known.served)}-token window, though the model takes ${words(known.trained)}; `
     + `Casper keeps the conversation inside ${words(known.served)}. To raise it, start Ollama with OLLAMA_CONTEXT_LENGTH=32768 ollama serve, `
@@ -669,6 +690,7 @@ export function registerLocalServers(catalog: Catalog, servers: readonly LocalSe
         models: server.models.map((model) => {
           // Ollama: a window this list only guesses gives way to the one read after an answer.
           const key = windowKey(server.baseUrl, model.id);
+          if (model.tools === false) toolless.add(key); else toolless.delete(key);
           const served = model.servedLater ? ollamaWindows.get(key)?.served : model.contextWindow;
           if (model.trained || ollamaWindows.has(key)) ollamaWindows.set(key, { trained: model.trained, served });
           const contextWindow = Math.min(model.contextWindow ?? UNKNOWN_WINDOW, served ?? Infinity);

@@ -782,9 +782,16 @@ no API key or separate sign-in is needed.
   prompt, Casper's instructions and tools first. Ollama's OpenAI-style address ignores a request's
   `num_ctx`, so Casper can't ask for more: when the window wasn't known, it reads the one Ollama
   loaded the model with after the model's first answer, and keeps the conversation inside it. If that
-  is under half of what the model takes, Casper says so once per session, with how to raise it: start
+  is under half of what the model takes and under 32,768 (32k is enough for Casper), Casper says so
+  once per session, with how to raise it: start
   Ollama with `OLLAMA_CONTEXT_LENGTH=32768 ollama serve`, or set `PARAMETER num_ctx 32768` in a
   Modelfile (`ollama create`).
+- **Models without tools.** Ollama says which models can take tools. One that can't (`dolphin3`, `gemma3`)
+  is marked `no tools · can't edit or run commands` in `/model` and can't be picked: Casper sends its tools
+  with every request, so such a model can't answer here, not even a question. A first model is never picked
+  from them for you.
+- **A tool call written as words.** A model that writes a `<tool_call>` tag in its answer instead of
+  making the call doesn't get the tag (or what it wraps) shown; nothing in it is run.
 - **Ollama's model settings.** Ollama's OpenAI-style address runs every model at temperature 1.0 and top_p
   1.0 unless a request says otherwise, so Casper sends the `temperature` and `top_p` the model's Modelfile
   sets (`ollama show <model> --parameters`), and nothing it doesn't set. It also sends `keep_alive: 30m`,
@@ -934,8 +941,8 @@ above that points at another machine goes there. Check what the model really is 
   and server support them. Tool support depends on the model and startup flags, not the server's name:
   SGLang may need `--tool-call-parser <parser>` with a parser suited to the model. MLX LM / vllm-mlx
   likewise need a tool-capable model and the appropriate server options; not every model can edit files.
-- Small models often can't use tools. Casper then says the model can't edit files or run commands;
-  pick another with `/model`, or use it for questions only. Tool use needs a model made for it
+- Small models often can't use tools. Casper sends its tools with every request, so such a model can't
+  answer here, not even a question: Casper says so; pick another with `/model`. Tool use needs a model made for it
   (look for "tools" on the model's page) and, on some servers, a switch to turn it on.
 - Context size matters most. Casper's fixed request, before your words, is about 4,600 tokens. Start
   the server with a window of 16k (16,384) tokens or more: Ollama's default is smaller and will cut the

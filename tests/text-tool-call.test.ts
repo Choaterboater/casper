@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { isToolCallAsText } from "../src/task/text-tool-call";
+import { isToolCallAsText, ToolCallTags } from "../src/task/text-tool-call";
 import { type TaskResult, formatReceipt, formatShortReceipt, receiptVerdict, taskExitCode, taskOutcome } from "../src/task/result";
 
 const call = '{"name":"bash","arguments":{"command":"ls"}}';
@@ -34,4 +34,20 @@ test("the receipt says the model did not act, and the run is not a success", () 
   expect(receiptVerdict(task)).toBe("– Did not act — the model wrote a tool call as text instead of using it");
   expect(formatShortReceipt(task)).toContain("Did not act");
   expect(formatReceipt({ execution: "completed", changedPaths: [] })).not.toContain("Did not act");
+});
+
+test("a tool-call tag written as words is not shown, even split across deltas; what it wraps goes with it", () => {
+  const shown = (deltas: string[]) => { const tags = new ToolCallTags(); return deltas.map((delta) => tags.push(delta)).join("") + tags.end(); };
+  // Qwen through Ollama: an answer that ends in a dangling tag.
+  expect(shown(["Here are the tests I'll write for", ".<tool", "_call>"])).toBe("Here are the tests I'll write for.");
+  expect(shown(["Done.<tool_call>", '{"name":"write","arguments":{"path":"a.py"}}'])).toBe("Done.");
+  expect(shown(["Before <TOOL_CALL>{\"name\":\"bash\"}</tool", "_call> after"])).toBe("Before  after");
+  expect(shown(["stray </tool_call>closing tag"])).toBe("stray closing tag");
+  // Words that only look like the start of a tag are shown once the answer ends.
+  expect(shown(["if a <", "b then <to"])).toBe("if a <b then <to");
+  expect(shown(["<tool_choice> is a field"])).toBe("<tool_choice> is a field");
+  // One answer's open tag doesn't hide the next answer.
+  const tags = new ToolCallTags();
+  tags.push("x<tool_call>"); tags.end();
+  expect(tags.push("next answer")).toBe("next answer");
 });
