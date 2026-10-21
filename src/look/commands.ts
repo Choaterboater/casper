@@ -9,6 +9,7 @@ import auditText from "./audit.md" with { type: "text" };
 import clarifyText from "./clarify.md" with { type: "text" };
 import colourText from "./colour.md" with { type: "text" };
 import critiqueText from "./critique.md" with { type: "text" };
+import guidelinesText from "./guidelines.md" with { type: "text" };
 import hardenText from "./harden.md" with { type: "text" };
 import layoutText from "./layout.md" with { type: "text" };
 import polishText from "./polish.md" with { type: "text" };
@@ -30,6 +31,7 @@ export const MAX_LOOK_BODY_BYTES = 2 * 1024;
 export const LOOK_COMMANDS: readonly LookCommand[] = [
   { name: "critique", description: "Score the page on 10 usability rules at phone and desktop width; a report, no edits", fixes: false, body: critiqueText },
   { name: "audit", description: "Accessibility, speed, theming, phone width and integrity, scored; a report, no edits", fixes: false, body: auditText },
+  { name: "guidelines", description: "Vercel's Web Interface Guidelines, rule by rule: focus, forms, motion, copy; a report, no edits", fixes: false, body: guidelinesText },
   { name: "polish", description: "Fix what is broken, then missing states, layout, looks and cleanup", fixes: true, body: polishText },
   { name: "layout", description: "Spacing, grouping and reading order", fixes: true, body: layoutText },
   { name: "type", description: "Sizes, weights, line length and wrapping", fixes: true, body: typeText },
@@ -41,7 +43,7 @@ export const LOOK_COMMANDS: readonly LookCommand[] = [
 ];
 
 /** Other spellings people type for a command. */
-const LOOK_ALIASES: Record<string, string> = { color: "colour", typeset: "type", typography: "type" };
+const LOOK_ALIASES: Record<string, string> = { color: "colour", typeset: "type", typography: "type", vercel: "guidelines" };
 
 export function findLookCommand(name: string): LookCommand | undefined {
   const word = name.toLowerCase();

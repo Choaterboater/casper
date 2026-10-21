@@ -146,7 +146,10 @@ Casper's bundled skill skills/web/quality/SKILL.md takes rules from these
 projects: impeccable's craft floor (its Verify and Refuse lists), the
 frontend-design skill's list of generated-page defaults, the Web Interface
 Guidelines' form, focus, animation and zoom rules, and the minimum hit area rule
-of make-interfaces-feel-better. Changes: the text was shortened, reworded in
+of make-interfaces-feel-better. The /look guidelines instructions
+(src/look/guidelines.md) are adapted from the Web Interface Guidelines'
+command.md the same way: shortened, rewritten in Casper's words and pointed at
+Casper's browser tool. Changes: the text was shortened, reworded in
 Casper's plain words, merged into one list and given Casper's section layout;
 nothing is copied whole. impeccable's platform files (reference/ios.md,
 reference/android.md) are not used.

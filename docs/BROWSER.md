@@ -110,6 +110,7 @@ entries) taken before and after; when none of these changed, `changes` is left o
 | --- | --- |
 | `critique` | Screenshots at 390 and 1280 wide; scores Nielsen's 10 usability heuristics 0 to 4; what works, issues marked P0 to P3, 3 questions. A report: no edits |
 | `audit` | `diagnostics`, `inspect`, and checks for no sideways scroll at 390 and no overlap of the header and the content; scores accessibility, performance, theming, responsive and integrity 0 to 4. A report: no edits |
+| `guidelines` | Checks for no sideways scroll at 390 and no overlap at 1280, then goes through Vercel's Web Interface Guidelines (interaction and focus, forms, animation, layout, content, performance, theming, URL state); one line per finding: rule, where, fix (`vercel` works too). A report: no edits |
 | `polish` | Fixes in this order: broken, missing states, hierarchy and responsive, visual, cleanup |
 | `layout` | Spacing, grouping and reading order |
 | `type` | Sizes, weights, line length and wrapping |
@@ -127,16 +128,20 @@ entries) taken before and after; when none of these changed, `changes` is left o
   A missing `node_modules`, no Chrome or Edge, or the browser tool off in `/settings` is said the
   same way, also with no model call.
 - **Only its own instructions.** Each command's instructions are a small file of their own
-  (`src/look/<command>.md`, 230 to 450 tokens), added to that one request only. None of them is in
+  (`src/look/<command>.md`, 230 to 500 tokens), added to that one request only. None of them is in
   the fixed prompt, and the next request has none.
 - **Fixes end by looking again.** The fixing commands record checks before they edit, then replay
   them and take fresh screenshots; Casper's own end-of-task replay and page checks run as after
-  any change. `critique` and `audit` are told to change no files; the receipt shows any that did.
+  any change. `critique`, `audit` and `guidelines` are told to change no files; the receipt shows
+  any that did.
 - `/look` waits for a running task, like `/plan`.
 - The instructions are adapted and trimmed from
   [pbakaus/impeccable](https://github.com/pbakaus/impeccable)'s command references (Apache-2.0,
-  Copyright 2025 Paul Bakaus), shortened and rewritten in Casper's words; the notice is in
-  `THIRD_PARTY_NOTICES.txt` (`casper --licenses`).
+  Copyright 2025 Paul Bakaus), shortened and rewritten in Casper's words. `guidelines` is adapted
+  the same way from
+  [vercel-labs/web-interface-guidelines](https://github.com/vercel-labs/web-interface-guidelines)
+  (MIT, Copyright (c) 2025 Vercel Labs). The notices are in `THIRD_PARTY_NOTICES.txt`
+  (`casper --licenses`).
 
 ## Reproduce, fix, replay
 
