@@ -53,7 +53,9 @@ test("the undo-app file announcement is followed by completion alongside securit
   // regression cannot orphan a spinning worker when its root is stopped.
   const owner = ownSpawnedTree(child.pid, () => child.exitCode === null && child.signalCode === null, { trackGroups: true })!;
   let timedOut = false;
-  const guard = setTimeout(() => { timedOut = true; void owner.stop(); }, 20_000);
+  // A hang, not a slow machine: passing Windows runs inside the full suite take 10-18 s for the two files (two Bun
+  // workers, real git), so 20 s ran out on busy runners. The hang this guards against ran 30 minutes.
+  const guard = setTimeout(() => { timedOut = true; void owner.stop(); }, 45_000);
   try {
     const [stdout, stderr, status] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
     const output = `${stdout}${stderr}`.replaceAll("\\", "/");
@@ -62,4 +64,4 @@ test("the undo-app file announcement is followed by completion alongside securit
     expect(output).toMatch(/\b2 pass\b/);
     expect(output).toMatch(/\b0 fail\b/);
   } finally { clearTimeout(guard); await owner.stop(); }
-});
+}, 60_000);
