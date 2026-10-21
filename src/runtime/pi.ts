@@ -1239,6 +1239,9 @@ function readSmallText(file: string): string | undefined | null {
   } catch (error) { return (error as NodeJS.ErrnoException).code === "ENOENT" ? undefined : null; }
 }
 
+/** Added to a finished command's output when what it started could not be confirmed stopped. */
+export const CLEANUP_NOTE = "[The command finished, but Casper could not confirm that every process it started has stopped. Casper shows them to the person before the next task.]";
+
 /**
  * Pi's own local bash execution with Casper's shell around it: a question first when no sandbox can run, the
  * sandbox's wrapper when one does, and the sandbox's refusal added to the output the AI reads ("[sandbox] blocked:
@@ -1300,12 +1303,16 @@ export function casperBashOperations(shell: RuntimeShell | undefined, local: Bas
           } catch (error) {
             if (error instanceof ProcessCleanupError) {
               shell?.onCleanupFailure?.(error);
-              throw error;
+              // A command that finished keeps its output and exit code; the processes it left are a note.
+              if (error.exitCode === undefined || stalled) throw error;
+              onData(Buffer.from(`\n${CLEANUP_NOTE}\n`));
+              result = { exitCode: error.exitCode };
+            } else {
+              if (!stalled) throw error;
+              watch?.stop();
+              onData(Buffer.from(stalled));
+              result = { exitCode: STALLED_EXIT_CODE };
             }
-            if (!stalled) throw error;
-            watch?.stop();
-            onData(Buffer.from(stalled));
-            result = { exitCode: STALLED_EXIT_CODE };
           }
           agentGuard.finished(command, result.exitCode);
           if (wrapped.id && result.exitCode !== 0 && shell?.refused) {

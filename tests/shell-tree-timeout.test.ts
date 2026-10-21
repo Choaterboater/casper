@@ -2,10 +2,12 @@ import { afterEach, expect, spyOn, test } from "bun:test";
 import { mkdtemp, readFile, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { createBashToolDefinition } from "@earendil-works/pi-coding-agent";
+import * as processes from "../src/platform/processes";
 import { posixProcessPlatform, ProcessCleanupError } from "../src/platform/processes";
 import { BackgroundCommands } from "../src/runtime/background-commands";
 import * as stalls from "../src/runtime/stalled-commands";
-import { casperBashOperations } from "../src/runtime/pi";
+import { casperBashOperations, CLEANUP_NOTE } from "../src/runtime/pi";
 import { removeTempDir } from "./support/temp-dir";
 
 const cleanup: Array<() => Promise<unknown>> = [];
@@ -71,6 +73,22 @@ test("unconfirmed shell cleanup notifies the host without permanently blocking l
   await expect(bash.exec("next", process.cwd(), { onData() {} })).resolves.toEqual({ exitCode: 0 });
   expect({ blocked, approved, started }).toEqual({ blocked: 1, approved: 2, started: 2 });
 });
+
+test("a command that finished before its cleanup was unconfirmed keeps its output and exit code, with a note", async () => {
+  let blocked = 0;
+  // The command really runs; only the check that what it started has stopped answers "unknown".
+  const stopping = spyOn(processes, "terminateTree").mockResolvedValue("unknown");
+  try {
+    const bash = createBashToolDefinition(process.cwd(), { operations: casperBashOperations({ wrap: async command => ({ command }),
+      onCleanupFailure: error => { expect(error).toBeInstanceOf(ProcessCleanupError); blocked++; } }) });
+    const result = await bash.execute("call", { command: "printf 'suite done'; exit 3", timeout: 10 }, new AbortController().signal, undefined, undefined as never);
+    const text = result.content.flatMap(block => block.type === "text" ? [block.text] : []).join("");
+    expect(text).toContain("suite done");
+    expect(text).toContain(CLEANUP_NOTE);
+    expect(text).toContain("Command exited with code 3");
+    expect(blocked).toBe(1);
+  } finally { stopping.mockRestore(); }
+}, 20_000);
 
 test("a stalled command must not translate unconfirmed cleanup into a normal stall result", async () => {
   const failure = new ProcessCleanupError();
