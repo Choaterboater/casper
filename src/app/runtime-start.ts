@@ -67,8 +67,8 @@ export async function ensureRuntime(app: CasperApp): Promise<RuntimeSession> {
         systemPromptAppend: systemPromptAppend(context),
         leanSystemPromptAppend: systemPromptAppend(context, true),
         // A plan turn refuses every tool but reading, whatever the tool says about itself.
-        beforeToolGate: (toolName, input) => (app.planning ? planToolGate(toolName, input) : undefined)
-          ?? hiddenSecretGate(toolName, input)
+        beforeToolGate: (toolName, input, cwd) => (app.planning ? planToolGate(toolName, input) : undefined)
+          ?? hiddenSecretGate(toolName, input, cwd)
           ?? ((changes) => changes ? editGateReason(app, changes) : undefined)(fileChangeTool(toolName, input)),
         // At the spend pause the next tool call waits for the answer (Stop here is the Enter choice).
         beforeToolWait: (_toolName, signal) => spendGate(app, signal),

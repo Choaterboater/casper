@@ -39,8 +39,8 @@ export interface RuntimeStartOptions {
   afterFileEdit?: (path: string, signal?: AbortSignal) => Promise<string | undefined>;
   /** Return a reason to block a tool call before it executes (empty/undefined = allow). Called for every
    * tool: built-in, Casper's own and MCP tools.
-   * Read as a closure each call, so per-task gate state can change between calls. */
-  beforeToolGate?: (toolName: string, input: Record<string, unknown> | undefined) => string | undefined;
+   * Read as a closure each call, so per-task gate state can change between calls. `cwd` is the session's, for tool paths. */
+  beforeToolGate?: (toolName: string, input: Record<string, unknown> | undefined, cwd?: string) => string | undefined;
   /** May wait (for a question) before a tool call runs; a reason stops the model's turn. Casper's spend pause. */
   beforeToolWait?: (toolName: string, signal?: AbortSignal) => Promise<string | undefined>;
   /** May wait for background work the call would touch (a picture being made); returns notes for its result. */

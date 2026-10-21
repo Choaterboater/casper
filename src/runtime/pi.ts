@@ -967,7 +967,7 @@ export class PiRuntime implements AgentRuntime {
           if (!readOnly) return;
           const pathReason = fileToolGate(event.toolName, event.input, pathContext);
           if (pathReason) return { block: true, reason: pathReason };
-          const gateReason = readOnly.beforeToolGate?.(event.toolName, event.input);
+          const gateReason = readOnly.beforeToolGate?.(event.toolName, event.input, cwd);
           if (gateReason) return { block: true, reason: gateReason };
         });
         /** Allowed edits and writes outside the project, by tool call, for the receipt. */
@@ -992,7 +992,7 @@ export class PiRuntime implements AgentRuntime {
           if (privateRead) return { block: true, reason: privateRead };
           // Every tool, Casper's own and MCP tools too, so a plan turn can refuse anything that changes state.
           if (options.beforeToolGate) {
-            const reason = options.beforeToolGate(event.toolName, event.input);
+            const reason = options.beforeToolGate(event.toolName, event.input, cwd);
             if (reason) return { block: true, reason };
           }
           // An edit or write outside the project asks first (temp, caches and your allowWrite don't), after the

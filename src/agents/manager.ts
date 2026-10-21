@@ -299,7 +299,7 @@ function builderPrompt(options: BuilderRunOptions, timeoutMs: number): string {
  * as in the main session, nothing it writes or runs carries the hidden-secret marker back over a real secret. */
 function copyGate(copy: string): NonNullable<RuntimeStartOptions["beforeToolGate"]> {
   return (toolName, input) => {
-    const hidden = hiddenSecretGate(toolName, input);
+    const hidden = hiddenSecretGate(toolName, input, copy);
     if (hidden) return hidden;
     if (toolName !== "edit" && toolName !== "write") return undefined;
     const typed = typeof input?.path === "string" ? input.path : "";

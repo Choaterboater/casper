@@ -181,7 +181,8 @@ refuses any of these that still contain `<secret hidden>` (or
 - An `edit` or `write` whose new text contains it is refused: `Not written: the new
   text has <secret hidden> in it. That would replace a real secret in the file.
   Keep the original line.` (The old text an edit looks for may contain it; only new
-  text counts.)
+  text counts. A `write` that creates a new file may contain it, since there is no
+  secret there to replace; overwriting a file that exists is still refused.)
 - A `bash` or `powershell` command, or the `service` tool's own start command, that contains it is refused: `Not run: the
   command has <secret hidden> in it. It could write the marker over a real secret.
   Keep the original line, or ask the user to make this change.`
