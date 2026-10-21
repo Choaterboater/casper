@@ -767,16 +767,23 @@ async function withFinder<T>(page: Page, work: (find: JSHandle<Find>) => Promise
 
 /** Runs in the page: waits for the document to finish loading, then for its DOM, open shadow roots included, to stop
  * changing (nodes and text, not attributes, so a spinner doesn't hold it) for `quiet` ms while no loading splash shows
- * (a busy region, or a page whose only words say Loading). Gives up at `limit` ms; true when it settled. */
-const PAGE_SETTLED = async (quiet: number, limit: number): Promise<boolean> => {
-  const end = performance.now() + limit;
+ * (a busy region, or a page whose only words say Loading). A page already loaded that doesn't change for `brief` ms
+ * is taken as still: most reads of a page that finished drawing long ago cost that, not `quiet`. Gives up at `limit`
+ * ms; true when it settled. */
+const PAGE_SETTLED = async (quiet: number, brief: number, limit: number): Promise<boolean> => {
+  const start = performance.now(), end = start + limit;
   const pause = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+  const loaded = document.readyState === "complete";
   while (document.readyState !== "complete" && performance.now() < end) await pause(50);
-  let changed = performance.now();
-  const observer = new MutationObserver(() => { changed = performance.now(); });
+  // Shadow roots found on the first look were already there: only later ones count as a change.
+  let changed = performance.now(), moved = !loaded, first = true;
+  const observer = new MutationObserver(() => { changed = performance.now(); moved = true; });
   const watched = new WeakSet<Node>();
   const watch = (root: Document | ShadowRoot) => {
-    if (!watched.has(root)) { watched.add(root); observer.observe(root, { subtree: true, childList: true, characterData: true }); if (root !== document) changed = performance.now(); }
+    if (!watched.has(root)) {
+      watched.add(root); observer.observe(root, { subtree: true, childList: true, characterData: true });
+      if (root !== document && !first) { changed = performance.now(); moved = true; }
+    }
     for (const el of root.querySelectorAll("*")) if (el.shadowRoot) watch(el.shadowRoot);
   };
   const busy = () => {
@@ -786,17 +793,22 @@ const PAGE_SETTLED = async (quiet: number, limit: number): Promise<boolean> => {
   };
   try {
     watch(document);
+    first = false;
     while (performance.now() < end) {
-      await pause(100);
+      // Quick looks while nothing has changed; once something has, the slower pace that walks a big page less often.
+      await pause(moved ? 100 : 25);
       watch(document);
-      if (performance.now() - changed >= quiet && !busy()) return true;
+      const still = performance.now() - changed;
+      if ((still >= quiet || (!moved && still >= brief)) && !busy()) return true;
     }
     return false;
   } finally { observer.disconnect(); }
 };
-/** How long the page may stay still before screenshot, inspect, diagnostics or a check reads it, and the most it is waited for. */
+/** How long the page may stay still before screenshot, inspect, diagnostics or a check reads it, how long a page
+ * already loaded and not changing is watched, and the most it is waited for. */
 const SETTLE_QUIET_MS = 500;
-const SETTLE_MS = 5_000;
+const SETTLE_BRIEF_MS = 100;
+const SETTLE_MS = 3_000;
 
 /** Paths of sign-in and authorize pages (Home Assistant's /auth/authorize, /login, /signin, /oauth/authorize). */
 const SIGN_IN_PATH = /\/(?:auth\/authorize|oauth2?\/authorize|log-?in|sign-?in|sign_in|sso)(?:\/|\.html?$|$)/i;
@@ -975,6 +987,8 @@ export class BrowserSession {
   private screenshotCount = 0;
   /** The last screenshot counted: a byte-identical retake is sent again without counting. */
   private lastScreenshot?: { digest: string; path: string };
+  /** Pages whose last navigation ran out of time: still loading, so reading them never waits for them to settle. */
+  private hung = new WeakSet<Page>();
   /** Page-check pictures taken this session (their own limit; the model's 16 screenshots are apart). */
   private pagePictures = 0;
   /** Final-page pictures checks and replays sent this session. */
@@ -1145,8 +1159,12 @@ export class BrowserSession {
   /** Opens a URL; a redirect or page part held back at a metadata address is asked about, then loaded again. */
   private async navigate(page: Page, url: string, signal: AbortSignal): Promise<{ notOpened?: string[]; note?: string }> {
     this.guard?.take();
+    this.hung.delete(page);
     try { await page.goto(url, { waitUntil: "domcontentloaded", timeout: this.options.navigationTimeoutMs ?? 10_000 }); }
-    catch (error) { if (!this.guard?.blocked.some(entry => entry.mainFrame)) throw error; }
+    catch (error) {
+      if (/timeout/i.test(String(error))) this.hung.add(page);
+      if (!this.guard?.blocked.some(entry => entry.mainFrame)) throw error;
+    }
     signal.throwIfAborted();
     return this.metadataAfter(page, signal, url);
   }
@@ -1182,15 +1200,16 @@ export class BrowserSession {
   /**
    * Lets the page finish drawing before it is read: PAGE_SETTLED in the page while requests go quiet (two long-lived
    * ones aside), at most settleMs, then the action goes on whatever the page shows; never a failure. A page that moves
-   * to another address meanwhile (a sign-in redirect) is waited for again in its new document.
+   * to another address meanwhile (a sign-in redirect) is waited for again in its new document. A page whose
+   * navigation ran out of time is read as it is.
    */
   private async settle(page: Page, signal: AbortSignal): Promise<void> {
     const end = performance.now() + (this.options.settleMs ?? SETTLE_MS);
     const left = () => Math.round(end - performance.now());
-    if (left() <= 0) return;
-    const requests = page.waitForNetworkIdle({ idleTime: SETTLE_QUIET_MS, timeout: left(), concurrency: 2 }).catch(() => {});
+    if (left() <= 0 || this.hung.has(page)) return;
+    const requests = page.waitForNetworkIdle({ idleTime: SETTLE_BRIEF_MS, timeout: left(), concurrency: 2 }).catch(() => {});
     while (left() > 0 && !signal.aborted && !page.isClosed()) {
-      try { await page.evaluate(PAGE_SETTLED, SETTLE_QUIET_MS, left()); break; }
+      try { await page.evaluate(PAGE_SETTLED, SETTLE_QUIET_MS, SETTLE_BRIEF_MS, left()); break; }
       catch (error) {
         if (!/context was destroyed|navigat|detached|Cannot find context/i.test(String(error))) break;
         await new Promise(resolve => setTimeout(resolve, 100));

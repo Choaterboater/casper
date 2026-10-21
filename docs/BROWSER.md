@@ -69,9 +69,11 @@ Before `inspect`, `screenshot`, `diagnostics` and a check's steps and assertions
 Casper lets the page finish drawing: it waits for the document to load, then for
 its elements (open shadow roots included) to stop changing for half a second
 while requests go quiet and no loading splash shows (an `aria-busy` region, or a
-page whose only words say Loading). It waits at most 5 seconds and then goes on
-with whatever the page shows; the wait never fails the action. A page that moves
-to another address meanwhile, such as a sign-in redirect, is waited for again.
+page whose only words say Loading). A page that had already loaded and doesn't
+change in a tenth of a second is read at once. It waits at most 3 seconds and
+then goes on with whatever the page shows; the wait never fails the action. A
+page that moves to another address meanwhile, such as a sign-in redirect, is
+waited for again; one whose open ran out of time is read as it is.
 
 Web components are read too. `inspect` reads text and controls inside open
 shadow roots (a control there has `inShadowRoot: true`), and a selector that
