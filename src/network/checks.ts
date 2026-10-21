@@ -120,7 +120,7 @@ async function withWorkspace<T>(make: () => Promise<ToolWorkspace>, use: (worksp
 }
 
 /** Run playbooks one by one; the first failure or not-run ends the check. Durations add up. */
-async function eachPlaybook(base: Base, playbooks: string[], step: (playbook: string) => Promise<NetworkCheckResult>): Promise<NetworkCheckResult> {
+async function eachPlaybook(playbooks: string[], step: (playbook: string) => Promise<NetworkCheckResult>): Promise<NetworkCheckResult> {
   let total = 0;
   let last: NetworkCheckResult | undefined;
   const commands: string[] = [];
@@ -155,7 +155,7 @@ async function ansibleSyntax(base: Base, spec: NetworkCheckSpec, context: Networ
     }
   }
   return withWorkspace(() => ansibleWorkspace({ tmpRoot: context.tmpRoot, realHome: context.realHome, path: context.path }), (workspace) =>
-    eachPlaybook(base, playbooks, async (playbook) => {
+    eachPlaybook(playbooks, async (playbook) => {
       const absolute = await resolveInside(context.root, playbook);
       // -i localhost, : the explicit inventory stops ansible.cfg or ANSIBLE_INVENTORY from naming a dynamic one.
       const args = render ? ["-i", "localhost,", absolute] : ["--syntax-check", "-i", "localhost,", absolute];
@@ -418,7 +418,7 @@ export async function prepareLabCheck(name: string, spec: NetworkCheckSpec, cont
         const execution = await runArgv(playbookTool, ["-i", inventory, playbook, "-e", `@${vars}`], { cwd: context.root, env: workspace.env, timeoutMs, signal: context.signal, sandbox: false });
         return ansibleResult(labBase, `juniper.device.config check on ${hosts.length} ${hosts.length === 1 ? "router" : "routers"}`, execution);
       }
-      return eachPlaybook(labBase, spec.playbooks ?? [], async (playbook) => {
+      return eachPlaybook(spec.playbooks ?? [], async (playbook) => {
         const absolute = await resolveInside(context.root, playbook);
         const execution = await runArgv(playbookTool, ["--check", "--diff", "-i", inventory, absolute], { cwd: context.root, env: workspace.env, timeoutMs, signal: context.signal, sandbox: false });
         return ansibleResult(labBase, `ansible --check on ${hosts.length} ${hosts.length === 1 ? "switch" : "switches"}`, execution);

@@ -3,7 +3,7 @@ import { mkdir, readdir, readFile, realpath, writeFile } from "node:fs/promises"
 import path from "node:path";
 import { notesServer } from "./support/notes-server";
 import { sandboxAvailable } from "./support/platform";
-import { cleanUpAfterEach, fixture, events, fixProject, lastUser, REVIEW, reviewOn, asked, shellCheckTest } from "./support/scripting";
+import { cleanUpAfterEach, fixture, events, fixProject, lastUser, REVIEW, reviewOn, shellCheckTest } from "./support/scripting";
 import { processGone } from "./support/wait";
 
 cleanUpAfterEach();

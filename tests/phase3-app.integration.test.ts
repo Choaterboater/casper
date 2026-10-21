@@ -83,7 +83,7 @@ function createApp(root: string, options: { autoVerify?: boolean; respond?: (pro
 test("runtime error and abort stops are not reported as successful tasks or followed by verification", async () => {
   for (const [stopReason, execution, code] of [["error", "failed", 1], ["aborted", "cancelled", 130]] as const) {
     const root = await fixture();
-    const { app, output } = createApp(root, { autoVerify: true, stopReason, respond: async () => {
+    const { app } = createApp(root, { autoVerify: true, stopReason, respond: async () => {
       await writeFile(path.join(root, "useful-work"), "retained");
     } });
     try {
@@ -119,7 +119,7 @@ test("a nonthrowing failed repair stops instead of claiming a passing rerun", as
 test("no model-selected checks is unverified, while explicit missing checks stay incomplete", async () => {
   const root = await fixture();
   await writeFile(path.join(root, ".casper/project.yaml"), "{}");
-  const { app, output } = createApp(root, { autoVerify: true, respond: async () => {} });
+  const { app } = createApp(root, { autoVerify: true, respond: async () => {} });
   try {
     const report = await app.runOnce("Add pagination", root);
     expect(report).toBeUndefined();
@@ -132,7 +132,7 @@ test("no model-selected checks is unverified, while explicit missing checks stay
 
 test("unverified normal completion is labeled separately and the returned task result is detached", async () => {
   const root = await fixture();
-  const { app, output } = createApp(root, { respond: async () => {} });
+  const { app } = createApp(root, { respond: async () => {} });
   try {
     await app.runOnce("Fix addition", root);
     const result = app.getLastTaskResult();
@@ -149,7 +149,7 @@ posixOnly("task observations retain bounded latest shell diagnostics, detached r
   // The configured check command must stay the text the model-reported commands below carry.
   await writeFile(path.join(root, ".casper/project.yaml"), posixCheckConfig);
   let turns = 0;
-  const { app, output } = createApp(root, {
+  const { app } = createApp(root, {
     editOnPrompt: (count) => count === 1,
     respond: async (_prompt, emit) => {
       if (++turns !== 1) return;
@@ -192,7 +192,7 @@ posixOnly("task observations retain bounded latest shell diagnostics, detached r
 test("fresh requests never reuse evidence; self-mutating scoped checks retain stale qualifications", async () => {
   const root = await fixture();
   await writeFile(path.join(root, ".casper/project.yaml"), `verify:\n  test: ${JSON.stringify(checkCommand("append:check-runs"))}\nverification:\n  scopes:\n    test:\n      inputs: ["."]\n      exclude: [home]\n`);
-  const { app, output } = createApp(root, {
+  const { app } = createApp(root, {
     autoVerify: true,
     editOnPrompt: (count) => count === 3,
     selectCheckOnPrompt: () => true,
@@ -289,7 +289,7 @@ test("review: a later verifier can invalidate an earlier passing check", async (
   const root = await fixture();
   await writeFile(path.join(root, "fixed"), "");
   await writeFile(path.join(root, ".casper/project.yaml"), `verify:\n  test: ${JSON.stringify(defaultCheck)}\n  build: ${JSON.stringify(checkCommand("remove:fixed"))}\nverification:\n  scopes:\n    test:\n      inputs: ["."]\n      exclude: [home]\n`);
-  const { app, output } = createApp(root);
+  const { app } = createApp(root);
   try {
     const report = await app.runOnce("/verify test build", root);
     expect(report?.status).toBe("pass");
@@ -319,7 +319,7 @@ test("/verify is local, exposes failure, names missing checks in one line, valid
 test("/verify repair sends evidence through the runtime seam and reports a real successful rerun", async () => {
   const root = await fixture();
   const command = checkCommand("require:fixed");
-  const { app, prompts, starts, output } = createApp(root, { respond: async () => { await writeFile(path.join(root, "fixed"), ""); } });
+  const { app, prompts, starts } = createApp(root, { respond: async () => { await writeFile(path.join(root, "fixed"), ""); } });
   try {
     const report = await app.runOnce("/verify repair test", root);
     expect(report?.status).toBe("pass");

@@ -5,6 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { PassThrough } from "node:stream";
 import { CasperApp } from "../src/app";
+import { offerWorkFolder } from "../src/app/workspace";
 import { loadProjectContext, type ProjectContext } from "../src/project/context";
 import type { AgentRuntime, RuntimeEventListener, RuntimeSession } from "../src/runtime/types";
 import { SkillRegistry } from "../src/skills/registry";
@@ -144,7 +145,7 @@ test.skipIf(!python)("Enter at \"The work is in ...\" stays in the folder and ke
     // Asked once: after Stay, a later task in the same project doesn't ask again this session.
     const child = await childProjectOf(docs, ["sample-tools/sites.py"], home);
     const before = harness.output().split("The work is in ~/Documents/sample-tools.").length;
-    await (harness.app as unknown as { offerWorkFolder(child: unknown): Promise<void> }).offerWorkFolder(child);
+    await offerWorkFolder(harness.app, child!);
     expect(harness.output().split("The work is in ~/Documents/sample-tools.").length).toBe(before);
   } finally {
     harness.input.write("/exit\r");

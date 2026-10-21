@@ -1,5 +1,5 @@
 import { afterAll, afterEach, expect, test } from "bun:test";
-import { chmod, mkdir, mkdtemp, stat, symlink, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, stat, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { AGENT_DIR_ENV, agentStoreWarnings, casperAgentDir, importLegacyEngineState, useCasperAgentStore } from "../src/runtime/agent-store";

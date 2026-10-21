@@ -112,7 +112,7 @@ describe("CasperApp", () => {
       const child = Bun.spawn([process.execPath, cli, command], {
         cwd: root, env: cleanEnv({ HOME: root, CASPER_PROFILE: "default" }), stdout: "pipe", stderr: "pipe",
       });
-      const [stdout, stderr, code] = await Promise.all([
+      const [, stderr, code] = await Promise.all([
         new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited,
       ]);
       expect(code).toBe(command.startsWith("/verfy") ? 1 : 0);

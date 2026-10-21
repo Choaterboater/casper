@@ -503,7 +503,7 @@ test("inside double quotes a backslash before an ordinary character, \\$, \\` an
 });
 
 test("Windows file-name tricks: a file operand with a colon after the first character, or a trailing space or dot, asks on every OS", async () => {
-  const { project, where } = await area();
+  const { where } = await area();
   const no = ["cat '.env::$DATA'", "cat '.env '", "cat '.env.'", "cat .env.", "cat '.env:x'", "cat 'a:b'", "head -n 1 '.env '", "tail '.env.'", "wc -l '.env::$DATA'",
     "sort '.env '", "stat '.env.'", "file '.env '", "diff README.md '.env.'", "grep KEY '.env '", "grep -r KEY '.env::$DATA'", "cat src/'a. '/x", "cat 'src /x'",
     "cat 'src./x'", "cat ' '", "cat 'x..'", "cat '...'", "cat 'D:x'", "find '.env ' -name x", "ls '.env.'", "cat README.md '.env.'",

@@ -1,7 +1,7 @@
 import { afterAll, expect, test } from "bun:test";
 import { PassThrough } from "node:stream";
 import type { CasperApp } from "../src/app";
-import { handlePrompt, handleSlashCommand } from "../src/app/command-loop";
+import { handleSlashCommand } from "../src/app/command-loop";
 import type { AgentRuntime } from "../src/runtime/types";
 import { COMMAND_REGISTRY, commandMenu, COMMANDS, menuRunsDuringWork, runsAfterCleanupError, runsDuringWork, takesArguments } from "../src/tui/commands";
 import { commandProblem, FULL_HELP_TEXT, unknownCommandMessage } from "../src/tui/help";

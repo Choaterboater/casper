@@ -33,11 +33,6 @@ export interface LabHost {
   address: string;
 }
 
-
-function toHost(value: string | LabHost): LabHost {
-  return typeof value === "string" ? { name: value, address: value } : value;
-}
-
 function matcher(settings: LabSettings): { ips: BlockList; names: Set<string> } {
   const ips = new BlockList();
   const names = new Set<string>();

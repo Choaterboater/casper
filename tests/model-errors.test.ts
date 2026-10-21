@@ -126,7 +126,7 @@ test("the receipt's next step follows the cause, not always another model", () =
 });
 
 test("a run that fails on a rejected key ends with /login as the next step", async () => {
-  const { mkdir, mkdtemp, rm } = await import("node:fs/promises");
+  const { mkdir, mkdtemp } = await import("node:fs/promises");
   const os = await import("node:os");
   const path = await import("node:path");
   const { CasperApp } = await import("../src/app");
@@ -159,7 +159,7 @@ test("a run that fails on a rejected key ends with /login as the next step", asy
 });
 
 test("a model error thrown to the prompt loop gets the plain cause line too", async () => {
-  const { mkdir, mkdtemp, rm, writeFile } = await import("node:fs/promises");
+  const { mkdir, mkdtemp, writeFile } = await import("node:fs/promises");
   const os = await import("node:os");
   const path = await import("node:path");
   const { PassThrough } = await import("node:stream");

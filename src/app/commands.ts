@@ -9,7 +9,6 @@ import type { DebugRequest, DebugSession } from "../debug/session";
 import { formatSubagentReport, SUBAGENT_LIMITS, SubagentManager, type SubagentRole } from "../agents/manager";
 import { formatReferenceResult, type ReferenceLibrary } from "../references/library";
 import { ProjectMemory } from "../memory/store";
-import { modelPreference } from "../tui/model-preference";
 import { HELP_TEXT, FULL_HELP_TEXT, HOTKEYS_TEXT, LOGIN_HELP, helpFor, unknownCommandMessage, wrapHelp } from "../tui/help";
 import { loadUserCommands, userCommandsHelp } from "./user-commands";
 import { conversationCommand, runLogout } from "./peer-commands";
@@ -19,7 +18,7 @@ import { formatCacheHitRate, formatCostLong, formatCostShort, formatTokenSplit }
 import { effortChoices, effortProblem } from "../tui/effort";
 import { sessionFlag } from "../tui/commands";
 import { pickEffort } from "../tui/effort-picker";
-import { commandLabel, displayPath, formatDuration, formatEffort, formatRuntimeStatus, redactPreview, terminalText, toolTarget } from "../tui/format";
+import { commandLabel, displayPath, formatDuration, formatRuntimeStatus, redactPreview, terminalText, toolTarget } from "../tui/format";
 import type { InteractiveTerminal } from "../tui/terminal";
 import type { CapabilityBroker } from "../capabilities/broker";
 import type { MCPManager, MCPStatus } from "../mcp/manager";

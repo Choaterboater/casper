@@ -122,7 +122,7 @@ test("turning on Copilot models stops at the first rate limit, as Pi's sign-in d
   const real = globalThis.fetch;
   const posts: string[] = [];
   try {
-    globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+    globalThis.fetch = (async (input: string | URL | Request, _init?: RequestInit) => {
       const url = String(input);
       if (url.endsWith("/v2/token")) return Response.json({ token: "tid=synthetic", expires_at: 2_000_000_000 });
       if (url.endsWith("/models")) return Response.json({ data: ["claude-haiku-4.5", "gpt-5.4", "gpt-5.5"].map((id) => ({ id, model_picker_enabled: true, policy: { state: "unconfigured" } })) });

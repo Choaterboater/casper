@@ -10,7 +10,7 @@ import { asksBeforeShell, ShellSandbox } from "../src/sandbox/manager";
 import { SkillRegistry } from "../src/skills/registry";
 import type { AgentRuntime, RuntimeSession, RuntimeStartOptions, RuntimeTool } from "../src/runtime/types";
 import { COMMANDS } from "../src/tui/commands";
-import { FULL_HELP_TEXT, HELP_TEXT } from "../src/tui/help";
+import { FULL_HELP_TEXT } from "../src/tui/help";
 import { reapMarker } from "./support/reap";
 import { removeTempDir } from "./support/temp-dir";
 

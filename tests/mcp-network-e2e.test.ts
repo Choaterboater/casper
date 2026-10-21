@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { PassThrough } from "node:stream";
 import { CasperApp } from "../src/app";
+import { revertWrites } from "../src/app/network-host";
 import { approveAllLabel } from "../src/app/safe-choices";
 import { gatesConfirmedOff } from "../src/mcp/access";
 import { discoverMCPConfiguration } from "../src/mcp/config";
@@ -251,7 +252,7 @@ test("Ctrl+X restarts it read-only and ends the grant", async () => {
       await ai.call("invoke_tool", WLAN);
       expect(await ai.serverArgs()).not.toContain("--read-only");
       // Ctrl+X
-      expect(ai.app["revertWrites"]()).toBe(true);
+      expect(revertWrites(ai.app)).toBe(true);
       // The server restarts with its pin once its calls finish.
       const ready = () => ai.manager().status().find((entry) => entry.name === "network")?.state === "ready";
       for (let i = 0; i < 100 && !(ready() && (await ai.serverArgs()).includes("--read-only")); i++) await new Promise((resolve) => setTimeout(resolve, 30));
