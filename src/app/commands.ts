@@ -1685,7 +1685,8 @@ async function stopAskingBox(host: CommandHost, sayStill = true, task = "\n"): P
   stopAsking(host, task);
 }
 
-function stopAsking(host: CommandHost, task: string): void {
+/** /permissions all's switch, turned on: by its box, or by "Yes to everything this session" in the shell box. */
+export function stopAsking(host: Pick<CommandHost, "stopAsking" | "updateFooter" | "output">, task = "\n"): void {
   host.stopAsking = true;
   host.updateFooter();
   host.output.write(`[permissions] Not asking until you quit: shell commands, hosts, writes outside the project and other machines are answered Yes for this session. Protected places, secrets, device writes and the spend pause stay as they are. /permissions ask turns asking back on.${task}`);

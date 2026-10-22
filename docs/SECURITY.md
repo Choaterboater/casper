@@ -219,8 +219,9 @@ the operating system, not a list of words:
 | `--no-sandbox`, or `sandbox: off` in `~/.casper/config.yaml` | Off, your choice | Nothing asks; the receipt says `Shell commands and checks were not sandboxed (--no-sandbox)` |
 
 With no sandbox, each command the AI's shell (and the service tool's own start command) wants to run, but
-plain reads and routine work (below), asks `Run this command?  npm test` (with **Routine commands** off) with `1 No · 2 Yes, this once · 3 Yes, for this session · 4 Yes, always for
-this project`. 3 covers `bun test` across different test files inside the same project folder and different log tails;
+plain reads and routine work (below), asks `Run this command?  npm test` (with **Routine commands** off) with `1 No · 2 Yes, this once · 3 Yes, for this session · 4 Yes, always for this project · 5 Yes to everything this session`.
+5 turns on what `/permissions all` does (below, Until you quit) in one key, without its second question; it also runs this
+command and is never saved ([decision 27](adr/0002/27-yes-to-everything.md)). 3 covers `bun test` across different test files inside the same project folder and different log tails;
 only read/status plumbing may accompany that runner, never another changing command, outside/private files or another folder.
 4 and all non-test approvals keep exact-command matching: a yes to `rm -rf /tmp/old-build` never covers `rm -rf ~`, a yes
 to `git push upstream feature` never covers `git push --force origin main`, and other options or files ask again. A
@@ -230,7 +231,7 @@ no cd, or after another cd, asks), when after it comes only a pipe into readers 
 stays the whole line: x may be a link by then) and nothing is piped into it (`cat a.sh | sh` stays the whole line, so
 `echo x | sh` asks). 4 keeps it in `~/.casper`. A prefix an older Casper kept for 4 (`npm test`) now covers only those exact words, never a longer
 command (`/allowed` lists it as `this exact command, kept by an older Casper`, and `/allowed forget` takes it back). A yes leaves no line of its own (the command's own line shows it ran); 3 or
-4 leaves one short `✓ allowed …` line; after the third yes Casper says once that `/permissions all` stops the
+4 leaves one short `✓ allowed …` line; after the third yes Casper says once that 5 (or `/permissions all`) stops the
 questions until you quit. Commands that only read files in the
 project don't ask at all: a short list of programs (`ls`, `cat`, `head`, `grep`, `rg`, `find`, `wc`, `sort` and the
 like), `command -v`, `type`, `which`, `ps` (not environment-printing `E` option groups or BSD bare words containing `e`;
@@ -544,7 +545,8 @@ is every fact and the exact way to be asked less for each kind. A mistyped word 
 - **Until you quit.** `/permissions` (in a terminal, not during a task) and `/permissions all` ask `1 Keep asking · 2 Stop asking until I quit`; typed during a task, `/permissions all` is itself the answer and takes effect at once, from the task's next question. On 2, the shell's own questions (a command, a host, a write outside the
   project, another machine) are answered `Yes, for this session` without showing them, builders' included (a host while a builder's command runs too); the footer says `asking off` in warning colour, with `/permissions ask` only the first time. It lives in memory only, is
   never saved or read from a project file, only your typed command and your answer set it, and `/permissions ask` or quitting ends it. A one-shot or `--json` run
-  refuses it (`--no-sandbox` is the flag for one run).
+  refuses it (`--no-sandbox` is the flag for one run). `5 Yes to everything this session` in the no-sandbox `Run this command?` box turns on the same
+  switch in one key, with the same limits: only a person answering a shown box can pick it (Enter and typed words stay No), and it runs that command too.
 - **For good.** `sandbox: allowedDomains`, `allowWrite` and `off` in `~/.casper/config.yaml`; `--allow-host`, `--allow-write`, `--allow-reach` and `--no-sandbox` for one run.
 
 What stays protected whatever you pick: `~/.ssh`, `~/.casper`, cloud logins, shell start-up files and git's own files (the AI's tools never read or write them, and no

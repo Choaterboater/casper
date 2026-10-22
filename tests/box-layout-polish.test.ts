@@ -73,7 +73,7 @@ test("wait durations use a monotonic clock even if the system clock changes", as
 });
 
 test("shell descriptions explain the same safe order briefly", () => {
-  expect(SHELL_COMMAND_CHOICES.map(row => row.description)).toEqual(["the command does not run", "only this time", "until you quit", "always in this project"]);
+  expect(SHELL_COMMAND_CHOICES.map(row => row.description)).toEqual(["the command does not run", "only this time", "until you quit", "always in this project", "every command and question; /permissions ask undoes it"]);
 });
 
 test("a builder's inline command uses the same frame and routes typed words as a No with direction", async () => {

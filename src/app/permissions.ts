@@ -128,7 +128,7 @@ export function permissionsScreen(view: PermissionsView): string {
     "",
     `Switches (/settings): web lookups ${view.web ? "on" : "off"}, GitHub tool ${view.github ? "on" : "off"}. Fetching ripgrep ${view.downloads ? "on" : "off"} (tools: downloads: off in config).`,
     "",
-    "To turn everything on: there is no single switch, on purpose. The closest is /permissions all: until you quit, shell commands, hosts, writes outside the project and other machines are answered Yes for this session (--no-sandbox for one run, or sandbox: off in ~/.casper/config.yaml, takes the shell sandbox away too).",
+    "To turn everything on: there is no single switch, on purpose. The closest is /permissions all, or 5 Yes to everything this session in the Run this command? box: until you quit, shell commands, hosts, writes outside the project and other machines are answered Yes for this session (--no-sandbox for one run, or sandbox: off in ~/.casper/config.yaml, takes the shell sandbox away too).",
     "Protected whatever you pick: ~/.ssh, ~/.casper, cloud logins and shell start-up files stay out of the AI's reach; secrets are hidden from the AI; device writes still need the product's own login to allow them and their own box; the spend pause stays; the AI can't answer a box for you.",
     view.scripts,
   ];

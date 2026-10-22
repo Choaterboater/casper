@@ -21,7 +21,7 @@ import { remoteTargets, runsAlone, segmentTargets, splitShell, sshNameLine, targ
 import { startAskpass } from "../ssh/askpass";
 import { forgetSshSecrets, sshLoginHandler, sshSessionMemory, type SshLoginHost } from "../ssh/login";
 import { forgetOnceSecrets } from "../secrets/typed";
-import { githubLoginChoices, HOST_CHOICES, NO, REACH_CHOICES, SHELL_COMMAND_CHOICES, writeChoices, YES_ALWAYS, YES_ONCE, YES_SESSION } from "./safe-choices";
+import { githubLoginChoices, HOST_CHOICES, NO, REACH_CHOICES, SHELL_COMMAND_CHOICES, writeChoices, YES_ALWAYS, YES_EVERYTHING, YES_ONCE, YES_SESSION } from "./safe-choices";
 import { githubLoginCommand, githubRunEnv, LOGIN_FAILED, startsGitOrGh, type GithubLoginCommand } from "../sandbox/github-login";
 import { answerKey, readOnlyCommand, testRunKey } from "../sandbox/read-only";
 import { routineCommand } from "../sandbox/routine";
@@ -45,6 +45,8 @@ export interface SandboxHost {
   planning(): boolean;
   /** /permissions all is on: the questions below are answered "Yes, for this session" without being shown. */
   stopAsking?(): boolean;
+  /** "Yes to everything this session" in the shell box: turns that on, as /permissions all does. */
+  askNoMore?(): void;
   /** Your lab list (names or addresses): ssh to these doesn't ask, unless /lab ssh off. */
   labHosts?(): readonly string[];
   /** Routine commands (routine_commands, on unless turned off): with no sandbox, routine work (see routineCommand) runs
@@ -123,7 +125,7 @@ export const GITHUB_LOGIN_CANT_ASK = `[sandbox] ${GITHUB_HIDDEN} This run can't 
 export const SHELL_CANT_ASK = "Not run: shell commands need your OK here, and this run can't ask. Use --no-sandbox to allow them for this run. Don't send this command again; use a tool instead where one fits: service starts the app, casper_check runs the project's checks, write and edit change files.";
 export const SHELL_DECLINED = "Not run: the user said no to this command. Don't run it again; ask the user what to do instead.";
 /** Said once a session, after the third shell box answered yes. */
-export const STOP_ASKING_HINT = "Tip: /permissions all stops these questions until you quit (/permissions ask turns them back on).";
+export const STOP_ASKING_HINT = "Tip: 5 Yes to everything this session (or /permissions all) stops these questions until you quit (/permissions ask turns them back on).";
 /** A remembered exact command, as its one short line shows it. */
 const shortCommand = (command: string) => { const shown = shownCommand(command).replace(/\s+/g, " ").trim(); return shown.length > 60 ? `${shown.slice(0, 59)}…` : shown; };
 export const writeQuestion = (from: WriteAsker, folder: string) => `${from === "shell" ? "A shell command" : "The AI"} wants to write to ${terminalText(folder)}. Allow it?`;
@@ -388,8 +390,9 @@ export function runtimeShell(host: SandboxHost, sandbox: ShellSandbox, given: Sa
       const kept = testRun ? "bun test (project test files)" : shortCommand(exact);
       // A yes leaves no line of its own (the command's own line shows it ran); a remembered one leaves one short line.
       const record = (answer: string) => answer === YES_ONCE ? "" : answer === YES_SESSION ? `✓ allowed until you quit: ${kept}`
-        : answer === YES_ALWAYS ? `✓ allowed always in this project: ${kept}` : undefined;
+        : answer === YES_ALWAYS ? `✓ allowed always in this project: ${kept}` : answer === YES_EVERYTHING ? "" : undefined;
       const answer = await sessionYesOr(host, shellQuestion(command, preceding), [...SHELL_COMMAND_CHOICES], signal, { record });
+      if (answer === YES_EVERYTHING) { host.askNoMore?.(); return undefined; }
       if (answer !== undefined && answer !== NO && !host.stopAsking?.() && ++shellYeses === 3) sayOnce(STOP_ASKING_HINT);
       if (answer === YES_ONCE) return undefined;
       if (answer === YES_SESSION) { (testRun ? sessionTestRuns : sessionCommands).add(testRun ?? exact); return undefined; }

@@ -75,7 +75,8 @@ test("shrinking a command preview adds newly omitted logical lines to its origin
   try {
     const command = Array.from({ length: 20 }, (_, index) => `custom-step-${index + 1}`).join("\n");
     const answer = session.surface.approve("", shellQuestion(command, "Check the steps."), [...SHELL_COMMAND_CHOICES]);
-    for (const height of [10, 14, 18, 27]) {
+    // The shell box has five choices: from 11 rows its command frame stays (one more choice, one more row).
+    for (const height of [11, 14, 18, 27]) {
       const lines = Bun.stripANSI(session.render(80, height).join("\n")).split("\n");
       expect(lines.length).toBeLessThanOrEqual(height);
       expect(lines[2]).toStartWith(`${GLYPHS.corners[0]}─ Command `);
