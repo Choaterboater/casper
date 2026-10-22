@@ -40,7 +40,7 @@
       <div class="container">
         <div class="hx-row">
           <div class="hx-copy">
-            <p class="hx-meta">Casper 0.2.46 · early preview, not signed · MIT licence</p>
+            <p class="hx-meta">Casper 0.2.50 · early preview, not signed · MIT licence</p>
             <h1 id="hero-title">The coding agent that proves it's done.</h1>
             <p class="lead">A coding helper for your terminal. Build web apps, APIs, command-line tools and scripts in the language your project uses, and Casper checks the AI's work before it tells you "done". Network engineers get extra care built in.</p>
             <div class="actions">
@@ -75,8 +75,8 @@
             <button type="button" role="tab" id="tab-unix" aria-controls="cmd-unix" aria-selected="true">macOS / Linux</button>
             <button type="button" role="tab" id="tab-windows" aria-controls="cmd-windows" aria-selected="false" tabindex="-1">Windows</button>
           </div>
-          <div class="cmd" id="cmd-unix"><span class="cmd-label visually-hidden">macOS / Linux</span><pre><code>curl -fsSL https://github.com/Choaterboater/casper/releases/download/v0.2.46/install.sh | sh</code></pre></div>
-          <div class="cmd" id="cmd-windows"><span class="cmd-label">Windows x64 or ARM64 · PowerShell</span><pre><code>[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; irm https://github.com/Choaterboater/casper/releases/download/v0.2.46/install.ps1 | iex</code></pre></div>
+          <div class="cmd" id="cmd-unix"><span class="cmd-label visually-hidden">macOS / Linux</span><pre><code>curl -fsSL https://github.com/Choaterboater/casper/releases/download/v0.2.50/install.sh | sh</code></pre></div>
+          <div class="cmd" id="cmd-windows"><span class="cmd-label">Windows x64 or ARM64 · PowerShell</span><pre><code>[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; irm https://github.com/Choaterboater/casper/releases/download/v0.2.50/install.ps1 | iex</code></pre></div>
         </div>
         <p class="small muted">No Bun or source checkout needed. The installer checks the file's SHA-256 and runs the new program's <code>--version</code> before it replaces an older install. Then run <code>casper</code> in your project folder.</p>
       </div>
@@ -308,12 +308,12 @@ Exit codes: 0 no problems, 1 problems (or warnings with --strict), 64 usage mist
           </ul>
         </div>
         <div>
-          <h2 id="next">New in 0.2.46</h2>
+          <h2 id="next">New in 0.2.50</h2>
           <ul>
-            <li>Local Ollama models work by their own names, wait for a server that just started, and say when they can't use tools.</li>
-            <li>A run without the change that timed out or never started is no longer proof, so Verified means it.</li>
-            <li>Picker choices work with the arrow keys on every terminal, and the AI's browser waits for web apps to finish drawing.</li>
-            <li>From 0.2.45: sign in to a site for the AI's browser. From 0.2.40: <code>/look</code>, Casper tries a changed app before the receipt, and a Home Assistant skill. Helpers that build are off by default. Verified background updates are on by default.</li>
+            <li>The receipt is a card that says what was checked and what to type next, and <code>/help receipt</code> explains its words.</li>
+            <li>The AI says what it is doing as it works, and config and other-machine changes stay in view as ◆ rows.</li>
+            <li>Casper finds a project's <code>check</code> script and its bun tests, and local models compact before they run out of room.</li>
+            <li>From 0.2.46: local Ollama models by their own names, and a timed-out run is no longer proof. From 0.2.45: sign in to a site for the AI's browser. From 0.2.40: <code>/look</code>, Casper tries a changed app before the receipt, and a Home Assistant skill. Helpers that build are off by default. Verified background updates are on by default.</li>
           </ul>
         </div>
       </section>
@@ -323,7 +323,7 @@ Exit codes: 0 no problems, 1 problems (or warnings with --strict), 64 usage mist
   <footer class="site-footer">
     <div class="container footer-inner">
       <div>
-        <p><strong>Casper 0.2.46</strong> · early preview, unsigned</p>
+        <p><strong>Casper 0.2.50</strong> · early preview, unsigned</p>
         <p><a href="https://github.com/Choaterboater/casper/blob/main/LICENSE">MIT licence</a> · © 2026 Choaterboater</p>
         <p>Built on the <a href="https://github.com/earendil-works/pi">Pi SDK</a>. Other parts keep their own licences (<a href="https://github.com/Choaterboater/casper/blob/main/THIRD_PARTY_NOTICES.txt">notices</a>).</p>
       </div>

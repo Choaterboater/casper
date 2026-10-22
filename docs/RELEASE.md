@@ -14,11 +14,37 @@ when releasing. Existing historical notes below stay as written; feature tests c
 reference docs, not a per-PR release-note or roadmap entry. Release-prep checks verify the version and
 installer targets (`tests/release-install.test.ts`, `tests/release-targets.test.ts`).
 
-Casper distributes an unsigned **v0.2.46 preview**, not a stable release. The installers
-download from `https://github.com/Choaterboater/casper/releases/download/v0.2.46`,
+Casper distributes an unsigned **v0.2.50 preview**, not a stable release. The installers
+download from `https://github.com/Choaterboater/casper/releases/download/v0.2.50`,
 because GitHub's `latest/download` link skips preview releases. The first published
 preview was **v0.1.0**. A published release is never changed; every fix ships under a
 new version.
+
+## v0.2.50: receipts you can read, an AI that says what it is doing, and local models that compact in time
+
+### Added
+
+- The AI says what it is doing in one short line before each group of steps, and the status row leads with it.
+- Shell steps can carry a short title shown with the real program, like `✓ Run the unit tests · bun test`.
+- Config files, changes on other machines or devices, MCP changes and setup on this computer stay in view as ◆ rows.
+- While the AI reasons, the status row shows a short headline of it, and Reasoning headline in `/settings` turns it off.
+- `/receipt` shows the receipt card with every row, and `/help receipt` says what each verdict means and what to do.
+- With no sandbox, the shell box adds `5 Yes to everything this session`, which stops its questions until you quit.
+- Compact at in `/settings` or `compact_at:` sets when compaction starts, and a large window now compacts at 85% instead of nearly full.
+
+### Changed
+
+- The receipt is a card: the verdict, then labelled rows for checks, changes, config, other machines and what to type next.
+- A failed step is amber while the AI works, and red is kept for a failed result.
+- A shell command whose exit 1 is its answer, such as grep finding nothing, is a grey note instead of a failure.
+- Ctrl+T shows a failed check's whole log, with secrets hidden.
+- Local models: the footer and compaction follow the window Ollama or LM Studio really loaded.
+
+### Fixed
+
+- Casper runs a project's `check` script and its bun tests after a change instead of saying there are no tests.
+- With tests but no command that runs them, the receipt says so instead of "no tests yet".
+- Compaction works on small windows: a 32k local model summarises before a reply runs out of room.
 
 ## v0.2.46: local models that work, honest proof, and a browser that waits for web apps
 
