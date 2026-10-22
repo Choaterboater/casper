@@ -944,7 +944,7 @@ async function handleMCPCommand(host: CommandHost, prompt: string): Promise<void
       // Read from the line, not its words: quotes keep spaces inside an argument. Only the person types this.
       const parsed = parseMcpAdd(prompt.trim().replace(/^\S+\s+add(?=\s|$)/, "").trim());
       if ("error" in parsed) { host.output.write(parsed.error === "usage" ? `${MCP_ADD_HINT}\n` : `[mcp] ${parsed.error} Nothing changed.\n`); return; }
-      if (await runMcpAdd(host.networkSetupHost(), parsed) === "added") {
+      if (await runMcpAdd({ ...host.networkSetupHost(), privateInput: (label) => host.networkLoginHost().privateInput(label) }, parsed) === "added") {
         const status = mcp.status().find((entry) => entry.name === parsed.name);
         if (status) host.output.write(`${mcpResultLine(status)}\n`);
       }

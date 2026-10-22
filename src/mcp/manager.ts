@@ -19,6 +19,7 @@ import { CASPER_VERSION } from "../version";
 import { NotExecutedError, OutcomeUnknownError } from "../capabilities/result";
 import { scrubText } from "../secrets/scrub";
 import { getsLogins, loginEnv, loginSecretValues } from "./network/logins";
+import { keyValues, serverKeyFor } from "./server-secrets";
 import { CallClock } from "./clock";
 import { classifyCallError, describeFailure, redactServerText, ServerOutput, stoppedMessage } from "./server-output";
 import type { HeldServer, HoldResult, ServerLaunch } from "./sandbox";
@@ -917,7 +918,11 @@ export class MCPManager {
     // changed or forgotten login counts at the next restart). They are never part of the definition.
     const logins = this.homeDir && getsLogins(entry.definition)
       ? await loginEnv(this.homeDir, (text) => this.onNote?.(`[mcp] ${text}`)).catch(() => ({})) : {};
-    entry.loginSecrets = loginSecretValues(logins);
+    // Your own server's key (~/.casper/mcp-secrets.json), read fresh on every start; never part of the definition either.
+    const key = this.homeDir
+      ? await serverKeyFor(entry.definition, this.homeDir, (text) => this.onNote?.(`[mcp] ${text}`)).catch(() => ({ headers: {}, env: {} }))
+      : { headers: {}, env: {} };
+    entry.loginSecrets = [...loginSecretValues(logins), ...keyValues(key)];
     entry.secrets = resolvedSecrets(entry.definition, entry.loginSecrets);
     entry.access = undefined;
     // While writes are off, the preset's read-only settings go to the server (env beats the user's own).
@@ -968,7 +973,7 @@ export class MCPManager {
         if (!current()) throw new Error("stale connection");
         let launch: ServerLaunch = {
           command: resolveEnvironment(config.command), args: config.args.map(resolveEnvironment),
-          env: { ...Object.fromEntries(Object.entries(config.env).map(([k, v]) => [k, resolveEnvironment(v)])), ...logins },
+          env: { ...Object.fromEntries(Object.entries(config.env).map(([k, v]) => [k, resolveEnvironment(v)])), ...key.env, ...logins },
           ...(entry.definition.cwd ? { cwd: entry.definition.cwd } : {}),
         };
         // A server Casper knows the needs of starts inside the sandbox; any other, or a sandbox that can't start, as before.
@@ -991,7 +996,7 @@ export class MCPManager {
         const { StreamableHTTPClientTransport } = await import("@modelcontextprotocol/sdk/client/streamableHttp.js");
         if (!current()) throw new Error("stale connection");
         transport = new StreamableHTTPClientTransport(new URL(config.url), {
-          requestInit: { headers: Object.fromEntries(Object.entries(config.headers).map(([k, v]) => [k, resolveEnvironment(v)])) },
+          requestInit: { headers: { ...Object.fromEntries(Object.entries(config.headers).map(([k, v]) => [k, resolveEnvironment(v)])), ...key.headers } },
           reconnectionOptions: { maxRetries: 2, initialReconnectionDelay: 500, maxReconnectionDelay: 2000, reconnectionDelayGrowFactor: 2 },
           fetch: async (url, init) => {
             const response = await fetch(url, {

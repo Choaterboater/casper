@@ -5,7 +5,7 @@ import type { CasperApp } from "../app";
 import { MCP_ADD_YES, mcpAddTool } from "../mcp/add-tool";
 import type { RuntimeTool } from "../runtime/types";
 import { recordedApproval } from "./approvals";
-import { networkSetupHost } from "./network-host";
+import { networkLoginHost, networkSetupHost } from "./network-host";
 import { NO } from "./safe-choices";
 
 export function mcpAddToolFor(app: CasperApp): RuntimeTool | undefined {
@@ -14,6 +14,7 @@ export function mcpAddToolFor(app: CasperApp): RuntimeTool | undefined {
   return mcpAddTool({
     homeDir: host.homeDir, configured: host.configured, connect: host.connect,
     write: (text) => host.write(text),
+    privateInput: (label) => networkLoginHost(app).privateInput(label),
     canAsk: () => app.interactive && !app.closing,
     // The same box as every approval, but nothing answers it for the person: not /permissions all ("Yes to everything"),
     // which answers only the shell's own questions, and no remembered answer, since it offers none.

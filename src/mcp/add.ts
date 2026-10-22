@@ -11,6 +11,7 @@
 import { terminalText } from "../tui/format";
 import { plainHttpHost, serverEntryProblem, type MCPServerDefinition } from "./config";
 import { addUserServer, MCP_FILE_LABEL, ServerExistsError, type UserServerEntry } from "./docs";
+import { forgetServerKey, keyFlag, keyLabel, keyProblem, parseKey, saveServerKey, type ServerKey } from "./server-secrets";
 
 const NAME = /^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,63}$/;
 const MAX_LINE = 4096;
@@ -21,7 +22,7 @@ export const MCP_ADD_HINT = `Add a server: /mcp add <name> <command> [args…], 
   + `It goes in ${MCP_FILE_LABEL} and starts now.`;
 
 export type McpAddEntry = { command: string; args: string[] } | { url: string };
-export interface McpAdd { name: string; entry: McpAddEntry }
+export interface McpAdd { name: string; entry: McpAddEntry; key?: ServerKey }
 export type McpAddResult = "added" | "exists" | "failed";
 
 export interface McpAddHost {
@@ -31,6 +32,8 @@ export interface McpAddHost {
   configured(): Promise<ReadonlyArray<MCPServerDefinition | undefined>>;
   /** Re-reads the files and connects `name` (as /mcp setup ssh does): ok, or why it didn't start. */
   connect(name: string): Promise<{ ok: boolean; message?: string }>;
+  /** Hidden typed input from the person, never the AI (a server's key); undefined when cancelled or nobody can type. */
+  privateInput?(label: string): Promise<string | undefined>;
 }
 
 /** A line's words as a shell splits them, without expanding or running anything: '…' keeps everything in it, "…"
@@ -72,8 +75,8 @@ export function entryText(entry: McpAddEntry): string {
 }
 
 /** The exact /mcp add line for a server, which splitWords reads back to the same words. */
-export function mcpAddLine({ name, entry }: McpAdd): string {
-  return `/mcp add ${name} ${entryText(entry)}`;
+export function mcpAddLine({ name, entry, key }: McpAdd): string {
+  return `/mcp add ${name} ${key ? `${keyFlag(key)} ` : ""}${entryText(entry)}`;
 }
 
 /** Why an address can't be a server's: the rules ~/.casper/mcp.json has for one, and a GitHub page, which is where a
@@ -95,8 +98,9 @@ export function addressProblem(text: string): string | undefined {
 const NAME_RULE = "A server name is letters, digits, dot, dash or underscore, up to 64, and starts with a letter or digit.";
 
 /** Why a server can't be added as given (by /mcp add or the AI's casper_mcp_add), or undefined when it can. */
-export function mcpAddProblem({ name, entry }: McpAdd): string | undefined {
+export function mcpAddProblem({ name, entry, key }: McpAdd): string | undefined {
   if (!NAME.test(name)) return NAME_RULE;
+  if (key) { const problem = keyProblem(key, "url" in entry); if (problem) return problem; }
   const words = "url" in entry ? [entry.url] : [entry.command, ...entry.args];
   if (words.join(" ").length > MAX_LINE || words.some((word) => /[\x00-\x1f\x7f]/.test(word))) return "That line can't be used (one line, up to 4096 characters).";
   if ("url" in entry) return addressProblem(entry.url);
@@ -110,14 +114,28 @@ export function parseMcpAdd(text: string): McpAdd | { error: string } {
   if (text.length > MAX_LINE || /[\x00-\x1f\x7f]/.test(text)) return { error: "That line can't be used (one line, up to 4096 characters)." };
   const words = splitWords(text);
   if (!words) return { error: "A quote isn't closed." };
-  const [name, target, ...args] = words;
+  const [name, ...rest] = words;
+  // A key's flag goes between the name and the server; words after the command are the program's own.
+  let key: ServerKey | undefined;
+  while (rest[0]?.startsWith("--")) {
+    const flag = rest.shift()!;
+    const named = flag === "--bearer" ? "bearer" : flag === "--api-key" ? "api-key" : /^--api-key=/.test(flag) ? `api-key:${flag.slice(10)}`
+      : /^--key-env=/.test(flag) ? `env:${flag.slice(10)}` : undefined;
+    if (!named) return { error: "Before the server, Casper takes only a key: --bearer, --api-key[=<Header>] or --key-env=<NAME>." };
+    if (key) return { error: "A server takes one key." };
+    const parsed = parseKey(named);
+    if ("error" in parsed) return { error: `${parsed.error}.` };
+    key = parsed;
+  }
+  const [target, ...args] = rest;
   if (!name || !target) return { error: "usage" };
   if (!NAME.test(name)) return { error: NAME_RULE };
   if (!args.length && /^(?:[a-z0-9.-]+|\[[0-9a-f:]+\]):\d{1,5}(?:\/\S*)?$/i.test(target)) {
     return { error: `That looks like an address, so it needs http:// or https:// in front: /mcp add ${name} http://${target} (or https://).` };
   }
   if (/^[a-z][a-z0-9+.-]*:\/\//i.test(target) && args.length) return { error: "An address takes nothing after it: /mcp add <name> <url>." };
-  const add: McpAdd = /^[a-z][a-z0-9+.-]*:\/\//i.test(target) ? { name, entry: { url: target } } : { name, entry: { command: target, args } };
+  const entry: McpAddEntry = /^[a-z][a-z0-9+.-]*:\/\//i.test(target) ? { url: target } : { command: target, args };
+  const add: McpAdd = key ? { name, key, entry } : { name, entry };
   const problem = mcpAddProblem(add);
   return problem ? { error: problem } : add;
 }
@@ -125,6 +143,22 @@ export function parseMcpAdd(text: string): McpAdd | { error: string } {
 /** The entry as ~/.casper/mcp.json holds it. */
 function fileEntry(entry: McpAddEntry): UserServerEntry {
   return "url" in entry ? { url: entry.url } : { command: entry.command, args: [...entry.args], env: {} };
+}
+
+/** Asks the person for the server's key, hidden, and saves it in Casper's private key file. False (said why) when
+ * nothing should be written. */
+async function keepKey(host: McpAddHost, { name, entry, key }: McpAdd): Promise<boolean> {
+  if (!key) return true;
+  const label = keyLabel(key);
+  if (!host.privateInput) { host.write(`[mcp] Casper can't ask for the ${label} here. Nothing changed.\n`); return false; }
+  if ("url" in entry && new URL(entry.url).protocol === "http:") {
+    host.write(`[mcp] ${name}'s ${label} goes to ${terminalText(new URL(entry.url).hostname)} over plain http, unencrypted: anyone on that network can read it.\n`);
+  }
+  const typed = (await host.privateInput(`${label[0]!.toUpperCase()}${label.slice(1)} for ${name}`))?.trim();
+  if (!typed) { host.write(`[mcp] No ${label} typed. Nothing changed.\n`); return false; }
+  try { await saveServerKey(host.homeDir, name, key, typed); }
+  catch (error) { host.write(`[mcp] ${terminalText(error instanceof Error ? error.message : String(error))} Nothing changed.\n`); return false; }
+  return true;
 }
 
 /** Writes the server to ~/.casper/mcp.json, never over a name a server already has in any file Casper reads, and
@@ -140,12 +174,16 @@ export async function runMcpAdd(host: McpAddHost, add: McpAdd): Promise<McpAddRe
   // The same reading Casper gives the file at the next start, so what is written always loads.
   const problem = serverEntryProblem(name, "url" in written ? { type: "http", url: written.url } : written);
   if (problem) { host.write(`[mcp] ${name} can't be added (${problem}). Nothing changed.\n`); return "failed"; }
+  if (!await keepKey(host, add)) return "failed";
   try {
     await addUserServer(host.homeDir, name, written);
   } catch (error) {
+    if (add.key) await forgetServerKey(host.homeDir, name).catch(() => {});
     host.write(`[mcp] ${terminalText(error instanceof Error ? error.message : String(error))}\n`);
     return error instanceof ServerExistsError ? "exists" : "failed";
   }
+  // A new server of an old name never gets the old one's key.
+  if (!add.key) await forgetServerKey(host.homeDir, name).catch(() => {});
   host.write(`[mcp] Added ${name} to ${MCP_FILE_LABEL}: ${terminalText(entryText(entry))}. Starting it…\n`);
   let connected: { ok: boolean; message?: string };
   try { connected = await host.connect(name); }

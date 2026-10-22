@@ -15,6 +15,7 @@ import { isCaspersEntry, namesNetworkProduct, runNetworkSetup, runNetworkUpdate,
 import { networkReleasesOff, refreshNetworkReleases, type NetworkReleaseOptions } from "../mcp/network/releases";
 import { oneAtATime, chooseAnswer, chooseNumbered } from "./approvals";
 import { updateFooter } from "./footer";
+import { savedKeyValues } from "../mcp/server-secrets";
 
 /**
  * The network server's setup host: questions in the numbered approval box (only the person, never the AI's ask tool),
@@ -121,7 +122,7 @@ export function networkLoginFile(app: CasperApp): string {
 /** Casper's own secrets, as exact values: secret-named environment values, its login file's keys and the saved
  * network logins. Hidden wherever they turn up, MCP results and reference excerpts too. */
 export function ownSecretValues(app: CasperApp): string[] {
-  return [...new Set([...secretEnvValues(), ...loginFileValues(path.join(casperAgentDir(), "auth.json")), ...networkLoginValues(networkLoginFile(app)), ...typedSecretValues()])]
+  return [...new Set([...secretEnvValues(), ...loginFileValues(path.join(casperAgentDir(), "auth.json")), ...networkLoginValues(networkLoginFile(app)), ...savedKeyValues(app.sessionHomeDir ?? os.homedir()), ...typedSecretValues()])]
     .sort((a, b) => b.length - a.length);
 }
 
