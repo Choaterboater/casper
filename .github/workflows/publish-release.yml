@@ -33,9 +33,15 @@ jobs:
       - name: Stop unless the Linux, macOS, Windows and Windows ARM64 checks passed on this commit
         # Only a push, nightly or manual run counts: those test the whole suite on every OS. A pull request run
         # on macOS or Windows may have run only the fast tier (tools/test-tier.ts), so it never counts here.
+        # GitHub's run lookup sometimes comes back empty for a run that exists, so an empty answer is asked again;
+        # a failed or cancelled run stops the release at once.
         run: |
           for workflow in linux-preview.yml macos-preview.yml windows-preview.yml windows-arm64.yml; do
-            conclusion="$(gh run list --workflow "$workflow" --commit "$GITHUB_SHA" --status completed --limit 50 --json conclusion,event --jq '[.[] | select(.event == "push" or .event == "schedule" or .event == "workflow_dispatch")][0].conclusion // ""')"
+            for try in 1 2 3 4 5 6 7 8 9 10; do
+              conclusion="$(gh run list --workflow "$workflow" --commit "$GITHUB_SHA" --status completed --limit 50 --json conclusion,event --jq '[.[] | select(.event == "push" or .event == "schedule" or .event == "workflow_dispatch")][0].conclusion // ""')"
+              [ -n "$conclusion" ] && break
+              [ "$try" = 10 ] || sleep 30
+            done
             [ "$conclusion" = success ] || { echo "$workflow has not passed a whole-suite run (push, nightly or manual) on $GITHUB_SHA (last result: ${conclusion:-no run}). Run it on this commit first."; exit 1; }
           done
         env:
