@@ -6,6 +6,9 @@ import { pagesDirectory } from "../pages/store";
 import { pageTool } from "../pages/tool";
 import type { RuntimeTool } from "../runtime/types";
 import { terminalText } from "../tui/format";
+import { MermaidProvider } from "../visualize/mermaid";
+import { diagramPage, diagramPageName } from "../visualize/page";
+import type { RenderedVisualization } from "../visualize/router";
 
 /** The session's pages for the project it opened, made on first use; its server stops when Casper quits. */
 export function pageSession(app: CasperApp): PageSession {
@@ -29,6 +32,18 @@ export function pageToolFor(app: CasperApp): RuntimeTool | undefined {
   if (app.projectContext?.aiPages === false) return undefined;
   app.pageTool ??= pageTool(() => pageSession(app));
   return app.pageTool;
+}
+
+/** A diagram the diagram tool or /visualize repo drew, as a page Casper makes from it (no model), opened like the AI's
+ * pages (open_pages). Only in a session someone is watching, and not with visualize.outputDir: false (in-conversation
+ * only). What to tell the model, or undefined when no page was made. */
+export async function showDiagramPage(app: CasperApp, rendered: RenderedVisualization): Promise<string | undefined> {
+  if (!app.interactive || !app.projectContext || !app.visualization?.settings.outputDir) return undefined;
+  const mermaid = rendered.primary.provider === "mermaid" ? rendered.primary.content : (await new MermaidProvider().render(rendered.graph)).content;
+  const page = await pageSession(app).make(diagramPageName(rendered.graph.title), diagramPage(rendered.graph, mermaid, rendered.artifacts.map((artifact) => artifact.path)));
+  if (page.opened) return `Shown in the user's browser as page ${page.name} (${page.link}); don't make a page for it.`;
+  return page.notOpened ? `Saved as page ${page.name} (${page.link}), not opened: ${page.notOpened}.`
+    : `Page ${page.name} updated (${page.link}); don't make a page for it.`;
 }
 
 const USAGE = "Usage: /pages | /pages open <name> | /pages remove <name>";

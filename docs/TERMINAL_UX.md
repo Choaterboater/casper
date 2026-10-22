@@ -931,7 +931,9 @@ approvals remain in force. Verification is still separate from tool completion.
 When a picture answers better than text (options side by side, a mock-up, a dashboard of
 results, a report someone else will read), the AI makes a page by itself with its
 `casper_page` tool, and you see it in your browser at once. You don't have to ask for one.
-Plain answers stay in the terminal, and so does a Mermaid diagram from the diagram tool.
+Plain answers stay in the terminal. A diagram from the diagram tool (or `/visualize repo`) opens as
+a page too, one Casper makes from the diagram itself with no model time: `diagram-<title>`
+(see [Visualization](VISUALIZATION.md#using-it)).
 
 ```text
 [page] db-options → http://127.0.0.1:52144/db-options.html

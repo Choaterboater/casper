@@ -31,7 +31,7 @@ import { autoBuilders, builderAvailability } from "../crew/auto";
 import { crewShell } from "../crew/shell";
 import { PartRecord } from "../crew/parts";
 import { spendGate } from "./spend-gate";
-import { pageToolFor } from "./pages";
+import { pageToolFor, showDiagramPage } from "./pages";
 import { pictureToolFor } from "./pictures";
 import { sameRuntimeInputs } from "../services/try-it";
 import { runtimeChanges } from "../services/detect";
@@ -43,7 +43,7 @@ export async function prepareCapabilities(app: CasperApp, task: string): Promise
   const nextTools = await assembleTaskTools(task, {
     broker: app.broker!, delegate: delegateTool(app), ask: askToolFor(app), session: sessionTool(app),
     check: app.checkTask?.tool(), lsp: app.lsp!, confirmRename: app.confirmRename,
-    references: app.references!, ...(app.web ? { web: webTools(app.web, app.commandAbort?.signal) } : {}), visualization: app.visualization!, projectRoot: app.activeWorkspaceRoot(), privatePaths: projectPrivatePaths(app),
+    references: app.references!, ...(app.web ? { web: webTools(app.web, app.commandAbort?.signal) } : {}), visualization: app.visualization!, showDiagram: (rendered) => showDiagramPage(app, rendered), projectRoot: app.activeWorkspaceRoot(), privatePaths: projectPrivatePaths(app),
     page: pageToolFor(app), picture: await pictureToolFor(app, picturesRequested(task) || app.offeredTools.has("make_picture")),
     reader: appReaderTool({ context: app.projectContext, session: () => app.session, shell: app.shell, broker: app.broker, root: app.activeWorkspaceRoot(), home: app.homeDir(), agentDir: appAgentDir(app), privatePaths: projectPrivatePaths(app), onUsage: (usage) => app.observations.recordModelCall(usage), signal: app.commandAbort?.signal }),
     browserReady: app.browser?.status().state === "ready", browserInstalled: await app.browserInstalled, browser: () => browserSession(app),

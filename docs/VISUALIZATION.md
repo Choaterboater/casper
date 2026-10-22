@@ -88,6 +88,12 @@ Precedence: global → profile → project. `providers` may be set at any layer.
 - The `visualize` tool accepts either a model-authored `graph`, or `source: "repo"` with an optional project-relative `scope` to build a deterministic relative-import dependency graph. Results are bounded by the shared 16 KiB / 50-item capability envelope with truncation disclosed.
 - To turn the AI's diagram tool off, pick **Diagram tool** in `/settings` (it writes `visualize: off` in `~/.casper/config.yaml`, or `visualize.enabled: false` when your `visualize:` lists providers). The model is then never offered the `visualize` tool, even when a task names a diagram; `/visualize`, typed by you, still works. A project file may pick providers but can't turn the tool on or off.
 - `/visualize` prints providers and the artifact directory. `/visualize repo [directory]` renders the dependency graph locally and never starts a model session. It prints the Mermaid text, notes, and the path of each file written.
+- **In a session, every diagram opens in your browser.** Casper makes a page from the diagram itself, with no model
+  time: `diagram-<title>` in `~/.casper/pages/<project>/`, served and opened like the AI's pages
+  ([Pages the AI makes](TERMINAL_UX.md#pages-the-ai-makes)). Mermaid draws it there, loaded from jsDelivr, at its
+  strict security level, and the page names the editable copies. The model is told the page is open, so it doesn't
+  make one. The same title again updates the page and its tab reloads. `open_pages: off` keeps it from opening (the
+  link is still printed); `outputDir: false` (in-conversation only) makes no page; a one-shot run makes none.
 
 ## Repository dependency graph
 
@@ -97,7 +103,7 @@ Limits: 2000 files (partial graphs are flagged); more than 120 file nodes collap
 
 ## Limits
 
-- No Graphviz provider, no image rendering (draw.io exports PNG or SVG from its own menu), and no interactive MindMesh session; opening the JSON in MindMesh is a manual import.
+- No Graphviz provider and no image files (the page draws the diagram in the browser; draw.io exports PNG or SVG from its own menu), and no interactive MindMesh session; opening the JSON in MindMesh is a manual import.
 - Model-authored graphs describe the model's understanding; Casper validates shape, not truth. The repo graph is deterministic but regex-based.
 - Node notes are not drawn by Mermaid. Groups are not drawn in mindmaps; MindMesh shows them only as topic colours, which ungrouped child topics inherit.
 - The tool is exposed only when the request is classified as visualization; classification is lexical, not a general natural-language parser. Explicit modification requests such as “fix the chart export” retain verification, while “show me a diagram of the test flow” is read-only.
