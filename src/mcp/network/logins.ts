@@ -68,10 +68,32 @@ export const LOGIN_FIELDS: Record<NetworkProduct, LoginField[]> = {
 /** Values hidden from the AI and from the server's output: the secrets, and the Central client ID. */
 const HIDDEN_ENV = new Set(["MIST_API_TOKEN", "CENTRAL_CLIENT_ID", "CENTRAL_CLIENT_SECRET", "CLEARPASS_API_TOKEN"]);
 const URL_ENV = new Set(["MIST_HOST", "CENTRAL_BASE_URL", "CLEARPASS_BASE_URL"]);
+
+/**
+ * A named Central login's name: lowercase letters and digits, at most 32 (casper-network-mcp 0.1.6 reads
+ * CENTRAL_<NAME>_BASE_URL, _CLIENT_ID and _CLIENT_SECRET with NAME in [A-Z0-9]{1,32}). "default" is the main login
+ * and "forget" is the word that removes one, so neither can be a name.
+ */
+export const LOGIN_NAME = /^[a-z0-9]{1,32}$/;
+const RESERVED_NAMES = new Set(["default", "forget"]);
+/** The start env name of a named login's field: CENTRAL_BASE_URL → CENTRAL_ACME_BASE_URL. */
+const NAMED_ENV = /^CENTRAL_[A-Z0-9]{1,32}_(BASE_URL|CLIENT_ID|CLIENT_SECRET)$/;
+
+export function isLoginName(value: unknown): value is string {
+  return typeof value === "string" && LOGIN_NAME.test(value) && !RESERVED_NAMES.has(value);
+}
+
+function namedEnv(name: string, env: string): string {
+  return env.replace(/^CENTRAL_/, `CENTRAL_${name.toUpperCase()}_`);
+}
 const VALUE = /^[\x21-\x7e]{1,4096}$/;
 const MAX_FILE_BYTES = 64 * 1024;
 
 export type Logins = Partial<Record<NetworkProduct, Record<string, string>>>;
+/** Named Central logins, by name: each holds the same fields as the main Central login (CENTRAL_BASE_URL, …). */
+export type NamedLogins = Record<string, Record<string, string>>;
+/** Where named Central logins sit in the file, beside the products. */
+const NAMED_KEY = "central_logins";
 
 export function isNetworkProduct(value: unknown): value is NetworkProduct {
   return typeof value === "string" && (NETWORK_PRODUCTS as readonly string[]).includes(value);
@@ -112,14 +134,24 @@ function sayOnce(warn: ((text: string) => void) | undefined, text: string): void
 
 /** The saved logins. A file that is a link, not yours, or readable by other users is not used (and said once). */
 export async function readLogins(homeDir: string, warn?: (text: string) => void): Promise<Logins> {
+  return (await readLoginFile(homeDir, warn)).logins;
+}
+
+/** The saved named Central logins, by name (complete ones only). */
+export async function readNamedLogins(homeDir: string, warn?: (text: string) => void): Promise<NamedLogins> {
+  return (await readLoginFile(homeDir, warn)).named;
+}
+
+async function readLoginFile(homeDir: string, warn?: (text: string) => void): Promise<{ logins: Logins; named: NamedLogins }> {
+  const none = { logins: {}, named: {} };
   const file = loginFile(homeDir);
   const leaf = await lstat(file).catch(() => undefined);
-  if (!leaf) return {};
+  if (!leaf) return none;
   const problem = await privateFileProblem(file).catch(() => "it can't be checked");
   if (problem) {
     const why = /accessible to other users/.test(problem) ? "it can be read by other users" : problem.replace(/;.*$/, "");
     sayOnce(warn, `Casper's network login file isn't used: ${why}. Type /mcp login <product> to save the login again, privately.`);
-    return {};
+    return none;
   }
   let parsed: unknown;
   try {
@@ -127,28 +159,38 @@ export async function readLogins(homeDir: string, warn?: (text: string) => void)
     parsed = JSON.parse(await readFile(file, "utf8"));
   } catch {
     sayOnce(warn, "Casper's network login file can't be read. Type /mcp login <product> to save the login again.");
-    return {};
+    return none;
   }
-  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {};
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return none;
   const logins: Logins = {};
   for (const product of NETWORK_PRODUCTS) {
     const values = clean(product, (parsed as Record<string, unknown>)[product]);
     if (Object.keys(values).length) logins[product] = values;
   }
-  return logins;
+  const named: NamedLogins = {};
+  const saved = (parsed as Record<string, unknown>)[NAMED_KEY];
+  if (saved && typeof saved === "object" && !Array.isArray(saved)) {
+    for (const [name, values] of Object.entries(saved)) {
+      const kept = clean("central", values);
+      // Only a whole login: a named one has no main login to borrow a missing field from.
+      if (isLoginName(name) && Object.keys(kept).length === LOGIN_FIELDS.central.length) named[name] = kept;
+    }
+  }
+  return { logins, named };
 }
 
 /** Owner-only, through a temporary file that replaces it. A link, a hard-linked copy or someone else's file is refused. */
-async function writeLogins(homeDir: string, logins: Logins): Promise<void> {
+async function writeLogins(homeDir: string, logins: Logins, named: NamedLogins): Promise<void> {
   const file = loginFile(homeDir);
   await mkdir(path.dirname(file), { recursive: true, mode: 0o700 });
   // Your own regular file with loose permissions is made private first, nothing for you to fix.
   const problem = await ownPrivateFile(file);
   if (problem) throw new Error(`Casper can't save network logins: ${problem}.`);
-  if (!Object.keys(logins).length) { await rm(file, { force: true }); return; }
+  if (!Object.keys(logins).length && !Object.keys(named).length) { await rm(file, { force: true }); return; }
+  const content = Object.keys(named).length ? { ...logins, [NAMED_KEY]: named } : logins;
   const temporary = `${file}.${process.pid}.${randomBytes(6).toString("hex")}.tmp`;
   try {
-    await writeFile(temporary, `${JSON.stringify(logins, null, 2)}\n`, { flag: "wx", mode: 0o600 });
+    await writeFile(temporary, `${JSON.stringify(content, null, 2)}\n`, { flag: "wx", mode: 0o600 });
     await chmod(temporary, 0o600);
     await rename(temporary, file);
   } catch (error) {
@@ -157,9 +199,8 @@ async function writeLogins(homeDir: string, logins: Logins): Promise<void> {
   }
 }
 
-/** Saves (or replaces) one product's login. Every field of the product is needed; nothing else is taken. */
-export async function saveLogin(homeDir: string, product: NetworkProduct, values: Record<string, string>): Promise<void> {
-  if (!isNetworkProduct(product)) throw new Error("Unknown network product.");
+/** A product's fields from `values`, checked: every field is needed and nothing else is taken. */
+function checkedValues(product: NetworkProduct, values: Record<string, string>): Record<string, string> {
   const fields = LOGIN_FIELDS[product];
   const known = new Set(fields.map((field) => field.env));
   if (Object.keys(values).some((name) => !known.has(name))) throw new Error(`Not a ${PRODUCT_LABELS[product]} login field.`);
@@ -167,29 +208,58 @@ export async function saveLogin(homeDir: string, product: NetworkProduct, values
     const problem = valueProblem(field.env, values[field.env]);
     if (problem) throw new Error(`${field.label} must be ${problem}.`);
   }
-  const logins = await readLogins(homeDir);
-  logins[product] = Object.fromEntries(fields.map((field) => [field.env, values[field.env]!]));
-  await writeLogins(homeDir, logins);
+  return Object.fromEntries(fields.map((field) => [field.env, values[field.env]!]));
+}
+
+/** Saves (or replaces) one product's login. Every field of the product is needed; nothing else is taken. */
+export async function saveLogin(homeDir: string, product: NetworkProduct, values: Record<string, string>): Promise<void> {
+  if (!isNetworkProduct(product)) throw new Error("Unknown network product.");
+  const checked = checkedValues(product, values);
+  const { logins, named } = await readLoginFile(homeDir);
+  logins[product] = checked;
+  await writeLogins(homeDir, logins, named);
+}
+
+/** Saves (or replaces) a named Central login: the same fields as the main Central login. */
+export async function saveNamedLogin(homeDir: string, name: string, values: Record<string, string>): Promise<void> {
+  if (!isLoginName(name)) throw new Error("A login name is 1-32 lowercase letters and digits (not default or forget).");
+  const checked = checkedValues("central", values);
+  const { logins, named } = await readLoginFile(homeDir);
+  named[name] = checked;
+  await writeLogins(homeDir, logins, named);
 }
 
 export async function forgetLogin(homeDir: string, product: NetworkProduct): Promise<void> {
-  const logins = await readLogins(homeDir);
+  const { logins, named } = await readLoginFile(homeDir);
   if (!logins[product]) {
     // Nothing usable saved for it; a file that holds only a broken entry is still cleaned.
     if (!(await lstat(loginFile(homeDir)).catch(() => undefined))) return;
   }
   delete logins[product];
-  await writeLogins(homeDir, logins);
+  await writeLogins(homeDir, logins, named);
 }
 
-/** Env var → value for every saved product. */
+export async function forgetNamedLogin(homeDir: string, name: string): Promise<void> {
+  const { logins, named } = await readLoginFile(homeDir);
+  if (!named[name]) return;
+  delete named[name];
+  await writeLogins(homeDir, logins, named);
+}
+
+/** Env var → value for every saved product, and CENTRAL_<NAME>_… for each named Central login. */
 export async function loginEnv(homeDir: string, warn?: (text: string) => void): Promise<Record<string, string>> {
-  return Object.assign({}, ...Object.values(await readLogins(homeDir, warn)));
+  const { logins, named } = await readLoginFile(homeDir, warn);
+  const env: Record<string, string> = Object.assign({}, ...Object.values(logins));
+  for (const [name, values] of Object.entries(named)) {
+    for (const [field, value] of Object.entries(values)) env[namedEnv(name, field)] = value;
+  }
+  return env;
 }
 
-/** The values to hide in a server's output: secrets and the client ID, 4 characters or longer. */
+/** The values to hide in a server's output: secrets and client IDs (named logins' too), 4 characters or longer. */
 export function loginSecretValues(env: Record<string, string>): string[] {
-  return Object.entries(env).filter(([name, value]) => HIDDEN_ENV.has(name) && value.length >= 4).map(([, value]) => value);
+  const hidden = (name: string) => HIDDEN_ENV.has(name) || (NAMED_ENV.test(name) && !name.endsWith("_BASE_URL"));
+  return Object.entries(env).filter(([name, value]) => hidden(name) && value.length >= 4).map(([, value]) => value);
 }
 
 /**

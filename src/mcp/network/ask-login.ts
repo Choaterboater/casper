@@ -1,6 +1,6 @@
 import { ADD_LOGIN_CHOICES, forgetLoginChoices, numberedLines, REPLACE_LOGIN_CHOICES } from "../../app/safe-choices";
 import type { AccessCheck, AccessProduct } from "../access";
-import { forgetLogin, isNetworkProduct, LOGIN_FIELDS, NETWORK_PRODUCTS, PRODUCT_LABELS, readLogins, saveLogin, type LoginField, type NetworkProduct } from "./logins";
+import { forgetLogin, forgetNamedLogin, isLoginName, isNetworkProduct, LOGIN_FIELDS, NETWORK_PRODUCTS, PRODUCT_LABELS, readLogins, readNamedLogins, saveLogin, saveNamedLogin, type LoginField, type NetworkProduct } from "./logins";
 
 /**
  * Asking for a product's login the first time it is used (or with /mcp login <product>). Only the person
@@ -241,15 +241,87 @@ export async function loginMissingAnswer(host: LoginHost, server: string, produc
   return `${label} has no login yet, and the person didn't add one now. Don't ask them in chat; they can type /mcp login ${product}.`;
 }
 
-/** /mcp login: each product and its state. */
+/** /mcp login: each product and its state, then each named Central login. */
 export async function loginLines(host: Pick<LoginHost, "homeDir" | "access">, server: string | undefined): Promise<string[]> {
   const logins = await readLogins(host.homeDir);
+  const named = Object.keys(await readNamedLogins(host.homeDir)).sort();
   const check = server ? host.access(server) : undefined;
-  return NETWORK_PRODUCTS.map((product) => {
+  const lines = NETWORK_PRODUCTS.map((product) => {
     if (!logins[product]) return `${PRODUCT_LABELS[product]}: not set up — /mcp login ${product}`;
     const reach = loginReach(check, product);
     return `${PRODUCT_LABELS[product]}: ${reach ? `${reach} (checked)` : "set up"}`;
   });
+  return [...lines, ...named.map((name) => `Central "${name}": set up — /mcp login central ${name} forget removes it`)];
+}
+
+/**
+ * The words after /mcp login: nothing (the picker), a product, `<product> forget`, or for Central a login name:
+ * `central <name>` and `central <name> forget` (a named login, casper-network-mcp 0.1.6).
+ */
+export function parseLoginCommand(name: string | undefined, extra: readonly string[]): { product?: NetworkProduct; loginName?: string; forget: boolean } | { error: string } {
+  if (name === undefined) return extra.length ? { error: "usage" } : { forget: false };
+  if (!isNetworkProduct(name)) return { error: "usage" };
+  const loginName = name === "central" && extra[0] !== undefined && extra[0] !== "forget" ? extra[0] : undefined;
+  const rest = loginName !== undefined ? extra.slice(1) : extra;
+  if (rest.length > 1 || (rest.length === 1 && rest[0] !== "forget")) return { error: "usage" };
+  if (loginName !== undefined && !isLoginName(loginName)) return { error: "A Central login name is 1-32 lowercase letters and digits (not default or forget)." };
+  return { product: name, ...(loginName !== undefined ? { loginName } : {}), forget: rest[0] === "forget" };
+}
+
+/** What a named Central login asks for: the same fields as the main one. */
+const NAMED_ASK = `${ASKS.central} The AI uses it only when a call names it (login="<name>"); the main Central login stays the default.`;
+
+/**
+ * /mcp login central <name>: add or replace a named Central login (casper-network-mcp 0.1.6 reads it as
+ * CENTRAL_<NAME>_…), for example a customer's temporary key, often in another region. Only the person answers.
+ */
+export async function askForNamedLogin(host: LoginHost, server: string | undefined, name: string): Promise<LoginResult> {
+  if (!host.canAsk()) {
+    host.write(host.interactive ? `Adding a Central login needs Casper's full terminal, where it stays hidden. Type /mcp login central ${name} there.\n`
+      : `Run casper and type /mcp login central ${name}.\n`);
+    return "cant-ask";
+  }
+  const ask = async (): Promise<LoginResult> => {
+    const saved = !!(await readNamedLogins(host.homeDir))[name];
+    const intro = saved ? `Replace the Central login "${name}"? ${NAMED_ASK}` : `Add a Central login named "${name}"? ${NAMED_ASK}`;
+    const answer = await host.chooseAnswer(`${intro}\n${numberedLines(ADD_LOGIN_CHOICES)}`, "Type 1 or 2: ", ["1", "2"]);
+    if (answer !== "2") { if (answer !== undefined) host.write(`Not added. Type /mcp login central ${name} any time.\n`); return "not-now"; }
+    const values: Record<string, string> = {};
+    for (const field of LOGIN_FIELDS.central) {
+      const value = await askField(host, field);
+      if (value === undefined || value === "wrong") { host.write(`Not added. Type /mcp login central ${name} any time.\n`); return "not-now"; }
+      values[field.env] = value;
+    }
+    try { await saveNamedLogin(host.homeDir, name, values); }
+    catch (error) {
+      host.write(`${error instanceof Error ? error.message : String(error)} Nothing saved.\n`);
+      return "failed";
+    }
+    return "added";
+  };
+  const result = await (host.exclusive ? host.exclusive(ask) : ask());
+  if (result !== "added") return result;
+  if (!server) {
+    host.write(`Central login "${name}" saved. The network server isn't set up yet: type /mcp setup network.\n`);
+    return "added";
+  }
+  await host.restart(server);
+  host.write(`Central login "${name}" saved. Ask for it by name, for example "use the ${name} login".\n`);
+  return "added";
+}
+
+/** /mcp login central <name> forget: 1 Keep it · 2 Forget it, then the server restarts without it. */
+export async function askToForgetNamedLogin(host: LoginHost, server: string | undefined, name: string): Promise<"forgot" | "kept" | "none" | "cant-ask"> {
+  const label = `Central "${name}"`;
+  if (!(await readNamedLogins(host.homeDir))[name]) { host.write(`There is no Central login named "${name}".\n`); return "none"; }
+  if (!host.interactive) { host.write(`Type /mcp login central ${name} forget in the terminal.\n`); return "cant-ask"; }
+  const choices = forgetLoginChoices(label);
+  const answer = await host.chooseAnswer(`Forget the ${label} login?\n${numberedLines(choices)}`, "Type 1 or 2: ", ["1", "2"]);
+  if (answer !== "2") { if (answer !== undefined) host.write(`Kept the ${label} login.\n`); return "kept"; }
+  await forgetNamedLogin(host.homeDir, name);
+  if (server) await host.restart(server);
+  host.write(`Forgot the ${label} login.\n`);
+  return "forgot";
 }
 
 /** /mcp login with no name: each product and its state, then 1 Not now · 2 Mist · 3 Central · 4 ClearPass. The picked

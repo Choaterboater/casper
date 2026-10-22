@@ -26,8 +26,8 @@ import { READ_ONLY_LOGIN_ENABLE_TEXT } from "../mcp/access";
 import { ownSettingsNote, writesTitle, WRITES_OFF_MEANING } from "../mcp/presets";
 import type { MCPConfiguration } from "../mcp/config";
 import { addUserServer, DOCS_TOOL_NAMES, docsOnlyDefinition, docsPinned, isDocsOnlyDefinition, MCP_FILE_LABEL } from "../mcp/docs";
-import { askForLogin, askToForgetLogin, askWhichLogin, type LoginHost } from "../mcp/network/ask-login";
-import { getsLogins, isNetworkProduct, NETWORK_PRODUCTS, PRODUCT_LABELS, readLogins, type NetworkProduct } from "../mcp/network/logins";
+import { askForLogin, askForNamedLogin, askToForgetLogin, askToForgetNamedLogin, askWhichLogin, parseLoginCommand, type LoginHost } from "../mcp/network/ask-login";
+import { getsLogins, NETWORK_PRODUCTS, PRODUCT_LABELS, readLogins, type NetworkProduct } from "../mcp/network/logins";
 import { networkSetupLine, runNetworkSetup, type SetupHost } from "../mcp/network/setup";
 import { parseSshSetup, runSshSetup } from "../mcp/ssh/setup";
 import type { Scrubber } from "../secrets/netconan";
@@ -926,7 +926,7 @@ async function handleDelegateCommand(host: CommandHost, prompt: string): Promise
     if (result.status !== "completed") throw new Error(`Delegation ${result.status}; see the bounded report above`);
   }
 
-const MCP_USAGE = "Usage: /mcp (a picker on a normal terminal) | /mcp detail [name] | /mcp setup network | /mcp setup ssh [--name <name>] [host] [command] | /mcp login [mist|central|clearpass] [forget] | /mcp connect <name> | /mcp disconnect <name> | /mcp reload | /mcp writes <name> | /mcp writes off | /mcp allow <name> [off] | /mcp forget <name> | /mcp junos-show <name> on|off | /mcp sandbox <name> on|off | /mcp docs";
+const MCP_USAGE = "Usage: /mcp (a picker on a normal terminal) | /mcp detail [name] | /mcp setup network | /mcp setup ssh [--name <name>] [host] [command] | /mcp login [mist|central|clearpass] [forget] | /mcp login central <name> [forget] | /mcp connect <name> | /mcp disconnect <name> | /mcp reload | /mcp writes <name> | /mcp writes off | /mcp allow <name> [off] | /mcp forget <name> | /mcp junos-show <name> on|off | /mcp sandbox <name> on|off | /mcp docs";
 /** What "writes off" means, said once under the list: the server runs pinned and every change asks. */
 const WRITES_OFF_TEXT = `${WRITES_OFF_MEANING} Answer 2 or 3 in the change box to allow it, or /mcp writes <name> to turn writes on now.`;
 
@@ -966,14 +966,17 @@ async function handleMCPCommand(host: CommandHost, prompt: string): Promise<void
       host.updateFooter();
       return;
     } else if (action === "login") {
-      if ((name && !isNetworkProduct(name)) || extra.length > 1 || (extra.length === 1 && extra[0] !== "forget")) throw new Error(MCP_USAGE);
+      const parsed = parseLoginCommand(name, extra);
+      if ("error" in parsed) throw new Error(parsed.error === "usage" ? MCP_USAGE : parsed.error);
       // Only the person types this; the AI has no way to run a slash command.
       const login = host.networkLoginHost();
       // Casper's network server (its own entry, or one you added that runs casper-network-mcp), if there is one.
       const server = mcp.status().map((status) => status.name).find((server) => getsLogins(mcp.definition(server)));
-      if (!name || !isNetworkProduct(name)) await askWhichLogin(login, server, (product) => askForLogin(login, server, product, { explicit: true }));
-      else if (extra[0] === "forget") await askToForgetLogin(login, server, name);
-      else await askForLogin(login, server, name, { explicit: true });
+      const { product, loginName, forget } = parsed;
+      if (!product) await askWhichLogin(login, server, (picked) => askForLogin(login, server, picked, { explicit: true }));
+      else if (loginName !== undefined) await (forget ? askToForgetNamedLogin(login, server, loginName) : askForNamedLogin(login, server, loginName));
+      else if (forget) await askToForgetLogin(login, server, product);
+      else await askForLogin(login, server, product, { explicit: true });
       host.updateFooter();
       return;
     } else if (action === "docs") {
