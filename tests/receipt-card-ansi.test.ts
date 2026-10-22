@@ -103,14 +103,16 @@ test("a clean pass is one green line, edge and words", async () => {
 test("notes are grey, and the next-step keys join the card's Next row on its edge", async () => {
   const task = done({ changedPaths: ["sum.js"], autoSkipped: "no-checks", sandbox: { held: false, reason: "--no-sandbox" } });
   await drawn(task, (cells, rows) => {
-    expect(text(cells).slice(-3)).toEqual(["▌   Notes    Shell commands and checks were not sandboxed (--no-sandbox)", '▌   Next     "add tests"', "▌            1 Show diff · 2 Undo"]);
+    // The first problem receipt of a session ends with where its words are explained (tests/receipt-detail.test.ts).
+    expect(text(cells).slice(-4).map((row) => row.trimEnd())).toEqual(["▌   Notes    Shell commands and checks were not sandboxed (--no-sandbox)", '▌   Next     "add tests"',
+      "▌            1 Show diff · 2 Undo", "▌   What these words mean: /help receipt"]);
     expect(painted(cellsFor(cells, "Shell commands and checks were not sandboxed"), "muted")).toBe(true);
-    expect(painted([cells.at(-1)![0]!], "warning") && plain(cellsFor(cells, "1 Show diff · 2 Undo"))).toBe(true);
+    expect(painted([cells.at(-2)![0]!], "warning") && plain(cellsFor(cells, "1 Show diff · 2 Undo"))).toBe(true);
     expect(rows.join("\n")).not.toContain("Next: 1");
   }, { next: true });
   // A card with no commands of its own gets the keys on a Next row.
   await drawn(done({ changedPaths: ["sum.js"], verificationMode: "auto", verification: report([check()]) }), (cells) => {
-    expect(text(cells).at(-1)).toBe("▌   Next     1 Show diff · 2 Undo");
+    expect(text(cells).at(-2)).toBe("▌   Next     1 Show diff · 2 Undo");
   }, { next: true });
 });
 

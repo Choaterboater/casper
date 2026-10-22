@@ -62,7 +62,8 @@ over the network, and `/references add` downloads files after asking you.
 | `/export [file]` | Save this conversation (Markdown; a `.jsonl` name saves every message): to `~/.casper/exports` with Casper's other per-user files, or to `file` from the project folder; it says the whole path; never over a file that is there |
 | `/rename <title>` | Name this conversation (the window title and `/resume`) |
 | `/output [n\|all]` | Full command and output of a recent tool call from the last task |
-| `/receipt [n\|list]` | The last task's receipt in detail, a saved one, or the last 10 |
+| `/receipt [n\|list]` | The last task's receipt in detail, a saved one, or the last 10; here a card with every line under plain labels |
+| `/help receipt` | What each verdict on a receipt's first line means, and what to do about it |
 | `/verify [checks]`, `/verify repair`, `/verify add <name>` | Run the project's checks; repair failures; save a check Casper found ([VERIFICATION.md](VERIFICATION.md)) |
 | `/review`, `/review <branch\|commit>` | A read-only reviewer AI (your review model) reads your uncommitted changes (staged, unstaged and new text files), the changes since a branch's merge-base, or one commit, and lists real bugs, security issues and missing tests by file:line, most serious first; a finding that names no real line of a changed file is dropped. Key and `.env` files stay out, a big diff is cut and the list says which files were left out, and an empty change asks no model. The numbered list goes to the conversation too, so `fix 1 and 3` works next. It reads the repo's `AGENTS.md`, `CLAUDE.md` and an ADR of deliberate choices when there is one |
 | `/security-review` | Run the pinned security tools here, then offer an AI review (asks first; [SECURITY_CHECKS.md](SECURITY_CHECKS.md)) |

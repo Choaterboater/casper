@@ -411,6 +411,8 @@ export interface ReceiptOptions {
   /** Notes about the session rather than the task (the shell not sandboxed, a folder too big to compare) that an earlier
    * receipt said in full: said again in one short line (see rememberSessionNotes). /receipt still says them in full. */
   seenNotes?: ReadonlySet<string>;
+  /** /receipt's card: every step of the plan, as the full receipt has them. */
+  full?: true;
 }
 
 /** Where a receipt line belongs: line 1 (the verdict); why the change is not verified (`why`: the proof, and checks
@@ -419,7 +421,9 @@ export interface ReceiptOptions {
 export type ReceiptSection = "verdict" | "why" | "checks" | "changed" | "config" | "devices" | "open" | "notes" | "undo" | "next";
 
 /** The receipt's main kinds of line: each also comes in parts (status, detail, actions). */
-export type ReceiptKind = "verdict" | "check" | "changed" | "repairs" | "proof" | "checklist" | "undo" | "not-verified";
+export type ReceiptKind = "verdict" | "check" | "changed" | "repairs" | "proof" | "checklist" | "undo" | "not-verified"
+  /** A check the model ran through bash, which Casper does not count; tests written from the request; the model's review. */
+  | "shell" | "acceptance" | "review";
 
 /** One receipt line, where it belongs and, for the main kinds, its parts. */
 export interface ReceiptItem {
@@ -535,7 +539,7 @@ export function shortReceiptText({ verdict, short, items }: ReceiptView): string
 
 /** The short receipt as items, each with its section, for a terminal that lays the receipt out in rows. */
 export function receiptView(task: TaskResult, options: ReceiptOptions = {}): ReceiptView {
-  const { lines, undo, folds, short, info } = receiptParts(task, options, true);
+  const { lines, undo, folds, short, info } = receiptParts(task, options, !options.full);
   const config = configChanges([...new Set([...task.changedPaths ?? [], ...task.changedDuringChecks ?? []])]);
   const about = (line: string): LineInfo => info.get(line) ?? { section: "notes" };
   // A line printed as two (a review cut off with a gap) is two items, each in its own section.
@@ -640,7 +644,7 @@ function receiptParts(task: TaskResult, options: ReceiptOptions, onScreen = fals
     if (recorded.has(observed.name)) continue;
     const ran = `${observed.name} ran via bash only (${safe(observed.command)}: ${observed.toolStatus === "success" ? "passed" : "failed"})`;
     const verify = slash(`/verify ${observed.name}`);
-    add("why", `– Not verified — ${ran}. Run ${verify} to record a check.`, { kind: "not-verified", name: observed.name, status: "Not verified", detail: ran, actions: [verify] });
+    add("why", `– Not verified — ${ran}. Run ${verify} to record a check.`, { kind: "shell", name: observed.name, status: "Not verified", detail: ran, actions: [verify] });
   }
 
   // A strong proof is what "Verified" says; a weak one keeps its line.
@@ -650,8 +654,8 @@ function receiptParts(task: TaskResult, options: ReceiptOptions, onScreen = fals
   }
   if (task.acceptance) {
     const line = acceptanceLine(task.acceptance, safe);
-    if (task.acceptance.status === "pass") fold("checks", line, "tests written from the request pass");
-    else add(line.startsWith("⚠ ") ? "open" : line.startsWith("✗ ") ? "checks" : "notes", line);
+    if (task.acceptance.status === "pass") fold("checks", line, "tests written from the request pass", { kind: "acceptance" });
+    else add(line.startsWith("⚠ ") ? "open" : line.startsWith("✗ ") ? "checks" : "notes", line, { kind: "acceptance" });
   }
   // The model's own "all covered" claim is not evidence: the short receipt leaves it out. A count short of its
   // total ("3 of 5") and its gaps keep their line; with a checklist the gaps become the checklist's line.
@@ -660,8 +664,8 @@ function receiptParts(task: TaskResult, options: ReceiptOptions, onScreen = fals
     const asCases = Boolean(task.checklist?.length && !task.review.incomplete && "open" in task.review && task.review.open.length);
     // The model's admitted gaps need you; the rest is its own claim, a note. A review cut off with a gap is two lines.
     const section = (text: string): ReceiptSection => text.startsWith("⚠ ") ? "open" : "notes";
-    if (line.startsWith("– The model's review: all ") || asCases) fold(section(line), line, ""); else add(section(line), line);
-    for (const part of line.split("\n")) info.set(part, { section: section(part) });
+    if (line.startsWith("– The model's review: all ") || asCases) fold(section(line), line, "", { kind: "review" }); else add(section(line), line, { kind: "review" });
+    for (const part of line.split("\n")) info.set(part, { section: section(part), kind: "review" });
   }
   if (task.changedDuringChecks?.length) add("changed", `– Changed while checking: ${pathList(task.changedDuringChecks, safe, false)}`);
   if (task.changedWhilePlanning?.length) add("changed", `– Changed while planning: ${pathList(task.changedWhilePlanning, safe, false)}`);

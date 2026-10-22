@@ -102,7 +102,7 @@ test("why the change is not verified: the proof and the checks Casper did not ru
   expect(shell.verdict).toEqual({ line: "– Not verified — test ran via bash only (npm test: passed). Run /verify test to record a check.", section: "verdict",
     kind: "verdict", status: "Not verified", detail: "test ran via bash only (npm test: passed)", actions: ["/verify test"] });
   expect(parts(shell.items.filter((item) => item.section === "why")))
-    .toEqual([{ section: "why", kind: "not-verified", name: "lint", status: "Not verified", detail: "lint ran via bash only (npm run lint: failed)", actions: ["/verify lint"] }]);
+    .toEqual([{ section: "why", kind: "shell", name: "lint", status: "Not verified", detail: "lint ran via bash only (npm run lint: failed)", actions: ["/verify lint"] }]);
 
   expect(receiptView(done({ changedPaths: ["sum.js"], autoSkipped: "no-checks" })).verdict).toEqual({ line: '– Not checked — no tests yet. Say "add tests".',
     section: "verdict", kind: "verdict", status: "Not checked", detail: "no tests yet", actions: ['"add tests"'] });
