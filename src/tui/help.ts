@@ -174,6 +174,8 @@ Local commands:
   /mcp                              One line per server; on a normal terminal pick one with the arrow keys to connect, disconnect, forget or see details
   /mcp list                         The same as /mcp
   /mcp detail [name]                The full status of every server, or one; secrets hidden (no connection)
+  /mcp add <name> <command> [args…]  Add a server to ~/.casper/mcp.json and start it, such as /mcp add docs npx -y @example/docs-mcp@1.2.0
+  /mcp add <name> <url>             The same for a server at an address (https://, or http:// to this computer)
   /mcp setup network                Set up Casper's network server (Mist, Central, ClearPass): 1 Not now · 2 Set it up
   /mcp setup ssh [--name <name>] [host] [command]  Add an MCP server that runs on another machine over ssh; writes off
   /mcp login [mist|central|clearpass] [forget]  Add, replace or forget a network login; only you type it

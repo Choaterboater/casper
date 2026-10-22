@@ -34,8 +34,19 @@ read-only. Only you can approve a call or turn writes on; the AI can't. See
 
 ## Quick start
 
-1. Put your server in `~/.casper/mcp.json`. For example, a local junos-mcp-server
-   checkout (the path and file names are yours to change):
+1. Add your server from inside Casper: type `/mcp add <name> <command> [args…]`, for
+   example `/mcp add docs npx -y @example/docs-mcp@1.2.0` (the package is a placeholder),
+   or `/mcp add <name> <url>` for a server at an address. Casper writes it to
+   `~/.casper/mcp.json` and starts it at once:
+
+   ```text
+   [mcp] Added docs to ~/.casper/mcp.json: npx -y @example/docs-mcp@1.2.0. Starting it…
+   [mcp] docs connected · 4 tools · writes on
+   ```
+
+   A server that needs a start folder, settings (`env`) or headers goes in that file
+   yourself. For example, a local junos-mcp-server checkout (the path and file names
+   are yours to change):
 
    ```json
    {
@@ -49,8 +60,9 @@ read-only. Only you can approve a call or turn writes on; the AI can't. See
    }
    ```
 
-2. Start Casper and type `/mcp` to see it. It is your own server, so it connects when the
-   session starts; junos is a network product, so its writes stay off. (With **My MCP servers**
+2. Type `/mcp` to see it (a server you put in the file shows up when Casper starts). It is
+   your own server, so it connects when the session starts; junos is a network product, so
+   its writes stay off. (With **My MCP servers**
    off in `/settings`, it shows `not connected` until you connect it.)
    `/mcp` prints one line for each server (name, state, tools, writes, sandbox, where it
    was found). On a normal terminal an arrow-key list sits right under it: pick a server,
@@ -376,9 +388,10 @@ variable fails the connection, and `/mcp` names it, never a value. Use variables
 instead of writing secrets into these files.
 
 **What Casper never does.** It does not run commands to fetch secrets, set up OAuth
-logins, install servers or write credentials. It writes MCP configuration in one
-case only: `/mcp docs` adds a docs-only server to `~/.casper/mcp.json` after you
-pick `2 Add it` (see [Secrets and docs servers](#secrets-and-docs-servers)).
+logins or write credentials. It writes MCP configuration only when you type a command
+that says so: `/mcp add`, `/mcp setup ssh`, `/mcp setup network`, and `/mcp docs` after
+you pick `2 Add it` (see [Secrets and docs servers](#secrets-and-docs-servers)). Each adds
+one server to `~/.casper/mcp.json`, never over a name a server already has.
 
 ### Commands
 
@@ -386,6 +399,8 @@ pick `2 Add it` (see [Secrets and docs servers](#secrets-and-docs-servers)).
 /mcp                           # status only; no connection, no model
 /mcp setup network             # set up Casper's network server (asks first)
 /mcp setup ssh [--name <name>] [host] [command]  # add a server that runs on another machine over ssh
+/mcp add <name> <command> [args…]  # add any server to ~/.casper/mcp.json and start it
+/mcp add <name> <url>          # the same for a server at an address
 /mcp login [mist|central|clearpass] [forget]  # add, replace or forget a network login
 /mcp login central <name> [forget]  # add, replace or forget a named Central login
 /mcp connect local-docs        # allow and connect this server for this run of Casper
@@ -398,6 +413,20 @@ pick `2 Add it` (see [Secrets and docs servers](#secrets-and-docs-servers)).
 /mcp sandbox <name> on|off     # run Casper's network server in the sandbox (on by default) or not
 /mcp docs                      # docs servers; add a docs-only copy
 ```
+
+**`/mcp add`** writes `command` and `args` (or `type` `http` and `url`) to
+`~/.casper/mcp.json`, then connects the server, as `/mcp setup ssh` does. It never writes over
+a name a server already has, in any file Casper reads, and creates the file 0600. Quote a word
+that has spaces (`'/srv/my docs/server.js'`); `${NAME}` stays as typed and is filled in when the
+server connects. An address follows the URL rules below, and a GitHub page is refused: add the
+command that starts the server instead (its README says it). A server started through a
+package runner (npx, uvx, docker…) is remembered only when it is pinned to a version
+(`pkg@1.2.3`), so prefer a pinned one. Only you type it; the AI can't run a slash command, so
+when you ask it for a server it gives you the line to type.
+
+`/mcp connect` with no name opens the picker on a normal terminal; elsewhere it lists the line
+to type for each server that isn't connected. `/mcp setup` alone lists what Casper can set up,
+and a subcommand missing its name says its own line.
 
 For one-shot tasks, or to connect before an interactive session starts, put
 `--mcp` before the prompt. You can repeat it:

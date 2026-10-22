@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { PassThrough } from "node:stream";
 import os from "node:os";
 import path from "node:path";
@@ -7,7 +7,9 @@ import { CasperApp } from "../src/app";
 import { loadProjectContext } from "../src/project/context";
 import { SkillRegistry } from "../src/skills/registry";
 import { discoverMCPConfiguration } from "../src/mcp/config";
+import { MCP_ADD_HINT, mcpAddLine } from "../src/mcp/add";
 import type { AgentRuntime, RuntimeStartOptions, RuntimeTool } from "../src/runtime/types";
+import { childTestLimit } from "./support/limits";
 import { posixOnly } from "./support/platform";
 import { removeTempDir } from "./support/temp-dir";
 
@@ -364,4 +366,36 @@ test("non-rich terminals never open the picker", async () => {
   const { output } = await session(home, project, ["/mcp"], [], undefined, (a) => { a.terminal.pick = async () => { opened += 1; return undefined; }; });
   expect(opened).toBe(0);
   expect(output).toContain("Details: /mcp detail [name]");
+});
+
+test("/mcp add in a session writes the server to ~/.casper/mcp.json and starts it; /mcp then lists it ready", async () => {
+  const { home, project } = await fixture({});
+  const { output } = await session(home, project, [mcpAddLine({ name: "net", entry: { command: process.execPath, args: [network] } }), "/mcp"]);
+  expect(output).toContain("[mcp] Added net to ~/.casper/mcp.json: ");
+  expect(output).toMatch(/\[mcp\] net connected · 3 tools · writes (on|off)\n/);
+  expect(output).toContain("net  ready · 3 tools");
+  expect(output).not.toContain("[error]");
+  expect(JSON.parse(await readFile(path.join(home, ".casper/mcp.json"), "utf8")).mcpServers.net).toEqual({ command: process.execPath, args: [network], env: {} });
+}, childTestLimit());
+
+test("/mcp connect or /mcp setup alone, and a subcommand missing its name, say what to type, never the whole usage as an error", async () => {
+  const { home, project } = await fixture({ claude: { mcpServers: { lab: entry({ FIXTURE_MODE: "access-bad" }) } } });
+  const { output } = await session(home, project, ["/mcp connect", "/mcp setup", "/mcp setup example", "/mcp writes", "/mcp forget", "/mcp add", "/mcp add Bad/Name npx x"]);
+  expect(output).not.toContain("[error]");
+  expect(output).not.toContain("Usage: /mcp (a picker");
+  // A plain terminal has no picker: the line to type for each server that isn't connected.
+  expect(output).toContain("Type one of these to connect a server:\n  /mcp connect lab  not connected\n");
+  expect(output).toContain("Casper can set up:\n  /mcp setup network               Casper's server for Mist, Central and ClearPass\n"
+    + "  /mcp setup ssh [host] [command]  A server that runs on another machine over ssh\n"
+    + "Any other server: /mcp add <name> <command> [args…], such as /mcp add docs npx -y @example/docs-mcp@1.2.0, or /mcp add <name> <url>.\n");
+  expect(output).toContain("There's no setup for example. Casper can set up:");
+  expect(output).toContain("Type /mcp writes <name>|off (turn writes on for one server, or off for every server).\n");
+  expect(output).toContain("Type /mcp forget <name> (forget a remembered server).\n");
+  expect(output).toContain(`${MCP_ADD_HINT}\n`);
+  expect(output).toContain("[mcp] A server name is letters, digits, dot, dash or underscore, up to 64, and starts with a letter or digit. Nothing changed.\n");
+  const empty = await fixture({});
+  const none = await session(empty.home, empty.project, ["/mcp connect", "/mcp"]);
+  expect(none.output).toContain(`No MCP servers yet. ${MCP_ADD_HINT}\n`);
+  expect(none.output).toContain(`No MCP servers configured. ${MCP_ADD_HINT}\n`);
+  expect(none.output).not.toContain("[error]");
 });

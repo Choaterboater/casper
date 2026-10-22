@@ -126,8 +126,9 @@ export const COMMAND_REGISTRY: readonly CommandSpec[] = [
     { name: "list", description: "The packs you added" },
     { name: "remove", args: "<name>", description: "Take a pack out", aliases: ["forget"] },
   ] },
-  { name: "mcp", description: "MCP status; connect, disconnect, writes on/off, forget, docs servers", afterCleanupError: NONE, subcommands: [
+  { name: "mcp", description: "MCP status; add, connect, disconnect, writes on/off, forget, docs servers", afterCleanupError: NONE, subcommands: [
     { name: "detail", args: "[name]", description: "The full status of every server, or one (no connection)" },
+    { name: "add", args: "<name> <command> [args…]|<url>", description: "Add a server to ~/.casper/mcp.json and start it" },
     { name: "setup", args: "network|ssh", description: "Set up Casper's network server, or a server over ssh" },
     { name: "login", args: "[mist|central|clearpass] [forget]", description: "Add, replace or forget a network login" },
     { name: "connect", args: "<name>", description: "Connect this server" },

@@ -16,7 +16,7 @@ import { chooseModel, severalModelsMessage } from "./model-words";
 import { formatTerminalJSON } from "../tui/json";
 import { formatCacheHitRate, formatCostLong, formatCostShort, formatTokenSplit } from "../tui/usage";
 import { effortChoices, effortProblem } from "../tui/effort";
-import { sessionFlag } from "../tui/commands";
+import { COMMAND_REGISTRY, sessionFlag } from "../tui/commands";
 import { pickEffort } from "../tui/effort-picker";
 import { commandLabel, displayPath, formatDuration, formatRuntimeStatus, redactPreview, terminalText, toolTarget } from "../tui/format";
 import type { InteractiveTerminal } from "../tui/terminal";
@@ -30,6 +30,7 @@ import { askForLogin, askForNamedLogin, askToForgetLogin, askToForgetNamedLogin,
 import { getsLogins, NETWORK_PRODUCTS, PRODUCT_LABELS, readLogins, type NetworkProduct } from "../mcp/network/logins";
 import { networkSetupLine, runNetworkSetup, type SetupHost } from "../mcp/network/setup";
 import { parseSshSetup, runSshSetup } from "../mcp/ssh/setup";
+import { MCP_ADD_EXAMPLE, MCP_ADD_HINT, parseMcpAdd, runMcpAdd } from "../mcp/add";
 import type { Scrubber } from "../secrets/netconan";
 import { defaultRunGit, runReferenceAdd } from "../references/catalog";
 import { sandboxLines, sandboxSummary } from "../mcp/sandbox";
@@ -926,13 +927,30 @@ async function handleDelegateCommand(host: CommandHost, prompt: string): Promise
     if (result.status !== "completed") throw new Error(`Delegation ${result.status}; see the bounded report above`);
   }
 
-const MCP_USAGE = "Usage: /mcp (a picker on a normal terminal) | /mcp detail [name] | /mcp setup network | /mcp setup ssh [--name <name>] [host] [command] | /mcp login [mist|central|clearpass] [forget] | /mcp login central <name> [forget] | /mcp connect <name> | /mcp disconnect <name> | /mcp reload | /mcp writes <name> | /mcp writes off | /mcp allow <name> [off] | /mcp forget <name> | /mcp junos-show <name> on|off | /mcp sandbox <name> on|off | /mcp docs";
+const MCP_USAGE = "Usage: /mcp (a picker on a normal terminal) | /mcp detail [name] | /mcp add <name> <command> [args…] | /mcp add <name> <url> | /mcp setup network | /mcp setup ssh [--name <name>] [host] [command] | /mcp login [mist|central|clearpass] [forget] | /mcp login central <name> [forget] | /mcp connect <name> | /mcp disconnect <name> | /mcp reload | /mcp writes <name> | /mcp writes off | /mcp allow <name> [off] | /mcp forget <name> | /mcp junos-show <name> on|off | /mcp sandbox <name> on|off | /mcp docs";
 /** What "writes off" means, said once under the list: the server runs pinned and every change asks. */
 const WRITES_OFF_TEXT = `${WRITES_OFF_MEANING} Answer 2 or 3 in the change box to allow it, or /mcp writes <name> to turn writes on now.`;
 
 async function handleMCPCommand(host: CommandHost, prompt: string): Promise<void> {
     const [, action, name, ...extra] = prompt.trim().split(/\s+/);
     const mcp = host.mcp!;
+    // A known subcommand with its name missing gets its own line, at the normal level, not the whole usage as an error.
+    if (!name && action && MISSING_NAME.has(action)) {
+      if (action === "connect") await mcpConnectChoices(host);
+      else host.output.write(mcpSubcommandHint(action));
+      return;
+    }
+    if (action === "add") {
+      // Read from the line, not its words: quotes keep spaces inside an argument. Only the person types this.
+      const parsed = parseMcpAdd(prompt.trim().replace(/^\S+\s+add(?=\s|$)/, "").trim());
+      if ("error" in parsed) { host.output.write(parsed.error === "usage" ? `${MCP_ADD_HINT}\n` : `[mcp] ${parsed.error} Nothing changed.\n`); return; }
+      if (await runMcpAdd(host.networkSetupHost(), parsed) === "added") {
+        const status = mcp.status().find((entry) => entry.name === parsed.name);
+        if (status) host.output.write(`${mcpResultLine(status)}\n`);
+      }
+      host.updateFooter();
+      return;
+    }
     if (action === "reload") {
       if (name || extra.length) throw new Error(MCP_USAGE);
       if (!host.reloadMCPConfiguration) throw new Error("MCP configuration cannot be re-read in this session");
@@ -944,23 +962,24 @@ async function handleMCPCommand(host: CommandHost, prompt: string): Promise<void
       host.updateFooter();
       return;
     } else if (action === "writes") {
-      if (!name || extra.length) throw new Error(MCP_USAGE);
+      if (extra.length) { host.output.write(mcpSubcommandHint(action)); return; }
       await handleMCPWrites(host, name);
       return;
     } else if (action === "allow") {
-      if (!name || extra.length > 1 || (extra.length === 1 && extra[0] !== "off")) throw new Error(MCP_USAGE);
+      if (extra.length > 1 || (extra.length === 1 && extra[0] !== "off")) { host.output.write(mcpSubcommandHint(action)); return; }
       await handleMCPAllow(host, name, extra[0] === "off");
       return;
     } else if (action === "setup") {
       if (name === "ssh") {
         // The command after the host is kept as typed, so it is read from the line, not from its words.
         const options = parseSshSetup(prompt.trim().replace(/^\S+\s+setup\s+ssh(?=\s|$)/, ""));
-        if ("error" in options) throw new Error(MCP_USAGE);
+        if ("error" in options) { host.output.write("Type /mcp setup ssh [--name <name>] [host] [command].\n"); return; }
         await runSshSetup({ ...host.networkSetupHost(), access: (server) => mcp.policy(server).access }, options);
         host.updateFooter();
         return;
       }
-      if (name !== "network" || extra.length) throw new Error(MCP_USAGE);
+      // /mcp setup alone, or one Casper has no setup for: what it can set up, and /mcp add for any other server.
+      if (name !== "network" || extra.length) { host.output.write(mcpSetupChoices(name === "network" ? undefined : name)); return; }
       // Only the person types this; the AI has no way to run a slash command.
       await runNetworkSetup(host.networkSetupHost(), { explicit: true });
       host.updateFooter();
@@ -984,16 +1003,16 @@ async function handleMCPCommand(host: CommandHost, prompt: string): Promise<void
       await handleMCPDocs(host);
       return;
     } else if (action === "forget") {
-      if (!name || extra.length) throw new Error(MCP_USAGE);
+      if (extra.length) { host.output.write(mcpSubcommandHint(action)); return; }
       await runMCPForget(host, name);
       return;
     } else if (action === "sandbox") {
-      if (!name || extra.length !== 1 || !["on", "off"].includes(extra[0]!)) throw new Error(MCP_USAGE);
+      if (extra.length !== 1 || !["on", "off"].includes(extra[0]!)) { host.output.write(mcpSubcommandHint(action)); return; }
       // Only the user types this; the model has no way to run a slash command. Kept for next time.
       await runMCPSandbox(host, name, extra[0] === "on");
       return;
     } else if (action === "junos-show") {
-      if (!name || extra.length !== 1 || !["on", "off"].includes(extra[0]!)) throw new Error(MCP_USAGE);
+      if (extra.length !== 1 || !["on", "off"].includes(extra[0]!)) { host.output.write(mcpSubcommandHint(action)); return; }
       // Only the user types this; the model has no way to run a slash command.
       mcp.setShowOptIn(name, extra[0] === "on");
       host.output.write(extra[0] === "on"
@@ -1008,7 +1027,10 @@ async function handleMCPCommand(host: CommandHost, prompt: string): Promise<void
       host.output.write(mcpDetailText(shown));
       if (!name) await writeNetworkSetupLine(host);
       return;
-    } else if (action && (!name || extra.length || !["connect", "disconnect"].includes(action))) {
+    } else if (action && extra.length && (action === "connect" || action === "disconnect")) {
+      host.output.write(mcpSubcommandHint(action));
+      return;
+    } else if (action && !["connect", "disconnect"].includes(action)) {
       throw new Error(MCP_USAGE);
     }
     if (action === "connect") { await runMCPConnect(host, name!); return; }
@@ -1027,6 +1049,39 @@ export async function runMCPListDuringWork(host: CommandHost): Promise<void> {
 /** /permissions or /permissions details during a task: the screen only; its box would stand in the way of the task's questions. */
 export async function runPermissionsDuringWork(host: CommandHost, line: string): Promise<void> {
   await handlePermissions(host, line, true);
+}
+
+/** The subcommands that need a server's name. Typed without one, each says its own line instead of the whole usage. */
+const MISSING_NAME = new Set(["connect", "disconnect", "writes", "allow", "forget", "junos-show", "sandbox"]);
+
+/** One subcommand's line from the command table: `Type /mcp forget <name> (forget a remembered server).` */
+function mcpSubcommandHint(action: string): string {
+  const sub = COMMAND_REGISTRY.find((command) => command.name === "mcp")?.subcommands?.find((entry) => entry.name === action);
+  if (!sub) return `${MCP_USAGE}\n`;
+  return `Type /mcp ${sub.name}${sub.args ? ` ${sub.args}` : ""} (${sub.description.charAt(0).toLowerCase()}${sub.description.slice(1)}).\n`;
+}
+
+/** /mcp setup alone (or with a name Casper has no setup for): what it sets up, and how to add any other server. */
+function mcpSetupChoices(unknown?: string): string {
+  return `${unknown ? `There's no setup for ${terminalText(unknown)}. ` : ""}Casper can set up:\n`
+    + "  /mcp setup network               Casper's server for Mist, Central and ClearPass\n"
+    + "  /mcp setup ssh [host] [command]  A server that runs on another machine over ssh\n"
+    + `Any other server: /mcp add <name> <command> [args…], such as ${MCP_ADD_EXAMPLE}, or /mcp add <name> <url>.\n`;
+}
+
+/** /mcp connect with no name: the picker where there is one (never during a task, when it would stand in front of the
+ * task's boxes); elsewhere the line to type for each server that isn't connected. */
+async function mcpConnectChoices(host: CommandHost): Promise<void> {
+  const statuses = host.mcp!.status();
+  if (statuses.length && host.interactive && host.terminal.rich && host.terminal.canAsk && !typedDuringTask()) {
+    await writeMCPList(host, true);
+    return;
+  }
+  const waiting = statuses.filter((status) => status.state !== "ready");
+  if (!statuses.length) { host.output.write(`No MCP servers yet. ${MCP_ADD_HINT}\n`); return; }
+  if (!waiting.length) { host.output.write("Every server is connected. /mcp lists them; /mcp add <name> <command> [args…] adds another.\n"); return; }
+  const width = Math.max(...waiting.map((status) => `/mcp connect ${status.name}`.length));
+  host.output.write(`Type one of these to connect a server:\n${waiting.map((status) => terminalText(`  ${`/mcp connect ${status.name}`.padEnd(width)}  ${stateWords(status)}`)).join("\n")}\n`);
 }
 
 async function writeMCPList(host: CommandHost, picker: boolean): Promise<void> {
@@ -1080,7 +1135,7 @@ function stateWords(status: MCPStatus): string {
 
 /** One line per server. Command hints only where there is no picker to choose from. */
 function mcpListText(statuses: readonly MCPStatus[], hints: boolean): string {
-  if (!statuses.length) return "No MCP servers configured.\n";
+  if (!statuses.length) return `No MCP servers configured. ${MCP_ADD_HINT}\n`;
   const width = Math.min(24, Math.max(...statuses.map((status) => status.name.length)));
   const lines = statuses.map((status) => {
     const ready = status.state === "ready";
