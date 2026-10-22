@@ -13,7 +13,7 @@ const BRAILLE = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", 
 /** One column each, like the mark it stands for, so a line keeps its width and nothing shifts. The box-drawing
  * corner is one the old console draws, as for the panel corners. */
 const ASCII: Readonly<Record<string, string>> = {
-  "❯": ">", "✓": "+", "✗": "x", "→": ">", "↳": "└", "▌": "|", "◐": "*", "○": "o", "•": "*", "●": "*", "–": "-", "…": "~", "⚠": "!", "↻": "@", "◆": "#",
+  "❯": ">", "✓": "+", "✗": "x", "→": ">", "↳": "└", "▌": "|", "◐": "*", "○": "o", "•": "*", "●": "*", "–": "-", "…": "~", "⚠": "!", "↻": "@", "━": "=", "◆": "#",
 };
 const ASCII_MARKS = new RegExp(`[${Object.keys(ASCII).join("")}]`, "gu");
 

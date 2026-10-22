@@ -131,12 +131,12 @@ test("reported case: the idle status bar keeps folder, direct Sonnet route, effo
     updateFooter({
       projectContext: { info: { name: "fixclaude", root: process.cwd() } }, homeDir: () => "fixture-home",
       terminal: { setTitle() {}, setBadge() {}, setUpdate() {}, setStatus: (text: string, cwd: string) => surface.setStatus(text, cwd) },
-      session: { getStatus: () => selected, getUsage: () => ({ context: { percent: 1 } }) },
+      session: { getStatus: () => selected, getUsage: () => ({ context: { tokens: 2000, contextWindow: 200_000, percent: 1 } }) },
       observations: { spent: () => ({ tokens: 0, cost: 0 }) }, spentBefore: { tokens: 0, cost: 0 }, subagents: { runs: () => [] },
       commandActive: false,
     } as unknown as CasperApp);
     expect(surface.footerLine(200)).toStartWith("idle ");
-    expect(surface.footerLine(200)).toEndWith("fixclaude │ anthropic/claude-sonnet-5-5 · high │ ctx 1%~");
+    expect(surface.footerLine(200)).toEndWith("fixclaude │ anthropic/claude-sonnet-5-5 · high │ ctx ────────── 2k / 200k · 1%~");
   } finally { surface.close(); }
 });
 
