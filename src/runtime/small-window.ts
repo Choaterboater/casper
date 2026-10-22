@@ -12,12 +12,27 @@ export const OWN_PART = 4_600;
 
 /** The compaction reserve: room for the reply plus the 4,096 Pi keeps spare under it. The reply gets the quarter of the
  * window Casper allows a local model, but never more than half of what Casper's own part (`fixed`) and the spare leave,
- * so a small window keeps room for the conversation too. Undefined (from 49,152 tokens, where that reaches Pi's 16,384)
- * means "leave Pi's default". */
-export function compactionReserveFor(contextWindow: number | undefined, fixed = OWN_PART): number | undefined {
+ * so a small window keeps room for the conversation too. From 49,152 tokens that reaches Pi's 16,384. Compaction then
+ * starts at `at` (85% of the window unless you set it, a percentage or a token count) when that comes sooner. */
+export function compactionReserveFor(contextWindow: number | undefined, fixed = OWN_PART, at: CompactAt = DEFAULT_COMPACT_AT): number | undefined {
   if (typeof contextWindow !== "number" || !Number.isFinite(contextWindow) || contextWindow <= 0) return undefined;
   const reply = Math.max(0, Math.min(Math.floor(contextWindow / 4), Math.floor((contextWindow - fixed - PI_SPARE) / 2)));
-  return PI_SPARE + reply < PI_RESERVE ? PI_SPARE + reply : undefined;
+  const start = "tokens" in at ? at.tokens : Math.floor(contextWindow * at.percent / 100);
+  return Math.max(Math.min(PI_RESERVE, PI_SPARE + reply), contextWindow - start);
+}
+
+/** Where compaction starts: a share of the window or a token count (`compact_at:` in ~/.casper/config.yaml). */
+export type CompactAt = { percent: number } | { tokens: number };
+export const DEFAULT_COMPACT_AT: CompactAt = { percent: 85 };
+
+/** `compact_at:` as written: auto, a percentage from 10% to 99% ("70%"), or a token count of 1,000 or more. Undefined
+ * when it is none of those. */
+export function readCompactAt(value: unknown): CompactAt | "auto" | undefined {
+  if (value === "auto") return "auto";
+  const percent = typeof value === "string" ? /^\s*(\d{1,2})\s*%\s*$/.exec(value)?.[1] : undefined;
+  if (percent !== undefined) return Number(percent) >= 10 ? { percent: Number(percent) } : undefined;
+  const tokens = typeof value === "number" ? value : typeof value === "string" && /^\s*\d[\d_,]*\s*$/.test(value) ? Number(value.replace(/[_,\s]/g, "")) : NaN;
+  return Number.isSafeInteger(tokens) && tokens >= 1_000 ? { tokens } : undefined;
 }
 
 /** How much of the latest conversation a compaction keeps word for word: a quarter of the conversation's room (the window

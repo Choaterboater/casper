@@ -1,3 +1,4 @@
+import { readCompactAt } from "../src/runtime/small-window";
 import { afterEach, expect, test } from "bun:test";
 import { mkdir, mkdtemp, readFile, realpath, writeFile } from "node:fs/promises";
 import os from "node:os";
@@ -221,6 +222,34 @@ test("lean guidance rejects invalid values and project files; only user-selected
   await writeFile(projectFile, "profile: fixture\n");
   expect((await loadConfiguration({ projectRoot: project, homeDir: home })).leanGuidance).toBe("off");
   expect((await loadConfiguration({ projectRoot: project, homeDir: home, profileName: "fixture" })).leanGuidance).toBe("auto");
+});
+
+test("Compact at: auto by default, choices persist and apply next step; any value works in the config, a bad one or a project's is refused", async () => {
+  const { home, project, config, projectFile } = await folders();
+  expect(await valueOf(home, project, "Compact at")).toBe("auto");
+  const host = { ...fakeHost(home, project, ["Compact at", "200,000 tokens", "Done"]), duringTask: true };
+  await runSettings(host);
+  expect(host.asked[1]!.split("\n").slice(1).map((line) => line.split(" — ")[0])).toEqual(["1 Keep auto", "2 60%", "3 70%", "4 64,000 tokens", "5 200,000 tokens"]);
+  expect(host.asked[1]).toContain("Auto is 85% of the window");
+  expect(await readFile(config, "utf8")).toBe("compact_at: 200000\n");
+  expect((await host.context())!.compactAt).toBe(200000);
+  expect(host.text()).toContain("The running task uses it from its next step.");
+  expect(await valueOf(home, project, "Compact at")).toBe("200,000 tokens");
+  await runSettings(fakeHost(home, project, ["Compact at", "60%", "Done"]));
+  expect(await readFile(config, "utf8")).toBe("compact_at: 60%\n");
+  await runSettings(fakeHost(home, project, ["Compact at", "Auto", "Done"]));
+  expect(await valueOf(home, project, "Compact at")).toBe("auto");
+  for (const [value, read] of [["45%", { percent: 45 }], ["90000", { tokens: 90000 }], ["1_000_000", { tokens: 1_000_000 }]] as const) {
+    await writeFile(config, `compact_at: ${value}\n`);
+    expect(readCompactAt((await loadConfiguration({ projectRoot: project, homeDir: home })).compactAt)).toEqual(read);
+  }
+  for (const value of ["5%", "100%", "soon", "500", "true"]) {
+    await writeFile(config, `compact_at: ${value}\n`);
+    await expect(loadConfiguration({ projectRoot: project, homeDir: home })).rejects.toThrow("compact_at must be auto, a percentage from 10% to 99%");
+  }
+  await writeFile(config, "compact_at: 70%\n");
+  await writeFile(projectFile, "compact_at: 95%\n");
+  await expect(loadConfiguration({ projectRoot: project, homeDir: home })).rejects.toThrow("compact_at is a user setting");
 });
 
 test("history hiding follows only a profile the person chose, not one selected by the project", async () => {

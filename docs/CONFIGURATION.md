@@ -244,6 +244,20 @@ model the full wording. A change applies from the next model step, as does switc
 history is unchanged. Only your own config or a profile you chose can set it, never a project file
 or a project-selected profile. See [Local models](#local-models).
 
+### Compact at
+
+When the conversation reaches this point, Casper summarises its older part to make room (`/compact`
+does it at once). Automatic by default (`compact_at: auto`): **85% of the model's window**, so a 128k
+model compacts at about 109k and a 1M model at 850k. A small window starts sooner, so the reply keeps
+its room: about 52% of 16k and 62.5% of 32k (see [Small context windows](#small-context-windows)). No
+setting starts later than that.
+
+`/settings` **Compact at** offers auto, 60%, 70%, 64,000 tokens (a local model that slows down past
+that) and 200,000 tokens (a 1M model never resends near a million tokens on every request). In
+`~/.casper/config.yaml` any value works: a percentage from 10% to 99% (`compact_at: 75%`) or a token
+count of 1,000 or more (`compact_at: 120000`). A change applies from the next model step. Only your own
+config or a profile you chose can set it, never a project file.
+
 ### Hide old tool output
 
 On by default. Old reads and successful command output of at least 8,000 characters, and old tool
@@ -433,7 +447,7 @@ loading.
 **Profile trust.** A repository's `profile:` may select one of your existing profiles, including
 its rules, MCP/LSP server definitions, reference sources and the settings a project file may set
 anyway. Your own settings (`sandbox`, `shell`, `web`, `lab`, `spend`, `cache`, `display`, `theme`,
-`showPages`, `hide_tool_output`, `reasoning_headline`, `lean_guidance`, `suggestions`, `updates`, `sideQuestions`, `localModels`, `modelServers` (from `~/.casper/config.yaml` only), `telemetry`, `ssh_login`, `other_logins`, `network_updates`, `ai_pages`, `open_pages`, `tools.downloads`, `pages: off`, `browser`, `packs`, `skills.imports`, `skills.bundled`, `repair.bigModelLastTry`, `delegate.build`, `mcp_autoconnect`, `lsp_autostart`, `notifications`)
+`showPages`, `hide_tool_output`, `reasoning_headline`, `lean_guidance`, `compact_at`, `suggestions`, `updates`, `sideQuestions`, `localModels`, `modelServers` (from `~/.casper/config.yaml` only), `telemetry`, `ssh_login`, `other_logins`, `network_updates`, `ai_pages`, `open_pages`, `tools.downloads`, `pages: off`, `browser`, `packs`, `skills.imports`, `skills.bundled`, `repair.bigModelLastTry`, `delegate.build`, `mcp_autoconnect`, `lsp_autostart`, `notifications`)
 stay those of the profile you chose yourself (or `~/.casper/config.yaml`), so a repository can't
 turn your sandbox off or your web lookups on by picking or naming a profile; the banner says
 `[config] .casper/project.yaml picked profile lab: …`. `CASPER_PROFILE=lab` (or `profile: lab` in
@@ -978,7 +992,7 @@ keeps room for the reply free, plus the 4,096 tokens Pi always leaves spare unde
 a quarter of the window, but never more than half of what Casper's own part and the spare leave (12,288 in
 all on a 32k window, so compaction starts at 62.5%). A compaction keeps a quarter of the conversation's
 room word for word (the window less that reserve and Casper's own part), at most the usual 20,000.
-Large windows are unchanged, and a `compaction.reserveTokens` or `compaction.keepRecentTokens` you set
+Larger windows compact at 85% (see [Compact at](#compact-at)), and a `compaction.reserveTokens` or `compaction.keepRecentTokens` you set
 yourself in `~/.casper/agent/settings.json` is kept.
 
 ## Model roles and automatic effort
