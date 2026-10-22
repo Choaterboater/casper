@@ -61,6 +61,9 @@ From the prompt to the receipt, in `src/app/task-run.ts` (`runModelTask`) unless
    put in one, and `file_path`, `filepath` and `cmd` become `path` and `command` when the tool has those fields and
    not the alias. Nothing is guessed. A repaired call's result ends with one line giving the right form, so the
    model sends it next time; what a tool already repairs itself (Pi's edit) gets no line (`src/runtime/tool-repair.ts`).
+   The other way round is refused: Pi's check would turn a number, true or false, or null into text, so a `read`,
+   `write` or `edit` whose path, content or edit text is not text does not run, and its result names each field
+   (`path must be a string, not the number 33`) for the model to send again as text.
 6. Casper snapshots again and plans the checks from what changed (`planAutoChecks` in `src/verify/mode.ts`), plus smoke and page checks.
 7. `runVerification` (`src/app/verification.ts`) runs them in the sandbox, with up to three repair turns by default (`repair.maxAttempts`)
    (`src/verify/repair-loop.ts`). A round that changed no files and left the same failure ends the repairs

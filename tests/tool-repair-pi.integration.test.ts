@@ -1,9 +1,10 @@
 import { afterEach, expect } from "bun:test";
-import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, readFile, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { posixOnly } from "./support/platform";
 import { cleanEnv } from "./support/env";
+import { childTestLimit, finished } from "./support/limits";
 import { removeTempDir } from "./support/temp-dir";
 
 const cleanup: Array<() => Promise<unknown>> = [];
@@ -72,3 +73,48 @@ posixOnly("a misnamed field, an array sent as a JSON string and a single value f
     .toEqual([["read", false], ["edit", false], ["pick", false], ["pick", false], ["read", false]]);
   expect(result.picked).toEqual([["one"], ["two"]]);
 }, 20_000);
+
+/** The text of every tool result the model was sent, in order. */
+function toolTexts(payload: Payload | undefined): string[] {
+  return (payload?.messages ?? []).filter((message) => message.role === "tool").map((message) => typeof message.content === "string" ? message.content
+    : Array.isArray(message.content) ? message.content.map((part: { text?: string }) => part.text ?? "").join("\n") : "");
+}
+
+/** The fixture session on the real Pi runtime, its model a loopback server. `reply` answers by how many tool results
+ * the request carries, so a guarded restart (tests/support/limits.ts) starts the script again from the top. */
+async function fixtureSession(reply: (step: number) => Response) {
+  const root = await mkdtemp(path.join(os.tmpdir(), "casper-tool-text-"));
+  cleanup.push(() => removeTempDir(root));
+  const home = path.join(root, "home"); const project = path.join(root, "project"); const agent = path.join(home, ".pi/agent");
+  await mkdir(agent, { recursive: true }); await mkdir(project);
+  const payloads: Payload[] = [];
+  const server = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: async (request) => {
+    const payload = await request.json() as Payload;
+    payloads.push(payload);
+    return reply(toolTexts(payload).length);
+  } });
+  cleanup.push(async () => { server.stop(true); });
+  await writeFile(path.join(agent, "models.json"), JSON.stringify({ providers: { fixture: {
+    baseUrl: `http://127.0.0.1:${server.port}/v1`, api: "openai-completions", apiKey: "local-fixture-not-a-secret", models: [{ id: "fixture" }],
+  } } }));
+  await writeFile(path.join(agent, "settings.json"), JSON.stringify({ defaultProvider: "fixture", defaultModel: "fixture", retry: { enabled: false } }));
+  await mkdir(path.join(home, ".casper"), { recursive: true });
+  await writeFile(path.join(home, ".casper/settings.json"), JSON.stringify({ defaultProvider: "fixture", defaultModel: "fixture" }));
+  const env = cleanEnv({ HOME: home, PI_CODING_AGENT_DIR: agent, PI_OFFLINE: "1", PI_TELEMETRY: "0" });
+  const run = await finished(() => Bun.spawn([process.execPath, path.join(import.meta.dir, "fixtures/pi-tool-repair.ts"), project], { cwd: project, env, stdout: "pipe", stderr: "pipe" }));
+  expect({ exit: run.exit, stderr: run.stderr }).toEqual({ exit: 0, stderr: "" });
+  const result = JSON.parse(run.stdout.slice(run.stdout.indexOf("REPAIR_RESULT=") + "REPAIR_RESULT=".length).trim());
+  return { project, sent: toolTexts(payloads.at(-1)), toolEnds: result.toolEnds.map((end: { toolName: string; isError: boolean }) => [end.toolName, end.isError]) };
+}
+
+/** A weak model's write with a number for its path and false for its content: Pi would turn them into "33" and
+ * "false" and make that file. Casper refuses the call before it runs, and the model's corrected call works. */
+posixOnly("a write whose path and content are not text is refused and makes no file; the corrected write works", async () => {
+  const { project, sent, toolEnds } = await fixtureSession((step) => step === 0 ? call(0, "write", { path: 33, content: false })
+    : step === 1 ? call(1, "write", { path: "notes.txt", content: "fixed\n" }) : answer("done"));
+  expect(sent[0]).toContain("write did not run: path must be a string, not the number 33; content must be a string, not the boolean false. Send them as strings.");
+  expect(await readdir(project)).toEqual(["notes.txt"]);
+  expect(await readFile(path.join(project, "notes.txt"), "utf8")).toBe("fixed\n");
+  expect(sent[1]).not.toContain("did not run");
+  expect(toolEnds).toEqual([["write", true], ["write", false]]);
+}, childTestLimit());
