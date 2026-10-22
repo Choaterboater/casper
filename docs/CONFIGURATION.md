@@ -769,9 +769,10 @@ no API key or separate sign-in is needed.
 - **The model name** is the provider name, a slash and the server's own id: `ollama/qwen3:8b`,
   `lm-studio/qwen2.5-coder-7b`. Use it with `casper --model ollama/qwen3:8b` or `/model`.
 - **Context window.** Casper reads it where the server tells: for Ollama a loaded model's window, else a
-  `num_ctx` in the model's settings, else `OLLAMA_CONTEXT_LENGTH`; a loaded LM Studio model's window;
-  llama.cpp's `-c`; vLLM's `--max-model-len`. Otherwise it uses the usual 128k (never more than the
-  model was trained for), so set the window yourself if you can (see the limits below).
+  `num_ctx` in the model's settings, else `OLLAMA_CONTEXT_LENGTH`; a loaded LM Studio model's window
+  (one not loaded yet: the most it takes, until LM Studio loads it); llama.cpp's `-c`; vLLM's
+  `--max-model-len`. Otherwise it uses the usual 128k (never more than the model was trained for), so set
+  the window yourself if you can (see the limits below).
 - **Lean guidance.** These model servers get shorter system text and tool descriptions automatically,
   even when their window is large or unknown. Any model with a known window of 32,768 tokens or less
   gets it too. No extra call, question or missing tool; big hosted models keep full text.
@@ -780,8 +781,10 @@ no API key or separate sign-in is needed.
 - **The window Ollama really serves.** Ollama often runs a model with less than it takes (its own
   default is 4k, 32k or 256k, by the computer's memory) and silently drops the start of a longer
   prompt, Casper's instructions and tools first. Ollama's OpenAI-style address ignores a request's
-  `num_ctx`, so Casper can't ask for more: when the window wasn't known, it reads the one Ollama
-  loaded the model with after the model's first answer, and keeps the conversation inside it. If that
+  `num_ctx`, so Casper can't ask for more: after every answer it reads the window Ollama loaded the
+  model with (LM Studio's too), and keeps the conversation inside it. A model loaded again with another
+  window (Ollama's context setting changed, or a smaller one when memory is short) is followed either
+  way, never past what the model takes, so the footer's figure and compaction measure the real window. If that
   is under half of what the model takes and under 32,768 (32k is enough for Casper), Casper says so
   once per session, with how to raise it: start
   Ollama with `OLLAMA_CONTEXT_LENGTH=32768 ollama serve`, or set `PARAMETER num_ctx 32768` in a

@@ -35,9 +35,9 @@ export interface LocalModel {
   /** Ollama: fields every request to this model carries: keep_alive, and the temperature and top_p its Modelfile sets
    * (Ollama's /v1 otherwise runs every model at 1.0 and unloads it after 5 minutes). */
   request?: Record<string, number | string>;
-  /** Ollama: the most the model takes, when Ollama serves it a smaller window (contextWindow). */
+  /** The most the model takes, when its server serves it a smaller window or hasn't loaded it yet (Ollama, LM Studio). */
   trained?: number;
-  /** Ollama: the window Ollama serves is not known until the model is loaded; Casper reads it after the first answer. */
+  /** The window the server serves is not known until it loads the model (Ollama, LM Studio); Casper reads it after an answer. */
   servedLater?: true;
   /** Ollama: its capabilities leave out tools, and Casper sends its tools with every request (dolphin3, gemma3). */
   tools?: false;
@@ -268,15 +268,18 @@ async function openAiModels(fetcher: typeof fetch, root: string, signal: AbortSi
   });
 }
 
-/** LM Studio: its own /api/v0/models says each model's type (llm, vlm, embeddings) and the window of a loaded one. */
+/** LM Studio: its own /api/v0/models says each model's type (llm, vlm, embeddings) and the window of a loaded one. One
+ * not loaded yet is loaded on its first request with LM Studio's load settings (4,096 by default), so its window is
+ * read after that answer (servedLater); until then the most it takes stands in. */
 async function lmStudio(fetcher: typeof fetch, root: string, signal: AbortSignal): Promise<LocalModel[]> {
   const native = await getJson(fetcher, `${root}/api/v0/models`, signal).catch(() => undefined);
   if (!native || !Array.isArray(native.data)) return openAiModels(fetcher, root, signal);
   return native.data.flatMap((entry) => {
     const model = record(entry); const id = text(model?.id);
     if (!model || !id || model.type === "embeddings" || (model.type === undefined && EMBEDDING.test(id))) return [];
-    const contextWindow = positive(model.loaded_context_length);
-    return [{ id, ...(contextWindow ? { contextWindow } : {}), ...(model.type === "vlm" ? { images: true } : {}) }];
+    const loaded = positive(model.loaded_context_length); const trained = positive(model.max_context_length);
+    const window = loaded ? { contextWindow: loaded } : { ...trained ? { contextWindow: Math.min(trained, UNKNOWN_WINDOW), trained } : {}, servedLater: true as const };
+    return [{ id, ...window, ...(model.type === "vlm" ? { images: true } : {}) }];
   });
 }
 
@@ -599,11 +602,14 @@ export function forgetLocalServer(name: string): void {
 }
 
 /** Forget what was found and what the looks cover (tests). */
-export function clearLocalServers(): void { round = undefined; lastFound.clear(); listeners.clear(); ollamaWindows.clear(); toolless.clear(); settings = { auto: true, saved: [] }; }
+export function clearLocalServers(): void { round = undefined; lastFound.clear(); listeners.clear(); servedWindows.clear(); toolless.clear(); settings = { auto: true, saved: [] }; }
 
 type Catalog = Pick<ModelRuntime, "getProvider" | "getModels" | "getRegisteredProviderConfig" | "registerProvider">;
-/** Each Ollama model's windows in this process (by address and id): the most it takes, and what Ollama serves. */
-const ollamaWindows = new Map<string, { trained?: number; served?: number }>();
+/** The servers whose loaded window Casper reads after each answer. */
+type WindowReader = "ollama" | "lm-studio";
+/** Each model's windows in this process (by address and id), from a server Casper reads them from: the most it takes,
+ * and what the server serves. */
+const servedWindows = new Map<string, { trained?: number; served?: number; reader: WindowReader }>();
 /** The models a server says can't take tools, by windowKey. */
 const toolless = new Set<string>();
 
@@ -621,19 +627,29 @@ export function noToolsLine(id: string): string {
 const windowKey = (baseUrl: string, id: string) => `${baseUrl.replace(/\/+$/, "")} ${id}`;
 const outputCap = (contextWindow: number) => Math.min(16_384, Math.max(1_024, Math.floor(contextWindow / 4)));
 
-/** After an Ollama model has answered, the window it was loaded with (/api/ps), until one is read. A smaller one than
- * Casper took replaces it on the model in use and in later lists, so compaction keeps the conversation inside what
- * Ollama keeps (it drops the start of a longer prompt, tools and instructions first). */
-async function learnServedWindow(baseUrl: string, local: LocalModel, model: { contextWindow: number; maxTokens: number }, fetcher: typeof fetch): Promise<void> {
+/** After a model has answered, the window its server loaded it with: Ollama's /api/ps, LM Studio's /api/v0/models.
+ * Read after every answer, as the server may load it again with another window (Ollama's context setting, a smaller
+ * one when memory is short, LM Studio's load settings). A different one, never past the most the model takes,
+ * replaces Casper's on the model in use and in later lists, so the footer and compaction measure what the server
+ * keeps: Ollama drops the start of a longer prompt without a word. */
+async function learnServedWindow(reader: WindowReader, baseUrl: string, local: LocalModel, model: { contextWindow: number; maxTokens: number }, fetcher: typeof fetch): Promise<void> {
   const root = baseUrl.replace(/\/v1\/?$/, "");
-  const ps = await getJson(fetcher, `${root}/api/ps`, AbortSignal.timeout(probeBudget(root)));
-  const entry = list(ps?.models).map(record).find((loaded) => loaded?.name === local.id || loaded?.model === local.id);
-  const served = positive(entry?.context_length);
-  if (!served || !local.servedLater) return;
+  const signal = AbortSignal.timeout(probeBudget(root));
+  let served: number | undefined;
+  if (reader === "ollama") {
+    const ps = await getJson(fetcher, `${root}/api/ps`, signal);
+    served = positive(list(ps?.models).map(record).find((loaded) => loaded?.name === local.id || loaded?.model === local.id)?.context_length);
+  } else {
+    const listed = await getJson(fetcher, `${root}/api/v0/models`, signal);
+    const entry = list(listed?.data).map(record).find((listing) => listing?.id === local.id);
+    served = positive(entry?.loaded_context_length);
+    local.trained = positive(entry?.max_context_length) ?? local.trained;
+  }
+  if (!served) return;
   delete local.servedLater;
   const window = Math.min(served, local.trained ?? served);
-  ollamaWindows.set(windowKey(baseUrl, local.id), { trained: local.trained, served: window });
-  if (window >= model.contextWindow) return;
+  servedWindows.set(windowKey(baseUrl, local.id), { trained: local.trained, served: window, reader });
+  if (window === model.contextWindow) return;
   local.contextWindow = model.contextWindow = window;
   model.maxTokens = outputCap(window);
 }
@@ -643,9 +659,9 @@ const ENOUGH_WINDOW = 32_768;
 
 /** One plain notice when Ollama serves a model less than half the window it takes (and under 32k), with how to raise it. */
 export function servedWindowWarning(model: { baseUrl?: string; id: string; contextWindow: number }): string | undefined {
-  const known = model.baseUrl ? ollamaWindows.get(windowKey(model.baseUrl, model.id)) : undefined;
+  const known = model.baseUrl ? servedWindows.get(windowKey(model.baseUrl, model.id)) : undefined;
   // 32k holds Casper's own part and real work: a larger model window isn't worth a warning, nor 32768 as the fix.
-  if (!known?.trained || !known.served || known.served * 2 > known.trained || known.served >= ENOUGH_WINDOW) return undefined;
+  if (known?.reader !== "ollama" || !known.trained || !known.served || known.served * 2 > known.trained || known.served >= ENOUGH_WINDOW) return undefined;
   const words = (n: number) => n.toLocaleString("en-US");
   return `Ollama runs ${model.id} with a ${words(known.served)}-token window, though the model takes ${words(known.trained)}; `
     + `Casper keeps the conversation inside ${words(known.served)}. To raise it, start Ollama with OLLAMA_CONTEXT_LENGTH=32768 ollama serve, `
@@ -677,23 +693,26 @@ export function registerLocalServers(catalog: Catalog, servers: readonly LocalSe
     if (catalog.getModels().some((model) => model.provider !== server.provider && !mine.has(model.provider) && !LOCAL_SERVERS.some((kind) => kind.id === model.provider)
       && typeof model.baseUrl === "string" && sameAddress(model.baseUrl, server.baseUrl))) continue;
     if (!server.models.length && !registered) continue;
+    // Ollama and LM Studio say the window they loaded a model with: Casper reads it after every answer.
+    const kind = LOCAL_SERVERS.some(({ id }) => id === server.provider) ? server.provider : settings.saved.find((saved) => saved.name === server.provider)?.kind;
+    const reader: WindowReader | undefined = kind === "ollama" || kind === "lm-studio" ? kind : undefined;
     try {
       catalog.registerProvider(server.provider, { name: server.name, baseUrl: server.baseUrl, api: "openai-completions", apiKey: "local",
         streamSimple: (model, context, options) => {
           const stream = completions.streamSimple(model, context, { ...options,
             ...server.saved ? { apiKey: "local" } : {}, fetch: refuseRedirects(options?.fetch) });
           const local = server.models.find((entry) => entry.id === model.id);
-          if (local?.servedLater) void stream.result().then((reply) => reply.stopReason === "error" || reply.stopReason === "aborted" ? undefined
-            : learnServedWindow(server.baseUrl, local, model, refuseRedirects(options?.fetch))).catch(() => undefined);
+          if (local && reader) void stream.result().then((reply) => reply.stopReason === "error" || reply.stopReason === "aborted" ? undefined
+            : learnServedWindow(reader, server.baseUrl, local, model, refuseRedirects(options?.fetch))).catch(() => undefined);
           return stream;
         },
         models: server.models.map((model) => {
-          // Ollama: a window this list only guesses gives way to the one read after an answer.
+          // A window this list only guesses (the model isn't loaded) gives way to the one read after an answer.
           const key = windowKey(server.baseUrl, model.id);
           if (model.tools === false) toolless.add(key); else toolless.delete(key);
-          const served = model.servedLater ? ollamaWindows.get(key)?.served : model.contextWindow;
-          if (model.trained || ollamaWindows.has(key)) ollamaWindows.set(key, { trained: model.trained, served });
-          const contextWindow = Math.min(model.contextWindow ?? UNKNOWN_WINDOW, served ?? Infinity);
+          const learned = model.servedLater ? servedWindows.get(key)?.served : undefined;
+          if (reader && (model.trained || servedWindows.has(key))) servedWindows.set(key, { trained: model.trained, served: model.servedLater ? learned : model.contextWindow, reader });
+          const contextWindow = learned ?? model.contextWindow ?? UNKNOWN_WINDOW;
           return { id: model.id, name: model.id, reasoning: Boolean(model.thinking), input: model.images ? ["text", "image"] : ["text"],
             cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow,
             maxTokens: outputCap(contextWindow),
