@@ -14,11 +14,33 @@ when releasing. Existing historical notes below stay as written; feature tests c
 reference docs, not a per-PR release-note or roadmap entry. Release-prep checks verify the version and
 installer targets (`tests/release-install.test.ts`, `tests/release-targets.test.ts`).
 
-Casper distributes an unsigned **v0.2.50 preview**, not a stable release. The installers
-download from `https://github.com/Choaterboater/casper/releases/download/v0.2.50`,
+Casper distributes an unsigned **v0.3.0 preview**, not a stable release. The installers
+download from `https://github.com/Choaterboater/casper/releases/download/v0.3.0`,
 because GitHub's `latest/download` link skips preview releases. The first published
 preview was **v0.1.0**. A published release is never changed; every fix ships under a
 new version.
+
+## v0.3.0: a context bar in the footer, diagrams in the browser, and small local models that get further
+
+### Added
+
+- The footer shows the context as a bar, with the tokens in the window out of its size.
+- In a session, every diagram opens in the browser as a page Casper makes from it, with no model time.
+- `/mcp login central <name>` saves a second Central login, and the network server gets each one by name.
+
+### Changed
+
+- A network diagram shows device icons in tiers and links at right angles with port labels, also in draw.io.
+- Casper ships casper-network-mcp 0.1.6, with site-wide shaping, busy hours, faster checks and show-command hints.
+- A run that can't ask tells the AI what it can do instead, and only you see the `--no-sandbox` hint.
+- `casper_read_untrusted` needs no schema, and by default returns a summary and the text's instructions as quoted data.
+
+### Fixed
+
+- The footer counts the task's tokens again beside its cost, and a long model name is cut in the middle instead.
+- `delegate` works on a local model in a fresh home, because a helper with no role uses the conversation's model.
+- `--effort` works with a model whose name has a colon, such as `ollama/qwen3.5:9b`.
+- A read, write or edit whose path or text is a number, true, false or null is refused instead of making a file named 33.
 
 ## v0.2.50: receipts you can read, an AI that says what it is doing, and local models that compact in time
 
