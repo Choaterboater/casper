@@ -2,7 +2,7 @@ import { afterEach, expect, test } from "bun:test";
 import { mkdir, mkdtemp, readdir, readFile, realpath, stat, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { createSessionSandbox, runtimeShell, SHELL_CANT_ASK, SHELL_DECLINED, SSH_NOT_PLAIN_LINE, writeCantAsk, type SandboxHost } from "../src/app/sandbox";
+import { createSessionSandbox, runtimeShell, SHELL_CANT_ASK, SHELL_CANT_ASK_NOTE, SHELL_DECLINED, SSH_NOT_PLAIN_LINE, writeCantAsk, type SandboxHost } from "../src/app/sandbox";
 import { HOST_CHOICES, REACH_CHOICES, SHELL_COMMAND_CHOICES, YES_EVERYTHING } from "../src/app/safe-choices";
 import { loadProjectContext } from "../src/project/context";
 import { inspectProject } from "../src/project/inspect";
@@ -131,13 +131,19 @@ test("5 Yes to everything this session runs the command and stops the questions 
   expect(await store.allowsCommand("npm test", "npm test")).toBe(false);
 });
 
-test("a run that can't ask refuses the command with the --no-sandbox hint, and never waits", async () => {
+test("a run that can't ask refuses the command, never waits, and tells the person (not the AI) about --no-sandbox, once", async () => {
   const { home, project, context } = await fixture();
   const terminal = host([], false);
   const sandbox = createSessionSandbox(terminal.value, context, { root: () => project, home, seams: { engine: fakeEngine(), platform: "win32" } });
   const shell = runtimeShell(terminal.value, sandbox, new SandboxStore(context.stateDirectory));
   expect(await shell.approve!("npm test")).toBe(SHELL_CANT_ASK);
-  expect(SHELL_CANT_ASK).toBe("Not run: shell commands need your OK here, and this run can't ask. Use --no-sandbox to allow them for this run. Don't send this command again; use a tool instead where one fits: service starts the app, casper_check runs the project's checks, write and edit change files.");
+  expect(await shell.approve!("bun test")).toBe(SHELL_CANT_ASK);
+  // The AI is told only what it can do: a small model copied the flag into its commands (bun test --no-sandbox).
+  expect(SHELL_CANT_ASK).toBe("Not run: shell commands need the user's OK here, and this run can't ask them. Don't send this command again, with or without a flag, and don't ask for one: casper_check runs the project's checks, read, grep, find and ls look at files, edit and write change them, service starts the app. Only the user can allow commands, before the run.");
+  expect(SHELL_CANT_ASK).not.toContain("--no-sandbox");
+  // The person reads the way to allow them (stderr with --json), once a session.
+  expect(terminal.written.filter((text) => text.includes(SHELL_CANT_ASK_NOTE))).toHaveLength(1);
+  expect(SHELL_CANT_ASK_NOTE).toBe("[shell] This run can't ask before the AI's shell commands, so they are not run. --no-sandbox allows them for one run.");
   expect(terminal.asked).toEqual([]);
 });
 
