@@ -121,6 +121,16 @@ file and set no variable.
    `/mcp login` on its own shows each login and asks which to add or replace
    (`1 Not now · 2 Mist · 3 Central · 4 ClearPass`).
 
+   A second Central login, such as a customer's temporary key in another region, is a
+   named login: `/mcp login central acme` asks the same questions and saves it as `acme`;
+   `/mcp login central acme forget` removes it. The name is 1-32 lowercase letters and
+   digits (not `default` or `forget`). Casper starts the server with it as
+   `CENTRAL_ACME_BASE_URL`, `CENTRAL_ACME_CLIENT_ID` and `CENTRAL_ACME_CLIENT_SECRET`
+   (casper-network-mcp 0.1.6 and later), and the sandbox lets the server reach its region
+   too. The main Central login stays the default: a call uses a named one only when it
+   says `login="acme"`, and `access_check` lists the named logins. Its client ID and
+   secret are hidden like the main login's.
+
    When the product turns a saved login down (an expired ClearPass token, a revoked Mist
    token: the server answers `login_expired`, or, in casper-network-mcp 0.1.0, passes the
    product's own answer through with `"status": 401`),
@@ -377,6 +387,7 @@ pick `2 Add it` (see [Secrets and docs servers](#secrets-and-docs-servers)).
 /mcp setup network             # set up Casper's network server (asks first)
 /mcp setup ssh [--name <name>] [host] [command]  # add a server that runs on another machine over ssh
 /mcp login [mist|central|clearpass] [forget]  # add, replace or forget a network login
+/mcp login central <name> [forget]  # add, replace or forget a named Central login
 /mcp connect local-docs        # allow and connect this server for this run of Casper
 /mcp disconnect local-docs     # disconnect and take back that permission
 /mcp reload                    # re-read the files without restarting

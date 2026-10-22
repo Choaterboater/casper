@@ -29,19 +29,23 @@ export const CENTRAL_TOKEN_HOST = "sso.common.cloud.hpe.com";
 
 /** The login variables that name a product host (casper-network-mcp core/logins.py). */
 const HOST_ENV = ["MIST_HOST", "CENTRAL_BASE_URL", "CLEARPASS_BASE_URL"] as const;
+/** A named Central login's address (casper-network-mcp 0.1.6): each can be in another region. */
+const NAMED_CENTRAL_HOST_ENV = /^CENTRAL_[A-Z0-9]{1,32}_BASE_URL$/;
 
 /** Names of proxy settings: a server that sets its own goes through that proxy, so Casper can't hold its network. */
 const PROXY_ENV = /^(https?|all)_proxy$/i;
 
-/** The hosts the network server's saved logins need: each product's host, and Central's token host. */
+/** The hosts the network server's saved logins need: each product's host (every named Central login's too), and
+ * Central's token host. */
 export function loginHosts(logins: Record<string, string>): string[] {
   const hosts = new Set<string>();
-  for (const name of HOST_ENV) {
+  const names = [...HOST_ENV, ...Object.keys(logins).filter((name) => NAMED_CENTRAL_HOST_ENV.test(name))];
+  for (const name of names) {
     const value = logins[name];
     if (!value) continue;
     try { hosts.add(new URL(value).hostname.toLowerCase().replace(/^\[|\]$/g, "")); } catch { /* not an address: no host */ }
   }
-  if (logins.CENTRAL_BASE_URL) hosts.add(CENTRAL_TOKEN_HOST);
+  if (names.some((name) => name.startsWith("CENTRAL_") && logins[name])) hosts.add(CENTRAL_TOKEN_HOST);
   return [...hosts].filter(Boolean);
 }
 

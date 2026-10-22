@@ -177,6 +177,7 @@ Local commands:
   /mcp setup network                Set up Casper's network server (Mist, Central, ClearPass): 1 Not now · 2 Set it up
   /mcp setup ssh [--name <name>] [host] [command]  Add an MCP server that runs on another machine over ssh; writes off
   /mcp login [mist|central|clearpass] [forget]  Add, replace or forget a network login; only you type it
+  /mcp login central <name> [forget]  A second Central login (another account or region), used only when named
   /mcp connect <name>               Connect this server; your own or imported ones can be remembered
   /mcp disconnect <name>            Disconnect and revoke consent for this process
   /mcp reload                       Re-read MCP files; changed servers need consent again

@@ -112,12 +112,15 @@ export function networkLoginValues(file: string): string[] {
   try { if (statSync(file).size > 1024 * 1024) return []; data = JSON.parse(readFileSync(file, "utf8")); } catch { return []; }
   if (!data || typeof data !== "object" || Array.isArray(data)) return [];
   const values = new Set<string>();
-  for (const product of Object.values(data)) {
-    if (!product || typeof product !== "object" || Array.isArray(product)) continue;
-    for (const [name, value] of Object.entries(product)) {
+  // A product's login, or (under "central_logins") a named Central login one level further in.
+  const walk = (login: unknown, depth: number) => {
+    if (!login || typeof login !== "object" || Array.isArray(login)) return;
+    for (const [name, value] of Object.entries(login)) {
       if (typeof value === "string" && value.length >= 4 && /(?:TOKEN|SECRET|CLIENT_ID)$/.test(name)) values.add(value);
+      else if (depth < 1) walk(value, depth + 1);
     }
-  }
+  };
+  for (const product of Object.values(data)) walk(product, 0);
   return [...values].sort((a, b) => b.length - a.length);
 }
 
