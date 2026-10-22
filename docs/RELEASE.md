@@ -14,11 +14,27 @@ when releasing. Existing historical notes below stay as written; feature tests c
 reference docs, not a per-PR release-note or roadmap entry. Release-prep checks verify the version and
 installer targets (`tests/release-install.test.ts`, `tests/release-targets.test.ts`).
 
-Casper distributes an unsigned **v0.3.0 preview**, not a stable release. The installers
-download from `https://github.com/Choaterboater/casper/releases/download/v0.3.0`,
+Casper distributes an unsigned **v0.3.1 preview**, not a stable release. The installers
+download from `https://github.com/Choaterboater/casper/releases/download/v0.3.1`,
 because GitHub's `latest/download` link skips preview releases. The first published
 preview was **v0.1.0**. A published release is never changed; every fix ships under a
 new version.
+
+## v0.3.1: MCP servers on your own network, with the keys they need
+
+### Added
+
+- An MCP server at a private address or a `.local`, `.lan` or `.home.arpa` name can use plain `http://`.
+- `/mcp add <name> --bearer <url>`, `--api-key` or `--key-env` asks for the server's key hidden, and asking in chat works too.
+
+### Changed
+
+- An MCP server's key is kept in a private file, sent only to that server, and never shown to the AI.
+
+### Fixed
+
+- An address typed without `http://`, such as `/mcp add lab 192.168.0.10:8080`, says the line to type instead of failing.
+- A checkout's background update no longer waits for untracked files, and the notice says why a held checkout waited.
 
 ## v0.3.0: a context bar in the footer, diagrams in the browser, and small local models that get further
 

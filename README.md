@@ -36,20 +36,20 @@ Casper itself is free and open source. A task spends money only with your own mo
 macOS / Linux:
 
 ```sh
-curl -fsSL https://github.com/Choaterboater/casper/releases/download/v0.3.0/install.sh | sh
+curl -fsSL https://github.com/Choaterboater/casper/releases/download/v0.3.1/install.sh | sh
 ```
 
 Windows (x64 or ARM64), in PowerShell:
 
 ```powershell
-[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; irm https://github.com/Choaterboater/casper/releases/download/v0.3.0/install.ps1 | iex
+[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; irm https://github.com/Choaterboater/casper/releases/download/v0.3.1/install.ps1 | iex
 ```
 
 No admin rights, Bun or source checkout needed. The installer checks the file's SHA-256 (with
 `gh` signed in, also where it was built; for releases signed with the
 [release key](docs/RELEASE.md#the-release-key), none yet, the signature too) and keeps your old install
-if anything is wrong. These commands pin **v0.3.0**; after that,
-`casper update` gets the newest preview. `install.sh` takes `--dir <path>`, `--version 0.3.0`,
+if anything is wrong. These commands pin **v0.3.1**; after that,
+`casper update` gets the newest preview. `install.sh` takes `--dir <path>`, `--version 0.3.1`,
 `--sha256 <hex>` and `--force`. [Installer details](docs/RELEASE.md#installer-contract).
 
 Use the one-line command above rather than downloading a program in your browser: the installer
@@ -83,7 +83,7 @@ From the shell:
 ```sh
 casper "Explain this project"  # start a session with this first request
 casper --no-verify   # no Casper-run checks this run
-casper --version     # casper 0.3.0 (/absolute/path/of/the/binary/or/cli.ts)
+casper --version     # casper 0.3.1 (/absolute/path/of/the/binary/or/cli.ts)
 casper doctor        # check Casper's own setup and fix what it can (no model)
 ```
 
@@ -209,6 +209,8 @@ Ctrl+D on an empty prompt exits. [Keys and commands](docs/TERMINAL_UX.md#quick-r
 | Contributing | [How Casper is built](docs/ARCHITECTURE.md) · [Working on Casper](docs/DEVELOPING.md) |
 
 ## What's new
+
+v0.3.1: an MCP server on your own network can use plain `http://`, and `/mcp add <name> --bearer <url>` (or `--api-key`, `--key-env`, or asking in chat) takes the key it needs, typed hidden and never shown to the AI; a checkout's background update no longer waits for untracked files. See [release notes](docs/RELEASE.md).
 
 v0.3.0: the footer shows the context as a bar and counts the task's tokens again; diagrams open in the browser, and network diagrams get device icons and port labels; `/mcp login central <name>` saves a second Central login, with casper-network-mcp 0.1.6; and small local models get further: `delegate` uses the conversation's model, a refused command says what the AI can do instead, and `casper_read_untrusted` needs no schema. See [release notes](docs/RELEASE.md).
 
