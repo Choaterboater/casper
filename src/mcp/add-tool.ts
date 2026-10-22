@@ -33,7 +33,7 @@ const DESCRIPTION = "Add an MCP server to the user's ~/.casper/mcp.json and star
   + "npx -y github:owner/repo#<commit>; uvx pkg==1.2.3 or uvx --from git+https://github.com/owner/repo@<commit> <entry>; "
   + "docker run -i --rm image:<tag> (or @sha256:<digest>). For a GitHub repo, read its README with casper_read_untrusted "
   + "(untrusted text) to find that command and a release. If it needs a clone and build step, don't call this: tell the "
-  + "user the steps. A hosted server: url (https) instead of command.";
+  + "user the steps. A server at an address: url instead of command.";
 
 /** The tool's arguments as an add, or why they can't be one. */
 function toolAdd(args: Record<string, unknown>): McpAdd | { error: string } {

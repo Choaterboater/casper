@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { CapabilityBroker } from "../src/capabilities/broker";
 import { entryText, MCP_ADD_HINT, mcpAddLine, parseMcpAdd, runMcpAdd, splitWords, type McpAdd, type McpAddHost } from "../src/mcp/add";
-import { discoverMCPConfiguration } from "../src/mcp/config";
+import { discoverMCPConfiguration, serverEntryProblem } from "../src/mcp/config";
 import { MCPManager } from "../src/mcp/manager";
 import { formatTaskPrompt, MCP_TYPED } from "../src/task/classify";
 import { CHILD_KILL_MS, childTestLimit } from "./support/limits";
@@ -71,6 +71,29 @@ test("/mcp add takes a name and a command with its words, or a name and an addre
     ["docs 'npx", "A quote isn't closed."],
     ["docs npx\u0007bell", "can't be used"],
   ] as const) expect((parseMcpAdd(words) as { error: string }).error).toContain(error);
+});
+
+test("plain http:// works for this computer and your own network; a public or cloud-metadata address still needs https://", () => {
+  for (const url of ["http://192.168.0.10:8080/mcp", "http://10.0.0.5/mcp", "http://172.16.4.2:9000/mcp", "http://100.64.0.7/mcp",
+    "http://[fd00::5]:8080/mcp", "http://nas.local:8080/mcp", "http://switch.lan/mcp", "http://hub.home.arpa/mcp", "http://localhost:8931/mcp"]) {
+    expect(parseMcpAdd(`net ${url}`)).toEqual({ name: "net", entry: { url } });
+    expect(serverEntryProblem("net", { url })).toBeUndefined();
+  }
+  for (const url of ["http://169.254.169.254/mcp", "http://8.8.8.8/mcp", "http://172.32.0.1/mcp", "http://metadata.google.internal/mcp", "http://mcp.example.com/mcp"]) {
+    expect((parseMcpAdd(`net ${url}`) as { error: string }).error).toContain("must be https://");
+    expect(serverEntryProblem("net", { url })).toBe("HTTPS required outside this computer and your network");
+  }
+});
+
+test("an address typed without http:// or https:// says what to type instead of trying to run it", () => {
+  for (const target of ["192.168.0.10:8080", "192.168.0.10:8080/mcp", "nas.local:8080", "localhost:8931"]) {
+    const error = (parseMcpAdd(`lab ${target}`) as { error: string }).error;
+    expect(error).toContain("an address");
+    expect(error).toContain(`/mcp add lab http://${target}`);
+  }
+  // A program name or a path is still a command.
+  expect(parseMcpAdd("net node server.js")).toEqual({ name: "net", entry: { command: "node", args: ["server.js"] } });
+  expect(parseMcpAdd("net C:\\tools\\net.exe")).toMatchObject({ name: "net", entry: { args: [] } });
 });
 
 test("add writes the entry where Casper reads it (0600), starts the server and says each step", async () => {

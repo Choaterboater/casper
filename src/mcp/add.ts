@@ -9,12 +9,11 @@
  */
 
 import { terminalText } from "../tui/format";
-import { serverEntryProblem, type MCPServerDefinition } from "./config";
+import { plainHttpHost, serverEntryProblem, type MCPServerDefinition } from "./config";
 import { addUserServer, MCP_FILE_LABEL, ServerExistsError, type UserServerEntry } from "./docs";
 
 const NAME = /^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,63}$/;
 const MAX_LINE = 4096;
-const LOOPBACK = ["localhost", "127.0.0.1", "[::1]"];
 
 export const MCP_ADD_EXAMPLE = "/mcp add docs npx -y @example/docs-mcp@1.2.0";
 /** What `/mcp add` alone says: the two forms and an example, at the normal level. */
@@ -82,8 +81,8 @@ export function mcpAddLine({ name, entry }: McpAdd): string {
 export function addressProblem(text: string): string | undefined {
   let url: URL;
   try { url = new URL(text); } catch { return "That isn't an address Casper can read."; }
-  if (url.protocol !== "https:" && !(url.protocol === "http:" && LOOPBACK.includes(url.hostname))) {
-    return "An address must be https://, or http:// to localhost, 127.0.0.1 or [::1].";
+  if (url.protocol !== "https:" && !(url.protocol === "http:" && plainHttpHost(url.hostname))) {
+    return "An address must be https://, or http:// to this computer or your own network (such as 192.168.x.x or a .local name).";
   }
   if (url.username || url.password || url.hash) return "An address can't hold a user name, a password or a #fragment.";
   if (/^(?:www\.)?github\.com$/i.test(url.hostname)) {
@@ -114,6 +113,9 @@ export function parseMcpAdd(text: string): McpAdd | { error: string } {
   const [name, target, ...args] = words;
   if (!name || !target) return { error: "usage" };
   if (!NAME.test(name)) return { error: NAME_RULE };
+  if (!args.length && /^(?:[a-z0-9.-]+|\[[0-9a-f:]+\]):\d{1,5}(?:\/\S*)?$/i.test(target)) {
+    return { error: `That looks like an address, so it needs http:// or https:// in front: /mcp add ${name} http://${target} (or https://).` };
+  }
   if (/^[a-z][a-z0-9+.-]*:\/\//i.test(target) && args.length) return { error: "An address takes nothing after it: /mcp add <name> <url>." };
   const add: McpAdd = /^[a-z][a-z0-9+.-]*:\/\//i.test(target) ? { name, entry: { url: target } } : { name, entry: { command: target, args } };
   const problem = mcpAddProblem(add);

@@ -1,4 +1,5 @@
 import { realpathSync } from "node:fs";
+import { BlockList, isIP } from "node:net";
 import { openFollowed } from "../platform/files";
 import os from "node:os";
 import path from "node:path";
@@ -59,7 +60,7 @@ function stringMap(value: unknown): Record<string, string> {
 }
 
 /** What a rejected entry may say about itself: Casper's fixed reasons, never text that could hold a value. */
-const ENTRY_REASONS = new Set(["cwd must be absolute, ~/..., or ${PROJECT_ROOT}", "cwd outside the project", "HTTPS required outside loopback",
+const ENTRY_REASONS = new Set(["cwd must be absolute, ~/..., or ${PROJECT_ROOT}", "cwd outside the project", "HTTPS required outside this computer and your network",
   "invalid args", "invalid cwd", "invalid definition", "invalid disabled flag", "invalid URL", "missing command", "too many servers",
   "unsupported transport", "invalid callTimeout", "invalid connectTimeout"]);
 
@@ -129,6 +130,25 @@ function limits(value: Record<string, unknown>): MCPServerLimits | undefined {
   return { ...(connectMs !== undefined ? { connectMs } : {}), ...(callMs !== undefined ? { callMs } : {}) };
 }
 
+const NETWORK = (() => {
+  const list = new BlockList();
+  for (const [net, bits] of [["127.0.0.0", 8], ["10.0.0.0", 8], ["172.16.0.0", 12], ["192.168.0.0", 16], ["100.64.0.0", 10]] as const) list.addSubnet(net, bits, "ipv4");
+  list.addSubnet("::1", 128, "ipv6");
+  list.addSubnet("fc00::", 7, "ipv6");
+  return list;
+})();
+
+/** A host a server may be reached at over plain http://: this computer, a private network address (10/8, 172.16/12,
+ * 192.168/16, 100.64/10, fc00::/7) or a home network name (.local, .lan, .home.arpa). Link-local addresses, where
+ * cloud metadata answers, and any public address or name need https://. */
+export function plainHttpHost(hostname: string): boolean {
+  const host = hostname.replace(/^\[(.*)\]$/, "$1").toLowerCase();
+  if (host === "localhost") return true;
+  const family = isIP(host);
+  if (family) return NETWORK.check(host, family === 4 ? "ipv4" : "ipv6");
+  return /^[a-z0-9-]+(?:\.[a-z0-9-]+)*\.(?:local|lan|home\.arpa)$/.test(host);
+}
+
 function definition(name: string, value: unknown, source: string, cwd: string): MCPServerDefinition {
   if (!/^[a-zA-Z0-9_.-]{1,64}$/.test(name) || !isRecord(value)) throw new Error("invalid definition");
   if (value.disabled !== undefined && typeof value.disabled !== "boolean") throw new Error("invalid disabled flag");
@@ -139,8 +159,8 @@ function definition(name: string, value: unknown, source: string, cwd: string): 
     if (typeof value.url !== "string" || value.command !== undefined) throw new Error("invalid URL");
     const url = new URL(value.url);
     if (url.username || url.password || url.hash) throw new Error("invalid URL");
-    if (url.protocol !== "https:" && !(url.protocol === "http:" && ["localhost", "127.0.0.1", "[::1]"].includes(url.hostname))) {
-      throw new Error("HTTPS required outside loopback");
+    if (url.protocol !== "https:" && !(url.protocol === "http:" && plainHttpHost(url.hostname))) {
+      throw new Error("HTTPS required outside this computer and your network");
     }
     return { ...base, transport: { type: "http", url: url.href, headers: stringMap(value.headers) } };
   }
