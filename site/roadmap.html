@@ -78,7 +78,8 @@
           </li>
           <li><a href="#released">Released</a>
             <ul>
-              <li><a href="#v030">v0.3.0: a context bar</a></li>
+              <li><a href="#v0301">v0.3.1: MCP on your network</a></li>
+              <li><a href="#v0300">v0.3.0: a context bar</a></li>
               <li><a href="#v0250">v0.2.50: receipts you can read</a></li>
               <li><a href="#v0246">v0.2.46: local models</a></li>
               <li><a href="#v0245">v0.2.45: browser sign-in</a></li>
@@ -125,7 +126,7 @@
         <h2 id="next-h">Next release</h2>
         <aside class="callout soon">
           <strong class="callout-title">Built, not released</strong>
-          <p>Nothing on the main branch is waiting: everything built so far is in v0.3.0. New work shows here before the next preview.</p>
+          <p>Nothing on the main branch is waiting: everything built so far is in v0.3.1. New work shows here before the next preview.</p>
         </aside>
       </section>
 
@@ -367,10 +368,23 @@
         and on the <a href="https://github.com/Choaterboater/casper/releases">Releases page</a>.</p>
         <div class="stack">
 
-        <details class="card release" id="v030" aria-labelledby="v030-h" open>
+        <details class="card release" id="v0301" aria-labelledby="v0301-h" open>
           <summary class="release-heading">
-            <h3 id="v030-h">v0.3.0 · A context bar in the footer, diagrams in the browser, and small local models that get further</h3>
+            <h3 id="v0301-h">v0.3.1 · MCP servers on your own network, with the keys they need</h3>
             <span class="badge ok">current preview</span>
+          </summary>
+          <ul>
+            <li><strong>Servers on your network.</strong> An MCP server at a private address or a <code>.local</code> name can use plain <code>http://</code>; public and cloud-metadata addresses still need <code>https://</code>.</li>
+            <li><strong>Keys you type hidden.</strong> <code>/mcp add &lt;name&gt; --bearer &lt;url&gt;</code>, <code>--api-key</code> or <code>--key-env</code>, or ask in chat: you type the key, the AI never sees it.</li>
+            <li><strong>Clearer adds.</strong> An address typed without <code>http://</code> gets the line to type instead of "Command not found".</li>
+            <li><strong>Checkout updates.</strong> A checkout's background update no longer waits for untracked files, and the notice says why one waited.</li>
+          </ul>
+        </details>
+
+        <details class="card release" id="v0300" aria-labelledby="v0300-h" open>
+          <summary class="release-heading">
+            <h3 id="v0300-h">v0.3.0 · A context bar in the footer, diagrams in the browser, and small local models that get further</h3>
+            <span class="badge">previous preview</span>
           </summary>
           <ul>
             <li><strong>A context bar.</strong> The footer shows the context as a bar with the tokens in the window out of its size, and counts the task's tokens again.</li>
@@ -383,7 +397,7 @@
         <details class="card release" id="v0250" aria-labelledby="v0250-h" open>
           <summary class="release-heading">
             <h3 id="v0250-h">v0.2.50 · Receipts you can read, an AI that says what it is doing, and local models that compact in time</h3>
-            <span class="badge">previous preview</span>
+            <span class="badge">released</span>
           </summary>
           <ul>
             <li><strong>Receipts you can read.</strong> The receipt is a card with labelled rows for checks, changes, config and other machines, and <code>/help receipt</code> explains its words.</li>
@@ -395,7 +409,7 @@
           </ul>
         </details>
 
-        <details class="card release" id="v0246" aria-labelledby="v0246-h" open>
+        <details class="card release" id="v0246" aria-labelledby="v0246-h">
           <summary class="release-heading">
             <h3 id="v0246-h">v0.2.46 · Local models that work, honest proof, and a browser that waits for web apps</h3>
             <span class="badge">released</span>
@@ -1290,7 +1304,7 @@
   <footer class="site-footer">
     <div class="container footer-inner">
       <div>
-        <p><strong>Casper 0.3.0</strong> · early preview, unsigned</p>
+        <p><strong>Casper 0.3.1</strong> · early preview, unsigned</p>
         <p><a href="https://github.com/Choaterboater/casper/blob/main/LICENSE">MIT licence</a> · © 2026 Choaterboater</p>
         <p>Built on the <a href="https://github.com/earendil-works/pi">Pi SDK</a>. Other parts keep their own licences (<a href="https://github.com/Choaterboater/casper/blob/main/THIRD_PARTY_NOTICES.txt">notices</a>).</p>
       </div>
