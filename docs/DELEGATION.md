@@ -76,7 +76,9 @@ not proof that the code works.
   Set roles with `/model role` (see [CONFIGURATION.md](CONFIGURATION.md)).
 - If a role is not set, the helper uses your saved Casper startup default. It
   does not use the parent's temporary `/model --session` choice, or Pi's own
-  defaults.
+  defaults, while that default works. When no default is saved, or its provider
+  isn't signed in (`--model` in a fresh home, a local model with nothing saved),
+  it uses the conversation's model, so the helper has one the run can reach.
 - If a role is set but that model is not usable, the helper fails. It does not
   quietly pick another provider.
 - If its role is not set, an explorer works at `low` effort and a reviewer at

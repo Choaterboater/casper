@@ -485,6 +485,7 @@ export class CasperApp {
     scrubToolOutput: (toolName, input, texts, signal) => scrubToolOutput(this.scrubber, toolName, input, texts, signal, { configs: this.scrubFiles, networkLoginFile: networkLoginFile(this) }),
     cache: () => this.projectContext?.cache,
     guidance: () => this.projectContext?.leanGuidance ?? "auto",
+    sessionModel: () => { try { const status = this.session?.getStatus?.(); return status?.provider && status.model ? `${status.provider}/${status.model}` : undefined; } catch { return undefined; } },
     hideToolOutput: () => this.projectContext?.hideToolOutput !== false,
     privatePaths: () => projectPrivatePaths(this),
     // Inside tmux or iTerm2 each helper's steps show in the view-only steps pane; nowhere else.

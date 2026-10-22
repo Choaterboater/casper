@@ -132,6 +132,9 @@ export interface RuntimeReadOnlyStartOptions {
   reportTurn?: boolean;
   /** Casper role for this child; unset roles use the Casper startup default. */
   modelRole?: "fast" | "review";
+  /** The parent session's model ("provider/id"): an unset role's child uses it when the startup default is missing or
+   * not signed in (a model picked for this run only, a local model in a fresh home). */
+  sessionModel?: string;
   /** An unset role keeps the saved effort instead of the helper default (the /security-review AI review). */
   keepEffort?: boolean;
   /** The same secret scrubbing as the main session: a child's reads reach a model too. */

@@ -132,6 +132,9 @@ export interface SubagentManagerOptions {
   cache?: () => PromptCacheSetting | undefined;
   /** The parent's live guidance switch, shared by readers and crew builders. */
   guidance?: RuntimeStartOptions["guidance"];
+  /** The main session's model now ("provider/id"): a child whose role is unset uses it when the startup default is
+   * missing or not signed in. */
+  sessionModel?: () => string | undefined;
   /** The parent's live history-hiding switch, shared by readers and crew builders. */
   hideToolOutput?: () => boolean;
   /** The project's sandbox.denyRead (absolute): a helper's file tools refuse them like the main session's. */
@@ -736,6 +739,7 @@ export class SubagentManager {
           ...(this.options.cache?.() ? { cache: this.options.cache() } : {}),
           ...(this.options.hideToolOutput ? { hideToolOutput: this.options.hideToolOutput } : {}),
           ...(this.options.guidance ? { guidance: this.options.guidance } : {}),
+          ...((model) => model ? { sessionModel: model } : {})(this.options.sessionModel?.()),
           ...(privatePaths.length ? { privatePaths: [...privatePaths, ...inCopy] } : {}),
           systemPromptAppend: options.systemPromptAppend,
         };
