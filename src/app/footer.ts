@@ -42,7 +42,6 @@ export function updateFooter(app: CasperApp): void {
     const project = app.projectContext.info;
     const status = app.session?.getStatus?.();
     const usage = app.session?.getUsage?.();
-    const percent = usage?.context?.percent;
     // "<model> · <effort>", short: the saved default before the model starts drops its "effort" word to match.
     const effort = status && formatEffort(status, true);
     const model = status?.model ? `${status.provider}/${status.model}${effort ? ` · ${effort}` : ""}`
@@ -55,8 +54,26 @@ export function updateFooter(app: CasperApp): void {
     const shown = formatFooterSpend(spent, session, app.commandActive, status?.priced, status?.billing);
     const task = shown ? ` │ ${shown}` : "";
     // The folder, and "/branch" only when there is one.
-    app.terminal.setStatus(`${project.name || project.root}${project.gitBranch && project.gitBranch !== project.name ? `/${project.gitBranch}` : ""} │ ${model} │ ctx ${percent == null ? "—" : `${percent.toFixed(0)}%~`}${task}${app.commandActive ? "" : " │ idle"}`, project.root);
+    app.terminal.setStatus(`${project.name || project.root}${project.gitBranch && project.gitBranch !== project.name ? `/${project.gitBranch}` : ""} │ ${model} │ ${contextText(usage?.context)}${task}${app.commandActive ? "" : " │ idle"}`, project.root);
   } catch { app.terminal.setStatus("Session status unavailable · /status", app.projectContext.info.root); }
+}
+
+const BAR_CELLS = 10;
+
+/** A window's size the way it is quoted: 128k (128,000), 32k (32,768), 200k, 1M. */
+function windowSize(tokens: number): string {
+  if (tokens >= 1_000_000) return `${Number((tokens / 1_000_000).toFixed(1))}M`;
+  return tokens % 1000 === 0 ? `${tokens / 1000}k` : tokens % 1024 === 0 ? `${tokens / 1024}k` : formatTokens(tokens);
+}
+
+/** The footer's context group: "ctx ━━━━━━──── 20.6k / 32k · 63%~", a ten-cell bar (filled ━, empty ─), the tokens in
+ * the window out of its size, and the share (an estimate, as /status says). "ctx — / 32k" until the next answer after a
+ * compaction; "ctx —" with no model. */
+export function contextText(context: { tokens: number | null; contextWindow: number; percent: number | null } | undefined): string {
+  if (!context || !(context.contextWindow > 0)) return "ctx —";
+  if (context.percent == null || context.tokens == null) return `ctx — / ${windowSize(context.contextWindow)}`;
+  const filled = Math.max(0, Math.min(BAR_CELLS, Math.round(context.percent / 10)));
+  return `ctx ${"━".repeat(filled)}${"─".repeat(BAR_CELLS - filled)} ${formatTokens(context.tokens)} / ${windowSize(context.contextWindow)} · ${context.percent.toFixed(0)}%~`;
 }
 
 /** " │ 1 reviewer · 2 builders · $0.19" while reviewers or builders work (what they spent so far joins the task when

@@ -21,6 +21,8 @@ test("the old console gets every mark in ASCII, one column each; other terminals
   expect(ascii).toBe("> run mkdir\n> 1. No  the command does not run\nRun this command? > No\n| + changed hello.txt\n  └ sent to Casper\n* bash · ping 15 ~\no bash · mkdir made — not run\n| - Not checked\nx test · exit 1\n* Casper");
   for (const [line, shown] of screen.split("\n").map((line, index) => [line, ascii.split("\n")[index]!])) expect(visibleWidth(shown!)).toBe(visibleWidth(line!));
   expect(glyphSet("win32", { WT_SESSION: "abc" }).text(screen)).toBe(screen);
+  // The footer's context bar: filled cells as =, the empty ones a box-drawing line the old console has.
+  expect(legacy.text("ctx ━━━━━━──── 20.6k / 32k · 63%~")).toBe("ctx ======──── 20.6k / 32k · 63%~");
 
   const written: string[] = [];
   const tty = { isTTY: true, columns: 80, write(text: string) { written.push(text); return true; } };

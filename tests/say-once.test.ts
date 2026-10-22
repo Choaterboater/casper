@@ -42,13 +42,13 @@ test("/status writes provider/model and the context share as the footer does", a
   try {
     await app.until(text => text.includes("idle"));
     app.input.write("hello\r");
-    await app.until(text => text.includes("fixture/demo · high │ ctx 1%~") && /(?:^|[\r\n])idle +[^\r\n]*$/.test(text.trimEnd()));
+    await app.until(text => text.includes("fixture/demo · high │ ctx ────────── 1.3k / 128k · 1%~") && /(?:^|[\r\n])idle +[^\r\n]*$/.test(text.trimEnd()));
     app.input.write("/status\r");
     await app.until(text => text.includes(" context   "));
     const screen = app.screen();
     expect(screen).toContain(" model     fixture/demo · effort high");
     expect(screen).toContain(" context   1%~");
-    expect(screen).toContain("fixture/demo · high │ ctx 1%~");
+    expect(screen).toContain("fixture/demo · high │ ctx ────────── 1.3k / 128k · 1%~");
   } finally { await app.close(); }
 }, 30_000);
 
