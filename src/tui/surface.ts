@@ -87,8 +87,9 @@ type AskOption = { label: string; description?: string };
 /** Work in progress for the screen: the steps of the open group (rows under the AI's words) and what Casper is doing or
  * waiting for now (the status row above the prompt). `rows` are the raw steps, one per call (Ctrl+O); `plain` the
  * same steps in plain words, shown by default. */
-/** `intent`: the AI's last line before the running group of tool calls, put before the status row's words. */
-export interface WorkView { rows: readonly string[]; plain?: readonly string[]; status?: string; intent?: string }
+/** `intent`: the AI's last line before the running group of tool calls, put before the status row's words. `headline`:
+ * what the status row says while the model reasons, in place of `status` (decision 24); the steps pane never gets it. */
+export interface WorkView { rows: readonly string[]; plain?: readonly string[]; status?: string; intent?: string; headline?: string }
 
 /** An intent cut shorter than this says nothing: the row shows the activity alone. */
 const MIN_INTENT = 10;
@@ -102,7 +103,7 @@ export function statusWords(status: string, intent: string | undefined, room: nu
 }
 
 /** Marks a live row may start with, and the colour each takes; a running step's • becomes the spinner. */
-const LIVE_MARK = /^(✓|✗|○|•|–) /;
+const LIVE_MARK = /^(✓|✗|○|•|–|◆) /;
 const SHELL_QUESTION = /^(?:(?:Builder \d+: )?(?:Run this command\?|Reach .+\?|Run outside the sandbox with your GitHub login\?)|Builder \d+ wants to run:)/;
 
 /** Your request as Casper shows it again: ❯ and the words, bold, hanging under the mark, on the theme's userBg bar
@@ -203,7 +204,7 @@ export class TerminalSurface {
   private readonly selected: (text: string) => string;
   private status = "";
   /** Work in progress: the open group's steps (live rows under the AI's words) and the status row's words. */
-  private work?: { rows: string[]; plain?: string[]; status?: string; intent?: string };
+  private work?: { rows: string[]; plain?: string[]; status?: string; intent?: string; headline?: string };
   /** Ctrl+O: the live steps show raw, one row per call, instead of in plain words. For this session. */
   private rawSteps = false;
   private readonly crew = new CrewPanel();
@@ -736,8 +737,9 @@ export class TerminalSurface {
     const plain = view?.plain ? clean(view.plain) : undefined;
     const status = view?.status ? terminalText(view.status).replace(/\s+/g, " ").trim() || undefined : undefined;
     const intent = status && view?.intent ? lineText(terminalText(view.intent)).replace(/\s+/g, " ").trim() || undefined : undefined;
-    const next = rows.length || plain?.length || status ? { rows, ...(plain ? { plain } : {}), ...(status ? { status } : {}), ...(intent ? { intent } : {}) } : undefined;
-    if (next?.status === this.work?.status && next?.intent === this.work?.intent && next?.rows.join("\n") === this.work?.rows.join("\n")
+    const headline = status && view?.headline ? lineText(terminalText(view.headline)).replace(/\s+/g, " ").trim() || undefined : undefined;
+    const next = rows.length || plain?.length || status ? { rows, ...(plain ? { plain } : {}), ...(status ? { status } : {}), ...(intent ? { intent } : {}), ...(headline ? { headline } : {}) } : undefined;
+    if (next?.status === this.work?.status && next?.intent === this.work?.intent && next?.headline === this.work?.headline && next?.rows.join("\n") === this.work?.rows.join("\n")
       && next?.plain?.join("\n") === this.work?.plain?.join("\n")) return;
     this.work = next;
     this.updateSpinner();
@@ -778,6 +780,7 @@ export class TerminalSurface {
       if (mark?.[1] === "–") return this.muted(truncateToWidth(`  ${row}`, width));
       if (!mark) return truncateToWidth(`  ${row}`, width);
       const glyph = mark[1] === BUSY_GLYPH ? this.accent(SPINNER_FRAMES[this.spinnerFrame]!)
+        : mark[1] === "◆" ? tint(mark[1], "accent", this.io.color, "1")
         : tint(mark[1]!, mark[1] === "✓" ? "success" : "warning", this.io.color);
       return truncateToWidth(`  ${glyph} ${row.slice(mark[0].length)}`, width);
     }),
@@ -798,7 +801,7 @@ export class TerminalSurface {
   private statusRow(width: number): string[] {
     if (!this.work || this.waiting || this.closed) return [];
     const spin = this.accent(SPINNER_FRAMES[this.spinnerFrame]!);
-    const words = this.work.status ?? "Working";
+    const words = this.work.headline ?? this.work.status ?? "Working";
     const hint = " · Esc stops";
     const room = width - 2 - visibleWidth(hint);
     if (room < 8) return [truncateToWidth(`${spin} ${words}`, width, "…")];

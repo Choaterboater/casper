@@ -142,6 +142,8 @@ export interface LoadedConfiguration {
   routineCommands?: boolean;
   /** `hide_tool_output: off` stops new history masks. Unset: on; existing stubs stay permanent. */
   hideToolOutput?: boolean;
+  /** `reasoning_headline: off` keeps the status row at "Reasoning · 3.0k chars" (decision 24). Unset: on. */
+  reasoningHeadline?: boolean;
   /** `lean_guidance: auto|off` in your own config; unset: auto for model servers/small windows. */
   leanGuidance?: GuidanceSetting;
   /** `slow_commands: off` in your own config: a command run without its own timeout is stopped at the limit instead of moving to the background. Unset: on. */
@@ -310,7 +312,7 @@ const POLICY_KEYS = {
 } as const;
 const ISOLATE_KEYS = ["parallelAgents", "riskyRefactor", "experimentalBranch"];
 const TOP_LEVEL_KEYS = new Set(["profile", "project", "languages", "frameworks", "packageManager", "commands", "architecture",
-  "conventions", "verify", "verification", "repair", "skills", "visualize", "policy", "services", "smoke", "pages", "lab", "suggestions", "updates", "sideQuestions", "localModels", "modelServers", "cache", "display", "theme", "showPages", "spend", "sandbox", "shell", "web", "reader", "delegate", "browser", "templates", "packs", "github", "telemetry", "tools", "ssh_login", "other_logins", "network_updates", "ai_pages", "open_pages", "pictures", "browser_clicks", "routine_commands", "hide_tool_output", "lean_guidance", "slow_commands", "stalled_commands", "mcp_autoconnect", "lsp_autostart", "notifications", ...Object.keys(POLICY_KEYS)]);
+  "conventions", "verify", "verification", "repair", "skills", "visualize", "policy", "services", "smoke", "pages", "lab", "suggestions", "updates", "sideQuestions", "localModels", "modelServers", "cache", "display", "theme", "showPages", "spend", "sandbox", "shell", "web", "reader", "delegate", "browser", "templates", "packs", "github", "telemetry", "tools", "ssh_login", "other_logins", "network_updates", "ai_pages", "open_pages", "pictures", "browser_clicks", "routine_commands", "hide_tool_output", "reasoning_headline", "lean_guidance", "slow_commands", "stalled_commands", "mcp_autoconnect", "lsp_autostart", "notifications", ...Object.keys(POLICY_KEYS)]);
 
 /** Typos used to fall back silently to the defaults; the loader names them instead. */
 function unknownKeys(document: Mapping, label: string): string[] {
@@ -980,6 +982,8 @@ export async function loadConfiguration(
   // Whether routine shell commands run without asking is yours too.
   if (projectDocument.routine_commands !== undefined) throw new Error("routine_commands is a user setting (~/.casper/config.yaml); a project cannot change which shell commands run without asking");
   let routineCommands: boolean | undefined;
+  if (projectDocument.reasoning_headline !== undefined) throw new Error("reasoning_headline is a user setting (~/.casper/config.yaml); a project cannot change what the status row shows of the model's reasoning");
+  let reasoningHeadline: boolean | undefined;
   if (projectDocument.hide_tool_output !== undefined) throw new Error("hide_tool_output is a user setting (~/.casper/config.yaml); a project cannot hide conversation output");
   let hideToolOutput: boolean | undefined;
   if (projectDocument.lean_guidance !== undefined) throw new Error("lean_guidance is a user setting (~/.casper/config.yaml); a project cannot change model guidance");
@@ -1014,6 +1018,7 @@ export async function loadConfiguration(
     browserClicks = onOffLayer(document.browser_clicks, label, "browser_clicks") ?? browserClicks;
     routineCommands = onOffLayer(document.routine_commands, label, "routine_commands") ?? routineCommands;
     hideToolOutput = onOffLayer(document.hide_tool_output, label, "hide_tool_output") ?? hideToolOutput;
+    reasoningHeadline = onOffLayer(document.reasoning_headline, label, "reasoning_headline") ?? reasoningHeadline;
     if (document.lean_guidance !== undefined) {
       if (document.lean_guidance !== "auto" && document.lean_guidance !== "off") throw new Error(`${label}: lean_guidance must be auto or off`);
       leanGuidance = document.lean_guidance;
@@ -1073,6 +1078,7 @@ export async function loadConfiguration(
     ...(browserClicks !== undefined ? { browserClicks } : {}),
     ...(routineCommands !== undefined ? { routineCommands } : {}),
     ...(hideToolOutput !== undefined ? { hideToolOutput } : {}),
+    ...(reasoningHeadline !== undefined ? { reasoningHeadline } : {}),
     ...(leanGuidance !== undefined ? { leanGuidance } : {}),
     ...(slowCommands !== undefined ? { slowCommands } : {}),
     ...(stalledCommands !== undefined ? { stalledCommands } : {}),

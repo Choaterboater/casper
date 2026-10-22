@@ -6,6 +6,7 @@ import os from "node:os";
 import { resolveEntry } from "../sandbox/policy";
 import path from "node:path";
 import { terminalText } from "../tui/format";
+import { mcpChangeRow } from "./changes";
 import { ReferenceLibrary } from "../references/library";
 import { LSPManager } from "../lsp/manager";
 import { MCPManager, ownServerDefaults } from "../mcp/manager";
@@ -148,11 +149,13 @@ export async function loadWorkspace(app: CasperApp, cwd: string) {
     onSessionCovered: (server, tool) => { if (!app.closing) app.output.write(`[approval] allowed (this session): ${terminalText(server)} · ${terminalText(tool)}\n`); },
     // An MCP change is treated like a shell command: it may change the project's files (or a service's), so later
     // checks are not "before the change", services restart, and the tree is compared to tell.
-    onChangeCall: (server) => {
+    onChangeCall: (server, tool, sent) => {
       app.taskChangeServers.add(server);
       app.services?.markEdited();
       if (app.taskEdits) app.taskEdits.shell = true;
       app.observations.recordChangeCall();
+      // The change stays in view, with what was sent, also when nothing asked (Yes to everything).
+      if (!app.closing) app.events.noteChange(mcpChangeRow(server, tool, sent), JSON.stringify(sent ?? {}, null, 2).split("\n"));
     },
     confirmKind: (ask, signal) => confirmKind(app, ask, signal),
     onAllowAll: (server, tool) => {

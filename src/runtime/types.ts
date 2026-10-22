@@ -332,8 +332,9 @@ export type RuntimeEvent =
   | { type: "assistant_text_delta"; delta: string }
   /** The model is producing something not yet visible: reasoning, or a tool call's arguments
    * (a large `write` body streams for seconds before `tool_start`). `chars` is cumulative for
-   * the current block; this is liveness for the person watching, never transcript content. */
-  | { type: "assistant_progress"; kind: "thinking" | "tool_call"; toolName?: string; chars: number }
+   * the current block; this is liveness for the person watching, never transcript content. `headline`: a short line of
+   * readable reasoning (reasoningHeadline), for the status row only (decision 24). */
+  | { type: "assistant_progress"; kind: "thinking" | "tool_call"; toolName?: string; chars: number; headline?: string }
   /** `description`: the AI's title for a shell step (stepTitle), shown with the command, never instead of it. */
   | { type: "tool_start"; toolName: string; toolCallId?: string; input?: ToolObservationInput; description?: string }
   /** A running bash command printed more: the tail of its output so far (screen only, throttled; never in --json). */

@@ -7,7 +7,8 @@ import { hostCommand, type HostCommand, type HostTerminal } from "./host-termina
 
 /** Where the busy steps and helper activity go while Casper works. */
 export interface ActivityPane {
-  /** The Working box's current lines: each line not shown before is added to the pane. */
+  /** The Working box's current lines: each line not shown before is added to the pane. Never the status row's reasoning
+   * headline (decision 24): the pane gets the generic "Reasoning" line instead. */
   show(lines: readonly string[]): void;
   /** One line of its own (a helper's step). */
   log(line: string): void;

@@ -204,6 +204,7 @@ Each mark at the start of a line means one thing, in one colour (the `default` t
 | spinner, `•` | accent spinner, dim `•` line | running now (a step, Casper's own checks, the prompt while Casper works) |
 | `✓` | green | done |
 | `–` | grey (dim) | a note: expected (a search that found nothing), skipped, not verified, not checked, recovered (a retry) |
+| `◆` | accent, bold | a change that stays in view: config, a device, another machine or the setup on this computer |
 | `○` | amber | did not run (refused, stopped at the spend limit) |
 | `✗` | amber | a step failed, and the AI is still working |
 | `▌ ✗` | red | the task's result failed (the receipt), or an error stopped work (`[error]`) |
@@ -230,6 +231,18 @@ replaying a tool result, `/diff` boxing `git status` and the colored unified dif
 failure diagnostics from stderr and stdout in amber (the full output stays in the evidence), and exclusive input
 flows such as `/login`. Prose, notices and routine steps stay inline. Panels cap at 120 columns (plans at 80)
 and re-lay out when resized; prompt rules and the footer still use the window width.
+Changes stay in view, marked `◆`, at every `/details` level and never folded into the `└ … ran …` row. A config file the
+AI edits (package.json, tsconfig, `.env` files, YAML, TOML, INI, `.conf`/`.cfg`, Dockerfiles and compose files, CI
+workflows, `.casper/project.yaml`, Ansible inventories and variables, Junos `.set` files; the same list the receipt uses)
+gets a box of its own, `◆ Changed config`, with up to 40 diff rows per file and then `… N more lines · Ctrl+T shows all`,
+secrets hidden as in the edit box; a lockfile is one row, `◆ lockfile updated (bun.lock)`. A shell command that changed
+another machine or a device shows a row as soon as it ends, `◆ Changed on build-server: installed a service (…)` or
+`◆ Changed on sw1: sent 3 config lines`, with the commands it sent in a box (secrets hidden): the receipt's
+remote-change rules, or device lines that enter config mode, commit or delete. Each change Casper sends to an MCP server,
+also after `Yes to everything`, is a row with what was sent, masked as in its box: `◆ Changed in mist: update_site_setting
+site-1`. Setup on this computer gets named rows when the command worked: `◆ installed left-pad`,
+`◆ committed "fix port" (a1b2c3d)`, `◆ pushed main to origin`, `◆ switched to fix-port`, `◆ deleted 3 files: a, b, c`.
+At `/details quiet` they are rows without their boxes. The old Windows console draws `◆` as `#`.
 A missing guessed path, an empty search, a designed refusal or skip, and a confirmed recovered timeout,
 service hiccup, merge conflict or test-first failure are dim `–` notes, not failure boxes. A failure that was not
 recovered keeps its `✗`, its amber box and Ctrl+T.
@@ -306,7 +319,7 @@ counted as failed. A skipped check keeps its `○ … — skipped` line.
 One status row sits above the prompt while work runs: the spinner, what Casper is doing or waiting for,
 and `Esc stops`. It reads `Waiting for <provider/model> · 0s` as soon as a request is
 sent, and ticks elapsed time even when the provider sends nothing back yet or no intermediate progress events; progress updates change it to reasoning
-or tool preparation (`Reasoning · 3.0k chars · 12s`, `Preparing write · 1.2k chars · 3s`). When nothing has arrived for 10 s it reads `Waiting for <provider/model> · 14s`. While a step runs it names the newest one (`Running bun test · 4s (+1 more)`, `Reading src/x.ts · 1s`); while Casper's own check runs, `Checking test · 1m10s`. When the AI wrote a line before the running group of tool calls, the row starts with it: `Fixing the port test · Running bun test · 4s · Esc stops` (the line's last sentence, secrets hidden, gone when the group folds). A narrow window drops that line first, then cuts the words, never `Esc stops`. A provider retry is one dim `–` line in the transcript, `– Can't reach <provider> · trying again in 4s (1 of 3) · Esc stops`, not repeated in the status row; it names the cause: `<provider> is busy` for a rate limit, `<provider>'s host for this model failed` when one of OpenRouter's hosts fails, `<provider> answered with an error` for another error. A check Casper runs itself (typecheck, lint, test and the rest) adds a live row `• test · 3m05s` after 10 s with the last line it printed dimly under it (not at `/details quiet`); a plain terminal prints `[checks] test still running · 3m` once a minute for a long check, and `--json` prints nothing extra. It never displays hidden reasoning or generated arguments; the live rows and the status row step aside while a question or picker waits for you, never show more rows than fit above the prompt, and are gone when
+or tool preparation (`Reasoning · 3.0k chars · 12s`, `Preparing write · 1.2k chars · 3s`); when the provider sends readable reasoning, the row shows a short headline of it instead, its summary's title or latest sentence (`Planning the port fix · 12s`, at most 60 characters, secrets hidden; not at `/details quiet`; **Reasoning headline** in `/settings` turns it off). When nothing has arrived for 10 s it reads `Waiting for <provider/model> · 14s`. While a step runs it names the newest one (`Running bun test · 4s (+1 more)`, `Reading src/x.ts · 1s`); while Casper's own check runs, `Checking test · 1m10s`. When the AI wrote a line before the running group of tool calls, the row starts with it: `Fixing the port test · Running bun test · 4s · Esc stops` (the line's last sentence, secrets hidden, gone when the group folds). A narrow window drops that line first, then cuts the words, never `Esc stops`. A provider retry is one dim `–` line in the transcript, `– Can't reach <provider> · trying again in 4s (1 of 3) · Esc stops`, not repeated in the status row; it names the cause: `<provider> is busy` for a rate limit, `<provider>'s host for this model failed` when one of OpenRouter's hosts fails, `<provider> answered with an error` for another error. A check Casper runs itself (typecheck, lint, test and the rest) adds a live row `• test · 3m05s` after 10 s with the last line it printed dimly under it (not at `/details quiet`); a plain terminal prints `[checks] test still running · 3m` once a minute for a long check, and `--json` prints nothing extra. It never displays the reasoning itself or generated arguments (the headline is the status row's alone: never the transcript, the steps pane, the receipt, an export or `--json`; [decision 24](adr/0002/24-reasoning-headline.md)); the live rows and the status row step aside while a question or picker waits for you, never show more rows than fit above the prompt, and are gone when
 the receipt or the prompt returns. The plain terminal and scripts print one end line per tool call;
 having no live rows, they also print `• bash · bun test` when a call other than a look or an edit is still running after two seconds,
 so a long test run does not look hung.

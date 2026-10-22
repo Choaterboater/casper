@@ -525,3 +525,18 @@ test("network_updates: off loads from your own config; a project file can't set 
   await writeFile(config, "network_updates: maybe\n");
   await expect(load()).rejects.toThrow("network_updates must be on or off");
 });
+
+test("Reasoning headline: on by default, off persists, on resumes, and a project file can't set it", async () => {
+  const { home, project, config, projectFile } = await folders();
+  const host = { ...fakeHost(home, project, ["Reasoning headline", "Turn it off", "Done"]), duringTask: true };
+  await runSettings(host);
+  expect(await readFile(config, "utf8")).toBe("reasoning_headline: false\n");
+  expect((await host.context())!.reasoningHeadline).toBe(false);
+  await runSettings(fakeHost(home, project, ["Reasoning headline", "Turn it on", "Done"]));
+  expect(await valueOf(home, project, "Reasoning headline")).toBe("on");
+  await writeFile(config, "reasoning_headline: maybe\n");
+  await expect(loadConfiguration({ projectRoot: project, homeDir: home })).rejects.toThrow("reasoning_headline must be on or off");
+  await writeFile(config, "reasoning_headline: off\n");
+  await writeFile(projectFile, "reasoning_headline: on\n");
+  await expect(loadConfiguration({ projectRoot: project, homeDir: home })).rejects.toThrow("reasoning_headline is a user setting");
+});
