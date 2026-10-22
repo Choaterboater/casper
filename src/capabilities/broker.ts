@@ -829,7 +829,7 @@ export class CapabilityBroker {
       },
     });
     const tools: RuntimeTool[] = [
-      wrap("find_capability", `Search connected MCP tools by words, or use query "*" to list every tool, 50 at a time (pass next_cursor to see more). Or give one exact id to get its full input schema as a JSON string in inputSchemaJson (parse it before calling). Leave unused fields empty. No server calls. Results stay under 16 KB. If nothing is connected, ask the user to /mcp connect a server.${serverNotes}`, {
+      wrap("find_capability", `Search connected MCP tools by words, or use query "*" to list every tool, 50 at a time (pass next_cursor to see more). Or give one exact id to get its full input schema as a JSON string in inputSchemaJson (parse it before calling). Leave unused fields empty. No server calls. Results stay under 16 KB. If nothing is connected, ask the user to type /mcp connect <name>, or /mcp add <name> <command> [args…] for a new server.${serverNotes}`, {
         type: "object", properties: { query: { type: "string" }, id: { type: "string" }, cursor: { type: "string" } }, additionalProperties: false,
       }, async (args) => {
         const id = typeof args.id === "string" ? args.id.trim() : "";

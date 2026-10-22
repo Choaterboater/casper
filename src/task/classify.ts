@@ -101,6 +101,16 @@ const sshByName = (machines: readonly string[]) => {
   return names.length ? ` Reach it as ${names.join(" or ")}, never by address: the name brings its user and key.` : "";
 };
 
+/** A request that names MCP ("add the example MCP server", "connect my MCP"). */
+export function mcpNamed(text: string): boolean {
+  return /\bmcp\b|\bmodel context protocol\b/i.test(text);
+}
+
+/** Said only in a request that names MCP, so it costs no other request anything. The AI can't run a slash command,
+ * and once told "use /mcp connect" for a server Casper didn't know, it invented a way to add one. */
+export const MCP_TYPED = "MCP servers are the user's to add and connect: you can't run / commands, so give the exact line to type. "
+  + "/mcp add <name> <command> [args…] (or <name> <url>) adds and starts one; /mcp connect <name> connects one Casper lists.";
+
 export function formatTaskPrompt(
   request: string,
   classification: TaskClassification,
@@ -121,10 +131,11 @@ export function formatTaskPrompt(
   // .scratch/phase-4/ablate) the request alone was as accurate with fewer turns, and the hint header's
   // "(X, not Y):" framing had been echoed back as invented tool summaries. If the work stops before the
   // review (checks still failing, a turn limit), no later round asks for tests either; that is accepted.
+  const mcp = mcpNamed(options.typed ?? request);
   if (options.proveChange && options.reviewFollows) {
-    if (!underSpecified && !options.afterContext) return request;
+    if (!underSpecified && !options.afterContext && !mcp) return request;
     return [...(underSpecified ? ["The target is under-specified: if the ask tool is available, ask one concrete question with options before the first edit."] : []),
-      "User request:", request].join("\n");
+      ...(mcp ? [MCP_TYPED] : []), "User request:", request].join("\n");
   }
   const availableChecks = [...CHECK_NAMES
     .filter((name) => model.commands[name])
@@ -142,6 +153,7 @@ export function formatTaskPrompt(
     ...(underSpecified ? ["- target: under-specified; if the ask tool is available, ask one concrete question with options before the first edit"] : []),
     `- available configured checks: ${availableChecks.length ? availableChecks.join("; ") : "none detected"}`,
     ...(options.machines?.length ? [`- machines: this conversation worked on ${options.machines.join(", ")} over ssh.${sshByName(options.machines)} Work meant for one of them happens there (its files, its services), not in this folder, unless the request asks for files here. Check a change there where the person will see it (its web page in the browser tool, or its API) before you call it done or go on; if you can't, say it is not checked.`] : []),
+    ...(mcp ? [`- ${MCP_TYPED}`] : []),
     // Which checks to pick and when is in casper_check's description; this is what it does not say.
     "If you ran tests yourself, say in one line what ran and the result. Don't claim a check passed that didn't run.",
     // Auto mode only: Casper owns the final run, so the model need not select checks to record them.

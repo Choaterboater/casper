@@ -151,6 +151,12 @@ function definition(name: string, value: unknown, source: string, cwd: string): 
   return { ...base, transport: { type: "stdio", command: value.command, args, env: stringMap(value.env) } };
 }
 
+/** Why `value` would not load as the server `name` from an MCP file (the reason Casper gives when it reads one), or
+ * undefined when it would. */
+export function serverEntryProblem(name: string, value: unknown): string | undefined {
+  try { definition(name, value, "", ""); return undefined; } catch (error) { return error instanceof Error ? error.message : String(error); }
+}
+
 /** Short names for the files other tools keep their servers in, as /mcp shows them. */
 export const IMPORT_LABELS: Record<ImportedFrom, string> = {
   claude: "~/.claude.json", "claude-project": "~/.claude.json (this project)", vscode: "VS Code",

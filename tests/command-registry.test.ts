@@ -147,7 +147,7 @@ test("the menu completes a command's subcommands and shows what follows a name",
     input.write("\x7fmcp ");
     from = mark();
     await Bun.sleep(150);
-    for (const entry of ["detail [name]", "connect <name>", "writes <name>|off", "reload"]) expect(since(from)).toContain(entry);
+    for (const entry of ["detail [name]", "add <name> <command> [args…]", "connect <name>", "reload"]) expect(since(from)).toContain(entry);
     input.write("de");
     await Bun.sleep(150);
     input.write("\t");

@@ -66,6 +66,8 @@ export function docsOnlyDefinition(definition: MCPServerDefinition): DocsOnlyEnt
 }
 
 export const MCP_FILE_LABEL = "~/.casper/mcp.json";
+/** A server as ~/.casper/mcp.json holds it: a program Casper starts, or an address (`type` http). */
+export type UserServerEntry = DocsOnlyEntry | { url: string };
 const MAX_MCP_FILE_BYTES = 1024 * 1024;
 
 export class ServerExistsError extends Error {
@@ -80,7 +82,7 @@ export class ServerExistsError extends Error {
  * name that is already used, and writes a temporary file that then replaces the old one. The file
  * is created (0600) when missing.
  */
-export async function addUserServer(home: string, name: string, entry: DocsOnlyEntry): Promise<string> {
+export async function addUserServer(home: string, name: string, entry: UserServerEntry): Promise<string> {
   const file = path.join(home, ".casper", "mcp.json");
   if (!/^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,63}$/.test(name)) throw new Error(`Cannot add ${name}: not a valid server name.`);
   let document: Record<string, unknown> = { mcpServers: {} };
@@ -102,7 +104,8 @@ export async function addUserServer(home: string, name: string, entry: DocsOnlyE
   }
   const servers = document.mcpServers as Record<string, unknown>;
   if (Object.hasOwn(servers, name)) throw new ServerExistsError(name);
-  servers[name] = { command: entry.command, args: [...entry.args], ...(entry.cwd ? { cwd: entry.cwd } : {}), env: { ...entry.env } };
+  servers[name] = "url" in entry ? { type: "http", url: entry.url }
+    : { command: entry.command, args: [...entry.args], ...(entry.cwd ? { cwd: entry.cwd } : {}), env: { ...entry.env } };
   const next = `${JSON.stringify(document, null, 2)}\n`;
   await mkdir(path.dirname(file), { recursive: true, mode: 0o700 });
   const temporary = `${file}.${process.pid}.${randomBytes(6).toString("hex")}.tmp`;
