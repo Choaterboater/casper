@@ -18,15 +18,23 @@ const GRAPH = {
   edges: [{ from: "isp", to: "core", label: "1/1/1" }, { from: "core", to: "sw1", label: "1/1/2 10G" }],
 };
 
+/** The same placeholder network as a network diagram: device kinds and port labels. */
+const NETWORK = {
+  type: "network", title: "Example site network",
+  nodes: [{ id: "isp", label: "ISP", kind: "internet", note: "192.0.2.1" }, { id: "core", label: "core-1", kind: "core-switch" }, { id: "sw1", label: "sw1", kind: "switch", group: "Floor 1" }],
+  edges: GRAPH.edges,
+};
+
 class DiagramRuntime implements AgentRuntime {
   tools: RuntimeTool[] = [];
+  graph: unknown = GRAPH;
   results: Array<{ text: string; isError?: boolean }> = [];
   async start(options: RuntimeStartOptions): Promise<RuntimeSession> {
     this.tools = options.tools ?? [];
     return {
       prompt: async (text) => {
         const tool = this.tools.find((tool) => tool.name === "visualize");
-        if (tool && text.includes("- intent: visualize")) this.results.push(await tool.execute({ graph: GRAPH }));
+        if (tool && text.includes("- intent: visualize")) this.results.push(await tool.execute({ graph: this.graph }));
       },
       setTools: (tools) => { this.tools = tools; },
       abort: async () => {}, subscribe: () => () => {}, getState: () => ({ cwd: options.cwd, isStreaming: false }),
@@ -36,7 +44,7 @@ class DiagramRuntime implements AgentRuntime {
   note(index = 0): string[] { return JSON.parse(this.results[index]!.text).data.notes; }
 }
 
-async function session(options: { config?: string; interactive?: boolean } = {}) {
+async function session(options: { config?: string; interactive?: boolean; graph?: unknown } = {}) {
   const root = await mkdtemp(path.join(os.tmpdir(), "casper-diagram-page-"));
   cleanup.push(() => removeTempDir(root));
   const home = path.join(root, "home"), project = path.join(root, "project");
@@ -46,6 +54,7 @@ async function session(options: { config?: string; interactive?: boolean } = {})
   await writeFile(path.join(project, "util.ts"), "export const one = 1;\n");
   if (options.config) await writeFile(path.join(home, ".casper", "config.yaml"), options.config);
   const runtime = new DiagramRuntime();
+  if (options.graph) runtime.graph = options.graph;
   const output: string[] = [];
   const opened: string[] = [];
   const app = new CasperApp({
@@ -104,4 +113,17 @@ test("a run nobody watches (one-shot) makes no diagram page; /visualize repo in 
   expect(repo.opened).toHaveLength(1);
   expect(repo.opened[0]).toMatch(/\/diagram-project-module-dependencies\.html$/);
   expect(repo.text()).toContain("[page] diagram-project-module-dependencies →");
+});
+
+test("a network diagram opens as Casper's own drawing: device icons, port labels and frames, with nothing loaded", async () => {
+  const { app, runtime, opened } = await session({ graph: NETWORK });
+  await app.runOnce("draw a network diagram of the example site");
+  expect(opened).toHaveLength(1);
+  expect(runtime.note()).toContain(`Shown in the user's browser as page diagram-example-site-network (${opened[0]}); don't make a page for it.`);
+  const html = await readFile(path.join(app.pages!.directory, "diagram-example-site-network.html"), "utf8");
+  expect(html).toContain('data-kind="core-switch"');
+  expect(html).toContain(">1/1/2 10G<");
+  expect(html).toContain(">Floor 1<");
+  expect(html).not.toContain('class="mermaid"');
+  expect(html).not.toMatch(/<script[^>]*\s(src|type="module")/);
 });

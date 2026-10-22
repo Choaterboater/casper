@@ -1,7 +1,9 @@
 /** A diagram as a page Casper makes from it, with no model: the diagram's Mermaid text, drawn in the browser by Mermaid
  * from jsDelivr (a source the policy of every page allows) at Mermaid's strict security level, so nothing in a label
- * runs as HTML. The page is served and opened like the AI's own pages (src/pages). */
+ * runs as HTML. A network diagram is drawn by Casper instead, as SVG with nothing loaded (network.ts). The page is
+ * served and opened like the AI's own pages (src/pages). */
 
+import { networkPage } from "./network";
 import type { VisualizationGraph } from "./types";
 
 /** Mermaid 11, pinned to its major version. */
@@ -13,6 +15,11 @@ const escape = (text: string) => text.replace(/&/g, "&amp;").replace(/</g, "&lt;
 export function diagramPageName(title: string): string {
   const slug = title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
   return `diagram${slug ? `-${slug}` : ""}`.slice(0, 40).replace(/-+$/, "");
+}
+
+/** The page for any diagram: a network diagram is drawn by Casper itself (network.ts), any other by Mermaid. */
+export function diagramPageFor(graph: VisualizationGraph, mermaid: string, files: readonly string[] = []): string {
+  return graph.type === "network" ? networkPage(graph, files) : diagramPage(graph, mermaid, files);
 }
 
 /** The page: the diagram's title, the diagram, and where its editable copies were saved. */

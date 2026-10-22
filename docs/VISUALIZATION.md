@@ -3,7 +3,7 @@
 **What this is:** Casper can draw a diagram of code or a system, as Mermaid text
 (a plain-text diagram format that GitHub and many editors display), as a
 MindMesh JSON file and as a draw.io file you can open and edit by hand. **When you'd use it:** to see how a project's files import
-each other, or to have the model sketch a flow, plan or troubleshooting tree.
+each other, or to have the model sketch a flow, plan, troubleshooting tree or network.
 
 Try it:
 
@@ -13,8 +13,9 @@ Try it:
 /visualize repo src        the same, for one folder
 ```
 
-Or ask in plain words, for example `draw a flowchart of the login process` or
-`show me a diagram of how the config is loaded`.
+Or ask in plain words, for example `draw a flowchart of the login process`,
+`show me a diagram of how the config is loaded` or `draw the network: two firewalls, the core switch and the
+floor switches`.
 
 Diagrams only read. Making one never changes your files.
 
@@ -36,17 +37,20 @@ Visualization is a capability category, not a special Casper mode. Casper reason
 }
 ```
 
-- `type`: `mindmap`, `architecture`, `dependency-graph`, `flowchart`, `troubleshooting-tree`, or `plan`.
+- `type`: `mindmap`, `architecture`, `dependency-graph`, `flowchart`, `troubleshooting-tree`, `plan`, or `network`.
 - Nodes need unique `id` and `label`; `group` and `note` are optional. Edges reference existing node ids.
+- `kind` (for `network`): what a device is, `internet`, `router`, `firewall`, `gateway` (a gateway or wireless
+  controller), `core-switch`, `switch`, `access-point`, `server` or `device`. It picks the device's icon and tier
+  ([Network diagrams](#network-diagrams)); other kinds are refused with this list.
 - Limits: 400 nodes, 800 edges, 200-byte ids/labels/groups, 1000-byte notes, 200-byte titles. Unknown fields are rejected. Input is validated in `parseVisualizationGraph` before any provider sees it.
 
 ## Providers
 
 | Provider | Output | Notes |
 | --- | --- | --- |
-| `mermaid` (default primary) | `.mmd` text | Always available; no external process. Flowchart syntax for every type except `mindmap`, which uses Mermaid mindmap syntax. |
+| `mermaid` (default primary) | `.mmd` text | Always available; no external process. Flowchart syntax for every type except `mindmap`, which uses Mermaid mindmap syntax. A `network`'s links have no arrows. |
 | `mindmesh` | `.json` document | MindMesh canonical map, schema version 6. Accepted unchanged by MindMesh's lossless `json` importer. Each group gets a topic colour (by first appearance, from a fixed palette of 8), the root is bold, and `plan` topics below the root are open tasks. **File output only** — Casper does not start, connect to, or authenticate with a MindMesh server. |
-| `drawio` | `.drawio` file | Uncompressed draw.io (diagrams.net) mxfile, laid out in layers: top-down, or left to right for architecture and dependency graphs. Groups are box colours, notes are box tooltips. Opens and edits in draw.io's desktop or web app; Casper starts nothing. |
+| `drawio` | `.drawio` file | Uncompressed draw.io (diagrams.net) mxfile, laid out in layers: top-down, or left to right for architecture and dependency graphs. Groups are box colours, notes are box tooltips. A `network` has the page's layout instead, in draw.io's own network shapes (its Cisco library), each label and note under its device and groups as frames. Opens and edits in draw.io's desktop or web app; Casper starts nothing. |
 
 Providers implement `VisualizationProvider` (`supports(type)`, `render(graph)`); `CasperAppOptions.visualizationProviders` replaces the built-in set for tests or extensions.
 
@@ -91,9 +95,29 @@ Precedence: global → profile → project. `providers` may be set at any layer.
 - **In a session, every diagram opens in your browser.** Casper makes a page from the diagram itself, with no model
   time: `diagram-<title>` in `~/.casper/pages/<project>/`, served and opened like the AI's pages
   ([Pages the AI makes](TERMINAL_UX.md#pages-the-ai-makes)). Mermaid draws it there, loaded from jsDelivr, at its
-  strict security level, and the page names the editable copies. The model is told the page is open, so it doesn't
+  strict security level (a network diagram Casper draws itself: [Network diagrams](#network-diagrams)), and the page
+  names the editable copies. The model is told the page is open, so it doesn't
   make one. The same title again updates the page and its tab reloads. `open_pages: off` keeps it from opening (the
   link is still printed); `outputDir: false` (in-conversation only) makes no page; a one-shot run makes none.
+
+## Network diagrams
+
+Ask for a network or topology diagram and the model gives each device a `kind`, its name as the label, its model or
+address as the note, and port names as link labels. Casper lays it out as a network drawing, not a flowchart:
+
+- **Tiers by kind and link.** The internet at the top, then routers and firewalls, core switches, then gateways,
+  servers and switches, and access points and end devices at the bottom. A device linked below another goes at least
+  one tier lower (a daisy-chained switch), but a link between two firewalls, routers, gateways, core switches or
+  servers (a pair or a cluster) keeps them side by side.
+- **Groups are frames.** A group's devices sit together in a framed, named run, in the order given.
+- **Wide tiers wrap.** A tier of more than 8 devices goes onto rows of about the same length below each other, a group
+  kept whole where it fits, so the page stays readable.
+- **Links at right angles.** A device's links down share one line that branches; links between two devices side by
+  side run straight across. A port label sits beside its link, just above the device the link comes down to. Two
+  links between the same devices are drawn apart.
+- **The page draws it itself:** device icons, frames, port labels and a legend, as SVG in the page, with nothing
+  loaded. **Fit** and **Full size** switch the zoom; hover a device or link for its full text.
+- **draw.io gets the same layout**, in draw.io's own network shapes, so the editable copy matches the page.
 
 ## Repository dependency graph
 
@@ -105,6 +129,8 @@ Limits: 2000 files (partial graphs are flagged); more than 120 file nodes collap
 
 - No Graphviz provider and no image files (the page draws the diagram in the browser; draw.io exports PNG or SVG from its own menu), and no interactive MindMesh session; opening the JSON in MindMesh is a manual import.
 - Model-authored graphs describe the model's understanding; Casper validates shape, not truth. The repo graph is deterministic but regex-based.
+- A network's layout is automatic: you can't pin a device's place, and a device with no `kind` is a plain box placed by
+  its links. A network of hundreds of devices is drawn, but needs **Full size** to read.
 - Node notes are not drawn by Mermaid. Groups are not drawn in mindmaps; MindMesh shows them only as topic colours, which ungrouped child topics inherit.
 - The tool is exposed only when the request is classified as visualization; classification is lexical, not a general natural-language parser. Explicit modification requests such as “fix the chart export” retain verification, while “show me a diagram of the test flow” is read-only.
 - This is not an OS sandbox: a process with the same user's permissions can still move whole open directories, mutate files independently, or tamper with Casper itself.

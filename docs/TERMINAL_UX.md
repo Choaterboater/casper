@@ -933,7 +933,8 @@ results, a report someone else will read), the AI makes a page by itself with it
 `casper_page` tool, and you see it in your browser at once. You don't have to ask for one.
 Plain answers stay in the terminal. A diagram from the diagram tool (or `/visualize repo`) opens as
 a page too, one Casper makes from the diagram itself with no model time: `diagram-<title>`
-(see [Visualization](VISUALIZATION.md#using-it)).
+(see [Visualization](VISUALIZATION.md#using-it)). A network diagram is drawn there like one, with device icons in
+tiers, links at right angles and port labels ([Network diagrams](VISUALIZATION.md#network-diagrams)).
 
 ```text
 [page] db-options → http://127.0.0.1:52144/db-options.html

@@ -7,7 +7,7 @@ import { pageTool } from "../pages/tool";
 import type { RuntimeTool } from "../runtime/types";
 import { terminalText } from "../tui/format";
 import { MermaidProvider } from "../visualize/mermaid";
-import { diagramPage, diagramPageName } from "../visualize/page";
+import { diagramPageFor, diagramPageName } from "../visualize/page";
 import type { RenderedVisualization } from "../visualize/router";
 
 /** The session's pages for the project it opened, made on first use; its server stops when Casper quits. */
@@ -40,7 +40,7 @@ export function pageToolFor(app: CasperApp): RuntimeTool | undefined {
 export async function showDiagramPage(app: CasperApp, rendered: RenderedVisualization): Promise<string | undefined> {
   if (!app.interactive || !app.projectContext || !app.visualization?.settings.outputDir) return undefined;
   const mermaid = rendered.primary.provider === "mermaid" ? rendered.primary.content : (await new MermaidProvider().render(rendered.graph)).content;
-  const page = await pageSession(app).make(diagramPageName(rendered.graph.title), diagramPage(rendered.graph, mermaid, rendered.artifacts.map((artifact) => artifact.path)));
+  const page = await pageSession(app).make(diagramPageName(rendered.graph.title), diagramPageFor(rendered.graph, mermaid, rendered.artifacts.map((artifact) => artifact.path)));
   if (page.opened) return `Shown in the user's browser as page ${page.name} (${page.link}); don't make a page for it.`;
   return page.notOpened ? `Saved as page ${page.name} (${page.link}), not opened: ${page.notOpened}.`
     : `Page ${page.name} updated (${page.link}); don't make a page for it.`;
