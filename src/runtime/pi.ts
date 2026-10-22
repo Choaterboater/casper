@@ -923,6 +923,7 @@ export class PiRuntime implements AgentRuntime {
       });
     }
     if (!bounded) models.useModelServers(this.modelServers(modelRuntime, models));
+    if (options.compactAt) models.useCompactAt(options.compactAt);
     const tools = new PiToolController(options.tools ?? []);
     const agentShellGuard = new AgentShellGuard(Boolean(bounded));
     let limitReason: string | undefined;

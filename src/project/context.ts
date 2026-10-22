@@ -92,6 +92,8 @@ export interface ProjectContext {
   reasoningHeadline?: boolean;
   /** `lean_guidance: auto|off` in the user's config. Unset: auto. */
   leanGuidance?: LoadedConfiguration["leanGuidance"];
+  /** `compact_at:` in the user's config: auto, a percentage or a token count. Unset: auto (85%). */
+  compactAt?: LoadedConfiguration["compactAt"];
   /** `slow_commands: off` in the user's config: a command without its own timeout is stopped at the limit. Unset: on. */
   slowCommands?: boolean;
   /** `stalled_commands: off` in the user's config: a command with no output and no CPU is left to its limit. Unset: on. */
@@ -221,6 +223,7 @@ export async function loadProjectContext(
     ...(configuration.hideToolOutput !== undefined ? { hideToolOutput: configuration.hideToolOutput } : {}),
     ...(configuration.reasoningHeadline !== undefined ? { reasoningHeadline: configuration.reasoningHeadline } : {}),
     ...(configuration.leanGuidance !== undefined ? { leanGuidance: configuration.leanGuidance } : {}),
+    ...(configuration.compactAt !== undefined ? { compactAt: configuration.compactAt } : {}),
     ...(configuration.slowCommands !== undefined ? { slowCommands: configuration.slowCommands } : {}),
     ...(configuration.stalledCommands !== undefined ? { stalledCommands: configuration.stalledCommands } : {}),
     ...(configuration.mcpAutoconnect !== undefined ? { mcpAutoconnect: configuration.mcpAutoconnect } : {}),

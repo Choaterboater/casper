@@ -98,6 +98,27 @@ function cacheRow(now: PromptCacheSetting): Setting {
       .map((setting) => ({ label: `${setting[0]!.toUpperCase()}${setting.slice(1)}`, description: CACHE_WORDS[setting], keys: ["cache"], value: setting, shown: setting })) };
 }
 
+/** Where compaction starts: a share of the window or a token count. Any other value goes in your config by hand. */
+const COMPACT_AT_CHOICES: ReadonlyArray<{ value: string | number; label: string; description: string }> = [
+  { value: "auto", label: "Auto", description: "85% of the window; a small window earlier, so the reply keeps its room" },
+  { value: "60%", label: "60%", description: "sooner: a long conversation stays short, with one more summary" },
+  { value: "70%", label: "70%", description: "a little sooner than auto" },
+  { value: 64_000, label: "64,000 tokens", description: "whatever the window: suits a local model that slows down past that" },
+  { value: 200_000, label: "200,000 tokens", description: "whatever the window: a 1M model never resends near a million tokens" },
+];
+
+function compactAtRow(now: string | number | undefined): Setting {
+  const shown = (value: string | number) => typeof value === "number" ? `${value.toLocaleString("en-US")} tokens` : value;
+  const current = now ?? "auto";
+  return { label: "Compact at", value: shown(current), applies: "step",
+    question: `Compact at: ${shown(current)}. When the conversation reaches it, Casper summarises the older part to make room (/compact does it now). `
+      + "Auto is 85% of the window; a small window starts sooner so the reply keeps its room, and no setting starts later than that. "
+      + "Any percentage from 10% to 99% or a token count works as compact_at: in ~/.casper/config.yaml.",
+    keep: `Keep ${shown(current)}`,
+    choices: COMPACT_AT_CHOICES.filter((choice) => choice.value !== current)
+      .map((choice) => ({ label: choice.label, description: choice.description, keys: ["compact_at"], value: choice.value, shown: shown(choice.value) })) };
+}
+
 const UPDATES_WORDS: Record<UpdatesSetting, string> = {
   auto: "check and install in the background; restart to use the update",
   notify: "say when a newer Casper is out, without installing it",
@@ -229,6 +250,7 @@ export function settingRows(context: ProjectContext): Setting[] {
       keep: `Keep ${context.leanGuidance ?? "auto"}`,
       choices: [{ label: context.leanGuidance === "off" ? "Auto" : "Off", keys: ["lean_guidance"],
         value: context.leanGuidance === "off" ? "auto" : "off", shown: context.leanGuidance === "off" ? "auto" : "off" }] },
+    compactAtRow(context.compactAt),
     onOffRow("Hide old tool output", context.hideToolOutput !== false,
       "Once old reads, command output and screenshots fill a fifth of the model's window (or the prompt passes 60% of it), they become permanent stubs in the AI's history. The latest four rounds, recent references and failures stay. Each time rebuilds the cache once; in between earlier messages stay identical, and short tasks never pay. Off stops new hiding, not existing stubs. Saved output is unchanged.",
       ["hide_tool_output"], false, "step"),

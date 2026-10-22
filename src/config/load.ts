@@ -1,3 +1,4 @@
+import { readCompactAt } from "../runtime/small-window";
 import { readFile, realpath } from "node:fs/promises";
 import { parseModelServers, type ModelServer } from "./model-servers";
 import os from "node:os";
@@ -146,6 +147,8 @@ export interface LoadedConfiguration {
   reasoningHeadline?: boolean;
   /** `lean_guidance: auto|off` in your own config; unset: auto for model servers/small windows. */
   leanGuidance?: GuidanceSetting;
+  /** `compact_at:` in your own config: auto, a percentage ("70%") or a token count. Unset: auto (85% of the window). */
+  compactAt?: string | number;
   /** `slow_commands: off` in your own config: a command run without its own timeout is stopped at the limit instead of moving to the background. Unset: on. */
   slowCommands?: boolean;
   /** `stalled_commands: off` in your own config: a command with no output and no CPU for 45 s is not ended early. Unset: on. */
@@ -312,7 +315,7 @@ const POLICY_KEYS = {
 } as const;
 const ISOLATE_KEYS = ["parallelAgents", "riskyRefactor", "experimentalBranch"];
 const TOP_LEVEL_KEYS = new Set(["profile", "project", "languages", "frameworks", "packageManager", "commands", "architecture",
-  "conventions", "verify", "verification", "repair", "skills", "visualize", "policy", "services", "smoke", "pages", "lab", "suggestions", "updates", "sideQuestions", "localModels", "modelServers", "cache", "display", "theme", "showPages", "spend", "sandbox", "shell", "web", "reader", "delegate", "browser", "templates", "packs", "github", "telemetry", "tools", "ssh_login", "other_logins", "network_updates", "ai_pages", "open_pages", "pictures", "browser_clicks", "routine_commands", "hide_tool_output", "reasoning_headline", "lean_guidance", "slow_commands", "stalled_commands", "mcp_autoconnect", "lsp_autostart", "notifications", ...Object.keys(POLICY_KEYS)]);
+  "conventions", "verify", "verification", "repair", "skills", "visualize", "policy", "services", "smoke", "pages", "lab", "suggestions", "updates", "sideQuestions", "localModels", "modelServers", "cache", "display", "theme", "showPages", "spend", "sandbox", "shell", "web", "reader", "delegate", "browser", "templates", "packs", "github", "telemetry", "tools", "ssh_login", "other_logins", "network_updates", "ai_pages", "open_pages", "pictures", "browser_clicks", "routine_commands", "hide_tool_output", "reasoning_headline", "lean_guidance", "compact_at", "slow_commands", "stalled_commands", "mcp_autoconnect", "lsp_autostart", "notifications", ...Object.keys(POLICY_KEYS)]);
 
 /** Typos used to fall back silently to the defaults; the loader names them instead. */
 function unknownKeys(document: Mapping, label: string): string[] {
@@ -988,6 +991,8 @@ export async function loadConfiguration(
   let hideToolOutput: boolean | undefined;
   if (projectDocument.lean_guidance !== undefined) throw new Error("lean_guidance is a user setting (~/.casper/config.yaml); a project cannot change model guidance");
   let leanGuidance: GuidanceSetting | undefined;
+  if (projectDocument.compact_at !== undefined) throw new Error("compact_at is a user setting (~/.casper/config.yaml); a project cannot change when the conversation is compacted");
+  let compactAt: string | number | undefined;
   if (projectDocument.slow_commands !== undefined) throw new Error("slow_commands is a user setting (~/.casper/config.yaml); a project cannot keep commands running in the background");
   let slowCommands: boolean | undefined;
   if (projectDocument.stalled_commands !== undefined) throw new Error("stalled_commands is a user setting (~/.casper/config.yaml); a project cannot change which commands Casper ends");
@@ -1022,6 +1027,10 @@ export async function loadConfiguration(
     if (document.lean_guidance !== undefined) {
       if (document.lean_guidance !== "auto" && document.lean_guidance !== "off") throw new Error(`${label}: lean_guidance must be auto or off`);
       leanGuidance = document.lean_guidance;
+    }
+    if (document.compact_at !== undefined) {
+      if (readCompactAt(document.compact_at) === undefined) throw new Error(`${label}: compact_at must be auto, a percentage from 10% to 99% (70%) or a token count of 1000 or more`);
+      compactAt = document.compact_at as string | number;
     }
     slowCommands = onOffLayer(document.slow_commands, label, "slow_commands") ?? slowCommands;
     stalledCommands = onOffLayer(document.stalled_commands, label, "stalled_commands") ?? stalledCommands;
@@ -1080,6 +1089,7 @@ export async function loadConfiguration(
     ...(hideToolOutput !== undefined ? { hideToolOutput } : {}),
     ...(reasoningHeadline !== undefined ? { reasoningHeadline } : {}),
     ...(leanGuidance !== undefined ? { leanGuidance } : {}),
+    ...(compactAt !== undefined ? { compactAt } : {}),
     ...(slowCommands !== undefined ? { slowCommands } : {}),
     ...(stalledCommands !== undefined ? { stalledCommands } : {}),
     ...(mcpAutoconnect !== undefined ? { mcpAutoconnect } : {}),

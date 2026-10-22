@@ -82,6 +82,7 @@ export async function ensureRuntime(app: CasperApp): Promise<RuntimeSession> {
         ...(app.shell ? { shell: currentShell(app) } : {}),
         ...(context.cache ? { cache: context.cache } : {}),
         guidance: () => app.projectContext?.leanGuidance ?? "auto",
+        compactAt: () => app.projectContext?.compactAt,
         hideToolOutput: () => app.projectContext?.hideToolOutput !== false,
         ...(context.localModels === false ? { localModels: false } : {}),
         ...(context.modelServers?.length ? { modelServers: context.modelServers } : {}),

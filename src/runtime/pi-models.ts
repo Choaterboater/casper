@@ -10,7 +10,7 @@ import type { RuntimeLoginIO, RuntimeModelInfo, RuntimeModelSelection, RuntimeMo
 import { pickPiModel } from "./pi-model-picker";
 import { anyModelMatches } from "./pi-model-browser";
 import { openRouterRequestHeaders } from "./openrouter-attribution";
-import { compactionKeepFor, compactionReserveFor, fixedRequestTokens, OWN_PART, SMALL_WINDOW, smallWindowWarning, windowTooSmall } from "./small-window";
+import { compactionKeepFor, compactionReserveFor, DEFAULT_COMPACT_AT, fixedRequestTokens, OWN_PART, readCompactAt, type CompactAt, SMALL_WINDOW, smallWindowWarning, windowTooSmall } from "./small-window";
 import { lockBusy } from "../platform/files";
 import { cantUseTools, isLocalProvider, lastLocalLook, LOCAL_SERVERS, localKindHere, localModelDefaults, noToolsLine, onThisComputer, savedLocalServers, SERVER_SIDE_TIP, servedWindowWarning, wantsServerTip, type LocalDiscovery, type LocalProblem } from "./local-models";
 import { CLAUDE_SUBSCRIPTION } from "./claude-subscription";
@@ -323,9 +323,15 @@ export class PiModels {
     const reserve = settingsManager.getCompactionReserveTokens.bind(settingsManager);
     const keep = settingsManager.getCompactionKeepRecentTokens.bind(settingsManager);
     settingsManager.getCompactionReserveTokens = (model) =>
-      !model || set(model, "reserveTokens") ? reserve(model) : compactionReserveFor(windowOf(model), fixed()) ?? reserve(model);
+      !model || set(model, "reserveTokens") ? reserve(model) : compactionReserveFor(windowOf(model), fixed(), this.compactAt()) ?? reserve(model);
     settingsManager.getCompactionKeepRecentTokens = (model) => !model || set(model, "keepRecentTokens") ? keep(model)
       : compactionKeepFor(windowOf(model), settingsManager.getCompactionReserveTokens(model), fixed(), keep(model)) ?? keep(model);
+  }
+
+  /** Where compaction starts (`compact_at:` in your config), read at each check so /settings applies at once. */
+  private compactAt: () => CompactAt = () => DEFAULT_COMPACT_AT;
+  useCompactAt(setting: () => unknown): void {
+    this.compactAt = () => { const at = readCompactAt(setting()); return at === undefined || at === "auto" ? DEFAULT_COMPACT_AT : at; };
   }
 
   private localRefresh?: (signal?: AbortSignal) => Promise<LocalDiscovery>;

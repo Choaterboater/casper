@@ -63,6 +63,8 @@ export interface RuntimeStartOptions {
   guidance?: () => GuidanceSetting;
   /** Hide old bulky tool results at cache checkpoints. Read fresh for /settings; unset: on. */
   hideToolOutput?: () => boolean;
+  /** Where compaction starts (`compact_at:` auto, a percentage or a token count). Read fresh for /settings; unset: 85%. */
+  compactAt?: () => string | number | undefined;
   /** Find model servers on this computer (Ollama, LM Studio, llama.cpp, vLLM) and list their models in /model
    * (`localModels:` in ~/.casper/config.yaml). Unset: on. */
   localModels?: boolean;
