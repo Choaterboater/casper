@@ -433,7 +433,7 @@ loading.
 **Profile trust.** A repository's `profile:` may select one of your existing profiles, including
 its rules, MCP/LSP server definitions, reference sources and the settings a project file may set
 anyway. Your own settings (`sandbox`, `shell`, `web`, `lab`, `spend`, `cache`, `display`, `theme`,
-`showPages`, `hide_tool_output`, `lean_guidance`, `suggestions`, `updates`, `sideQuestions`, `localModels`, `modelServers` (from `~/.casper/config.yaml` only), `telemetry`, `ssh_login`, `other_logins`, `network_updates`, `ai_pages`, `open_pages`, `tools.downloads`, `pages: off`, `browser`, `packs`, `skills.imports`, `skills.bundled`, `repair.bigModelLastTry`, `delegate.build`, `mcp_autoconnect`, `lsp_autostart`, `notifications`)
+`showPages`, `hide_tool_output`, `reasoning_headline`, `lean_guidance`, `suggestions`, `updates`, `sideQuestions`, `localModels`, `modelServers` (from `~/.casper/config.yaml` only), `telemetry`, `ssh_login`, `other_logins`, `network_updates`, `ai_pages`, `open_pages`, `tools.downloads`, `pages: off`, `browser`, `packs`, `skills.imports`, `skills.bundled`, `repair.bigModelLastTry`, `delegate.build`, `mcp_autoconnect`, `lsp_autostart`, `notifications`)
 stay those of the profile you chose yourself (or `~/.casper/config.yaml`), so a repository can't
 turn your sandbox off or your web lookups on by picking or naming a profile; the banner says
 `[config] .casper/project.yaml picked profile lab: …`. `CASPER_PROFILE=lab` (or `profile: lab` in
@@ -1178,7 +1178,8 @@ cache: short   # auto (default), long, short, or off
 
 ## Display
 
-How much of the work shows on screen while Casper works. The model's thinking is never printed.
+How much of the work shows on screen while Casper works. The model's reasoning is never printed: at most the status
+row shows a short headline of it (below).
 
 - `normal` (default): the steps tick in under the AI's words, then fold into one row naming what was done
   (`└ read AGENTS.md · ran git status, bun test (2m05s)`) when its next words arrive; the edits go in one box
@@ -1195,6 +1196,18 @@ failed step printed), or else the last finished step: an edit's whole diff, or w
 ```yaml
 # ~/.casper/config.yaml or a profile's config.yaml
 display: detailed   # quiet, normal (default), or detailed
+```
+
+**Reasoning headline.** While the model reasons and its provider sends readable reasoning, the status row shows a short
+headline of it instead of `Reasoning · 3.0k chars`: the reasoning summary's title (`Planning the port fix · 12s`), or
+else its latest finished sentence, at most 60 characters, secrets hidden. It is in the status row only: never the
+transcript, the steps pane, the receipt, an export or `--json`, and not at `/details quiet`. A provider that sends no
+readable reasoning keeps `Reasoning · 3.0k chars`. `/settings` **Reasoning headline** turns it off (it writes
+`reasoning_headline: false`); a project file can't set it ([decision 24](adr/0002/24-reasoning-headline.md)).
+
+```yaml
+# ~/.casper/config.yaml
+reasoning_headline: false   # on (default) or off
 ```
 
 ## Theme
