@@ -9,6 +9,7 @@ import {
   PRESETS, SAFETY_ORDER, approvalNotes, guardArguments, hasNoPreview, isHidden, isPlainJunosShow, matchPreset, ownSettingsNote,
   planPins, presetById, presetLine, rememberBlock, runnerPin, safetyRank, tightenSafety, writesTitle, type PresetMatch,
 } from "../src/mcp/presets";
+import { CHILD_KILL_MS, childTestLimit } from "./support/limits";
 
 const cleanup: (() => Promise<unknown>)[] = [];
 afterEach(async () => { for (const close of cleanup.splice(0).reverse()) await close(); });
@@ -32,14 +33,16 @@ async function spawnPlanned(transport: { command: string; args: string[]; env: R
   return JSON.parse(text) as { argv: string[]; env: Record<string, string> };
 }
 
-/** The fixture's tools with the labels Casper gives them today, read through the real broker. */
+/** The fixture's tools with the labels Casper gives them today, read through the real broker. It starts one server
+ * (hpe-router twice: Casper starts it once more with the preset's pins). */
 async function fixtureTools(mode: string): Promise<{ tools: MCPTool[]; labels: Map<string, CapabilitySafety> }> {
   const manager = new MCPManager({ servers: [{
     name: "net", source: "fixture", cwd: process.cwd(), disabled: false,
     transport: { type: "stdio", command: process.execPath, args: [networkFixture], env: { FIXTURE_MODE: mode } },
-  }], diagnostics: [] }, { timeoutMs: 5000 });
+  }], diagnostics: [] }, { connectTimeoutMs: CHILD_KILL_MS, callTimeoutMs: 5000 });
   cleanup.push(() => manager.close());
   await manager.connect("net");
+  expect(manager.status()[0]).toMatchObject({ state: "ready" });
   const tools = manager.catalog()[0]!.tools;
   // The label before any preset: what the broker's label pipeline gives each tool. (Search can't be
   // used here: a read-only login from access_check hides the non-read tools.)
@@ -194,7 +197,7 @@ test("presets only restrict: labels never go down, nothing becomes read, hiding 
     }
   }
   expect(checks).toBeGreaterThan(1000);
-});
+}, childTestLimit(5));
 
 test("Karthik's server: unpinned gets the exact refusal, a version pin can be remembered, write tools hide while writes are off", async () => {
   const unpinned = stdio("central-mcp-server", "uvx", ["central-mcp-server"]);
@@ -211,7 +214,7 @@ test("Karthik's server: unpinned gets the exact refusal, a version pin can be re
   const hidden = tools.filter((item) => isHidden(match, item, tightenSafety(match, item, labels.get(item.name)!), { writes: "off", access: "unknown" })).map((item) => item.name);
   expect(hidden.sort()).toEqual(["assign_device_group", "update_site_name"]);
   expect(tools.filter((item) => isHidden(match, item, labels.get(item.name)!, { writes: "on", access: "unknown" }))).toEqual([]);
-});
+}, childTestLimit());
 
 test("runner pins: npx, bunx, pnpm dlx, uvx, uv tool run, pipx, docker", () => {
   const pinned = (command: string, args: string[]) => runnerPin(stdio("s", command, args))?.pinned;
@@ -280,7 +283,7 @@ test("junos: labels, notes, hidden commits and the writes-off refusal", async ()
     .toEqual({ refuse: "Junos writes are off; only show commands run." });
   expect(guardArguments(match, byName("execute_junos_command"), { router_name: "r1", command: "request system reboot" }, { writes: "on", showOptIn: true })).toBe("ask");
   expect(writesTitle("junos", match)).toBe("Junos writes are off.");
-});
+}, childTestLimit());
 
 test("junos show opt-in: only plain show commands skip the question", async () => {
   const match = matchPreset(stdio("junos", "python3", ["/opt/jmcp.py"]))!;
@@ -303,7 +306,7 @@ test("junos show opt-in: only plain show commands skip the question", async () =
   expect(run("execute_junos_pfe_command", { router_name: "r1", command: "show jnh 0 pool summary", target: "fpc0" })).toBe("ask");
   // With writes on, anything else asks instead of being refused.
   expect(guardArguments(match, byName("execute_junos_command"), { router_name: "r1", command: "sh ver" }, { writes: "on", showOptIn: true })).toBe("ask");
-});
+}, childTestLimit());
 
 test("an HTTP server with the junos tool names gets junos rules without a definition match, and the can't-pin line", async () => {
   const definition = http("junos", "http://127.0.0.1:30030/mcp");
@@ -318,7 +321,7 @@ test("an HTTP server with the junos tool names gets junos rules without a defini
     "preset: junos-mcp-server",
     "Can't pin read-only for this server (it runs elsewhere). Every change asks you in Casper.",
   ]);
-});
+}, childTestLimit());
 
 test("an hpe definition whose tools look different keeps its pins and says so", async () => {
   const definition = stdio("hpe", "python", hpeRouterArgs);
@@ -330,7 +333,7 @@ test("an hpe definition whose tools look different keeps its pins and says so", 
   expect(presetLine(match, plan)).toContain("Looks different from the hpe-networking-mcp preset. Pins kept, and its extra checks still apply.");
   const fitting = matchPreset(definition, (await fixtureTools("hpe-router")).tools)!;
   expect(fitting.mismatch).toBe(false);
-});
+}, childTestLimit(3));
 
 test("hpe hides invoke_tool while writes are off, and a read-only login hides every non-read tool", async () => {
   const definition = stdio("hpe", "python", hpeRouterArgs);
@@ -345,7 +348,7 @@ test("hpe hides invoke_tool while writes are off, and a read-only login hides ev
   expect(isHidden(undefined, tool("mystery"), "external-action", { writes: "on", access: "read-only" })).toBe(true);
   expect(isHidden(undefined, tool("set_x"), "write", { writes: "off", access: "unknown" })).toBe(true);
   expect(isHidden(undefined, tool("mystery"), "external-action", { writes: "off", access: "unknown" })).toBe(false);
-});
+}, childTestLimit(2));
 
 test("advice and notes for servers Casper can't pin", () => {
   const mist = matchPreset(http("mist", "https://mcp.mist.com/mcp"))!;
