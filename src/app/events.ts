@@ -66,6 +66,8 @@ interface Step {
   kind: StepKind;
   path?: string;
   input?: ToolStart["input"];
+  /** A shell step's title from the AI, shown with its command. */
+  description?: string;
   startedAt: number;
   endedAt?: number;
   /** The start event, to redraw the running line with its elapsed time. */
@@ -433,6 +435,7 @@ export class RuntimeEventView {
     const fold = planFold(done.map(step => ({
       toolName: step.toolName, kind: step.kind, printed: step.printed ?? step.line, title: step.title ?? step.line,
       ...(step.input ? { input: step.input } : {}), ...(step.path !== undefined ? { path: step.path } : {}),
+      ...(step.description ? { description: step.description } : {}),
       ...(step.endedAt !== undefined ? { elapsedMs: step.endedAt - step.startedAt } : {}),
       ...(step.failed ? { failed: true } : {}), ...(step.retried ? { retried: true } : {}), ...(step.notRun || step.note ? { notRun: true } : {}),
       ...(step.output ? { output: step.output } : {}), ...(step.lines ? { lines: step.lines } : {}), ...(step.diff ? { diff: step.diff } : {}),
@@ -651,7 +654,8 @@ export class RuntimeEventView {
         const path = typeof event.input?.path === "string" ? event.input.path : undefined;
         if (last?.failed && last.kind === "edit" && stepKind(event.toolName) === "edit" && path !== undefined && last.path === path) last.retried = true;
         this.steps.push({ ...(event.toolCallId ? { id: event.toolCallId } : {}), toolName: event.toolName, kind: stepKind(event.toolName),
-          ...(path !== undefined ? { path } : {}), ...(event.input ? { input: event.input } : {}), start: event, startedAt: this.now(),
+          ...(path !== undefined ? { path } : {}), ...(event.input ? { input: event.input } : {}), ...(event.description ? { description: event.description } : {}),
+          start: event, startedAt: this.now(),
           line: formatToolActivity(event, undefined, this.fit(2)) });
         this.clearResponseActivity(); this.status = undefined;
         this.renderBox();
@@ -690,7 +694,7 @@ export class RuntimeEventView {
           if (!previous.recovery || !recoveredBy(previous.recovery, previous, event)) continue;
           const reason = previous.recovery === "conflict" ? "conflicts resolved" : previous.recovery === "test-first" ? "expected test-first failure · rerun passed" : `${previous.recovery} · retry finished`;
           previous.failed = false; previous.recovery = undefined; previous.note = reason;
-          previous.line = previous.printed = `${NOTE_GLYPH} ${commandLabel(redactPreview(previous.input?.command ?? previous.toolName), 60)} — ${reason}`;
+          previous.line = previous.printed = `${NOTE_GLYPH} ${previous.description ? `${redactPreview(previous.description)} · ` : ""}${commandLabel(redactPreview(previous.input?.command ?? previous.toolName), 60)} — ${reason}`;
         }
         // A timeout or busy service waits for its retry, which is the model's next call of that tool. When that call is
         // something else, the failure shows at the next fold. Held to the task's end, an ssh that timed out early in a
@@ -703,9 +707,9 @@ export class RuntimeEventView {
         // `timed`: with the step's time. The rich terminal's folded lines leave it out (the footer and box show time).
         // A designed refusal is a neutral one-line note, never a failure box.
         const endLine = (inset: number, detail: boolean, timed = true) => notRun
-          ? `${NOTE_GLYPH}${formatToolActivity({ type: "tool_start", toolName: event.toolName, ...(event.input ? { input: event.input } : {}) }, undefined, this.fit(inset + suffix.length)).slice(BUSY_GLYPH.length)}${suffix}${refusal ? ` · ${redactPreview(refusal).slice(0, 180)}` : ""}`
+          ? `${NOTE_GLYPH}${formatToolActivity({ type: "tool_start", toolName: event.toolName, ...(event.input ? { input: event.input } : {}), ...(event.description ? { description: event.description } : {}) }, undefined, this.fit(inset + suffix.length)).slice(BUSY_GLYPH.length)}${suffix}${refusal ? ` · ${redactPreview(refusal).slice(0, 180)}` : ""}`
           : formatToolActivity(note ? event : detail ? shown : { ...shown, output: undefined }, timed ? elapsed : undefined, this.fit(inset));
-        const label = formatToolActivity({ type: "tool_start", toolName: event.toolName, ...(event.input ? { input: event.input } : {}) }, undefined, this.fit()).slice(BUSY_GLYPH.length + 1);
+        const label = formatToolActivity({ type: "tool_start", toolName: event.toolName, ...(event.input ? { input: event.input } : {}), ...(event.description ? { description: event.description } : {}) }, undefined, this.fit()).slice(BUSY_GLYPH.length + 1);
         this.expanded = event.diff && !event.isError ? { title: label, body: event.diff, diff: true }
           : { title: `${label}${notRun ? " · not run" : note ? ` · ${note}` : event.isError ? " · failed" : ""}`, body: (refusal ?? event.output?.text ?? "").replace(/\n$/, "") || "(no output text)", diff: false };
         if (!this.terminal.rich) {
@@ -732,7 +736,7 @@ export class RuntimeEventView {
         }
         if (!step) {
           // It ended after its turn folded (or never said it started): it still shows until the next fold or receipt.
-          step = { toolName: event.toolName, kind: stepKind(event.toolName), startedAt: this.now() - (elapsed ?? 0), line: "" };
+          step = { toolName: event.toolName, kind: stepKind(event.toolName), ...(event.description ? { description: event.description } : {}), startedAt: this.now() - (elapsed ?? 0), line: "" };
           this.steps.push(step);
         }
         step.endedAt = this.now();

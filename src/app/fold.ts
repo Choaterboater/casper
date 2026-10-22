@@ -18,6 +18,8 @@ export interface FinishedStep {
   toolName: string;
   kind: StepKind;
   input?: ToolObservationInput;
+  /** A shell step's title from the AI: the fold row names it by that. */
+  description?: string;
   path?: string;
   elapsedMs?: number;
   failed?: boolean;

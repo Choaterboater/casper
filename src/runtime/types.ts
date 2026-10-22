@@ -334,11 +334,14 @@ export type RuntimeEvent =
    * (a large `write` body streams for seconds before `tool_start`). `chars` is cumulative for
    * the current block; this is liveness for the person watching, never transcript content. */
   | { type: "assistant_progress"; kind: "thinking" | "tool_call"; toolName?: string; chars: number }
-  | { type: "tool_start"; toolName: string; toolCallId?: string; input?: ToolObservationInput }
+  /** `description`: the AI's title for a shell step (stepTitle), shown with the command, never instead of it. */
+  | { type: "tool_start"; toolName: string; toolCallId?: string; input?: ToolObservationInput; description?: string }
   /** A running bash command printed more: the tail of its output so far (screen only, throttled; never in --json). */
   | { type: "tool_progress"; toolName: string; toolCallId?: string; text: string }
   /** Diagnostic tool status only: isError=false is not process-exit evidence. */
   | { type: "tool_end"; toolName: string; toolCallId?: string; input?: ToolObservationInput; output?: ToolObservationOutput; isError: boolean;
+      /** The AI's title for a shell step, as on its tool_start. */
+      description?: string;
       /** Native check guard kept the file and applied a session command instead. */
       sessionOnlyCheck?: true;
       /** A successful edit's size, from the runtime's patch. */
