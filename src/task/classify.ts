@@ -106,10 +106,11 @@ export function mcpNamed(text: string): boolean {
   return /\bmcp\b|\bmodel context protocol\b/i.test(text);
 }
 
-/** Said only in a request that names MCP, so it costs no other request anything. The AI can't run a slash command,
- * and once told "use /mcp connect" for a server Casper didn't know, it invented a way to add one. */
-export const MCP_TYPED = "MCP servers are the user's to add and connect: you can't run / commands, so give the exact line to type. "
-  + "/mcp add <name> <command> [args…] (or <name> <url>) adds and starts one; /mcp connect <name> connects one Casper lists.";
+/** Said only in a request that names MCP, so it costs no other request anything; casper_mcp_add is offered from the
+ * same request. The AI can't run a slash command, and once told "use /mcp connect" for a server Casper didn't know, it
+ * invented a way to add one. */
+export const MCP_TYPED = "MCP servers: to add one, call casper_mcp_add (it asks the user first; if it can't, it says the /mcp add line "
+  + "to type). To connect one Casper lists, the user types /mcp connect <name>: you can't run / commands.";
 
 export function formatTaskPrompt(
   request: string,

@@ -80,6 +80,45 @@ read-only. Only you can approve a call or turn writes on; the AI can't. See
 Already set up servers in Claude Code or VS Code? Casper finds them; see the next
 section.
 
+### A server from GitHub
+
+Many servers start straight from a package runner, so nothing needs cloning. Prefer a
+pinned version or commit (the packages and repository here are placeholders):
+
+```text
+/mcp add example npx -y @example/example-mcp@1.4.2
+/mcp add example npx -y github:example/example-mcp#1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b
+/mcp add example uvx example-mcp==1.4.2
+/mcp add example uvx --from git+https://github.com/example/example-mcp@1a2b3c4 example-mcp
+/mcp add example docker run -i --rm ghcr.io/example/example-mcp:1.4.2
+```
+
+Or ask in chat: "install the MCP server at github.com/example/example-mcp". The AI reads
+the repository's README as untrusted text (`casper_read_untrusted`), works out the
+command and calls `casper_mcp_add`. Casper shows you the exact command and version first:
+
+```text
+The AI wants to add an MCP server and start it now:
+  name     example
+  runs     npx -y github:example/example-mcp#1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b
+  version  commit 1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b (pinned)
+It goes in ~/.casper/mcp.json, so it starts again each session, outside the sandbox, with your permissions.
+Add example and start it?
+  1 No
+  2 Yes, add it and start it
+```
+
+- Nothing is written or started before your 2, and the server is then added the way
+  `/mcp add` adds it. "Yes to everything", `/permissions all` and remembered answers
+  never answer this box (decision 29 in `docs/adr/0002/`).
+- A run that can't ask (one-shot, `--json`) adds nothing and tells you the `/mcp add`
+  line to type.
+- The version line says a pinned version, commit or image digest; a tag or branch,
+  which can be moved; or that the runner fetches the newest each time it starts. Only a
+  pinned server can be remembered.
+- A repository that has to be cloned and built first is out of scope for now: the AI
+  tells you the steps instead.
+
 ### Casper's network server
 
 For Mist, Central and ClearPass, Casper sets up its own server
@@ -390,8 +429,9 @@ instead of writing secrets into these files.
 **What Casper never does.** It does not run commands to fetch secrets, set up OAuth
 logins or write credentials. It writes MCP configuration only when you type a command
 that says so: `/mcp add`, `/mcp setup ssh`, `/mcp setup network`, and `/mcp docs` after
-you pick `2 Add it` (see [Secrets and docs servers](#secrets-and-docs-servers)). Each adds
-one server to `~/.casper/mcp.json`, never over a name a server already has.
+you pick `2 Add it` (see [Secrets and docs servers](#secrets-and-docs-servers)), or after
+your yes in the box of the AI's `casper_mcp_add`. Each adds one server to
+`~/.casper/mcp.json`, never over a name a server already has.
 
 ### Commands
 
@@ -421,8 +461,9 @@ that has spaces (`'/srv/my docs/server.js'`); `${NAME}` stays as typed and is fi
 server connects. An address follows the URL rules below, and a GitHub page is refused: add the
 command that starts the server instead (its README says it). A server started through a
 package runner (npx, uvx, docker…) is remembered only when it is pinned to a version
-(`pkg@1.2.3`), so prefer a pinned one. Only you type it; the AI can't run a slash command, so
-when you ask it for a server it gives you the line to type.
+(`pkg@1.2.3`) or commit, so prefer a pinned one. Only you type it; the AI can't run a slash
+command. Asked for a server, it adds one through `casper_mcp_add`, which asks you first
+(see [A server from GitHub](#a-server-from-github)).
 
 `/mcp connect` with no name opens the picker on a normal terminal; elsewhere it lists the line
 to type for each server that isn't connected. `/mcp setup` alone lists what Casper can set up,
@@ -758,7 +799,8 @@ the connected servers the AI gets:
 - `call_capability`: call any tool by its exact ID and arguments.
 
 That is at most **eight extra tools**. Casper's normal tools (read, edit, bash and
-so on) stay as they are.
+so on) stay as they are. A request that names MCP also gets `casper_mcp_add`, the AI's
+way to add a server after your yes (see [A server from GitHub](#a-server-from-github)).
 
 - **How direct tools are picked.** By matching words in the task, the same way
   every time, before each prompt. Router tools (`find_tool`, `invoke_read_tool`,

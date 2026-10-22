@@ -79,7 +79,7 @@ export function mcpAddLine({ name, entry }: McpAdd): string {
 
 /** Why an address can't be a server's: the rules ~/.casper/mcp.json has for one, and a GitHub page, which is where a
  * server's code is, not where it answers. */
-function addressProblem(text: string): string | undefined {
+export function addressProblem(text: string): string | undefined {
   let url: URL;
   try { url = new URL(text); } catch { return "That isn't an address Casper can read."; }
   if (url.protocol !== "https:" && !(url.protocol === "http:" && LOOPBACK.includes(url.hostname))) {
@@ -93,6 +93,18 @@ function addressProblem(text: string): string | undefined {
   return undefined;
 }
 
+const NAME_RULE = "A server name is letters, digits, dot, dash or underscore, up to 64, and starts with a letter or digit.";
+
+/** Why a server can't be added as given (by /mcp add or the AI's casper_mcp_add), or undefined when it can. */
+export function mcpAddProblem({ name, entry }: McpAdd): string | undefined {
+  if (!NAME.test(name)) return NAME_RULE;
+  const words = "url" in entry ? [entry.url] : [entry.command, ...entry.args];
+  if (words.join(" ").length > MAX_LINE || words.some((word) => /[\x00-\x1f\x7f]/.test(word))) return "That line can't be used (one line, up to 4096 characters).";
+  if ("url" in entry) return addressProblem(entry.url);
+  if (!entry.command.trim()) return "The command that starts the server is missing.";
+  return undefined;
+}
+
 /** The words after `/mcp add`: a name and a command with its words, or a name and an address. `usage` when either is
  * missing; otherwise the reason it can't be used. */
 export function parseMcpAdd(text: string): McpAdd | { error: string } {
@@ -101,13 +113,11 @@ export function parseMcpAdd(text: string): McpAdd | { error: string } {
   if (!words) return { error: "A quote isn't closed." };
   const [name, target, ...args] = words;
   if (!name || !target) return { error: "usage" };
-  if (!NAME.test(name)) return { error: "A server name is letters, digits, dot, dash or underscore, up to 64, and starts with a letter or digit." };
-  if (/^[a-z][a-z0-9+.-]*:\/\//i.test(target)) {
-    if (args.length) return { error: "An address takes nothing after it: /mcp add <name> <url>." };
-    const problem = addressProblem(target);
-    return problem ? { error: problem } : { name, entry: { url: target } };
-  }
-  return { name, entry: { command: target, args } };
+  if (!NAME.test(name)) return { error: NAME_RULE };
+  if (/^[a-z][a-z0-9+.-]*:\/\//i.test(target) && args.length) return { error: "An address takes nothing after it: /mcp add <name> <url>." };
+  const add: McpAdd = /^[a-z][a-z0-9+.-]*:\/\//i.test(target) ? { name, entry: { url: target } } : { name, entry: { command: target, args } };
+  const problem = mcpAddProblem(add);
+  return problem ? { error: problem } : add;
 }
 
 /** The entry as ~/.casper/mcp.json holds it. */

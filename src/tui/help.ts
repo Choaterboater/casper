@@ -266,6 +266,7 @@ One-shot exit codes: 0 pass (or nothing to verify), 1 check failed or blocked, 2
 Before the receipt, app/server/page changes get one runtime smoke in auto mode: start, one request, check, stop. In offer mode: App smoke: not run — /verify to try it; /verify runs it with the other checks. Preserved services are made fresh and left running. Existing fresh page/service checks are reused; off switches are respected. App smoke reports startup and cleanup failures, not behavioral proof.
 Exit 0 does not certify behavior beyond the checks; /receipt shows scope and freshness.
 MCP connection runs a configured program or contacts its URL. Review its source first.
+Ask the AI to add an MCP server ("install the MCP server at github.com/owner/repo"): it shows you the exact command and version and asks 1 No · 2 Yes, add it and start it. Yes to everything and /permissions all never answer it.
 Casper's network server runs in the sandbox where one runs: it reaches only your login hosts, writes only its cache, and can't read your keys, ~/.casper or projects (/mcp sandbox network off). Other servers run as they are; /mcp says which.
 Servers from ~/.claude.json, ~/.mcp.json and VS Code are listed too.
 Your own and imported MCP servers connect when the session starts (My MCP servers in /settings; a project's server needs /mcp connect). One that isn't a network product starts with writes on: its changes run without asking, firmware, delete and admin changes still ask.
