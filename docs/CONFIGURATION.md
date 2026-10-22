@@ -1147,7 +1147,7 @@ old `updates: true` (or `on`) means `auto`. A change in `/settings` applies from
 
 ### What a task spends
 
-Nothing to set up. The footer shows one current-task figure: cost (`task $0.31`, or `task sub ≈$0.31` for a subscription), or tokens for a free model (`task 48.2k tok`). Session totals are in `/status` and `/usage`. With OpenRouter the cost is what
+Nothing to set up. The footer shows one current-task figure: its tokens and cost (`task 48.2k tok · $0.31`, or `task 48.2k tok · sub ≈$0.31` for a subscription), or tokens alone for a free model (`task 48.2k tok`). Session totals are in `/status` and `/usage`. With OpenRouter the cost is what
 OpenRouter reports it charged for each response; other providers get the catalog's estimate, not a
 bill. By default a task only gets notes and never stops for money:
 

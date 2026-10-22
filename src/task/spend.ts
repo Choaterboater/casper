@@ -39,12 +39,11 @@ export function formatTaskSpend(spent: { tokens: number; cost: number }, priced:
   return `${tokens} · ${billing === "subscription" ? "sub ≈" : ""}${formatCost(spent.cost)}`;
 }
 
-/** One task figure in the footer: cost when priced, tokens otherwise. Session totals live in /status. */
+/** One task figure in the footer: its tokens, and its cost unless the model is free. Session totals live in /status. */
 export function formatFooterSpend(task: { tokens: number; cost: number }, _session: { tokens: number; cost: number }, _working: boolean,
   priced: boolean | undefined, billing?: "subscription" | "per-token"): string {
   if (!task.tokens && !task.cost) return "";
-  return priced === false || (priced === undefined && task.cost <= 0) ? `task ${formatTokens(task.tokens)} tok`
-    : `task ${billing === "subscription" ? "sub ≈" : ""}${formatCost(task.cost)}`;
+  return formatTaskSpend(task, priced, billing);
 }
 
 /** Per task: says the note at noteAt and again at five times it, and asks at the pause limit, then again at each

@@ -184,6 +184,21 @@ for (const width of [80, 120, 202]) test(`readable ANSI footer at ${width} colum
   expect(Bun.stripANSI(readableFooter(state, details, 30, true))).not.toContain("provider");
 });
 
+test("a long model name is shortened in the middle before the task's tokens or the context are dropped", () => {
+  const details = "casper/main │ ollama/hf.co/mradermacher/Ornith-1.5-35B-A3B-i1-GGUF:Q3_K_M · high │ ctx 63%~ │ task 41.2k tok";
+  for (const width of [80, 100]) {
+    const plain = Bun.stripANSI(readableFooter("idle", details, width, true));
+    expect(visibleWidth(plain)).toBeLessThanOrEqual(width);
+    expect(plain).toContain("│ ctx 63%~ │ task 41.2k tok");
+    expect(plain).toMatch(/│ ollama\/hf\.co\S*…\S* · high │/);
+  }
+  // Wide enough: the whole name; too narrow even for a shortened one: groups drop as before, with the name whole.
+  expect(Bun.stripANSI(readableFooter("idle", details, 140, true))).toContain("ollama/hf.co/mradermacher/Ornith-1.5-35B-A3B-i1-GGUF:Q3_K_M · high");
+  expect(Bun.stripANSI(readableFooter("idle", details, 70, true))).not.toContain("task");
+  // A name already short is never cut.
+  expect(Bun.stripANSI(readableFooter("idle", "sample │ provider/model-name · high │ ctx 72%~ │ task $1", 40, true))).not.toContain("…");
+});
+
 test("folder and branch are shown only once when their names match", () => {
   let status = "";
   updateFooter({ projectContext: { info: { name: "sample", gitBranch: "sample", root: process.cwd() } },
@@ -207,7 +222,7 @@ test("session-only native check outcomes are quiet notes, not failed or complete
 });
 
 test("footer has one task figure, never session totals, and working input carries a dim queue hint", async () => {
-  expect(formatFooterSpend({ tokens: 6_400_000, cost: 10.99 }, { tokens: 53_500_000, cost: 90 }, true, true, "subscription")).toBe("task sub ≈$10.99");
+  expect(formatFooterSpend({ tokens: 6_400_000, cost: 10.99 }, { tokens: 53_500_000, cost: 90 }, true, true, "subscription")).toBe("task 6.4M tok · sub ≈$10.99");
   expect(formatFooterSpend({ tokens: 12, cost: 0 }, { tokens: 100, cost: 0 }, false, false)).toBe("task 12 tok");
   const f = tty(120);
   const pending = f.terminal.readCommand();
