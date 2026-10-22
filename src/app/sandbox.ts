@@ -120,9 +120,14 @@ export const GITHUB_LOGIN_LINE = "[sandbox] Plain git and gh commands you allow 
 const GITHUB_HIDDEN = "Your GitHub login (~/.config/gh, git's saved logins) is hidden from commands in the sandbox, and no setting opens it: don't offer one.";
 export const GITHUB_LOGIN_HINT = `[sandbox] ${GITHUB_HIDDEN} A plain git push/pull/fetch or gh command runs outside the sandbox with the user's login after they say yes: send it as a command of its own (no cd, pipe, ;, &&, 2>&1, -c or VAR= in front).`;
 export const GITHUB_LOGIN_CANT_ASK = `[sandbox] ${GITHUB_HIDDEN} This run can't ask the user to use it: tell them, and they can run the command themselves.`;
-// The model reads it too: told only about --no-sandbox, a flag it can't pass, a small model sent one command 76 times.
-// The sentence for it starts with "Don't", which the screen leaves out (refusalForScreen).
-export const SHELL_CANT_ASK = "Not run: shell commands need your OK here, and this run can't ask. Use --no-sandbox to allow them for this run. Don't send this command again; use a tool instead where one fits: service starts the app, casper_check runs the project's checks, write and edit change files.";
+// The AI's answer when a run can't ask: only what it can do. Told about --no-sandbox, small models put the flag in their
+// commands (bun test --no-sandbox), asked the user for it, or sent one command 76 times. The person reads the flag in
+// SHELL_CANT_ASK_NOTE and on the step's own line (SHELL_CANT_ASK_SCREEN), never the AI.
+export const SHELL_CANT_ASK = "Not run: shell commands need the user's OK here, and this run can't ask them. Don't send this command again, with or without a flag, and don't ask for one: casper_check runs the project's checks, read, grep, find and ls look at files, edit and write change them, service starts the app. Only the user can allow commands, before the run.";
+/** What the step's line says on screen in place of SHELL_CANT_ASK. */
+export const SHELL_CANT_ASK_SCREEN = "Shell commands need your OK here, and this run can't ask. Use --no-sandbox to allow them for this run.";
+/** Said to the person once a session (stderr with --json) the first time a command is refused for want of a box. */
+export const SHELL_CANT_ASK_NOTE = "[shell] This run can't ask before the AI's shell commands, so they are not run. --no-sandbox allows them for one run.";
 export const SHELL_DECLINED = "Not run: the user said no to this command. Don't run it again; ask the user what to do instead.";
 /** Said once a session, after the third shell box answered yes. */
 export const STOP_ASKING_HINT = "Tip: 5 Yes to everything this session (or /permissions all) stops these questions until you quit (/permissions ask turns them back on).";
@@ -386,7 +391,7 @@ export function runtimeShell(host: SandboxHost, sandbox: ShellSandbox, given: Sa
       const testRun = testRunKey(command, where);
       if (sessionCommands.has(command) || sessionCommands.has(exact) || (testRun && sessionTestRuns.has(testRun))) return undefined;
       if (await store.allowsCommand(command, exact)) return undefined;
-      if (!host.canAsk()) return SHELL_CANT_ASK;
+      if (!host.canAsk()) { sayOnce(SHELL_CANT_ASK_NOTE); return SHELL_CANT_ASK; }
       const kept = testRun ? "bun test (project test files)" : shortCommand(exact);
       // A yes leaves no line of its own (the command's own line shows it ran); a remembered one leaves one short line.
       const record = (answer: string) => answer === YES_ONCE ? "" : answer === YES_SESSION ? `✓ allowed until you quit: ${kept}`

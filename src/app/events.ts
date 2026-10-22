@@ -1,3 +1,4 @@
+import { SHELL_CANT_ASK, SHELL_CANT_ASK_SCREEN } from "./sandbox";
 import type { InteractiveTerminal } from "../tui/terminal";
 import { BUSY_GLYPH, CHANGE_GLYPH, commandLabel, formatDuration, formatElapsed, formatToolActivity, lastOutputLine, lineText, NOT_RUN_GLYPH, NOTE_GLYPH, redactPreview, runningElapsed, terminalText, toolTarget } from "../tui/format";
 import type { RuntimeEvent } from "../runtime/types";
@@ -118,6 +119,8 @@ const CHANGE_STEP = "casper_change";
  * On screen only the reason stays, said to you: "Not run: the user said no to …" reads "You said no to …".
  */
 export function refusalForScreen(text: string): string | undefined {
+  // The AI's words for a run that can't ask name only its own tools; the person reads how to allow commands.
+  if (text.trim() === SHELL_CANT_ASK) return SHELL_CANT_ASK_SCREEN;
   const match = /^(?:\[shell\] )?Not run: ([\s\S]+)$/.exec(text.trim());
   if (!match) return undefined;
   const sentences = match[1]!.replace(/\s+/g, " ").split(/(?<=\.)\s+/);
