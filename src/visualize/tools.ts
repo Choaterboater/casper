@@ -10,6 +10,8 @@ export interface VisualizationToolOptions {
   projectRoot: string;
   /** The project's sandbox.denyRead (absolute): not scanned for the AI. */
   privatePaths?: readonly string[];
+  /** Shows a drawn diagram to the person (a page in their browser, in a session); returns what to tell the model. */
+  show?: (rendered: RenderedVisualization) => Promise<string | undefined>;
 }
 
 /** Tool-facing envelope: primary content inline, secondary artifacts by path only. */
@@ -32,6 +34,8 @@ export function describeVisualization(rendered: RenderedVisualization, notes: st
 
 export function visualizationTools(options: VisualizationToolOptions): RuntimeTool[] {
   const { router, projectRoot } = options;
+  // A diagram that can't be shown is still drawn: the model gets it either way.
+  const shown = async (rendered: RenderedVisualization) => { const note = await options.show?.(rendered).catch(() => undefined); return note ? [note] : []; };
   return [{
     name: "visualize",
     description: `Render a diagram from a neutral graph you author (type, title, nodes, edges) or, with source "repo", a deterministic relative-import dependency graph of the project. Providers: ${router.providerNames().join(", ")}. Primary provider output (Mermaid text) is returned inline; other formats are saved as files outside the workspace when enabled. Read-only: producing a diagram never authorizes edits. Output capped at 16 KiB/50 items with truncation disclosed.`,
@@ -64,13 +68,13 @@ export function visualizationTools(options: VisualizationToolOptions): RuntimeTo
           if (args.scope !== undefined && typeof args.scope !== "string") throw new Error("scope must be a string");
           const repo = await buildRepoGraph({ root: projectRoot, scope: args.scope as string | undefined, signal, privatePaths: options.privatePaths ?? [] });
           const rendered = await router.render(repo.graph, signal);
-          return { text: JSON.stringify(boundCapabilityResult(describeVisualization(rendered, [`Scanned ${repo.filesScanned} files at ${repo.granularity} granularity.`, ...repo.notes]))) };
+          return { text: JSON.stringify(boundCapabilityResult(describeVisualization(rendered, [`Scanned ${repo.filesScanned} files at ${repo.granularity} granularity.`, ...repo.notes, ...await shown(rendered)]))) };
         }
         if (source !== "graph") throw new Error("source must be graph or repo");
         if (args.scope !== undefined) throw new Error("scope applies only to repo source");
         const graph = parseVisualizationGraph(args.graph);
         const rendered = await router.render(graph, signal);
-        return { text: JSON.stringify(boundCapabilityResult(describeVisualization(rendered))) };
+        return { text: JSON.stringify(boundCapabilityResult(describeVisualization(rendered, await shown(rendered)))) };
       } catch (error) {
         return { text: JSON.stringify(boundCapabilityResult({ isError: true, error: error instanceof Error ? error.message : "Visualization failed" })), isError: true };
       }

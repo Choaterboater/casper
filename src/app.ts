@@ -28,6 +28,7 @@ import { SubagentManager } from "./agents/manager";
 import { discoverLSPConfiguration, type LSPConfiguration } from "./lsp/config";
 import { LSPManager, type ConfirmRename } from "./lsp/manager";
 import { SessionYes } from "./app/session-yes";
+import { showDiagramPage } from "./app/pages";
 import { discoverMCPConfiguration, type MCPConfiguration } from "./mcp/config";
 import { MCPManager } from "./mcp/manager";
 import { ConsentStore } from "./mcp/consent";
@@ -67,7 +68,7 @@ import type { ChecksPlan, VerificationMode } from "./verify/mode";
 import { MermaidProvider } from "./visualize/mermaid";
 import { MindMeshProvider } from "./visualize/mindmesh";
 import { DrawioProvider } from "./visualize/drawio";
-import { VisualizationRouter } from "./visualize/router";
+import { VisualizationRouter, type RenderedVisualization } from "./visualize/router";
 import { WebLookup, type WebLookupOptions } from "./web/lookup";
 import type { VisualizationProvider } from "./visualize/types";
 import { SessionWorkspaceManager } from "./sessions/manager";
@@ -779,6 +780,9 @@ export class CasperApp {
   async checksPlan(context: ProjectContext): Promise<ChecksPlan> { return checksPlan(this, context); }
 
   homeDir(): string { return this.sessionHomeDir ?? os.homedir(); }
+
+  /** /visualize repo's diagram as a page in the browser, in a session (src/app/pages.ts). */
+  showDiagram(rendered: RenderedVisualization): Promise<string | undefined> { return showDiagramPage(this, rendered); }
 
   async savedModel(): Promise<string | undefined> { return modelPreference(this.sessionHomeDir ?? os.homedir()); }
 

@@ -48,7 +48,7 @@ import { buildRepoGraph } from "../visualize/repo";
 import { describeVisualization } from "../visualize/tools";
 import { renderProjectSummary } from "../tui/banner";
 import { LifecycleRegistry } from "./lifecycle";
-import type { VisualizationRouter } from "../visualize/router";
+import type { RenderedVisualization, VisualizationRouter } from "../visualize/router";
 import type { RuntimeAuthenticationResult, RuntimeAuthProvider, RuntimeSession, RuntimeTool, AgentRuntime } from "../runtime/types";
 import { describeChecksPlan, TESTS_WITHOUT_COMMAND, type ChecksPlan } from "../verify/mode";
 import { detectedMigrations, MIGRATIONS_CHECK } from "../verify/migrations-check";
@@ -144,6 +144,8 @@ export interface CommandHost {
   /** The home folder that holds ~/.casper. */
   homeDir(): string;
   readonly visualization?: VisualizationRouter;
+  /** Shows a drawn diagram as a page in the browser (a session only; src/app/pages.ts). */
+  showDiagram?(rendered: RenderedVisualization): Promise<string | undefined>;
   readonly inspectProjectFn: (cwd: string) => Promise<ProjectInfo>;
   commandAbort?: AbortController;
   runtimeTools: RuntimeTool[];
@@ -883,6 +885,7 @@ async function handleVisualizeCommand(host: CommandHost, prompt: string): Promis
       host.output.write(`${rendered.primary.content}\n`);
       for (const note of [...(description.notes as string[]), ...rendered.primary.lossiness]) host.output.write(`[visualize] ${note}\n`);
       for (const artifact of rendered.artifacts) host.output.write(`[visualize] wrote ${artifact.path} (${artifact.bytes} bytes)\n`);
+      await host.showDiagram?.(rendered).catch(() => undefined);
     } finally { host.visualizationAbort = undefined; }
   }
 

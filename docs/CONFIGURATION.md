@@ -653,8 +653,8 @@ the offer off. A project file can't change it.
 opens in your browser (see [Pages the AI makes](TERMINAL_UX.md#pages-the-ai-makes)).
 `ai_pages: off` in your own config, or **Pages the AI makes** in `/settings`, takes the tool away
 from the AI, so it costs no tokens; `/pages` still lists the pages made. `open_pages: off`, or
-**Open pages in the browser**, keeps them from opening: Casper prints the link only. A project
-file can't change either.
+**Open pages in the browser**, keeps them, and the diagram pages Casper makes, from opening: Casper
+prints the link only. A project file can't change either.
 
 **Repository Pi files are ignored.** A repository's own Pi project folder is never trusted:
 `<project>/.pi/` extensions (program code), `SYSTEM.md`, `APPEND_SYSTEM.md`, prompt templates,
@@ -1110,7 +1110,7 @@ ssh_login: off       # ssh never gets Casper's hidden password box (see Private 
 other_logins: off    # /login never offers sign-ins from Claude Code, Codex CLI or GitHub CLI
 network_updates: off # only a new Casper brings a new network server version (see MCP.md)
 ai_pages: off        # the AI is never offered casper_page: no pages, and no tokens for it
-open_pages: off      # pages the AI makes are not opened in your browser; Casper prints the link
+open_pages: off      # pages the AI makes, and diagram pages, are not opened in your browser; Casper prints the link
 pictures: off        # the AI is never offered make_picture; it draws SVG
 notifications: off   # no bell and no desktop notification when a long task ends or a question waits
 ```

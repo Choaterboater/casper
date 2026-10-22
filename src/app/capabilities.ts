@@ -7,7 +7,7 @@ import type { ReferenceLibrary } from "../references/library";
 import { githubRequested } from "../github/tool";
 import { serviceRequested } from "../services/tool";
 import type { RuntimeTool } from "../runtime/types";
-import type { VisualizationRouter } from "../visualize/router";
+import type { RenderedVisualization, VisualizationRouter } from "../visualize/router";
 import { visualizationTools } from "../visualize/tools";
 
 /** What one task's tool surface is assembled from. Tool factories close over live app state,
@@ -31,6 +31,8 @@ export interface TaskCapabilitySource {
   /** make_picture; unset when pictures are off or nothing can make one (no codex, no OpenRouter sign-in). */
   picture?: RuntimeTool;
   visualization: VisualizationRouter;
+  /** Shows a drawn diagram as a page in the browser (src/app/pages.ts); what to tell the model, if anything. */
+  showDiagram?: (rendered: RenderedVisualization) => Promise<string | undefined>;
   /** Workspace root for repo-scoped visualization. */
   projectRoot: string;
   /** The project's sandbox.denyRead (absolute): the visualize tool doesn't scan them. */
@@ -103,6 +105,6 @@ export async function assembleTaskTools(task: string, source: TaskCapabilitySour
     ...(browser ? [browserTool(source.browser, source.browserSignal)] : []),
     ...(service ? [source.serviceTool()] : []),
     ...(github ? [source.githubTool!()] : []),
-    ...(diagram ? visualizationTools({ router: source.visualization, projectRoot: source.projectRoot, privatePaths: source.privatePaths ?? [] }) : []),
+    ...(diagram ? visualizationTools({ router: source.visualization, projectRoot: source.projectRoot, privatePaths: source.privatePaths ?? [], ...(source.showDiagram ? { show: source.showDiagram } : {}) }) : []),
   ];
 }
