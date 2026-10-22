@@ -75,7 +75,8 @@ and all three workflows are checked by `tests/windows-ci.test.ts`.
 
 A release (`publish-release.yml`) stops unless Linux, macOS, Windows and Windows ARM64 each passed a push,
 nightly or manual run, which is always the whole suite, on the exact commit it releases. A pull request run
-never counts.
+never counts. GitHub's run lookup sometimes finds no run that exists, so the release asks again up to 10 times,
+30 s apart, before it stops; a failed run stops it at once.
 
 Paths where OS behaviour matters (`OS_PATHS` in `tools/test-tier.ts`): `src/platform`, `src/runtime`,
 `src/browser`, `src/sandbox`, `src/services`, `src/workspace`, `src/verify`, `src/crew`, `src/agents`, `src/tui`,

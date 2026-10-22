@@ -151,6 +151,8 @@ test("the release counts only whole-suite runs: a push, nightly or manual run on
   for (const name of ["linux-preview.yml", "macos-preview.yml", "windows-preview.yml"]) expect(gate).toContain(name);
   expect(gate).toContain('select(.event == "push" or .event == "schedule" or .event == "workflow_dispatch")');
   expect(gate).toContain('[ "$conclusion" = success ]');
+  // GitHub's run lookup can come back empty for a run that exists, so only an empty answer is asked again, a few times.
+  expect(gate).toMatch(/for try in 1 2 3 4 5 6 7 8 9 10; do[\s\S]*\[ -n "\$conclusion" \] && break[\s\S]*sleep 30/);
   // Those events always choose the whole suite.
   for (const event of ["push", "schedule", "workflow_dispatch"]) expect(decide(event, [], new Set()).tier).toBe("full");
 });
