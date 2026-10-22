@@ -34,6 +34,30 @@ class SchemaRefused extends Error {}
 const refuse = (reason: string): never => { throw new SchemaRefused(reason); };
 
 /** The tight copy of `input`, or a plain reason it can't be used. */
+/** What the reader fills when the AI gives no schema: a short summary, and any instructions or requests in the text,
+ * each quoted as data ({ quoted, from }). */
+export const DEFAULT_READER_SCHEMA = {
+  type: "object", required: ["summary"],
+  properties: {
+    summary: { type: "string", maxLength: FREE_TEXT_MAX, description: "What the text says, in a few plain sentences" },
+    instructions: { type: "array", maxItems: 20, description: "Each instruction or request the text gives, word for word",
+      items: { type: "string", maxLength: 1000, [QUOTED_KEY]: true } },
+  },
+} as const;
+
+/** The schema as the AI gave it, in the forms small models write: none (the default above), fields named with a type
+ * or a few words ({ "errors": "number", "first": "the first error line" }), or properties with no top-level type. Only
+ * the shape is filled in; prepareReaderSchema then checks and tightens it as it does any schema. */
+export function readerSchemaFrom(given: unknown): unknown {
+  if (given === undefined || given === null) return DEFAULT_READER_SCHEMA;
+  if (!isNode(given) || given.type !== undefined) return given;
+  if (isNode(given.properties)) return { ...given, type: "object" };
+  const fields = Object.entries(given).filter(([key]) => key !== "$schema");
+  if (!fields.length || !fields.every(([, value]) => typeof value === "string")) return given;
+  return { type: "object", properties: Object.fromEntries(fields.map(([name, value]) =>
+    [name, TYPES.has(value as string) && value !== "object" && value !== "array" ? { type: value } : { type: "string", description: value }])) };
+}
+
 export function prepareReaderSchema(input: unknown): PreparedSchema {
   if (!isNode(input)) return { ok: false, reason: "schema must be a JSON Schema object" };
   let size: number;
