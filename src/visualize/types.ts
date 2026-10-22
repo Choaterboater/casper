@@ -7,9 +7,16 @@ export const VISUALIZATION_TYPES = [
   "flowchart",
   "troubleshooting-tree",
   "plan",
+  "network",
 ] as const;
 
 export type VisualizationType = (typeof VISUALIZATION_TYPES)[number];
+
+/** What a device in a network diagram is: it decides the device's icon (and draw.io shape) and its tier, from the
+ * internet at the top to access points and end devices at the bottom (network.ts). */
+export const DEVICE_KINDS = ["internet", "router", "firewall", "gateway", "core-switch", "switch", "access-point", "server", "device"] as const;
+
+export type DeviceKind = (typeof DEVICE_KINDS)[number];
 
 export interface GraphNode {
   id: string;
@@ -18,6 +25,8 @@ export interface GraphNode {
   group?: string;
   /** Optional free text shown as a note where the provider supports it. */
   note?: string;
+  /** In a network diagram: what the device is. */
+  kind?: DeviceKind;
 }
 
 export interface GraphEdge {
@@ -79,7 +88,7 @@ export function parseVisualizationGraph(value: unknown): VisualizationGraph {
   const ids = new Set<string>();
   const nodes: GraphNode[] = value.nodes.map((entry, index) => {
     if (!isRecord(entry)) throw new Error(`Invalid graph: node ${index} must be an object`);
-    const extra = Object.keys(entry).filter((key) => !["id", "label", "group", "note"].includes(key));
+    const extra = Object.keys(entry).filter((key) => !["id", "label", "group", "note", "kind"].includes(key));
     if (extra.length) throw new Error(`Invalid graph: node ${index} has unknown fields ${extra.join(", ")}`);
     const id = bounded(entry.id, `node ${index} id`, GRAPH_LIMITS.maxLabelBytes);
     if (ids.has(id)) throw new Error(`Invalid graph: duplicate node id ${JSON.stringify(id)}`);
@@ -87,6 +96,10 @@ export function parseVisualizationGraph(value: unknown): VisualizationGraph {
     const node: GraphNode = { id, label: bounded(entry.label, `node ${id} label`, GRAPH_LIMITS.maxLabelBytes) };
     if (entry.group !== undefined) node.group = bounded(entry.group, `node ${id} group`, GRAPH_LIMITS.maxLabelBytes);
     if (entry.note !== undefined) node.note = bounded(entry.note, `node ${id} note`, GRAPH_LIMITS.maxNoteBytes, true);
+    if (entry.kind !== undefined) {
+      if (!DEVICE_KINDS.includes(entry.kind as DeviceKind)) throw new Error(`Invalid graph: node ${id} kind must be one of ${DEVICE_KINDS.join(", ")}`);
+      node.kind = entry.kind as DeviceKind;
+    }
     return node;
   });
 

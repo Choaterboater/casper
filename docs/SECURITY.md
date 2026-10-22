@@ -531,7 +531,8 @@ A page is untrusted text the model wrote, so Casper holds it as such:
   secrets, keys and file contents the user didn't ask for out of pages.
 - **Diagram pages are Casper's.** In a session, Casper makes a page from each diagram the diagram tool draws
   (`diagram-<title>`), in the same folder, server and policy. Its labels go into the page as escaped text, and
-  Mermaid, loaded from jsDelivr, draws them at its strict security level, so no label runs as HTML or script.
+  Mermaid, loaded from jsDelivr, draws them at its strict security level, so no label runs as HTML or script. A
+  network diagram's page loads nothing: Casper draws it as SVG, its labels escaped text.
 - **Off switches.** `ai_pages: off` takes the tool away; `open_pages: off` stops pages opening
   (both in [CONFIGURATION.md](CONFIGURATION.md#settings), yours only: a project file can't set them).
 

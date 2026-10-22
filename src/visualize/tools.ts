@@ -3,7 +3,7 @@ import { boundCapabilityResult } from "../capabilities/result";
 import { isRecord } from "../mcp/config";
 import { buildRepoGraph } from "./repo";
 import type { RenderedVisualization, VisualizationRouter } from "./router";
-import { parseVisualizationGraph, VISUALIZATION_TYPES } from "./types";
+import { DEVICE_KINDS, parseVisualizationGraph, VISUALIZATION_TYPES } from "./types";
 
 export interface VisualizationToolOptions {
   router: VisualizationRouter;
@@ -38,7 +38,7 @@ export function visualizationTools(options: VisualizationToolOptions): RuntimeTo
   const shown = async (rendered: RenderedVisualization) => { const note = await options.show?.(rendered).catch(() => undefined); return note ? [note] : []; };
   return [{
     name: "visualize",
-    description: `Render a diagram from a neutral graph you author (type, title, nodes, edges) or, with source "repo", a deterministic relative-import dependency graph of the project. Providers: ${router.providerNames().join(", ")}. Primary provider output (Mermaid text) is returned inline; other formats are saved as files outside the workspace when enabled. Read-only: producing a diagram never authorizes edits. Output capped at 16 KiB/50 items with truncation disclosed.`,
+    description: `Render a diagram from a neutral graph you author (type, title, nodes, edges) or, with source "repo", a deterministic relative-import dependency graph of the project. For a network topology use type "network": give each device a kind, its name as label and model or address as note, and port names as edge labels. Providers: ${router.providerNames().join(", ")}. Primary provider output (Mermaid text) is returned inline; other formats are saved as files outside the workspace when enabled. Read-only: producing a diagram never authorizes edits. Output capped at 16 KiB/50 items with truncation disclosed.`,
     inputSchema: {
       type: "object", additionalProperties: false,
       properties: {
@@ -51,6 +51,7 @@ export function visualizationTools(options: VisualizationToolOptions): RuntimeTo
             title: { type: "string" },
             nodes: { type: "array", items: { type: "object", additionalProperties: false, required: ["id", "label"], properties: {
               id: { type: "string" }, label: { type: "string" }, group: { type: "string" }, note: { type: "string" },
+              kind: { type: "string", enum: [...DEVICE_KINDS], description: "network only: what the device is (its icon and tier)." },
             } } },
             edges: { type: "array", items: { type: "object", additionalProperties: false, required: ["from", "to"], properties: {
               from: { type: "string" }, to: { type: "string" }, label: { type: "string" },

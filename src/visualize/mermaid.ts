@@ -57,7 +57,9 @@ function renderFlowchart(graph: VisualizationGraph): { content: string; lossines
     if (group !== undefined) lines.push("  end");
   }
   for (const edge of graph.edges) {
-    const arrow = edge.label ? `-->|${edgeLabel(edge.label)}|` : "-->";
+    // A network's links have no direction.
+    const line = graph.type === "network" ? "---" : "-->";
+    const arrow = edge.label ? `${line}|${edgeLabel(edge.label)}|` : line;
     lines.push(`  ${alias.get(edge.from)} ${arrow} ${alias.get(edge.to)}`);
   }
   if (graph.nodes.some((node) => node.note)) lossiness.push("Node notes are not drawn in Mermaid flowcharts.");
