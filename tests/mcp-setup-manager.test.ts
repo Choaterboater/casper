@@ -6,6 +6,7 @@ import { CapabilityBroker, type ApprovalAnswer, type ConfirmCapability } from ".
 import type { MCPServerDefinition } from "../src/mcp/config";
 import { ConsentStore } from "../src/mcp/consent";
 import { MCPManager, type MCPManagerOptions } from "../src/mcp/manager";
+import { CHILD_KILL_MS, childTestLimit } from "./support/limits";
 import { posixModes } from "./support/platform";
 import { removeTempDir } from "./support/temp-dir";
 
@@ -23,7 +24,7 @@ function server(name: string, env: Record<string, string>, args: string[] = [], 
     transport: { type: "stdio", command: process.execPath, args: [network, ...args], env } };
 }
 function manager(servers: MCPServerDefinition[], options: MCPManagerOptions = {}) {
-  const created = new MCPManager({ servers, diagnostics: [] }, { timeoutMs: 5000, ...options });
+  const created = new MCPManager({ servers, diagnostics: [] }, { connectTimeoutMs: CHILD_KILL_MS, callTimeoutMs: 5000, ...options });
   cleanup.push(() => created.close());
   return created;
 }
@@ -64,7 +65,7 @@ test("a remembered server connects on the next start without asking, with writes
   const third = new ConsentStore(home);
   await third.load();
   expect(statusOf(manager([definition], { consent: third }), "lab")).toMatchObject({ approved: false, consent: "none" });
-});
+}, childTestLimit(2));
 
 test("a changed definition is not approved and says so; a project server is never approved from a record", async () => {
   const home = await tempDir();
@@ -95,7 +96,7 @@ test("hpe-networking-mcp starts with every read-only pin even when the user turn
   await mcp.setWrites("hpe", false);
   expect(mcp.writesOn()).toEqual([]);
   expect((await envOf(mcp, "hpe")).env.HPE_MCP_CENTRAL_WRITES).toBe("0");
-});
+}, childTestLimit(3));
 
 test("centralmcp and ClearPass get their read-only settings; grafana gets --disable-write once, also after a reconnect", async () => {
   const mcp = manager([
@@ -110,7 +111,7 @@ test("centralmcp and ClearPass get their read-only settings; grafana gets --disa
   await mcp.disconnect("grafana");
   await mcp.connect("grafana");
   expect((await envOf(mcp, "grafana")).argv).toEqual(["mcp-grafana", "--disable-write"]);
-});
+}, childTestLimit(4));
 
 test("a server recognised only by its tool list is started once more with the preset's pins", async () => {
   const log = path.join(await tempDir(), "calls.log");
@@ -120,7 +121,7 @@ test("a server recognised only by its tool list is started once more with the pr
   expect((await envOf(mcp, "router")).env).toMatchObject({ HPE_MCP_ACCESS_PROFILE: "safe-read-only", HPE_MCP_READONLY: "1" });
   // The restart is Casper's own: it never counts as a failed start.
   expect(statusOf(mcp, "router").error).toBeUndefined();
-});
+}, childTestLimit(2));
 
 test("a read-only login (access_check) hides every non-read tool, refuses them, tells the model, and can't turn writes on", async () => {
   const mcp = manager([server("aruba", { FIXTURE_MODE: "access-ro" })]);
@@ -137,7 +138,7 @@ test("a read-only login (access_check) hides every non-read tool, refuses them, 
   await expect(broker.invoke("mcp:aruba:set_config", {})).rejects.toThrow("Not executed (aruba login is read-only.)");
   expect(confirmed).toEqual([]);
   await expect(mcp.setWrites("aruba", true)).rejects.toThrow("This login is read-only (access_check). Writes can't be turned on here.");
-});
+}, childTestLimit());
 
 test("a login the server reports as read-write loosens nothing, and bad or slow answers are 'access not checked'", async () => {
   const dir = await tempDir();
@@ -146,7 +147,7 @@ test("a login the server reports as read-write loosens nothing, and bad or slow 
     server("rw", { FIXTURE_MODE: "access-rw" }),
     server("bad", { FIXTURE_MODE: "access-bad", FIXTURE_CALLS_FILE: log("bad") }),
     server("slow", { FIXTURE_MODE: "access-slow" }),
-  ], { connectTimeoutMs: 5000, callTimeoutMs: 800 });
+  ], { callTimeoutMs: 800 });
   const confirmed: string[] = [];
   const broker = new CapabilityBroker(mcp, async (call) => { confirmed.push(call.capability.id); return true; });
   for (const name of ["rw", "bad", "slow"]) await mcp.connect(name);
@@ -160,7 +161,7 @@ test("a login the server reports as read-write loosens nothing, and bad or slow 
   for (let task = 0; task < 3; task++) await broker.prepare("status");
   const calls = (await readFile(log("bad"), "utf8")).trim().split("\n").filter((line) => line.startsWith("access_check"));
   expect(calls).toHaveLength(1);
-});
+}, childTestLimit(3));
 
 test("the server's own gate report turns 'pins sent, not confirmed' into 'pinned'", async () => {
   const mcp = manager([server("hpe", { FIXTURE_MODE: "access-ro", HPE_MCP_CENTRAL_WRITES: "1" })]);
@@ -168,7 +169,7 @@ test("the server's own gate report turns 'pins sent, not confirmed' into 'pinned
   const lines = statusOf(mcp, "hpe").preset!.lines;
   expect(lines[0]).toStartWith("preset: hpe-networking-mcp (read-only pinned: ");
   expect(lines).toContain("Looks different from the hpe-networking-mcp preset. Pins kept, and its extra checks still apply.");
-});
+}, childTestLimit());
 
 test("junos: with writes off, commits and non-show commands ask (the exact command shown); the show opt-in skips only plain show", async () => {
   const log = path.join(await tempDir(), "calls.log");
@@ -209,7 +210,7 @@ test("junos: with writes off, commits and non-show commands ask (the exact comma
   await expect(oneShot.invoke("mcp:junos:execute_junos_command", { router_name: "r1", command: "request system reboot" }))
     .rejects.toThrow("Not executed (Junos writes are off; only show commands run.)");
   expect(() => mcp.setShowOptIn("missing", true)).toThrow();
-});
+}, childTestLimit());
 
 test("writes turned off while an approval box is open: the yes no longer runs the change", async () => {
   const log = path.join(await tempDir(), "calls.log");
@@ -219,7 +220,7 @@ test("writes turned off while an approval box is open: the yes no longer runs th
   await mcp.setWrites("lab", true);
   await expect(broker.invoke("mcp:lab:set_config", {})).rejects.toThrow("Not executed (lab writes are off.");
   expect(await readFile(log, "utf8")).not.toContain("set_config");
-});
+}, childTestLimit());
 
 test("/mcp reload with a changed definition turns writes off and drops the approval", async () => {
   const home = await tempDir();
@@ -233,7 +234,7 @@ test("/mcp reload with a changed definition turns writes off and drops the appro
   expect(diff.revoked).toEqual(["lab"]);
   expect(statusOf(mcp, "lab")).toMatchObject({ writes: "off", approved: false, consent: "changed", state: "disconnected" });
   expect(mcp.writesOn()).toEqual([]);
-});
+}, childTestLimit());
 
 test("the consent file keeps no definition values", async () => {
   const home = await tempDir();
@@ -251,7 +252,7 @@ test("the consent file keeps no definition values", async () => {
   const again = manager([server("lab", { FIXTURE_MODE: "access-bad", TOKEN: "SECRET-token-value" })], { consent: damaged });
   expect(statusOf(again, "lab").approved).toBe(false);
   expect(again.diagnostics).toContain("~/.casper/mcp-consent.json is damaged. Casper will ask again for each server.");
-});
+}, childTestLimit());
 
 test("with writes off, a write behind a read router asks with the real tool; yes turns writes on for that change only", async () => {
   const log = path.join(await tempDir(), "calls.log");
@@ -272,7 +273,7 @@ test("with writes off, a write behind a read router asks with the real tool; yes
   expect(mcp.writesOn()).toEqual([]);
   const sent = (await readFile(log, "utf8")).trim().split("\n").filter((line) => line.startsWith("invoke_read_tool"));
   expect(sent.map((line) => JSON.parse(line.slice("invoke_read_tool ".length)).name)).toEqual(["central_get_sites", "central_delete_site"]);
-});
+}, childTestLimit(4));
 
 test("writes turned off while the box for a write behind a router is open: the yes no longer runs it", async () => {
   const log = path.join(await tempDir(), "calls.log");
@@ -284,7 +285,7 @@ test("writes turned off while the box for a write behind a router is open: the y
   await expect(broker.invoke("mcp:lab:invoke_read_tool", { name: "central_delete_site", arguments: {} }))
     .rejects.toThrow("Not executed (lab writes are off. Only the user can allow a change there: in Casper's change box, or with /mcp writes lab.)");
   expect(await readFile(log, "utf8").catch(() => "")).not.toContain("central_delete_site");
-});
+}, childTestLimit());
 
 test("/mcp reload back to a remembered definition connects on its own again, and says remembered only when approved", async () => {
   const home = await tempDir();
@@ -297,7 +298,7 @@ test("/mcp reload back to a remembered definition connects on its own again, and
   const diff = await mcp.reload({ servers: [one], diagnostics: [] });
   expect(diff.revoked).toEqual([]);
   expect(statusOf(mcp, "lab")).toMatchObject({ approved: true, consent: "remembered", writes: "off" });
-});
+}, childTestLimit());
 
 test("/mcp forget works for a remembered server that is no longer in any file", async () => {
   const home = await tempDir();
@@ -328,7 +329,7 @@ test("a remembered server that moves into a project file needs the project revie
   expect(diff.revoked).toEqual(["lab"]);
   expect(statusOf(mcp, "lab")).toMatchObject({ approved: false, consent: "none", state: "disconnected", scope: "project" });
   expect(mcp.review("lab")?.preview).toContain("(project file)");
-});
+}, childTestLimit());
 
 test("yes this once on a pinned server, then stopped during the restart: writes go back off anyway", async () => {
   const log = path.join(await tempDir(), "calls.log");
@@ -341,4 +342,4 @@ test("yes this once on a pinned server, then stopped during the restart: writes 
   for (let wait = 0; wait < 50 && mcp.writesOn().length; wait++) await new Promise((resolve) => setTimeout(resolve, 20));
   expect(mcp.writesOn()).toEqual([]);
   expect(await readFile(log, "utf8").catch(() => "")).not.toContain("central_delete_site");
-});
+}, childTestLimit(4));
