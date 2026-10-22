@@ -28,7 +28,12 @@ It is on by default and costs nothing until the AI calls it. Each call is one sm
 
 ## The schema
 
-The AI writes a JSON Schema with `"type": "object"` at the top. Casper tightens it before use:
+The AI writes a JSON Schema with `"type": "object"` at the top, or gives none. With none, the reader fills a
+summary (up to 500 characters) and `instructions`: each instruction or request the text gives, quoted as data
+(`{ quoted, from }`). Two simpler forms small models write are read as a schema too: fields named with a type or a
+few words (`{ "errors": "number", "first": "the first error line" }` makes a number and a string), and `properties`
+with no top-level `type`. Only the shape is filled in; every rule below applies the same way.
+Casper tightens it before use:
 
 - Objects never get fields the schema doesn't name (`additionalProperties: false` is forced).
 - Strings are capped at 200 characters unless `maxLength` says otherwise, and at most 500.
