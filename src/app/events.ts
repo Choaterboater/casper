@@ -544,7 +544,7 @@ export class RuntimeEventView {
         const provider = terminalText(event.provider ?? "the model provider");
         const wait = formatDuration(Math.max(1, Math.ceil(event.delayMs / 1000)) * 1000);
         this.output.write(`${NOTE_GLYPH} ${retryCause(provider, event.errorMessage)} · trying again in ${wait} (${event.attempt} of ${event.maxAttempts})${this.terminal.rich ? " · Esc stops" : ""}\n`);
-        // Said once, by that line (in the warning colour): the Working box drops what it showed instead of repeating it.
+        // Said once, by that line (a dim note): the Working box drops what it showed instead of repeating it.
         this.setStaticActivity();
         this.endedWithNewline = true;
         break;

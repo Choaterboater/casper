@@ -39,7 +39,9 @@ const quote = (s: string) => `'${s.replaceAll("'", "'\\''")}'`;
           expect(wide).toMatch(new RegExp(`\\x1b\\[(?:0;)?2m[^\\n\\x1b]*${region}`));
         }
         expect(wide).toMatch(/\x1b\[(?:36|96)m❯/);
-        expect(wide).toMatch(/\x1b\[(?:31|91)m[^\n]*✗ 1 of 130 tests failed/);
+        // A failed step is amber while the AI works (decision 23); red is kept for the result.
+        expect(wide).toMatch(/\x1b\[(?:33|93)m[^\n]*✗ 1 of 130 tests failed/);
+        expect(wide).not.toMatch(/\x1b\[(?:31|91)m[^\n]*✗ 1 of 130 tests failed/);
       } else expect(wide).not.toMatch(/\x1b\[[\d;]*m/);
       await run("resize-window", "-t", "screen:0", "-x", "160", "-y", "40");
       await Bun.sleep(350);

@@ -2,7 +2,8 @@
  * stay Casper's, and no colour ever reaches the model.
  * accent: the prompt, headings, links, Casper's boxes and the wordmark. muted: hints, the footer, secondary text.
  * border: rules, the input box and code block lines. selection: the highlighted choice in a list or question.
- * success, warning, error: ✓, – (a note) and ✗ lines, a result's edge and boxes of that kind. diffAdded, diffRemoved, diffHunk:
+ * success, warning, error: ✓ lines; a step that failed (✗) or did not run (○) while the work goes on, and warnings; a
+ * failed result and [error] lines. A result's edge and boxes take the same three. diffAdded, diffRemoved, diffHunk:
  * a diff's + and - lines and its @@ headers. userBg: the bar behind your request where Casper shows it again, a
  * background colour (`default` or `dim`: no bar). */
 export const THEME_ROLES = ["accent", "muted", "border", "selection", "success", "warning", "error", "diffAdded", "diffRemoved", "diffHunk", "userBg"] as const;

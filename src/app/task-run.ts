@@ -592,7 +592,7 @@ export async function runModelTask(app: CasperApp, prompt: string, options: { fl
         // The short receipt gets the colored result edge on the rich terminal; --verbose's full form stays plain.
         const receipt = app.verbose ? formatTaskResult(task) : formatShortReceipt(task, { surface: receiptSurface(app), ...receiptFolder(app, workspaceRoot),
           ...(app.checksHintShown ? { checksHintShown: true as const } : {}), undoNamed: app.undoNamed, seenNotes: app.receiptNotesSeen });
-        if (app.verbose) app.output.write(`${receipt}\n`); else app.terminal.writeResult(`${receipt}\n`);
+        if (app.verbose) app.terminal.writeReceipt(`${receipt}\n`); else app.terminal.writeResult(`${receipt}\n`);
         if (!app.verbose) {
           if (task.autoSkipped === "no-checks" && !task.verification && !task.observedChecks?.length && task.execution === "completed") app.checksHintShown = true;
           // Only the files the receipt printed: ones past its limit are named on a later one.

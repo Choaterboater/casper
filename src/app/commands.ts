@@ -458,7 +458,7 @@ export async function runSlashCommand(host: CommandHost, prompt: string): Promis
     if (prompt === "/receipt") {
       const task = host.getLastTaskResult();
       if (!task) throw new Error("No task receipt yet; /receipt shows the detailed receipt of the last model task.");
-      host.output.write(`${formatTaskResult(task)}\n`);
+      host.terminal.writeReceipt(`${formatTaskResult(task)}\n`);
       return;
     }
     if (/^\/output(?:\s|$)/.test(prompt)) {
@@ -487,7 +487,7 @@ export async function runSlashCommand(host: CommandHost, prompt: string): Promis
       const body = entry.text || "(no output text)";
       host.output.write("");
       host.terminal.writePanel(`[output] ${terminalText(entry.toolName).slice(0, 80)}${target} · ${entry.status}${entry.truncated ? " · truncated by runtime" : ""}`,
-        command === undefined ? body : `$ ${command}\n${body}`, { tone: entry.status === "error" ? "error" : "muted" });
+        command === undefined ? body : `$ ${command}\n${body}`, { tone: entry.status === "error" ? "warning" : "muted" });
       return;
     }
     // /project alone is /status: one summary, the one peers call /status. /project <name> opens a project.
