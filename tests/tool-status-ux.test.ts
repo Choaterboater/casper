@@ -1,11 +1,15 @@
 import { afterEach, expect, test } from "bun:test";
+import { createBashToolDefinition } from "@earendil-works/pi-coding-agent";
 import { RuntimeEventView } from "../src/app/events";
+import { observationOutput } from "../src/runtime/observation";
 import type { RuntimeEvent } from "../src/runtime/types";
 import { failureLines, formatToolActivity } from "../src/tui/format";
 import { renderEditBox, renderFailureBox } from "../src/tui/step-view";
 import type { WorkView } from "../src/tui/surface";
 import { renderFold, type FoldView, type InteractiveTerminal } from "../src/tui/terminal";
-import { commandCheck, githubLabel, runningCheck } from "../src/tui/tool-status";
+import { commandCheck, githubLabel, outcomeNote, runningCheck } from "../src/tui/tool-status";
+import { activeThemeName, useTheme } from "../src/tui/theme";
+import { ansiCells, cellsFor } from "./support/ansi-cells";
 
 const open: RuntimeEventView[] = [];
 afterEach(() => { for (const view of open.splice(0)) view.reset(); });
@@ -46,6 +50,74 @@ for (const rich of [true, false]) {
     expect(s.text()).not.toContain("Ask the user");
     expect(s.text()).toContain("– casper_check · junos — skipped");
     expect(s.folds.flatMap(fold => fold.failures)).toHaveLength(0);
+  });
+
+  test(`a shell exit 1 that answers the question is a grey note, not a failure (${rich ? "rich" : "plain"})`, () => {
+    const answers: Array<[string, string, string, string?]> = [
+      ["bash", "grep -rn absent src", "nothing found"],
+      ["bash", "cd /tmp/project && rg -n absent 2>/dev/null", "nothing found"],
+      ["bash", "grep -c absent a.txt", "nothing found", "0"],
+      ["bash", "egrep 'a|b' a.txt", "nothing found"],
+      ["bash", "fgrep absent a.txt", "nothing found"],
+      ["bash", "git --no-pager grep -n absent", "nothing found"],
+      ["bash", "ag absent", "nothing found"],
+      ["bash", "ack absent", "nothing found"],
+      ["bash", "grep -rn absent src | grep -v test", "nothing found"],
+      ["powershell", "findstr /s absent *.ts", "nothing found"],
+      ["bash", "diff a.txt b.txt", "files differ", "1c1\n< old\n---\n> new"],
+      ["bash", "cmp a.bin b.bin", "files differ", "a.bin b.bin differ: char 1, line 1"],
+      ["bash", "git diff --quiet", "changes found"],
+      ["bash", "git -C app diff --exit-code src", "changes found", "diff --git a/src/x.ts b/src/x.ts\n-old\n+new"],
+      ["bash", "test -f .env", "false"],
+      ["bash", "[ -d dist ]", "false"],
+      ["bash", "[[ -n $CI ]]", "false"],
+      ["bash", "which docker", "not installed", "which: no docker in (/usr/bin:/bin)"],
+      ["bash", "command -v docker", "not installed"],
+      ["bash", "type docker", "not installed", "bash: type: docker: not found"],
+      ["bash", "where docker", "not installed", "INFO: Could not find files for the given pattern(s)."],
+      ["powershell", "where.exe docker", "not installed", "INFO: Could not find files for the given pattern(s)."],
+      ["bash", "pgrep -f vite", "no process found"],
+    ];
+    for (const [tool, command, note, printed] of answers) {
+      const s = screen(rich);
+      s.send(...call("1", tool, { command }, `${printed ?? "(no output)"}\n\nCommand exited with code 1`, true), done);
+      expect(s.text()).not.toMatch(/✗|— failed/);
+      expect(s.text()).toContain(`– ${tool} · `);
+      expect(s.text()).toContain(`— ${note}`);
+      expect(s.folds.flatMap(fold => fold.failures)).toHaveLength(0);
+      // Display only: what the model got, exit code and all, is what Ctrl+T shows.
+      expect(s.view.lastStep()?.title).toEndWith(` · ${note}`);
+      expect(s.view.lastStep()?.body).toEndWith("Command exited with code 1");
+    }
+  });
+
+  test(`exit 2 or more, an error message, or a line mixing in other programs stays a failure (${rich ? "rich" : "plain"})`, () => {
+    const exit = (code: number, printed = "(no output)") => `${printed}\n\nCommand exited with code ${code}`;
+    const failures: Array<[string, string, string]> = [
+      ["bash", "grep -rn absent src", exit(2, "grep: src: No such file or directory")],
+      ["bash", "grep absent missing.txt", exit(1, "grep: missing.txt: No such file or directory")],
+      ["bash", "grep absent secret.txt", exit(1, "grep: secret.txt: Permission denied")],
+      ["bash", "grep -k absent a.txt", exit(1, "grep: invalid option -- 'k'")],
+      ["bash", "diff a.txt b.txt", exit(2, "diff: b.txt: No such file or directory")],
+      ["bash", "test -f .env", exit(2, "bash: test: too many arguments")],
+      ["bash", "grep absent a.txt && echo found", exit(1)],
+      ["bash", "cat a.txt | grep absent", exit(1)],
+      ["bash", "bun test; grep absent a.txt", exit(1)],
+      ["bash", "which docker && docker ps", exit(1)],
+      ["bash", "grep $(cat pattern.txt) a.txt", exit(1)],
+      ["bash", "cd /tmp/project; grep absent a.txt &", exit(1)],
+      ["bash", "! grep absent a.txt", exit(1)],
+      ["bash", "git diff", exit(1)],
+      ["bash", "npm test", exit(1)],
+      ["powershell", "type missing.txt", exit(1, "Get-Content: Cannot find path 'missing.txt' because it does not exist.")],
+      ["powershell", "where docker", exit(1)],
+    ];
+    for (const [tool, command, text] of failures) {
+      const s = screen(rich);
+      s.send(...call("1", tool, { command }, text, true), done);
+      expect(s.text()).toContain("✗");
+      expect(s.text()).not.toMatch(/— (?:nothing found|files differ|changes found|false|not installed|no process found)/);
+    }
   });
 
   test(`a retried timeout or service hiccup gets one note; an unresolved one stays failed (${rich})`, () => {
@@ -122,6 +194,15 @@ test("a timed-out search retried at a narrower scope can finish with no matches"
   s.send(...call("1", "grep", { pattern: "needle", path: "." }, "Command timed out", true), words("Narrowing the search."),
     ...call("2", "grep", { pattern: "needle", path: "src" }, "No matches found"), done);
   expect(s.text()).toContain("timeout · retry finished");
+  expect(s.text()).not.toContain("✗");
+});
+
+test("a timed-out diff retried to the end finishes with its answer, not a failure", () => {
+  const s = screen();
+  s.send(...call("1", "bash", { command: "diff -r old new" }, "Command timed out after 10 seconds", true), words("Again, with more time."),
+    ...call("2", "bash", { command: "diff -r old new" }, "Only in new: a.txt\n\nCommand exited with code 1", true), done);
+  expect(s.text()).toContain("timeout · retry finished");
+  expect(s.text()).toContain("— files differ");
   expect(s.text()).not.toContain("✗");
 });
 
@@ -220,4 +301,37 @@ test("each edited file gets at most twelve diff lines and Ctrl+T retains the ful
 test("standalone tool formatting does not turn missing paths or skips red", () => {
   expect(formatToolActivity({ type: "tool_end", toolName: "read", input: { path: "guess.ts" }, isError: true,
     output: { text: "ENOENT: no such file or directory", truncated: false } })).toBe("– read · guess.ts — path not found");
+});
+
+test("Pi's shell still says a non-zero exit as `Command exited with code N`, the words the notes read", async () => {
+  const run = async (command: string, code: number, printed = "") => {
+    const bash = createBashToolDefinition(process.cwd(), { operations: { exec: async (_command, _cwd, { onData }) => {
+      if (printed) onData(Buffer.from(printed));
+      return { exitCode: code };
+    } } });
+    const result = await bash.execute("call", { command }, new AbortController().signal, undefined, undefined as never);
+    const event = { type: "tool_end" as const, toolName: "bash", input: { command }, isError: Reflect.get(result, "isError") === true, output: observationOutput(result) };
+    return { event, note: outcomeNote(event) };
+  };
+  const none = await run("grep -rn absent src", 1);
+  // Pi marks every non-zero exit an error; the model gets the exit code either way.
+  expect(none.event.isError).toBe(true);
+  expect(none.event.output.text).toBe("(no output)\n\nCommand exited with code 1");
+  expect(none.note).toBe("nothing found");
+  expect((await run("diff a.txt b.txt", 1, "1c1\n< old\n---\n> new\n")).note).toBe("files differ");
+  const broken = await run("grep -rn absent src", 2, "grep: src: No such file or directory\n");
+  expect(broken.event.output.text).toEndWith("Command exited with code 2");
+  expect(broken.note).toBeUndefined();
+});
+
+test("a shell answer's note is dim in the fold's colour bytes, never red", () => {
+  const previous = activeThemeName();
+  useTheme("default");
+  try {
+    const s = screen();
+    s.send(...call("1", "bash", { command: "rg -n TODO" }, "(no output)\n\nCommand exited with code 1", true), done);
+    const cells = ansiCells(s.folds.flatMap(fold => renderFold(fold, 120, false, true)));
+    const note = cellsFor(cells, "– bash · rg TODO — nothing found");
+    expect(note.every(cell => cell.dim && cell.foreground === "default")).toBe(true);
+  } finally { useTheme(previous); }
 });

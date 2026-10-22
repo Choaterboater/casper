@@ -20,11 +20,13 @@ import { modelReasonLine } from "./model-reason";
 
 export { numberPrompt } from "./choices";
 
-/** One transcript line colored by how it starts: ✗ error, ✓ success, a note (–), a warning (⚠) or a step that did not
- * run (○) warning, a running step (•) muted (the theme's colours); a detailed diff line added or removed. */
-export function styleLine(line: string, color: boolean): string {
-  const role: ThemeRole | undefined = line.startsWith(MODEL_REASON_PREFIX) || line.startsWith("– ") ? "muted" : /^(?:\[error\]|✗)/.test(line) ? "error" : /^✓/.test(line) ? "success"
-    : /^(?:– |○ |⚠ |\[skills\]|\[cancel|\[approval\]|\[ask\]|\[effort\])/.test(line) ? "warning" : /^CASPER/.test(line) ? "accent" : /^(?: \/help · |…|• )/.test(line) ? "muted"
+/** One transcript line colored by how it starts: ✓ success; a note (–) muted; a step that failed (✗) or did not run (○)
+ * and a warning (⚠) warning, since the work goes on; `[error]`, and ✗ in a `result` (the receipt), error. A running
+ * step (•) muted (the theme's colours); a detailed diff line added or removed. */
+export function styleLine(line: string, color: boolean, result = false): string {
+  const role: ThemeRole | undefined = line.startsWith(MODEL_REASON_PREFIX) || line.startsWith("– ") ? "muted"
+    : /^\[error\]/.test(line) || (result && /^✗/.test(line)) ? "error" : /^✓/.test(line) ? "success"
+    : /^(?:✗|– |○ |⚠ |\[skills\]|\[cancel|\[approval\]|\[ask\]|\[effort\])/.test(line) ? "warning" : /^CASPER/.test(line) ? "accent" : /^(?: \/help · |…|• )/.test(line) ? "muted"
     : /^ {4}\+ /.test(line) ? "diffAdded" : /^ {4}- /.test(line) ? "diffRemoved" : undefined;
   // The text header is bold as well as the accent colour.
   return role ? tint(line, role, color, role === "accent" ? "1" : undefined) : line;
@@ -287,8 +289,13 @@ export class InteractiveTerminal {
   }
 
   /** `kind`: how the lines sit among the blocks around them on the rich terminal (plain lines pack together). */
-  write(text: string, kind: EntryKind = "line"): void {
-    const styled = terminalText(text).split("\n").map(line => this.styleLine(line)).join("\n");
+  write(text: string, kind: EntryKind = "line"): void { this.writeStyled(text, kind, false); }
+
+  /** A task's result in its full form (--verbose, /receipt): lines like any others, a failure red as on the receipt. */
+  writeReceipt(text: string): void { this.writeStyled(text, "line", true); }
+
+  private writeStyled(text: string, kind: EntryKind, result: boolean): void {
+    const styled = terminalText(text).split("\n").map(line => this.styleLine(line, result)).join("\n");
     if (this.surface && /^\[crew\]/.test(terminalText(styled))) {
       this.surface.writeBlock({ render: width => styled.trimEnd().split("\n")
         .flatMap(line => wrapTextWithAnsi(line, Math.max(1, width - 2))).map(line => truncateToWidth(`  ${line}`, width)), invalidate() {} }, "group");
@@ -298,7 +305,7 @@ export class InteractiveTerminal {
   /**
    * A group of finished steps, folded, on the rich terminal: one row naming what went well (└ under the AI's words, or
    * ● on its own), the lines given as they are (steps Casper stopped before they ran), the edits in one box with a short
-   * diff, and each failure in an error box with the last lines it printed (a failure with nothing printed stays a ✗
+   * diff, and each failure in an amber box with the last lines it printed (a failure with nothing printed stays a ✗
    * line). The plain terminal prints the lines and failures as lines.
    */
   writeFold(fold: FoldView): void {
@@ -310,19 +317,19 @@ export class InteractiveTerminal {
     this.surface.writeAttachable(attached => ({ render: width => renderFold(fold, width, attached, color), invalidate() {} }));
   }
 
-  private styleLine(line: string): string {
-    return styleLine(line.startsWith(MODEL_REASON_PREFIX) ? modelReasonLine(line, this.output.columns ?? 80) : line, this.color);
+  private styleLine(line: string, result = false): string {
+    return styleLine(line.startsWith(MODEL_REASON_PREFIX) ? modelReasonLine(line, this.output.columns ?? 80) : line, this.color, result);
   }
 
   /** A task's result (the receipt) on the rich terminal: a colored edge down its left side, success for a pass,
-   * error for a failure, warning for anything in between. The plain terminal gets the lines as they are. */
+   * error for a failure, warning for anything in between; its ✗ lines red. The plain terminal gets the lines as they are. */
   writeResult(text: string): void {
-    if (!this.surface) { this.write(text); return; }
+    if (!this.surface) { this.writeReceipt(text); return; }
     const lines = terminalText(text).split("\n");
     const tone = /^✓/.test(lines[0] ?? "") ? "success" : /^(?:✗|\[error\])/.test(lines[0] ?? "") ? "error" : "warning";
     const edge = tint("▌", tone, this.color);
     // A block of its own: a blank row before it.
-    this.surface.write(lines.map(line => line ? `${edge} ${this.styleLine(line)}` : line).join("\n"), "group");
+    this.surface.write(lines.map(line => line ? `${edge} ${this.styleLine(line, true)}` : line).join("\n"), "group");
   }
 
   assistant(delta: string): void {

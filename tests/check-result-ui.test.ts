@@ -18,7 +18,7 @@ test("host check boxes show failures, not only a passing tail, and a specific co
   writeCheckResult(app, result);
   expect(lines).toEqual(["✗ 1 of 130 tests failed\n"]);
   expect(panels).toHaveLength(1);
-  expect(panels[0]!.tone).toBe("error");
+  expect(panels[0]!.tone).toBe("warning");
   expect(panels[0]!.body).toContain("(fail) validates the server address");
   expect(panels[0]!.body).toContain("error: Expected: true");
   expect(panels[0]!.body).toContain("129 pass\n1 fail");

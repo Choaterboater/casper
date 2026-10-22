@@ -204,7 +204,7 @@ export function writeCheckResult(app: CasperApp, result: VerificationResult): vo
     if (!text.trim()) continue;
     const { lines, earlier, focused } = failureLines(text, { max: 40 });
     const shown = [...(earlier ? [`… ${earlier} ${focused ? "other" : "earlier"} line(s) omitted; the full output stays in the check evidence`] : []), ...lines];
-    app.terminal.writePanel(`${result.name}: ${stream}`, shown.join("\n"), { tone: "error" });
+    app.terminal.writePanel(`${result.name}: ${stream}`, shown.join("\n"), { tone: "warning" });
   }
 }
 

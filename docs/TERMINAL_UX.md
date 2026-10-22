@@ -197,11 +197,22 @@ request (`❯ …`, bold, on the theme's `userBg` bar across the row), each of t
 accent colour, its prose hanging two columns in), a group of steps, a crew note, a box, a
 receipt. Plain lines (`[model]`, `[approval]`, `[task]` and similar bracketed notices, a closed box's record)
 pack together. Steps, tool/edit boxes and crew notes share a two-column left edge, including wrapped crew notes.
-Green marks success, red a real failure, amber a decision or warning, cyan the
-accent (banner, `●`, Markdown structure), dim the muted status lines. Each mark at the start
-of a line means one thing: `•` running now (a step, Casper's own checks, the prompt while Casper works),
-`✓` done, `✗` failed, `○` did not run (refused, stopped at the spend limit, a skipped check), `–` a note
-(not verified, not checked, a retry), `⚠` a warning to act on (a secret appeared in a command). `└` hangs a
+Each mark at the start of a line means one thing, in one colour (the `default` theme's):
+
+| Mark | Colour | Means |
+| --- | --- | --- |
+| spinner, `•` | accent spinner, dim `•` line | running now (a step, Casper's own checks, the prompt while Casper works) |
+| `✓` | green | done |
+| `–` | grey (dim) | a note: expected (a search that found nothing), skipped, not verified, not checked, recovered (a retry) |
+| `○` | amber | did not run (refused, stopped at the spend limit) |
+| `✗` | amber | a step failed, and the AI is still working |
+| `▌ ✗` | red | the task's result failed (the receipt), or an error stopped work (`[error]`) |
+| `⚠` | amber | a warning to act on (a secret appeared in a command) |
+
+Red is kept for those two and for removed lines in a diff: a failed step, its box and Casper's own check lines
+are amber while the work goes on, and the receipt's edge, its `✗` lines (in `--verbose` and `/receipt` too) and
+`[error]` lines are red. Amber also marks a decision (`── Approval ──`), cyan the accent (banner, `●`, Markdown
+structure), dim the muted status lines. `└` hangs a
 row under the AI's words. A closed box leaves one line, `<question> → <answer>`, with no mark.
 Those are the `default` theme's colours; `theme: light` or `high-contrast` (or **Theme** in
 `/settings`) swaps the colours of each role (`src/tui/theme.ts`) and nothing else
@@ -213,14 +224,21 @@ closing rule. A line wider than the window is cut at the edge only (no character
 dropped), so a mouse copy of switch config picks up no `│` characters.
 Bordered panels (`src/tui/presentation.ts`) are kept for what matters: the edits a group of steps made
 (`Edited 3 files`, each file with `+N -M` and at most twelve diff lines per file, then
-`… N more lines · Ctrl+T shows all`), a failed step (titled with its line, `✗ bash · git push — failed`,
+`… N more lines · Ctrl+T shows all`), a failed step (amber, titled with its line, `✗ bash · git push — failed`,
 with the failing lines and test counts preferred over passing tails, secrets hidden and your home folder as `~`), `/output`
 replaying a tool result, `/diff` boxing `git status` and the colored unified diff, a failed check boxing the
-failure diagnostics from stderr and stdout (the full output stays in the evidence), and exclusive input
+failure diagnostics from stderr and stdout in amber (the full output stays in the evidence), and exclusive input
 flows such as `/login`. Prose, notices and routine steps stay inline. Panels cap at 120 columns (plans at 80)
 and re-lay out when resized; prompt rules and the footer still use the window width.
 A missing guessed path, an empty search, a designed refusal or skip, and a confirmed recovered timeout,
-service hiccup, merge conflict or test-first failure are dim `–` notes, not red boxes. Unrecovered failures stay red.
+service hiccup, merge conflict or test-first failure are dim `–` notes, not failure boxes. A failure that was not
+recovered keeps its `✗`, its amber box and Ctrl+T.
+A shell command whose exit 1 is its answer is a note too, when the line runs only that kind of program (after a
+`cd DIR &&`): a search that found nothing (`grep`, `rg`, `git grep`, `ag`, `ack`, `findstr`: `nothing found`), `diff` or
+`cmp` (`files differ`), `git diff --quiet` or `--exit-code` (`changes found`), `test`, `[` or `[[` (`false`), `which`,
+`command -v`, `type` or `where` (`not installed`) and `pgrep` (`no process found`). Exit 2 or more, an error it printed
+(No such file, Permission denied, an invalid option) and a line that mixes in other programs stay failures. The AI
+still gets the exit code; Ctrl+T shows it.
 Test statuses name the failing count when known; running checks use human labels such as `Running tests (11 files)`. Color always accompanies a readable label; tool completion
 does not mean a check passed. `NO_COLOR` keeps the structure without color, while
 redirected output and `TERM=dumb` use plain text.
@@ -282,7 +300,7 @@ counted as failed. A skipped check keeps its `○ … — skipped` line.
 One status row sits above the prompt while work runs: the spinner, what Casper is doing or waiting for,
 and `Esc stops`. It reads `Waiting for <provider/model> · 0s` as soon as a request is
 sent, and ticks elapsed time even when the provider sends nothing back yet or no intermediate progress events; progress updates change it to reasoning
-or tool preparation (`Reasoning · 3.0k chars · 12s`, `Preparing write · 1.2k chars · 3s`). When nothing has arrived for 10 s it reads `Waiting for <provider/model> · 14s`. While a step runs it names the newest one (`Running bun test · 4s (+1 more)`, `Reading src/x.ts · 1s`); while Casper's own check runs, `Checking test · 1m10s`. A narrow window cuts the words, never `Esc stops`. A provider retry is one amber line in the transcript, `– Can't reach <provider> · trying again in 4s (1 of 3) · Esc stops`, not repeated in the status row; it names the cause: `<provider> is busy` for a rate limit, `<provider>'s host for this model failed` when one of OpenRouter's hosts fails, `<provider> answered with an error` for another error. A check Casper runs itself (typecheck, lint, test and the rest) adds a live row `• test · 3m05s` after 10 s with the last line it printed dimly under it (not at `/details quiet`); a plain terminal prints `[checks] test still running · 3m` once a minute for a long check, and `--json` prints nothing extra. It never displays hidden reasoning or generated arguments; the live rows and the status row step aside while a question or picker waits for you, never show more rows than fit above the prompt, and are gone when
+or tool preparation (`Reasoning · 3.0k chars · 12s`, `Preparing write · 1.2k chars · 3s`). When nothing has arrived for 10 s it reads `Waiting for <provider/model> · 14s`. While a step runs it names the newest one (`Running bun test · 4s (+1 more)`, `Reading src/x.ts · 1s`); while Casper's own check runs, `Checking test · 1m10s`. A narrow window cuts the words, never `Esc stops`. A provider retry is one dim `–` line in the transcript, `– Can't reach <provider> · trying again in 4s (1 of 3) · Esc stops`, not repeated in the status row; it names the cause: `<provider> is busy` for a rate limit, `<provider>'s host for this model failed` when one of OpenRouter's hosts fails, `<provider> answered with an error` for another error. A check Casper runs itself (typecheck, lint, test and the rest) adds a live row `• test · 3m05s` after 10 s with the last line it printed dimly under it (not at `/details quiet`); a plain terminal prints `[checks] test still running · 3m` once a minute for a long check, and `--json` prints nothing extra. It never displays hidden reasoning or generated arguments; the live rows and the status row step aside while a question or picker waits for you, never show more rows than fit above the prompt, and are gone when
 the receipt or the prompt returns. The plain terminal and scripts print one end line per tool call;
 having no live rows, they also print `• bash · bun test` when a call other than a look or an edit is still running after two seconds,
 so a long test run does not look hung.

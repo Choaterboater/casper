@@ -200,30 +200,30 @@ Next: 1 Show diff · 2 Undo</pre>
 <span class="accent">●</span> Changed sum.
 
 <span class="dim">• Casper checking: test</span>
-<span class="bad">✗</span> test · exit 1
+<span class="warn">✗</span> test · exit 1
 
-<span class="dim">╭─ test: stderr ───────────────────────────────────────────────────────────────────────────────────╮</span>
+<span class="warn">╭─ test: stderr ───────────────────────────────────────────────────────────────────────────────────╮</span>
 │                                                                                                  │
-<span class="dim">╰──────────────────────────────────────────────────────────────────────────────────────────────────╯</span>
+<span class="warn">╰──────────────────────────────────────────────────────────────────────────────────────────────────╯</span>
 
-<span class="dim">╭─ test: stdout ───────────────────────────────────────────────────────────────────────────────────╮</span>
+<span class="warn">╭─ test: stdout ───────────────────────────────────────────────────────────────────────────────────╮</span>
 │                                                                                                  │
-<span class="dim">╰──────────────────────────────────────────────────────────────────────────────────────────────────╯</span>
+<span class="warn">╰──────────────────────────────────────────────────────────────────────────────────────────────────╯</span>
 
 <span class="dim">• Casper checking whether test failed before this change too</span>
 <span class="accent">↻</span> repair 1/1
 
 <span class="accent">●</span> (scripted model) No more changes.
 
-<span class="bad">✗</span> test · exit 1
+<span class="warn">✗</span> test · exit 1
 
-<span class="dim">╭─ test: stderr ───────────────────────────────────────────────────────────────────────────────────╮</span>
+<span class="warn">╭─ test: stderr ───────────────────────────────────────────────────────────────────────────────────╮</span>
 │                                                                                                  │
-<span class="dim">╰──────────────────────────────────────────────────────────────────────────────────────────────────╯</span>
+<span class="warn">╰──────────────────────────────────────────────────────────────────────────────────────────────────╯</span>
 
-<span class="dim">╭─ test: stdout ───────────────────────────────────────────────────────────────────────────────────╮</span>
+<span class="warn">╭─ test: stdout ───────────────────────────────────────────────────────────────────────────────────╮</span>
 │                                                                                                  │
-<span class="dim">╰──────────────────────────────────────────────────────────────────────────────────────────────────╯</span>
+<span class="warn">╰──────────────────────────────────────────────────────────────────────────────────────────────────╯</span>
 
 ▌ <span class="bad">✗</span> Failed — test failed
 ▌ <span class="ok">✓</span> changed src/sum.js
@@ -298,7 +298,10 @@ on in ~/.casper/config.yaml)</pre>
           <article class="card">
             <h3>Steps under the AI's words</h3>
             <p>Each tool call is a live row under the AI's words, a spinner while it runs and <code>✓</code> or
-            <code>✗</code> once done, with one status row above the prompt saying what runs and that Esc stops it. When the AI
+            <code>✗</code> once done, with one status row above the prompt saying what runs and that Esc stops it. A failed
+            step is amber while the AI is still working; red is kept for a failed result and an error that stops work. A search that
+            found nothing or a <code>diff</code> that found a difference is a grey note (<code>– bash · rg TODO — nothing found</code>),
+            not a failure. When the AI
             moves on, the steps fold into one row naming what was done (<code>└ read AGENTS.md · ran git status, bun test</code>);
             edits go in one box with a short diff and <code>+N -M</code>, and a failure in a box with the last lines it printed.
             (The stand-in above does not send edit counts.)</p>
@@ -683,11 +686,11 @@ receipt
 <span class="prompt">❯</span> <span class="you">/verify</span>
 
 <span class="dim">[verify]</span> No typecheck command here, so Casper runs lint, test and build.
-<span class="bad">✗</span> lint · could not start (exit 127)
+<span class="warn">✗</span> lint · could not start (exit 127)
 
-<span class="dim">╭─ lint: stderr ───────────────────────────────────────────────────────────────────────────────────╮</span>
+<span class="warn">╭─ lint: stderr ───────────────────────────────────────────────────────────────────────────────────╮</span>
 │ /bin/sh: 1: node: not found                                                                      │
-<span class="dim">╰──────────────────────────────────────────────────────────────────────────────────────────────────╯</span>
+<span class="warn">╰──────────────────────────────────────────────────────────────────────────────────────────────────╯</span>
 
 <span class="ok">✓</span> test
 <span class="ok">✓</span> build
