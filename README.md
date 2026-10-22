@@ -36,20 +36,20 @@ Casper itself is free and open source. A task spends money only with your own mo
 macOS / Linux:
 
 ```sh
-curl -fsSL https://github.com/Choaterboater/casper/releases/download/v0.2.46/install.sh | sh
+curl -fsSL https://github.com/Choaterboater/casper/releases/download/v0.2.50/install.sh | sh
 ```
 
 Windows (x64 or ARM64), in PowerShell:
 
 ```powershell
-[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; irm https://github.com/Choaterboater/casper/releases/download/v0.2.46/install.ps1 | iex
+[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; irm https://github.com/Choaterboater/casper/releases/download/v0.2.50/install.ps1 | iex
 ```
 
 No admin rights, Bun or source checkout needed. The installer checks the file's SHA-256 (with
 `gh` signed in, also where it was built; for releases signed with the
 [release key](docs/RELEASE.md#the-release-key), none yet, the signature too) and keeps your old install
-if anything is wrong. These commands pin **v0.2.46**; after that,
-`casper update` gets the newest preview. `install.sh` takes `--dir <path>`, `--version 0.2.46`,
+if anything is wrong. These commands pin **v0.2.50**; after that,
+`casper update` gets the newest preview. `install.sh` takes `--dir <path>`, `--version 0.2.50`,
 `--sha256 <hex>` and `--force`. [Installer details](docs/RELEASE.md#installer-contract).
 
 Use the one-line command above rather than downloading a program in your browser: the installer
@@ -83,7 +83,7 @@ From the shell:
 ```sh
 casper "Explain this project"  # start a session with this first request
 casper --no-verify   # no Casper-run checks this run
-casper --version     # casper 0.2.46 (/absolute/path/of/the/binary/or/cli.ts)
+casper --version     # casper 0.2.50 (/absolute/path/of/the/binary/or/cli.ts)
 casper doctor        # check Casper's own setup and fix what it can (no model)
 ```
 
@@ -113,7 +113,8 @@ Ctrl+D on an empty prompt exits. [Keys and commands](docs/TERMINAL_UX.md#quick-r
 - **Checks and repair.** After an edit, Casper runs the checks and sends real failures back for
   three repair tries by default. Web pages are opened and checked too. [Verification](docs/VERIFICATION.md)
 - **One numbered box for every yes.** `1 No · 2 Yes, this once · 3 Yes, for this session ·
-  4 Yes, always for this project`, and network boxes add `Yes to everything on <product> this session`;
+  4 Yes, always for this project`, network boxes add `Yes to everything on <product> this session`, and with no
+  sandbox the shell box adds `5 Yes to everything this session`;
   each box shows only the answers that fit. Nothing asks you to type `yes`. For a shell command, 3 and 4 remember
   that exact command, never a prefix: a yes to `rm -rf build` never covers `rm -rf ~`. [Terminal guide](docs/TERMINAL_UX.md)
 - **Plans you change in words.** `/plan <request>` is optional: a clear request gets a plan directly;
@@ -208,6 +209,8 @@ Ctrl+D on an empty prompt exits. [Keys and commands](docs/TERMINAL_UX.md#quick-r
 | Contributing | [How Casper is built](docs/ARCHITECTURE.md) · [Working on Casper](docs/DEVELOPING.md) |
 
 ## What's new
+
+v0.2.50: the receipt is a card that says what was checked and what to type next, and `/help receipt` explains its words; the AI says what it is doing as it works, config and other-machine changes stay in view, and a failed step is amber until the result; Casper finds a project's `check` script and its bun tests; local models compact in time, follow the window they really loaded, and Compact at sets when; and with no sandbox, `5 Yes to everything this session` stops the shell's questions until you quit. See [release notes](docs/RELEASE.md).
 
 v0.2.46: local Ollama models work by their own names and say when they can't use tools; a timed-out run without the change is no longer proof; picker choices work with the arrow keys everywhere; the AI's browser waits for web apps; and `/look guidelines` checks a page against Vercel's guidelines. See [release notes](docs/RELEASE.md).
 
