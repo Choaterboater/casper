@@ -27,6 +27,8 @@ new version.
 - The footer shows the context as a bar, with the tokens in the window out of its size.
 - In a session, every diagram opens in the browser as a page Casper makes from it, with no model time.
 - `/mcp login central <name>` saves a second Central login, and the network server gets each one by name.
+- `/mcp add <name> <command> [args…]` or `/mcp add <name> <url>` adds any MCP server and starts it.
+- Ask in chat to add an MCP server: Casper shows the exact command and version and always asks first.
 
 ### Changed
 

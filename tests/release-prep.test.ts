@@ -11,7 +11,7 @@ const section = (text: string, start: string, end: string) => {
 
 // These are release-preparation assertions, not tests of the features themselves.
 const changes = {
-  Added: ["context as a bar", "opens in the browser", "second Central login"],
+  Added: ["context as a bar", "opens in the browser", "second Central login", "/mcp add <name>", "Ask in chat to add"],
   Changed: ["device icons", "0.1.6", "only you see", "needs no schema"],
   Fixed: ["task's tokens again", "`delegate` works", "has a colon", "file named 33"],
 };
