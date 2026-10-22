@@ -104,7 +104,22 @@ function commandName(command: string): string {
   return path.basename(command).toLowerCase().replace(/\.(exe|cmd|bat)$/, "");
 }
 /** `pkg@1.2.3`, `@scope/pkg@1.2.3`: pinned when the version is exact. */
+/** A package from git instead of the registry: `github:owner/repo#ref`, `owner/repo#ref` or `git+https://…#ref` for
+ * npm, `git+https://…@ref` for Python. Its ref (empty when there is none), or undefined for a registry package. */
+function gitRef(spec: string, kind: "npm" | "python"): string | undefined {
+  if (kind === "python") {
+    if (!/^git\+/.test(spec)) return undefined;
+    const at = spec.lastIndexOf("@");
+    return at > spec.indexOf("://") ? spec.slice(at + 1).replace(/#.*$/, "") : "";
+  }
+  if (!/^(?:github:|gitlab:|bitbucket:|git\+|[\w.-]+\/[\w.-]+(?:#|$))/.test(spec)) return undefined;
+  const hash = spec.indexOf("#");
+  return hash < 0 ? "" : spec.slice(hash + 1);
+}
 function npmSpecPinned(spec: string): boolean {
+  // From git, only a commit is fixed: a tag or branch can be moved.
+  const ref = gitRef(spec, "npm");
+  if (ref !== undefined) return COMMIT.test(ref);
   const at = spec.lastIndexOf("@");
   if (at <= 0) return false;
   return EXACT_VERSION.test(spec.slice(at + 1));
@@ -182,7 +197,11 @@ function firstPositional(args: string[], valueOptions: Set<string>): { spec?: st
 }
 const RUNNER_VALUE_OPTIONS = new Set(["--python", "--with", "--index-url", "--extra-index-url", "-c", "--call", "--registry", "--cache"]);
 
-export interface RunnerPin { runner: string; pinned: boolean; example: string }
+export interface RunnerPin {
+  runner: string; pinned: boolean; example: string;
+  /** The package, git address or image the runner fetches, as typed, when Casper found it. */
+  spec?: string; kind?: "npm" | "python" | "image";
+}
 /**
  * For servers started through a package runner (npx, bunx, pnpm dlx, yarn dlx, npm exec, uvx, uv tool run,
  * uv run --with, pipx run, deno run of an address, nix run, docker/podman run): whether the package or image is pinned to a fixed version. An
@@ -197,7 +216,7 @@ export function runnerPin(definition: MCPServerDefinition): RunnerPin | undefine
   if (command === "docker" || command === "podman") {
     const run = containerRun(definition);
     if (!run) return args.includes("run") ? { runner: command, pinned: false, example: "a version tag or an @sha256 digest" } : undefined;
-    return { runner: command, pinned: imagePinned(run.image), example: "a version tag or an @sha256 digest" };
+    return { runner: command, pinned: imagePinned(run.image), example: "a version tag or an @sha256 digest", spec: run.image, kind: "image" };
   }
   let rest: string[] | undefined;
   let kind: "npm" | "python" | undefined;
@@ -223,8 +242,31 @@ export function runnerPin(definition: MCPServerDefinition): RunnerPin | undefine
   if (!rest || !kind) return undefined;
   const { spec, from } = firstPositional(rest, RUNNER_VALUE_OPTIONS);
   const target = from ?? spec;
-  if (kind === "npm") return { runner: command, pinned: !!target && npmSpecPinned(target), example: "@1.4.2" };
-  return { runner: command, pinned: !!target && pythonSpecPinned(target), example: "==1.4.2 or a commit" };
+  const found = target ? { spec: target, kind } : {};
+  if (kind === "npm") return { runner: command, pinned: !!target && npmSpecPinned(target), example: "@1.4.2", ...found };
+  return { runner: command, pinned: !!target && pythonSpecPinned(target), example: "==1.4.2 or a commit", ...found };
+}
+
+/**
+ * What a server runs, said for the box that asks before the AI adds one: the pinned version, commit or image digest;
+ * a git tag or branch, which can be moved; or that nothing is pinned, so the runner fetches the newest each time it
+ * starts. A program already on this computer and a server at an address have no version to pin.
+ */
+export function versionLine(definition: MCPServerDefinition): string {
+  if (definition.transport.type === "http") return "none: a server at an address, nothing runs on this computer";
+  const pin = runnerPin(definition);
+  if (!pin) return "none: a program on this computer";
+  const newest = (what: string) => `not pinned: ${pin.runner} fetches the newest ${what} each time it starts`;
+  if (!pin.spec || !pin.kind) return pin.pinned ? "pinned" : `not pinned: ${pin.runner} can fetch new code each time it starts`;
+  if (pin.kind === "image") {
+    const digest = /@sha256:([0-9a-f]{64})$/i.exec(pin.spec);
+    if (digest) return `image digest sha256:${digest[1]!.slice(0, 12)}… (pinned)`;
+    return pin.pinned ? `image tag ${pin.spec.slice(pin.spec.lastIndexOf(":") + 1)} (pinned)` : newest("image");
+  }
+  const ref = gitRef(pin.spec, pin.kind);
+  if (ref === "") return newest("commit");
+  if (ref !== undefined) return COMMIT.test(ref) ? `commit ${ref} (pinned)` : `${ref}, a tag or branch (not pinned: it can be moved; a commit can't)`;
+  return pin.pinned ? `${pin.spec} (pinned)` : newest(pin.spec);
 }
 
 /** `uv run --with <spec>` installs the newest matching package on every start: pinned only when every --with is. A

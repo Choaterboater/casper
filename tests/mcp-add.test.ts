@@ -111,7 +111,8 @@ test("the AI is told the exact line to type for an MCP server, only in a request
   const classification = { intent: "configure", mode: "modify", verification: [] } as never;
   const asked = formatTaskPrompt("add the example MCP server, it starts with npx -y example-mcp@1.4.2 mcp", classification, model);
   expect(asked).toContain(`- ${MCP_TYPED}`);
-  expect(MCP_TYPED).toContain("you can't run / commands, so give the exact line to type. /mcp add <name> <command> [args…] (or <name> <url>) adds and starts one; /mcp connect <name>");
+  expect(MCP_TYPED).toBe("MCP servers: to add one, call casper_mcp_add (it asks the user first; if it can't, it says the /mcp add line "
+    + "to type). To connect one Casper lists, the user types /mcp connect <name>: you can't run / commands.");
   expect(formatTaskPrompt("fix the login bug", classification, model)).not.toContain("/mcp");
   // A change Casper will review and prove gets the request as written, plus this one line when it names MCP.
   const proving = { proveChange: true, reviewFollows: true };
