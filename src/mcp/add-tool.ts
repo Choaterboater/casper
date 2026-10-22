@@ -4,7 +4,8 @@
  * shows the person the exact name, command, words and version in a yes/no box; nothing is written or started before
  * their yes. The box is never answered for them: not by "Yes to everything", /permissions all or anything remembered,
  * because a yes installs and runs a program outside the sandbox (docs/adr/0002/29-the-ai-adds-mcp-servers.md). A run
- * that can't ask writes nothing and says the /mcp add line to type. The server is written and started as /mcp add does.
+ * that can't ask writes nothing and says the /mcp add line to type. The server is written and started as /mcp add does;
+ * a key it needs is typed by the person in Casper's hidden prompt after the yes, and the AI names only its kind.
  */
 
 import type { RuntimeTool } from "../runtime/types";
@@ -12,6 +13,7 @@ import { entryText, MCP_ADD_EXAMPLE, mcpAddLine, mcpAddProblem, runMcpAdd, type 
 import type { MCPServerDefinition } from "./config";
 import { MCP_FILE_LABEL } from "./docs";
 import { versionLine } from "./presets";
+import { keyLabel, parseKey } from "./server-secrets";
 
 export const MCP_ADD_TOOL = "casper_mcp_add";
 /** The box's yes: only a person's key picks it. */
@@ -46,7 +48,14 @@ function toolAdd(args: Record<string, unknown>): McpAdd | { error: string } {
     if (args.args !== undefined) return { error: "a url takes no args" };
   } else if (typeof command !== "string") return { error: "command must be a string" };
   if (!Array.isArray(words) || words.some((word) => typeof word !== "string")) return { error: "args must be a list of strings" };
-  const add: McpAdd = typeof url === "string" ? { name, entry: { url } } : { name, entry: { command: command as string, args: words as string[] } };
+  let key: McpAdd["key"];
+  if (args.key !== undefined) {
+    const parsed = typeof args.key === "string" ? parseKey(args.key) : { error: "key must be a string" };
+    if ("error" in parsed) return parsed;
+    key = parsed;
+  }
+  const entry: McpAdd["entry"] = typeof url === "string" ? { url } : { command: command as string, args: words as string[] };
+  const add: McpAdd = key ? { name, entry, key } : { name, entry };
   const problem = mcpAddProblem(add);
   return problem ? { error: problem } : add;
 }
@@ -60,6 +69,7 @@ function boxPreview(add: McpAdd): string {
     `  name     ${add.name}`,
     `  ${"url" in add.entry ? "address" : "runs   "}  ${entryText(add.entry)}`,
     `  version  ${versionLine(definition)}`,
+    ...add.key ? [`  key      ${keyLabel(add.key)}: you type it next, hidden; the AI never sees it`] : [],
     "url" in add.entry
       ? `It goes in ${MCP_FILE_LABEL}, so it connects again each session.`
       : `It goes in ${MCP_FILE_LABEL}, so it starts again each session, outside the sandbox, with your permissions.`,
@@ -77,7 +87,8 @@ export function mcpAddTool(host: McpAddToolHost): RuntimeTool {
         name: { type: "string", description: "Short name: letters, digits, dot, dash or underscore" },
         command: { type: "string", description: "The program that starts the server, such as npx, uvx or docker" },
         args: { type: "array", items: { type: "string" } },
-        url: { type: "string", description: "A hosted server's https address, instead of command" },
+        url: { type: "string", description: "The server's address, instead of command" },
+        key: { type: "string", description: "Only if it needs one: bearer, api-key[:Header] or env:NAME. The user types it" },
       },
     },
     // One box at a time, and never two adds racing for the same file.

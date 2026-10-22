@@ -15,7 +15,7 @@ import { isOutside } from "./inside";
 /** Private places under your home folder: keys, logins and cloud credentials. */
 export const PRIVATE_PATHS: readonly string[] = [
   ".ssh", ".aws", ".gnupg", ".config/gh", ".kube", ".docker/config.json", ".netrc", ".git-credentials", ".claude.json", ".mcp.json",
-  ".claude/.credentials.json", ".codex/auth.json", ".casper/agent/auth.json", ".casper/mcp-consent.key", ".casper/packs.key", ".casper/network-logins.json", ".pi/agent/auth.json", "Library/Keychains",
+  ".claude/.credentials.json", ".codex/auth.json", ".casper/agent/auth.json", ".casper/mcp-consent.key", ".casper/packs.key", ".casper/network-logins.json", ".casper/mcp-secrets.json", ".pi/agent/auth.json", "Library/Keychains",
   ".config/gcloud", ".azure", ".oci", ".terraform.d/credentials.tfrc.json", ".pgpass", ".npmrc", ".pypirc", ".config/hub",
   ".password-store", ".local/share/keyrings",
   // Casper's own: MCP servers (their tokens), profiles (each may hold an mcp.json) and every project's saved conversations.

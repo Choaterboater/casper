@@ -430,8 +430,9 @@ and header values. It is filled in only when the server connects. A missing
 variable fails the connection, and `/mcp` names it, never a value. Use variables
 instead of writing secrets into these files.
 
-**What Casper never does.** It does not run commands to fetch secrets, set up OAuth
-logins or write credentials. It writes MCP configuration only when you type a command
+**What Casper never does.** It does not run commands to fetch secrets or set up OAuth
+logins. The only keys it saves are ones you type in its hidden prompt: network logins and
+an MCP server's key ([Keys and tokens](#keys-and-tokens)). It writes MCP configuration only when you type a command
 that says so: `/mcp add`, `/mcp setup ssh`, `/mcp setup network`, and `/mcp docs` after
 you pick `2 Add it` (see [Secrets and docs servers](#secrets-and-docs-servers)), or after
 your yes in the box of the AI's `casper_mcp_add`. Each adds one server to
@@ -445,6 +446,8 @@ your yes in the box of the AI's `casper_mcp_add`. Each adds one server to
 /mcp setup ssh [--name <name>] [host] [command]  # add a server that runs on another machine over ssh
 /mcp add <name> <command> [args…]  # add any server to ~/.casper/mcp.json and start it
 /mcp add <name> <url>          # the same for a server at an address
+/mcp add <name> --bearer <url> # …that needs a bearer token (--api-key[=<Header>]: an API key header)
+/mcp add <name> --key-env=<NAME> <command> [args…]  # …a program that takes a key in a variable
 /mcp login [mist|central|clearpass] [forget]  # add, replace or forget a network login
 /mcp login central <name> [forget]  # add, replace or forget a named Central login
 /mcp connect local-docs        # allow and connect this server for this run of Casper
@@ -468,6 +471,29 @@ package runner (npx, uvx, docker…) is remembered only when it is pinned to a v
 (`pkg@1.2.3`) or commit, so prefer a pinned one. Only you type it; the AI can't run a slash
 command. Asked for a server, it adds one through `casper_mcp_add`, which asks you first
 (see [A server from GitHub](#a-server-from-github)).
+
+#### Keys and tokens
+
+A server that needs a key gets a flag between its name and the server:
+
+```text
+/mcp add docs --bearer https://mcp.example.com/mcp            # Authorization: Bearer <token>
+/mcp add docs --api-key https://mcp.example.com/mcp           # X-API-Key: <key>
+/mcp add docs --api-key=X-Token https://mcp.example.com/mcp   # X-Token: <key>
+/mcp add docs --key-env=DOCS_KEY npx -y @example/docs-mcp@1.2.0  # DOCS_KEY=<key> when it starts
+```
+
+Most servers need none, so leave the flag out. Asked in chat, the AI names only the kind of key
+(`key`: `bearer`, `api-key[:Header]` or `env:NAME`) and the box says `key … you type it next`.
+Either way Casper asks you for the key in its hidden prompt; the AI never sees it, and nothing
+is added if you type nothing. It is kept in `~/.casper/mcp-secrets.json` (0600, never a link,
+private to the AI's tools and shell), not in `~/.casper/mcp.json`, and goes only to the server of
+that name in `~/.casper/mcp.json` when it connects: never to a project's, a profile's or an
+imported server of the same name. Its value is hidden in everything the AI reads. A server
+added again without a key forgets the old one. For a plain `http://` address Casper says first
+that the key crosses the network unencrypted. A key variable can't be one that changes how a
+program starts (`PATH`, `NODE_OPTIONS`, `LD_*` and the like), and an API key header can't be one
+the connection sets (`Host`, `Content-*`, `Mcp-*`…).
 
 `/mcp connect` with no name opens the picker on a normal terminal; elsewhere it lists the line
 to type for each server that isn't connected. `/mcp setup` alone lists what Casper can set up,
