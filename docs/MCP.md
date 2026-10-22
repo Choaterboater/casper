@@ -404,7 +404,11 @@ The example URL is a placeholder, not a server to connect to.
 - **Two kinds of server.** A "stdio" server is a program Casper starts on your
   machine (`command` plus `args`); `type: "stdio"` is optional. An "HTTP" server is a
   URL (`type` `http` or `streamable-http`).
-- **URLs.** Only HTTPS, or plain HTTP to `localhost`, `127.0.0.1` or `[::1]`. A user
+- **URLs.** HTTPS, or plain HTTP to this computer (`localhost`, `127.0.0.0/8`, `[::1]`) or your
+  own network: a private address (`10.x`, `172.16.x`–`172.31.x`, `192.168.x`, `100.64.x`–`100.127.x`,
+  `fc00::/7`) or a `.local`, `.lan` or `.home.arpa` name. A public address and a link-local one
+  (`169.254.x`, where cloud metadata answers) need HTTPS. A `host:port` with no `http://` is an
+  address, not a program, and Casper says what to type. A user
   name or password inside the URL, a `#fragment`, the old SSE transport, and an
   entry with both `command` and `url` are refused.
 - **No shell.** Stdio commands run directly, not through a shell. They get the SDK's
