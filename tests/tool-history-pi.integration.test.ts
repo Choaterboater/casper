@@ -7,11 +7,14 @@ import { childTestLimit } from "./support/limits";
 cleanUpAfterEach();
 
 /** A 12k window: each 500-line fixture read (about 2,900 tokens) passes the 20% share on its own. */
-async function smallWindow(agent: string): Promise<void> {
+async function smallWindow(agent: string, compaction: Record<string, unknown>): Promise<void> {
   const file = path.join(agent, "models.json");
   const models = JSON.parse(await readFile(file, "utf8"));
   models.providers.fixture.models[0].contextWindow = 12_000;
   await writeFile(file, JSON.stringify(models));
+  const settingsPath = path.join(agent, "settings.json");
+  const settings = JSON.parse(await readFile(settingsPath, "utf8"));
+  await writeFile(settingsPath, JSON.stringify({ ...settings, compaction }));
 }
 /** The requests that do not repeat the one before them byte for byte (system prompt, tools, every earlier message). */
 const extends_ = (payload: Payload, before: Payload) => JSON.stringify(payload.tools) === JSON.stringify(before.tools)
@@ -24,11 +27,7 @@ test("real Pi compaction persists a new epoch and its eight-round checkpoint acr
   let requests = 0;
   const f = await fixture(() => requests++ === 0 ? calls([{ name: "read", args: { path: "fixture.txt" } }]) : answer("Synthetic task summary."));
   await writeFile(path.join(f.project, "fixture.txt"), "SYNTHETIC_HISTORY_LINE\n".repeat(500));
-  await smallWindow(f.agent);
-  const settingsPath = path.join(f.agent, "settings.json");
-  const settings = JSON.parse(await readFile(settingsPath, "utf8"));
-  settings.compaction = { enabled: true, keepRecentTokens: 1 };
-  await writeFile(settingsPath, JSON.stringify(settings));
+  await smallWindow(f.agent, { enabled: true, keepRecentTokens: 1 });
   const run = await f.run([path.join(import.meta.dir, "fixtures/pi-tool-history-compaction.ts"), f.project]);
   expect({ exit: run.exit, stderr: run.stderr }).toEqual({ exit: 0, stderr: "" });
   const result = JSON.parse(run.stdout.split("COMPACTION_RESULT=")[1]!);
@@ -47,7 +46,8 @@ for (const mode of ["on", "off"]) test(`Pi sends the history projection (${mode}
   });
   await writeFile(path.join(f.project, "fixture.txt"), "SYNTHETIC_HISTORY_LINE\n".repeat(500));
   await writeFile(path.join(f.project, "live.txt"), "SYNTHETIC_LIVE_OUTPUT\n".repeat(500));
-  await smallWindow(f.agent);
+  // Hiding alone: these requests are counted by index, and a 12k window holding these reads would compact among them.
+  await smallWindow(f.agent, { enabled: false });
   const run = await f.run([path.join(import.meta.dir, "fixtures/pi-tool-history.ts"), f.project, mode]);
   expect({ exit: run.exit, stderr: run.stderr }).toEqual({ exit: 0, stderr: "" });
   const result = JSON.parse(run.stdout.split("HISTORY_RESULT=")[1]!);

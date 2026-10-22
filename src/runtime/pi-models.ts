@@ -10,7 +10,7 @@ import type { RuntimeLoginIO, RuntimeModelInfo, RuntimeModelSelection, RuntimeMo
 import { pickPiModel } from "./pi-model-picker";
 import { anyModelMatches } from "./pi-model-browser";
 import { openRouterRequestHeaders } from "./openrouter-attribution";
-import { compactionReserveFor, fixedRequestTokens, SMALL_WINDOW, smallWindowWarning, windowTooSmall } from "./small-window";
+import { compactionKeepFor, compactionReserveFor, fixedRequestTokens, OWN_PART, SMALL_WINDOW, smallWindowWarning, windowTooSmall } from "./small-window";
 import { lockBusy } from "../platform/files";
 import { cantUseTools, isLocalProvider, lastLocalLook, LOCAL_SERVERS, localKindHere, localModelDefaults, noToolsLine, onThisComputer, savedLocalServers, SERVER_SIDE_TIP, servedWindowWarning, wantsServerTip, type LocalDiscovery, type LocalProblem } from "./local-models";
 import { CLAUDE_SUBSCRIPTION } from "./claude-subscription";
@@ -308,21 +308,24 @@ export class PiModels {
     }
   }
 
-  /** A model with a small window gets a compaction reserve of a quarter of it instead of Pi's fixed
-   * 16,384, which would otherwise compact on every turn. Read from the model's window at each check, so
-   * /model switches and an Ollama window learned after the first answer follow; a reserve the person
-   * set themselves is left alone. */
-  private shrinkCompactionReserve(settingsManager: SettingsManager): void {
+  /** Compaction sized to the model's window (src/runtime/small-window.ts): a reserve that keeps a reply's room, and a
+   * keep small enough to leave something to summarise. Read from the model's window at each check, so /model switches
+   * and a local window learned after an answer follow; `fixed` measures Casper's own part of a request. A reserve or
+   * keep the person set themselves is left alone. */
+  private fitCompaction(settingsManager: SettingsManager, fixed: () => number): void {
     const own = settingsManager.getGlobalSettings().compaction;
-    if (own?.reserveTokens !== undefined) return;
-    const base = settingsManager.getCompactionReserveTokens.bind(settingsManager);
-    settingsManager.getCompactionReserveTokens = (model) => {
-      if (!model || own?.modelOverrides?.[`${model.provider}/${model.id}`]?.reserveTokens !== undefined) return base(model);
+    const set = (model: { provider: string; id: string }, field: "reserveTokens" | "keepRecentTokens") =>
+      own?.[field] !== undefined || own?.modelOverrides?.[`${model.provider}/${model.id}`]?.[field] !== undefined;
+    const windowOf = (model: { provider: string; id: string }) => {
       const window = (model as { contextWindow?: unknown }).contextWindow;
-      const reserve = compactionReserveFor(typeof window === "number" ? window
-        : this.catalog.getModels().find((entry) => entry.provider === model.provider && entry.id === model.id)?.contextWindow);
-      return reserve ?? base(model);
+      return typeof window === "number" ? window : this.catalog.getModels().find((entry) => entry.provider === model.provider && entry.id === model.id)?.contextWindow;
     };
+    const reserve = settingsManager.getCompactionReserveTokens.bind(settingsManager);
+    const keep = settingsManager.getCompactionKeepRecentTokens.bind(settingsManager);
+    settingsManager.getCompactionReserveTokens = (model) =>
+      !model || set(model, "reserveTokens") ? reserve(model) : compactionReserveFor(windowOf(model), fixed()) ?? reserve(model);
+    settingsManager.getCompactionKeepRecentTokens = (model) => !model || set(model, "keepRecentTokens") ? keep(model)
+      : compactionKeepFor(windowOf(model), settingsManager.getCompactionReserveTokens(model), fixed(), keep(model)) ?? keep(model);
   }
 
   private localRefresh?: (signal?: AbortSignal) => Promise<LocalDiscovery>;
@@ -465,7 +468,9 @@ export class PiModels {
       defaultThinkingLevel: preferences.getDefaultThinkingLevel(), modelThinkingLevels: preferences.getAllModelThinkingLevels(),
     }, { projectTrusted: false });
     if (shared) settingsManager.applyOverrides(withoutModels(shared.getProjectSettings()));
-    this.shrinkCompactionReserve(settingsManager);
+    let made: AgentSession | undefined;
+    this.fitCompaction(settingsManager, () => made?.systemPrompt !== undefined && Array.isArray(made.state?.tools)
+      ? fixedRequestTokens(made.systemPrompt, made.state.tools) : OWN_PART);
     const recorded = manager.buildSessionContext().model;
     // The model this start needs may be a found server's, still being probed: only then does the start wait for it.
     const wanted = recorded ? { provider: recorded.provider, id: recorded.modelId } : this.defaultReference(preferences);
@@ -498,6 +503,7 @@ export class PiModels {
     });
     try {
       const result = await create({ settingsManager, modelRuntime, model });
+      made = result.session;
       this.selections.set(result.session, selection);
       if (model && helper && effortBelow(helper, result.session.thinkingLevel)) selection.effort = helper;
       if (model && selection.effort) {
