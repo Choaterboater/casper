@@ -8,11 +8,18 @@
  *   the schema has that name and not the alias, and the call did not also send it.
  * Pi's own validation already drops a null for an optional field and turns "5" into 5 and "true" into true.
  * A repaired call's result gets one line telling the model the right form, so it sends that next time.
+ *
+ * The other way round is refused for Pi's file tools: Pi's validation would also turn 33, false or null into text
+ * where a string is wanted, so `write {"path":33,"content":false}` would make a file named 33 holding "false". A field
+ * those tools' schemas want as a string must come as one, or the call does not run and the model is told which.
  */
 type Schema = Record<string, unknown>;
 
 const ALIASES: ReadonlyArray<readonly [alias: string, field: string]> = [["file_path", "path"], ["filepath", "path"], ["cmd", "command"]];
 const NESTING_LIMIT = 8;
+/** Pi's file tools, whose text fields are checked before Pi's validation could turn a number, true or false, or null
+ * into text. */
+const TEXT_FIELD_TOOLS = new Set(["read", "write", "edit"]);
 
 export interface RepairedArguments { args: unknown; fixes: string[] }
 
@@ -117,6 +124,33 @@ export function repairToolArguments(schema: unknown, args: unknown): RepairedArg
   return { args: next, fixes: [...new Set(fixes)] };
 }
 
+function sent(value: unknown): string {
+  if (value === null) return "null";
+  if (Array.isArray(value)) return "an array";
+  if (typeof value === "object") return "an object";
+  return `the ${typeof value} ${String(value)}`;
+}
+
+/** Each field the schema wants as a string but the call sent as something else, as "path must be a string, not the
+ * number 33". Fields not sent are left for Pi's validation to report. */
+function textFieldProblems(value: unknown, schema: unknown, name: string, depth: number): string[] {
+  if (depth > NESTING_LIMIT || value === undefined) return [];
+  const types = schemaTypes(schema);
+  if (types.size === 1 && types.has("string")) return typeof value === "string" ? [] : [`${name} must be a string, not ${sent(value)}`];
+  if (Array.isArray(value) && types.has("array")) return value.flatMap((item, index) => textFieldProblems(item, itemsOf(schema), `${name}[${index}]`, depth + 1));
+  if (!isObject(value) || !types.has("object") || !isObject(schema) || !isObject(schema.properties)) return [];
+  return Object.entries(schema.properties).flatMap(([key, property]) => textFieldProblems(value[key], property, name ? `${name}.${key}` : key, depth + 1));
+}
+
+/** Why a call to one of Pi's file tools must not run (a text field sent as a number, true or false, null, a list or an
+ * object), or undefined when it may. */
+export function textFieldRefusal(tool: string, schema: unknown, args: unknown): string | undefined {
+  if (!TEXT_FIELD_TOOLS.has(tool)) return undefined;
+  const problems = textFieldProblems(args, schema, "", 0);
+  if (!problems.length) return undefined;
+  return `${tool} did not run: ${problems.join("; ")}. ${problems.length === 1 ? "Send it as a string." : "Send them as strings."}`;
+}
+
 export function repairNote(fixes: string[]): string {
   return `Casper repaired this call's arguments. Next time ${fixes.join("; ")}.`;
 }
@@ -130,10 +164,13 @@ export class ToolArgumentRepair {
   private readonly notes = new Map<string, string>();
 
   /** A `prepareArguments` hook for a tool: the tool's own hook first, if it has one, so what it already repairs
-   * quietly (Pi's edit takes `edits` as a JSON string or one object) gets no note; then this repair. */
+   * quietly (Pi's edit takes `edits` as a JSON string or one object) gets no note; then this repair. A file tool call
+   * with a text field that is not text throws, which Pi returns to the model as the call's error, before it runs. */
   hook<T>(name: string, schema: unknown, own?: (args: unknown) => T): (args: unknown) => T {
     return (args) => {
       const { args: repaired, fixes } = repairToolArguments(schema, own ? own(args) : args);
+      const refusal = textFieldRefusal(name, schema, repaired);
+      if (refusal) { this.pending.delete(name); throw new Error(refusal); }
       if (fixes.length) this.pending.set(name, repairNote(fixes));
       else this.pending.delete(name);
       return repaired as T;
