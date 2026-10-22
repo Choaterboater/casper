@@ -1132,10 +1132,15 @@ three minutes into an interactive session to catch a release published since sta
 its checks postpone that probe until idle. Installs are attempted at most once a day, never during
 checks, never in one-shot or `--json` runs, and never restart or reload Casper.
 A release install asks GitHub for the newest release and uses the same verified `casper update`
-path. A checkout only fast-forwards a clean `main` (or default branch) tracking that branch on
-origin, with no local commits or untracked files; it never stashes, rebases or switches branches.
-Only a changed `bun.lock` triggers `bun install --frozen-lockfile`. Otherwise the notice says
-`Casper update ready · casper update`. Quiet failures go to `~/.casper/update.log` and show
+path. A checkout only fast-forwards `main` (or its default branch) tracking that branch on origin,
+with no uncommitted changes to tracked files and no local commits; it never stashes, rebases or
+switches branches. Untracked files don't stop it: git refuses a fast-forward that would overwrite
+one, and that shows as a failed update, with nothing forced.
+Only a changed `bun.lock` triggers `bun install --frozen-lockfile`. A checkout it leaves alone gets
+a notice that says why in a few words:
+`Casper update ready · checkout has uncommitted changes · casper update` (or
+`checkout on another branch`, `checkout tracks another upstream`, `checkout has local commits`,
+`default branch unknown`). Quiet failures go to `~/.casper/update.log` and show
 `update failed · casper update`. `CASPER_NO_UPDATE_CHECK=1` and `CI` disable all background update checks, notices and
 installs in every mode. `casper update` still installs or pulls explicitly, even with updates off;
 `casper update --check` only says whether there is one.

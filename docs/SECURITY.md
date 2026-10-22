@@ -449,8 +449,10 @@ Each row names the test that fails without it.
   `runUpdate` path as `casper update`: the pinned release key's SHA256SUMS signature, the installer's
   SHA-256, the binary digest passed to the installer, and GitHub build provenance when a capable,
   signed-in `gh` is available. No weaker background download or execution path exists. Windows uses
-  the checked WMI handoff after Casper exits. A source checkout is fast-forwarded only on clean
-  `main`/its default branch tracking origin, with no local commits or untracked work; a changed
+  the checked WMI handoff after Casper exits. A source checkout is fast-forwarded only on
+  `main`/its default branch tracking origin, with no uncommitted changes to tracked files and no
+  local commits; untracked files stay, and git refuses a fast-forward that would overwrite one
+  (a failed update, nothing forced). A changed
   lockfile runs `bun install --frozen-lockfile`. No stash, rebase or branch switch. Installs are
   attempted at most once a day across sessions, in idle interactive time, never during task checks,
   never in one-shot/`--json` runs, and never restart or reload the session. A private lock prevents

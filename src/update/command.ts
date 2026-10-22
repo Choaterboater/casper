@@ -42,7 +42,8 @@ export type DetachedStarter = (argv: string[], options: { env: NodeJS.ProcessEnv
 
 export interface UpdateOptions {
   check: boolean;
-  /** Background updates capture output and only fast-forward a clean default branch with no local commits. */
+  /** Background updates capture output and only fast-forward the default branch with no uncommitted changes to tracked
+   * files and no local commits. Untracked files stay: git refuses a fast-forward that would overwrite one. */
   background?: boolean;
   install: Install;
   currentVersion: string;
@@ -220,7 +221,10 @@ try {
 }
 `;
 
-export interface UpdateResult { exitCode: number; updated?: boolean; deferred?: boolean }
+/** Why a background update left a checkout alone; the notice row says it in a few words. */
+export type CheckoutHold = "default" | "branch" | "upstream" | "commits" | "changes";
+
+export interface UpdateResult { exitCode: number; updated?: boolean; deferred?: boolean; held?: CheckoutHold }
 
 export async function runUpdate(options: UpdateOptions): Promise<UpdateResult> {
   const result = await (options.install.kind === "checkout" ? updateCheckout(options, options.install.root) : updateBinary(options, options.install.executable));
@@ -480,15 +484,18 @@ async function updateCheckout(options: UpdateOptions, root: string): Promise<Upd
   if (options.background) {
     const branch = await git("symbolic-ref", "--quiet", "--short", "HEAD");
     const remote = await git("symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD");
-    if (remote.code !== 0 || !remote.stdout.trim().startsWith("origin/")) return { exitCode: 0, deferred: true };
+    if (remote.code !== 0 || !remote.stdout.trim().startsWith("origin/")) return { exitCode: 0, deferred: true, held: "default" };
     const defaultBranch = remote.stdout.trim().slice("origin/".length);
-    const status = await git("status", "--porcelain", "--untracked-files=all");
+    // Untracked files stay: git refuses a fast-forward that would overwrite one, and that is reported, never forced.
+    const status = await git("status", "--porcelain", "--untracked-files=no");
     const upstream = await git("rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}");
     const ahead = await git("rev-list", "--count", "@{upstream}..HEAD");
-    if (branch.code !== 0 || branch.stdout.trim() !== defaultBranch || status.code !== 0 || status.stdout.trim()
-      || upstream.code !== 0 || upstream.stdout.trim() !== `origin/${defaultBranch}` || ahead.code !== 0 || ahead.stdout.trim() !== "0") {
-      return { exitCode: 0, deferred: true };
-    }
+    if ([branch, status, upstream, ahead].some(result => result.code !== 0)) return { exitCode: 0, deferred: true };
+    const held: CheckoutHold | undefined = branch.stdout.trim() !== defaultBranch ? "branch"
+      : upstream.stdout.trim() !== `origin/${defaultBranch}` ? "upstream"
+      : ahead.stdout.trim() !== "0" ? "commits"
+      : status.stdout.trim() ? "changes" : undefined;
+    if (held) return { exitCode: 0, deferred: true, held };
   }
   const before = await checkoutVersion(root) ?? options.currentVersion;
 
@@ -509,7 +516,7 @@ async function updateCheckout(options: UpdateOptions, root: string): Promise<Upd
     // checkout that is only ahead pulls cleanly, so its failed pull is the network or a lock. Git's text covers changes in the way.
     const onlyAhead = (await git("merge-base", "--is-ancestor", "@{upstream}", "HEAD")).code === 0;
     const ownCommits = !onlyAhead && (await git("merge-base", "--is-ancestor", "HEAD", "@{upstream}")).code === 1;
-    return fail(ownCommits || /fast-forward|diverg|would be overwritten|local changes|untracked working tree/i.test(pull.stderr)
+    return fail(ownCommits || /fast-forward|diverg|would be overwritten|would lose untracked|local changes|untracked working tree/i.test(pull.stderr)
       ? `The Casper checkout at ${root} has its own commits or changes in the way, so it was not updated; nothing was forced.`
       : `Git could not pull into the Casper checkout at ${root} (is the network down?), so it was not updated.`);
   }

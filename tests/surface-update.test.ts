@@ -77,6 +77,20 @@ test("narrow notices shorten to the restart action, then hide instead of truncat
   } finally { f.close(); }
 });
 
+test("a checkout note that says why it waited keeps only its first part when narrow, never a cut reason", async () => {
+  const f = await fixture();
+  try {
+    const note = "Casper update ready · checkout has uncommitted changes · casper update", first = "Casper update ready";
+    f.surface.setUpdate(note);
+    for (const width of [80, visibleWidth(note), visibleWidth(note) - 1, visibleWidth(first), visibleWidth(first) - 1]) {
+      f.output.columns = width;
+      expect(f.plain().filter(line => line.includes("Casper update"))).toEqual(width >= visibleWidth(note) ? [" ".repeat(width - visibleWidth(note)) + note]
+        : width >= visibleWidth(first) ? [" ".repeat(width - visibleWidth(first)) + first] : []);
+      for (const line of f.frame()) expect(visibleWidth(line)).toBeLessThanOrEqual(width);
+    }
+  } finally { f.close(); }
+});
+
 test("short screens and a multiline draft yield the update row before prompt, footer or live steps", async () => {
   const f = await fixture();
   try {

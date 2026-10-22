@@ -1158,7 +1158,7 @@ test("a failed frozen install keeps its notice; manual retry finishes dependenci
   }
 });
 
-test("background checkout accepts a known non-main default and defers when the default is unknown", async () => {
+test("background checkout accepts a known non-main default and defers, saying so, when the default is unknown", async () => {
   for (const known of [false, true]) {
     const { upstream, checkout } = await checkoutPair();
     if (known) {
@@ -1175,30 +1175,107 @@ test("background checkout accepts a known non-main default and defers when the d
     const runner: ProcessRunner = (argv, options) => !known && argv.includes("refs/remotes/origin/HEAD")
       ? Promise.resolve({ code: 1, stdout: "", stderr: "" }) : run(argv, options);
     const note = await backgroundUpdate({ install: { kind: "checkout", root: checkout }, currentVersion: "0.2.21", stateDir, run: runner, bun: "fake-bun", env: GIT_ENV }, auto);
-    expect(note).toBe(known ? INSTALLED_NOTE : "Casper update ready · casper update");
+    expect(note).toBe(known ? INSTALLED_NOTE : "Casper update ready · default branch unknown · casper update");
     expect(git(checkout, "rev-parse", "HEAD")).toBe(known ? git(upstream, "rev-parse", "HEAD") : before);
   }
 });
 
-test("background checkout leaves tracked dirt, untracked files, other branches, detached heads and local commits untouched", async () => {
-  for (const unsafe of ["tracked", "untracked", "branch", "detached", "diverged", "ahead"] as const) {
+test("background checkout leaves tracked changes, other branches and upstreams, detached heads and local commits untouched, and the note says why", async () => {
+  const why = { tracked: "checkout has uncommitted changes", branch: "checkout on another branch", upstream: "checkout tracks another upstream", diverged: "checkout has local commits" };
+  for (const unsafe of ["tracked", "branch", "upstream", "detached", "diverged", "ahead"] as const) {
     const { upstream, checkout } = await checkoutPair();
     await commitVersion(upstream, "0.2.22");
     if (unsafe === "tracked") await writeFile(path.join(checkout, "bun.lock"), "work in progress");
-    if (unsafe === "untracked") await writeFile(path.join(checkout, "notes.txt"), "work in progress");
     if (unsafe === "branch") { git(checkout, "switch", "-c", "work"); git(checkout, "branch", "--set-upstream-to=origin/main"); }
+    if (unsafe === "upstream") { git(upstream, "branch", "next"); git(checkout, "fetch", "-q"); git(checkout, "branch", "--set-upstream-to=origin/next", "main"); }
     if (unsafe === "detached") { git(checkout, "switch", "--detach"); }
     if (unsafe === "diverged") await commitVersion(checkout, "0.2.21-local");
     if (unsafe === "ahead") { git(checkout, "pull", "--ff-only"); await commitVersion(checkout, "0.2.23-local"); }
     const before = git(checkout, "rev-parse", "HEAD"), status = git(checkout, "status", "--porcelain", "--untracked-files=all");
     const { run, bunCalls } = checkoutRunner();
     const stateDir = await tempDir("casper-auto-unsafe-");
-    const note = await backgroundUpdate({ install: { kind: "checkout", root: checkout }, currentVersion: "0.2.21", stateDir, run, bun: "fake-bun", env: GIT_ENV }, auto);
+    const options = { install: { kind: "checkout" as const, root: checkout }, currentVersion: "0.2.21", stateDir, run, bun: "fake-bun", env: GIT_ENV };
+    const note = await backgroundUpdate(options, auto);
     expect(git(checkout, "rev-parse", "HEAD")).toBe(before);
     expect(git(checkout, "status", "--porcelain", "--untracked-files=all")).toBe(status);
     expect(bunCalls).toEqual([]);
-    expect(note).toBe(unsafe === "ahead" || unsafe === "detached" ? undefined : "Casper update ready · casper update");
+    const expected = unsafe === "ahead" || unsafe === "detached" ? undefined : `Casper update ready · ${why[unsafe]} · casper update`;
+    expect(note).toBe(expected);
+    expect(await updateFooterNote(options)).toBe(expected);
   }
+});
+
+test("background checkout fast-forwards past untracked files and leaves them as they were", async () => {
+  const { upstream, checkout } = await checkoutPair();
+  await commitVersion(upstream, "0.2.22");
+  await mkdir(path.join(checkout, "notes", "research"), { recursive: true });
+  await writeFile(path.join(checkout, "notes.txt"), "work in progress");
+  await writeFile(path.join(checkout, "notes", "research", "draft.md"), "a draft");
+  const status = git(checkout, "status", "--porcelain", "--untracked-files=all");
+  expect(status.split("\n")).toEqual(["?? notes.txt", "?? notes/research/draft.md"]);
+  const { run, bunCalls } = checkoutRunner();
+  const stateDir = await tempDir("casper-auto-untracked-");
+  const options = { install: { kind: "checkout" as const, root: checkout }, currentVersion: "0.2.21", stateDir, run, bun: "fake-bun", env: GIT_ENV };
+  expect(await backgroundUpdate(options, auto)).toBe(INSTALLED_NOTE);
+  expect(git(checkout, "rev-parse", "HEAD")).toBe(git(upstream, "rev-parse", "HEAD"));
+  expect(git(checkout, "status", "--porcelain", "--untracked-files=all")).toBe(status);
+  expect(await readFile(path.join(checkout, "notes.txt"), "utf8")).toBe("work in progress");
+  expect(await readFile(path.join(checkout, "notes", "research", "draft.md"), "utf8")).toBe("a draft");
+  expect(bunCalls).toEqual([]);
+});
+
+test("an untracked file a fast-forward would overwrite or remove stops it: nothing is forced, and it is reported as a failed update", async () => {
+  for (const way of ["overwrite", "remove"] as const) {
+    const { upstream, checkout } = await checkoutPair();
+    // Upstream starts tracking notes.txt, or turns research, a folder of untracked notes here, into a file.
+    const mine = way === "overwrite" ? "notes.txt" : path.join("research", "draft.md");
+    await writeFile(path.join(upstream, way === "overwrite" ? "notes.txt" : "research"), "from upstream");
+    await commitVersion(upstream, "0.2.22");
+    await mkdir(path.dirname(path.join(checkout, mine)), { recursive: true });
+    await writeFile(path.join(checkout, mine), "mine");
+    const before = git(checkout, "rev-parse", "HEAD");
+    const { run, bunCalls } = checkoutRunner();
+    const stateDir = await tempDir("casper-auto-in-the-way-");
+    const options = { install: { kind: "checkout" as const, root: checkout }, currentVersion: "0.2.21", stateDir, run, bun: "fake-bun", env: GIT_ENV };
+    expect(await backgroundUpdate(options, auto)).toBe(FAILED_NOTE);
+    expect(await updateFooterNote(options)).toBe(FAILED_NOTE);
+    expect(git(checkout, "rev-parse", "HEAD")).toBe(before);
+    expect(await readFile(path.join(checkout, mine), "utf8")).toBe("mine");
+    expect(await readFile(path.join(stateDir, "update.log"), "utf8")).toContain("result: failed:");
+    expect(bunCalls).toEqual([]);
+    const manual = await updateCheckout(checkout);
+    expect(manual.exitCode).toBe(1);
+    expect(manual.lines).toEqual([`The Casper checkout at ${checkout} has its own commits or changes in the way, so it was not updated; nothing was forced.`]);
+    expect(git(checkout, "rev-parse", "HEAD")).toBe(before);
+    expect(await readFile(path.join(checkout, mine), "utf8")).toBe("mine");
+  }
+});
+
+test("a held checkout keeps saying why through later ticks and probes, and the next day's attempt pulls once it is clean", async () => {
+  const { upstream, checkout } = await checkoutPair();
+  await commitVersion(upstream, "0.2.22");
+  await writeFile(path.join(checkout, "bun.lock"), "work in progress");
+  const { run } = checkoutRunner();
+  const stateDir = await tempDir("casper-auto-held-");
+  let now = 1_000_000;
+  const options = { install: { kind: "checkout" as const, root: checkout }, currentVersion: "0.2.21", stateDir, run, bun: "fake-bun", env: GIT_ENV, now: () => now };
+  const held = "Casper update ready · checkout has uncommitted changes · casper update";
+  expect(await backgroundUpdate(options, auto)).toBe(held);
+  now += 60_000;
+  expect(await backgroundUpdate(options, auto)).toBe(held);
+  expect(await backgroundUpdate(options, { ...auto, early: true })).toBe(held);
+  expect(await updateFooterNote(options)).toBe(held);
+  // A reason this version doesn't know (a newer Casper's, or an object's own method name) is left out, not shown raw.
+  const file = path.join(stateDir, "update-check.json");
+  const saved = await readFile(file, "utf8");
+  await writeFile(file, JSON.stringify({ ...JSON.parse(saved), held: "toString" }));
+  expect(await updateFooterNote(options)).toBe("Casper update ready · casper update");
+  await writeFile(file, saved);
+  git(checkout, "checkout", "--", "bun.lock");
+  now += CHECK_EVERY_MS;
+  expect(await backgroundUpdate(options, auto)).toBe(INSTALLED_NOTE);
+  expect(git(checkout, "rev-parse", "HEAD")).toBe(git(upstream, "rev-parse", "HEAD"));
+  expect(JSON.parse(await readFile(file, "utf8")).held).toBeUndefined();
 });
 
 test("session probes once after a few minutes, defers during tasks/checks, respects daily cache and prints plain news once", async () => {
