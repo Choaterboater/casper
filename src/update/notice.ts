@@ -3,7 +3,7 @@ import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { safeGitArgs } from "../platform/git";
 import { lastUpdateFailure, startUpdateLog, updateFailureLines, updateLogPath } from "./handoff-log";
-import { compareVersions, defaultRunner, gitEnv, lookUpNewest, runUpdate, type UpdateOptions } from "./command";
+import { compareVersions, defaultRunner, gitEnv, lookUpNewest, runUpdate, type CheckoutHold, type UpdateOptions } from "./command";
 import type { UpdatesSetting } from "../config/load";
 
 /** Checks and installs share the daily cache across sessions. Nothing at startup waits on the network. */
@@ -12,7 +12,17 @@ export const INSTALLED_NOTE = "✔ Update installed · restart to use it";
 export const FAILED_NOTE = "update failed · casper update";
 const FILE = "update-check.json";
 
-type Saved = ({ checkedAt: number; attemptedAt?: number; outcome?: "installed" | "failed" } & (
+/** Why the last background attempt left a checkout alone, in the few words the notice row has room for. */
+const HELD = new Map<CheckoutHold, string>([
+  ["default", "default branch unknown"],
+  ["branch", "checkout on another branch"],
+  ["upstream", "checkout tracks another upstream"],
+  ["commits", "checkout has local commits"],
+  ["changes", "checkout has uncommitted changes"],
+]);
+
+/** `held` is a checkout's: it stays with that HEAD until the next background attempt. */
+type Saved = ({ checkedAt: number; attemptedAt?: number; outcome?: "installed" | "failed"; held?: CheckoutHold } & (
   | { kind: "binary"; version: string }
   | { kind: "checkout"; root: string; head: string; behind: number }
 ));
@@ -97,8 +107,10 @@ export async function updateFooterNote(options: NoticeOptions): Promise<string |
   if (await installedDuringSession(options)) return INSTALLED_NOTE;
   if (!saved) return undefined;
   if (saved.outcome === "installed") return INSTALLED_NOTE;
-  return saved.kind === "binary" ? `Casper ${saved.version} is out · casper update`
-    : saved.behind > 0 ? "Casper update ready · casper update" : undefined;
+  if (saved.kind === "binary") return `Casper ${saved.version} is out · casper update`;
+  if (saved.behind <= 0) return undefined;
+  const why = saved.held && HELD.get(saved.held);
+  return `Casper update ready · ${why ? `${why} · ` : ""}casper update`;
 }
 
 /** Refresh the shared daily cache. The one early-session probe may look once more after a few minutes. */
@@ -122,8 +134,9 @@ export async function refreshUpdateCheck(options: NoticeOptions, early = false):
     const head = await git("rev-parse", "HEAD");
     const counted = await git("rev-list", "--count", "HEAD..@{upstream}");
     if (head.code !== 0 || !head.stdout.trim() || counted.code !== 0) return { error: "Could not check the Casper checkout." };
+    const same = saved?.kind === "checkout" && saved.root === options.install.root && saved.head === head.stdout.trim();
     await save(options.stateDir, { checkedAt: now, kind: "checkout", root: options.install.root, head: head.stdout.trim(), behind: Number(counted.stdout.trim()) || 0, ...retained,
-      ...(saved?.kind === "checkout" && saved.root === options.install.root && saved.head === head.stdout.trim() && saved.outcome === "failed" ? { outcome: "failed" as const } : {}) });
+      ...(same && saved.outcome === "failed" ? { outcome: "failed" as const } : {}), ...(same && saved.held ? { held: saved.held } : {}) });
     return {};
   } catch { return { error: "The background update check could not finish." }; }
 }
@@ -181,19 +194,23 @@ export async function backgroundUpdate(options: NoticeOptions, settings: {
     if (saved.outcome === "failed" && saved.kind === "binary" && saved.version === options.currentVersion) return FAILED_NOTE;
     if (settings.mode !== "auto" || !settings.canInstall()) return updateFooterNote(options);
     if (saved.outcome === "installed" || (sameInstall(before, options) && before.attemptedAt !== undefined && now - before.attemptedAt < CHECK_EVERY_MS)) return updateFooterNote(options);
-    // Persist before starting: crashes and another session cannot cause repeated installs today.
-    await save(options.stateDir, { ...saved, attemptedAt: now });
+    // Persist before starting: crashes and another session cannot cause repeated installs today. Each attempt finds its own reason.
+    const attempt: Saved = { ...saved, attemptedAt: now, held: undefined };
+    await save(options.stateDir, attempt);
     const result = await runUpdate({ ...options, check: false, background: true, write: () => {} });
-    if (result.deferred) return updateFooterNote(options);
+    if (result.deferred) {
+      if (result.held) await save(options.stateDir, { ...attempt, held: result.held });
+      return updateFooterNote(options);
+    }
     if (result.exitCode !== 0) {
       await logFailure(["The verified updater failed. Run casper update to see its diagnostics."], saved.kind === "binary" ? saved.version : options.currentVersion);
       const head = saved.kind === "checkout" ? (await checkoutGit(options, saved.root)("rev-parse", "HEAD")).stdout.trim() : undefined;
-      await save(options.stateDir, { ...saved, ...(saved.kind === "checkout" && head ? { head } : {}), attemptedAt: now, outcome: "failed" });
+      await save(options.stateDir, { ...attempt, ...(saved.kind === "checkout" && head ? { head } : {}), outcome: "failed" });
       return FAILED_NOTE;
     }
     if (result.updated) {
       // Checkout HEAD changed: its cached notice becomes inapplicable on the next start, even without a version bump.
-      await save(options.stateDir, { ...saved, attemptedAt: now, outcome: "installed" });
+      await save(options.stateDir, { ...attempt, outcome: "installed" });
       return INSTALLED_NOTE;
     }
     return updateFooterNote(options);

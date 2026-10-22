@@ -347,7 +347,9 @@ Other update notices keep their text, dropping the detail after `·` when needed
 advice. `NO_COLOR` keeps the words and alignment without colour. The row yields to questions, pickers and
 screens too short to keep the prompt, live steps and footer visible; it never takes room from the footer's
 folder, model or state. Without an install it says `Casper 0.3.1 is out · casper update` (or
-`Casper update ready · casper update` for a checkout); a quiet failure says `update failed · casper update`.
+`Casper update ready · casper update` for a checkout). A checkout Casper didn't fast-forward by itself says why in
+a few words, such as `Casper update ready · checkout has uncommitted changes · casper update`;
+a narrow window keeps `Casper update ready`. A quiet failure says `update failed · casper update`.
 Plain terminals print one `[update] …` line instead, once per session. **Updates: off** in `/settings`
 (`updates: off`, also legacy `updates: false`) hides the row
 ([Configuration](CONFIGURATION.md)). The footer uses one plain phase word, `working`, not the internal checklist/build/check/repair rail. Working time excludes questions and pickers. When the AI reads, lists or searches a folder outside the project (temp aside), one line under its

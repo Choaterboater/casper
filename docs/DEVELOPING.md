@@ -19,7 +19,9 @@ To run the checkout as `casper`, link `src/cli.ts` to `~/.local/bin/casper` (run
 link is easy to spot. The release installer will not replace such a link without `--force`.
 In a checkout, `casper update` pulls (fast-forward only, never forced) and runs
 `bun install --frozen-lockfile` when `bun.lock` changed. A session in a checkout says how many
-changes it is behind, the same way.
+changes it is behind, the same way. With `updates: auto` an idle session also pulls by itself, but
+only on the default branch with no uncommitted changes to tracked files and no local commits.
+Untracked files, such as your own notes, don't stop it; otherwise its notice says why it waited.
 
 `bun run check` runs `bun run typecheck`, `bun run lint` and `bun test`, and needs no paid model.
 `bun run lint` is [oxlint](https://oxc.rs) with only the rules that catch real bugs (`.oxlintrc.json`), no style rules. While you work,
