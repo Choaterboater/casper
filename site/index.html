@@ -202,7 +202,7 @@ on in ~/.casper/config.yaml)</pre>
           <p>Every coding task ends with a short receipt, and line 1 is the verdict. Casper doesn't take the AI's word for "done": it runs your project's own tests, lint and build, and where it can, it proves the change: the tests fail without it and pass with it.</p>
           <dl class="verdicts">
             <div><dt class="ok">✓ Verified</dt><dd>The checks pass and a test fails without the change.</dd></div>
-            <div><dt class="warn">⚠ Checks passed — not proven</dt><dd>A green test that was green before is not proof.</dd></div>
+            <div><dt class="warn">⚠ Checks passed · not proven</dt><dd>A green test that was green before is not proof.</dd></div>
             <div><dt class="bad">✗ Failed</dt><dd>Anything less than <code>Verified</code> says why.</dd></div>
           </dl>
           <p class="small muted">A passing check shows a command passed, not that the code is fully right. Review important changes yourself. More in the tour: <a href="tour.html#receipts">receipts</a>, <a href="tour.html#proof">proof</a>.</p>

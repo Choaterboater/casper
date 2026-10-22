@@ -73,7 +73,8 @@
       <section id="receipts" aria-labelledby="receipts-h">
         <h2 id="receipts-h">Receipts and the verdict line</h2>
         <p>Every coding task ends with a short receipt. Line 1 is the verdict, the check that passed and
-        the files that changed. <code>/receipt</code> has the evidence behind it: how each check
+        the files that changed. When something needs a look, the receipt is a card: the verdict on line 1, then labelled
+        rows for the checks, what changed, config files, other machines and what to type next. <code>/receipt</code> has the evidence behind it: how each check
         ran, what it covered, the proof, the sandbox and whether you can undo.</p>
         <figure class="capture">
           <pre class="term" tabindex="0" data-title="casper — ~/project"><span class="prompt">❯</span> <span class="you">fix the sum bug in src/sum.js</span>
@@ -88,10 +89,10 @@
 <span class="ok">✓</span> test
 <span class="dim">• Casper checking that the tests fail without the change</span>
 
-▌ <span class="ok">✓</span> Verified · test passed · changed src/sum.js, tests/sum.test.js
-▌ <span class="dim">–</span> Shell commands and checks were not sandboxed (off unless you turn it on: /sandbox on, or
-sandbox: on in ~/.casper/config.yaml)
-Next: 1 Show diff · 2 Undo
+<span class="ok">▌</span> <span class="ok">✓ Verified · test passed · changed src/sum.js, tests/sum.test.js</span>
+<span class="ok">▌</span>   <span class="dim">Notes    Shell commands and checks were not sandboxed (off unless you turn it on: /sandbox on,</span>
+<span class="ok">▌</span>            <span class="dim">or sandbox: on in ~/.casper/config.yaml)</span>
+<span class="ok">▌</span>   <span class="dim">Next</span>     1 Show diff · 2 Undo
 
 <span class="dim"># (typed /receipt)</span>
 
@@ -114,9 +115,9 @@ independently certified.
             <h3>What you see</h3>
             <p>A green <code>✓ Verified</code> only when the checks pass <em>and</em> a test fails
             without the change. Anything less says so, in words:</p>
-            <p class="verdict warn">– Not verified — the tests pass without the change too</p>
-            <p class="verdict bad">✗ Failed — test failed</p>
-            <p class="verdict bad">✗ Not checked — test timed out, so the change was not tested</p>
+            <p class="verdict warn">⚠ Not verified: the tests pass without the change too</p>
+            <p class="verdict bad">✗ Failed: test failed</p>
+            <p class="verdict warn">⚠ Not checked: test timed out, so the change was not tested</p>
           </article>
           <article class="card">
             <h3>Why it matters</h3>
@@ -160,13 +161,13 @@ independently certified.
 <span class="ok">✓</span> test
 <span class="dim">• Casper checking that the tests fail without the change</span>
 
-▌ <span class="dim">–</span> Not verified — the tests pass without the change too
-▌ <span class="ok">✓</span> test passed · changed src/sum.js
-▌ <span class="warn">⚠</span> Not proven: test passes without this change too, and no test was added or changed
-▌ <span class="accent">↻</span> Casper tried 1 repair
-▌ <span class="dim">–</span> Shell commands and checks were not sandboxed (off unless you turn it on: /sandbox on, or
-sandbox: on in ~/.casper/config.yaml)
-Next: 1 Show diff · 2 Undo</pre>
+<span class="warn">▌</span> <span class="warn">⚠ Not verified</span>: the tests pass without the change too
+<span class="warn">▌</span>   <span class="dim">Checks</span>   <span class="ok">✓</span> test, after 1 repair
+<span class="warn">▌</span>   <span class="dim">Changed</span>  src/sum.js
+<span class="warn">▌</span>   <span class="dim">Proof</span>    <span class="warn">⚠</span> not proven: test passes without this change too, and no test was added or changed
+<span class="warn">▌</span>   <span class="dim">Notes    Shell commands and checks were not sandboxed (off unless you turn it on: /sandbox on,</span>
+<span class="warn">▌</span>            <span class="dim">or sandbox: on in ~/.casper/config.yaml)</span>
+<span class="warn">▌</span>   <span class="dim">Next</span>     1 Show diff · 2 Undo</pre>
           <figcaption>The tests pass with and without the change. Casper asks for a test once. The
           scripted stand-in adds none, so the verdict stays "Not verified".</figcaption>
         </figure>
@@ -174,7 +175,7 @@ Next: 1 Show diff · 2 Undo</pre>
           <article class="card">
             <h3>What you see</h3>
             <p><code>✓ Proven: test fails without this change (exit 1) and passes with it</code> in the
-            good case. Here, a plain <code>⚠ Not proven</code> line and the one repair round it tried.</p>
+            good case. Here, the Proof row says <code>⚠ not proven</code>, and the Checks row the one repair round it tried.</p>
           </article>
           <article class="card">
             <h3>Why it matters</h3>
@@ -225,22 +226,22 @@ Next: 1 Show diff · 2 Undo</pre>
 │                                                                                                  │
 <span class="warn">╰──────────────────────────────────────────────────────────────────────────────────────────────────╯</span>
 
-▌ <span class="bad">✗</span> Failed — test failed
-▌ <span class="ok">✓</span> changed src/sum.js
-▌ <span class="accent">↻</span> Casper tried 1 repair
-▌ <span class="bad">✗</span> test failed (exit 1) — log above; /verify repair test to fix
-▌ <span class="dim">–</span> Shell commands and checks were not sandboxed (off unless you turn it on: /sandbox on, or
-sandbox: on in ~/.casper/config.yaml)
-Next: 1 Show diff · 2 Undo</pre>
+<span class="bad">▌</span> <span class="bad">✗ Failed</span>: test failed
+<span class="bad">▌</span>   <span class="dim">Checks</span>   <span class="bad">✗</span> test (exit 1), after 1 repair · <span class="dim">Ctrl+T shows the log</span>
+<span class="bad">▌</span>   <span class="dim">Changed</span>  src/sum.js
+<span class="bad">▌</span>   <span class="dim">Notes    Shell commands and checks were not sandboxed (off unless you turn it on: /sandbox on,</span>
+<span class="bad">▌</span>            <span class="dim">or sandbox: on in ~/.casper/config.yaml)</span>
+<span class="bad">▌</span>   <span class="dim">Next</span>     /verify repair test
+<span class="bad">▌</span>            1 Show diff · 2 Undo</pre>
           <figcaption>A "speed up" that breaks a test. This project allows one repair try. The
           stand-in makes no fix, so the receipt ends <code>✗ Failed</code> with the next step to take.</figcaption>
         </figure>
         <div class="grid two">
           <article class="card">
             <h3>What you see</h3>
-            <p>The failing check's real output in a box (the last 40 lines; the full log is kept),
-            a <code>↻ repair 1/1</code> line, the check running again, and a receipt that tells you
-            what to type next: <code>/verify repair test</code>.</p>
+            <p>The failing check's real output in a box (the last 40 lines; Ctrl+T shows the whole log),
+            a <code>↻ repair 1/1</code> line, the check running again, and a receipt whose Next row says
+            what to type: <code>/verify repair test</code>.</p>
           </article>
           <article class="card">
             <h3>Why it matters</h3>

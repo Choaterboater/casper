@@ -125,7 +125,8 @@ conpty("ConPTY: a small task, undo and redo, and a shell command that asks first
   s.send("make hello\n");
   // A finished step folds into one row that says what was done.
   await s.until("edited hello.txt");
-  await s.until("Next: 1 Show diff · 2 Undo");
+  // The next-step keys sit on the receipt card's Next row.
+  await s.until("1 Show diff · 2 Undo");
   await idle(s);
   expect(await readFile(path.join(project, "hello.txt"), "utf8")).toBe("hello\n");
 
@@ -242,7 +243,7 @@ conpty("ConPTY: Enter during a task steers it, Ctrl+C stops a task, and Ctrl+C t
   s.send("slow two\n");
   await s.waitFor("the model call", () => requests.includes("slow two"));
   s.press("ctrl+c");
-  await s.until("Stopped — cancelled");
+  await s.until("Stopped: cancelled");
   await idle(s);
   release();
 

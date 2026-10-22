@@ -4,7 +4,7 @@
 
 import type { CasperApp } from "../app";
 import { detectWebService, isDetectedWebService } from "../services/detect";
-import { failureLines, formatDuration, redactPreview, terminalText } from "../tui/format";
+import { failureLines, formatDuration, redactPreview, shortenHome, terminalText } from "../tui/format";
 import type { ProjectContext } from "../project/context";
 import { testFailureSummary } from "../tui/tool-status";
 import { formatReceipt, liveCheckLine } from "../task/result";
@@ -200,6 +200,9 @@ export function writeCheckResult(app: CasperApp, result: VerificationResult): vo
   }
   if (result.status !== "fail") return;
   if (result.ended === "blocked") app.output.write(`${SANDBOX_CHECK_BLOCKED}\n`);
+  // Ctrl+T shows the last failed check's whole log (the receipt says so), secrets hidden and home as ~ as in its box.
+  const log = [result.stderr, result.stdout].map((text) => text.trimEnd()).filter(Boolean).join("\n");
+  if (log) app.events.showOnExpand({ title: liveCheckLine(result).replace(/^✗ /, ""), body: shortenHome(redactPreview(log)), diff: false });
   for (const [stream, text] of [["stderr", result.stderr], ["stdout", result.stdout]] as const) {
     if (!text.trim()) continue;
     const { lines, earlier, focused } = failureLines(text, { max: 40 });

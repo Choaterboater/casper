@@ -19,7 +19,7 @@ import type { RuntimeImage, RuntimeSession } from "../runtime/types";
 import { formatSelectedSkills } from "../skills/registry";
 import { classifyTask, formatTaskPrompt, underSpecifiedTarget } from "../task/classify";
 import { machineNames, rememberMachines } from "./machines";
-import { answerClaimsBrowserPass, formatShortReceipt, rememberSessionNotes, undoPathsShown, formatTaskResult, UNDO_NOT_PROJECT, type TaskResult } from "../task/result";
+import { answerClaimsBrowserPass, receiptView, rememberSessionNotes, shortReceiptText, undoPathsShown, formatTaskResult, UNDO_NOT_PROJECT, type TaskResult } from "../task/result";
 import { OBSERVED_EDITS_LIMIT, TaskObservations } from "../task/observations";
 import { isToolCallAsText, TOOL_CALL_AS_TEXT_LINE } from "../task/text-tool-call";
 import { diffSnapshots, tooManyFiles, type TreeChanges } from "../task/changes";
@@ -589,10 +589,11 @@ export async function runModelTask(app: CasperApp, prompt: string, options: { fl
         // The second copy and the saved receipt; the change summary lists only this task's files.
         const { stat } = await app.taskUndo.finish(undoStart, { request: prompt, task: app.lastTaskResult, session, servers: [...app.taskChangeServers] });
         const task = app.lastTaskResult;
-        // The short receipt gets the colored result edge on the rich terminal; --verbose's full form stays plain.
-        const receipt = app.verbose ? formatTaskResult(task) : formatShortReceipt(task, { surface: receiptSurface(app), ...receiptFolder(app, workspaceRoot),
+        // The short receipt is a card on a session's rich terminal; one-shot runs keep its lines, --verbose the full form.
+        const view = app.verbose ? undefined : receiptView(task, { surface: receiptSurface(app), ...receiptFolder(app, workspaceRoot),
           ...(app.checksHintShown ? { checksHintShown: true as const } : {}), undoNamed: app.undoNamed, seenNotes: app.receiptNotesSeen });
-        if (app.verbose) app.terminal.writeReceipt(`${receipt}\n`); else app.terminal.writeResult(`${receipt}\n`);
+        const receipt = view ? shortReceiptText(view) : formatTaskResult(task);
+        if (!view) app.terminal.writeReceipt(`${receipt}\n`); else app.terminal.writeResult(`${receipt}\n`, app.interactive ? view : undefined);
         if (!app.verbose) {
           if (task.autoSkipped === "no-checks" && !task.verification && !task.observedChecks?.length && task.execution === "completed") app.checksHintShown = true;
           // Only the files the receipt printed: ones past its limit are named on a later one.

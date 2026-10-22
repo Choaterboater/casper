@@ -314,7 +314,8 @@ test("a file that changes while planning anyway is named, and the receipt keeps 
     f.input.write("2");
     await f.screen.until(idleAfter("Built."));
     expect(f.app.getLastTaskResult()?.changedWhilePlanning).toEqual(["notes.txt"]);
-    expect(f.screen.output.slice(f.screen.output.lastIndexOf("Built."))).toContain("– Changed while planning: notes.txt");
+    // The receipt card names it on its Changed row.
+    expect(f.screen.output.slice(f.screen.output.lastIndexOf("Built."))).toContain("Changed while planning: notes.txt");
   } finally { await f.close(); }
 }, 60_000);
 
@@ -586,8 +587,9 @@ test("clear requests go directly to a plan; saves Markdown and keeps incomplete 
     f.input.write("2");
     await f.screen.until(idleAfter("Built."));
     expect(f.screen.output).toContain("Step 2 of 2 · Call it from app.py");
-    // The screen says the plan in one line, with the reason a step stopped; /receipt lists every step.
-    expect(f.screen.output).toContain("– Plan: 1 of 2 steps done (model report) — Needs an API decision; /receipt lists them");
+    // The screen says the plan in one line, with the reason a step stopped, on the receipt card's row of what needs you;
+    // /receipt lists every step.
+    expect(f.screen.output).toMatch(/Open\s+Plan: 1 of 2 steps done \(model report\) — Needs an API decision; \/receipt lists them/);
     expect(f.screen.output).not.toContain("Plan checklist (model report, not verification)");
     f.input.write("/receipt\r");
     await f.screen.until(output => output.includes("2. Call it from app.py — not done: Needs an API decision"));

@@ -157,7 +157,7 @@ test("at about $5 the task pauses on a numbered question, Stop here first; Enter
     expect(f.state.toolRan).toBe(0);
     expect(f.state.reasons[0]).toMatch(/spend limit/);
     expect(app.getLastTaskResult()?.spendLimit).toEqual({ spent: 5.02, limit: 5 });
-    expect(Bun.stripANSI(screen.output).replace(/\s+/g, " ")).toContain("– Incomplete — stopped at $5.02, the $5 limit for one task (spend.pauseAt)");
+    expect(Bun.stripANSI(screen.output).replace(/\s+/g, " ")).toContain("⚠ Incomplete: stopped at $5.02, the $5 limit for one task (spend.pauseAt)");
     // Idle again after the receipt, so the next request is not kept as a draft.
     await screen.until(output => output.lastIndexOf("idle ") > output.lastIndexOf("stopped at $5.02"));
 

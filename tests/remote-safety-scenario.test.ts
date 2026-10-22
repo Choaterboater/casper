@@ -166,19 +166,20 @@ posix("interactive: each ssh asks first (No first), ~/.ssh stays private, secret
 
   // The model's claim is followed by a receipt that says what really happened.
   const receipt = screen.slice(screen.lastIndexOf(CLAIM));
-  // The receipt wraps at the terminal's width.
-  expect(receipt.replace(/\s+/g, " ")).toContain("– Changed on 198.51.100.20 (build-server) (from the commands Casper saw): made an API key (create api-token ci);"
+  // The receipt card's Devices row wraps at the terminal's width, under its values, and says where Casper read it.
+  expect(receipt.replace(/\s*\n▌ {12}/g, " ").replace(/\s+/g, " ")).toContain("Devices 198.51.100.20 (build-server): made an API key (create api-token ci);"
     + " installed a service (/etc/systemd/system/sampleapp.service); turned a service on or off at boot (systemctl enable --now sampleapp);"
-    + " installed or removed packages (apt-get install -y nginx)");
+    + " installed or removed packages (apt-get install -y nginx) from the commands Casper saw, not checked there");
   // One machine, one line, whether the AI used the alias or the address.
-  expect(receipt.split("Changed on").length - 1).toBe(1);
+  expect(receipt.split("198.51.100.20 (build-server):").length - 1).toBe(1);
   expect(receipt).toContain("⚠ A secret appeared in a command; change it after this task.");
   // The sub-folder's own tests ran for the receipt.
   expect(receipt).toContain("• Casper checking: test (checks from tools)");
-  expect(receipt).toMatch(/✓ test passed \(checks from tools · python3 -m unittest discover -s tests(, \d+(?:\.\d)?s)?\)/);
+  expect(receipt).toMatch(/Checks\s+✓ test( \d+(?:\.\d)?s)? \(checks from tools\)/);
   expect(receipt).not.toContain("Not verified");
-  // The short receipt folds the passing check and the changed files into one line under the verdict.
-  expect(receipt.replace(/\s+/g, " ")).toContain("· changed tools/pyproject.toml, tools/stats.py, tools/tests/test_stats.py");
+  // The receipt card names the changed files on its Changed row, and the config file among them on its Config row.
+  expect(receipt.replace(/\s+/g, " ")).toContain("Changed tools/pyproject.toml, tools/stats.py, tools/tests/test_stats.py");
+  expect(receipt.replace(/\s+/g, " ")).toContain("Config tools/pyproject.toml");
   // Offered to move there, Stay first; Enter stayed.
   expect(receipt).toContain("The work is in ~/Documents/tools.\n  ❯ 1. Stay here");
   expect(receipt).toContain("The work is in ~/Documents/tools. → Stay here");

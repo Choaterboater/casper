@@ -241,7 +241,7 @@ def exercise(bun, repo, root, no_color):
         s.pump()
         s.send("\x03")
         s.until("[cancel] Stopping")
-        s.until("Stopped — cancelled")
+        s.until("Stopped: cancelled")
         # Enter before the cancelled task has closed only keeps the draft: wait for the prompt to be idle first.
         s.until("│ idle")
         s.send("Q\n")
@@ -278,7 +278,7 @@ def exercise(bun, repo, root, no_color):
         s.release("approval-cancel")
         s.until_new("Enter to choose · Esc to skip")
         s.send("\x03")
-        s.until("Stopped — cancelled")
+        s.until("Stopped: cancelled")
         approval_lines = (s.root / "approvals.jsonl").read_text().splitlines()
         results = [json.loads(line) for line in approval_lines]
         # Cancellation may abort the runtime before its result is appended; it must never execute.
