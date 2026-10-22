@@ -1,10 +1,10 @@
 import { afterEach, expect, test } from "bun:test";
 import type { AgentSession, ModelRuntime, SessionManager, SettingsManager } from "@earendil-works/pi-coding-agent";
-import { mkdtemp } from "node:fs/promises";
+import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { PiModels } from "../src/runtime/pi-models";
-import { compactionReserveFor, fixedRequestTokens, MIN_TURN, smallWindowWarning, windowTooSmall } from "../src/runtime/small-window";
+import { compactionKeepFor, compactionReserveFor, fixedRequestTokens, MIN_TURN, OWN_PART, smallWindowWarning, windowTooSmall } from "../src/runtime/small-window";
 import { removeTempDir } from "./support/temp-dir";
 
 const dirs: string[] = [];
@@ -21,13 +21,29 @@ test("the warning names the window and appears only below 16,000", () => {
   expect(smallWindowWarning(undefined)).toBeUndefined();
 });
 
-test("the reserve is a quarter of a small window, at least 2,000, and absent from 32k up", () => {
-  expect(compactionReserveFor(4096)).toBe(2000);
-  expect(compactionReserveFor(8192)).toBe(2048);
-  expect(compactionReserveFor(24000)).toBe(6000);
-  expect(compactionReserveFor(32000)).toBeUndefined();
+test("the reserve is the reply's room plus the 4,096 Pi keeps spare, and Pi's own 16,384 from 48k up", () => {
+  // The reply gets a quarter of the window, but never more than half of what Casper's own part (about 4,600) and the
+  // spare leave: a 4k or 8k window has nothing left, a 16k one 7,688 (half of it 3,844).
+  expect(compactionReserveFor(4096)).toBe(4096);
+  expect(compactionReserveFor(8192)).toBe(4096);
+  expect(compactionReserveFor(16384)).toBe(4096 + 3844);
+  expect(compactionReserveFor(24000)).toBe(4096 + 6000);
+  expect(compactionReserveFor(32768)).toBe(4096 + 8192);
+  expect(compactionReserveFor(12000, 5000)).toBe(4096 + 1452);
+  expect(compactionReserveFor(49151)).toBe(4096 + 12287);
+  expect(compactionReserveFor(49152)).toBeUndefined();
   expect(compactionReserveFor(128000)).toBeUndefined();
   expect(compactionReserveFor(undefined)).toBeUndefined();
+});
+
+test("a compaction keeps a quarter of the conversation's room word for word, at least 1,024 and at most Pi's 20,000", () => {
+  // 32k window, 12,288 reserved, 5,000 of Casper's own: 15,480 of room, 3,870 kept (Pi's 20,000 left nothing to summarise).
+  expect(compactionKeepFor(32768, 12288, 5000)).toBe(3870);
+  expect(compactionKeepFor(65536, 16384, 5000)).toBe(11038);
+  expect(compactionKeepFor(128000, 16384, 5000)).toBe(20000);
+  expect(compactionKeepFor(128000, 16384, 5000, 8000)).toBe(8000);
+  expect(compactionKeepFor(16384, 8192, 6000)).toBe(1024);
+  expect(compactionKeepFor(undefined, 16384, 5000)).toBeUndefined();
 });
 
 test("a window that can't hold Casper's own part and one short turn is named with its fix; one that can is not", () => {
@@ -42,10 +58,12 @@ test("a window that can't hold Casper's own part and one short turn is named wit
   expect(windowTooSmall(undefined, fixed, { id: "tiny" })).toBeUndefined();
 });
 
-async function build() {
+async function build(saved?: Record<string, unknown>) {
   const home = await mkdtemp(path.join(os.tmpdir(), "casper-small-")); dirs.push(home);
+  const agent = path.join(home, ".casper", "agent");
+  if (saved) { await mkdir(agent, { recursive: true }); await writeFile(path.join(agent, "settings.json"), JSON.stringify(saved)); }
   const catalog = { getModels: () => entries, getModel: () => undefined } as unknown as ModelRuntime;
-  const models = new PiModels(catalog, path.join(home, ".casper", "agent"), home);
+  const models = new PiModels(catalog, agent, home);
   const session = {} as AgentSession;
   const made = await models.create(home, {
     buildSessionContext: () => ({}),
@@ -53,22 +71,39 @@ async function build() {
   return { models, settings: made.options.settingsManager as SettingsManager };
 }
 
-test("small windows get a smaller compaction reserve; large windows keep Pi's default", async () => {
+test("small windows get a reserve and a keep sized to the window; large windows keep Pi's defaults", async () => {
   const { settings } = await build();
   const reserve = (id: string) => settings.getCompactionReserveTokens({ provider: "local", id });
-  expect(reserve("tiny")).toBe(2000);
-  expect(reserve("small")).toBe(2048);
-  expect(reserve("mid")).toBe(6000);
+  const keep = (id: string) => settings.getCompactionKeepRecentTokens({ provider: "local", id });
+  expect(reserve("tiny")).toBe(4096);
+  expect(reserve("small")).toBe(4096);
+  expect(reserve("mid")).toBe(10096);
   expect(reserve("large")).toBe(16384);
   expect(settings.getCompactionReserveTokens({ provider: "openrouter", id: "x" })).toBe(16384);
+  // Before the session can be measured, Casper's own part is taken as about 4,600 tokens.
+  expect(keep("mid")).toBe(Math.floor((24000 - 10096 - OWN_PART) / 4));
+  expect(keep("large")).toBe(20000);
+  expect(settings.getCompactionKeepRecentTokens({ provider: "openrouter", id: "x" })).toBe(20000);
 });
 
-test("the reserve follows the model's window as it is now", async () => {
+test("the reserve and the keep follow the model's window as it is now", async () => {
   const { settings } = await build();
   const model = { provider: "local", id: "large", contextWindow: 128000 };
   expect(settings.getCompactionReserveTokens(model)).toBe(16384);
-  model.contextWindow = 8192;
-  expect(settings.getCompactionReserveTokens(model)).toBe(2048);
+  expect(settings.getCompactionKeepRecentTokens(model)).toBe(20000);
+  model.contextWindow = 32768;
+  expect(settings.getCompactionReserveTokens(model)).toBe(12288);
+  expect(settings.getCompactionKeepRecentTokens(model)).toBe(Math.floor((32768 - 12288 - OWN_PART) / 4));
+});
+
+test("a reserve or a keep you set yourself is kept, each on its own", async () => {
+  for (const own of [{ reserveTokens: 3000 }, { keepRecentTokens: 7000 }, { modelOverrides: { "local/mid": { keepRecentTokens: 7000 } } }]) {
+    const { settings } = await build({ compaction: own });
+    const model = { provider: "local", id: "mid", contextWindow: 24000 };
+    const reserve = "reserveTokens" in own ? 3000 : 10096;
+    expect(settings.getCompactionReserveTokens(model)).toBe(reserve);
+    expect(settings.getCompactionKeepRecentTokens(model)).toBe("reserveTokens" in own ? Math.floor((24000 - 3000 - OWN_PART) / 4) : 7000);
+  }
 });
 
 test("the warning comes once per session, for small windows only", async () => {

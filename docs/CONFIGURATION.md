@@ -965,10 +965,16 @@ for one) can't work: the server cuts the request and the reply comes back cut sh
 calling the model and says the window, what it needs, and the fix: start Ollama with
 `OLLAMA_CONTEXT_LENGTH=32768 ollama serve`, or set `PARAMETER num_ctx 32768` in a Modelfile.
 
-For a window under 32,000 tokens, Casper also keeps a quarter of the window (at least 2,000 tokens)
-free for the reply when it decides whether to compact, instead of the usual 16,384. Without that, an
-8k model would compact on every turn. Windows of 32,000 and up are unchanged, and a
-`compaction.reserveTokens` you set yourself is kept.
+Casper also sizes compaction (the summary that makes room in a long conversation) to the window. Pi,
+the engine under Casper, starts it once fewer than 16,384 tokens are left and keeps the latest 20,000
+tokens word for word: sizes for a large window. On a 32k window that left nothing older to summarise, so
+compaction did nothing while each reply's room shrank to a single token. So below 49,152 tokens Casper
+keeps room for the reply free, plus the 4,096 tokens Pi always leaves spare under a reply: the reply gets
+a quarter of the window, but never more than half of what Casper's own part and the spare leave (12,288 in
+all on a 32k window, so compaction starts at 62.5%). A compaction keeps a quarter of the conversation's
+room word for word (the window less that reserve and Casper's own part), at most the usual 20,000.
+Large windows are unchanged, and a `compaction.reserveTokens` or `compaction.keepRecentTokens` you set
+yourself in `~/.casper/agent/settings.json` is kept.
 
 ## Model roles and automatic effort
 
