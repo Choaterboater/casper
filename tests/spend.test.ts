@@ -149,7 +149,7 @@ test("at about $5 the task pauses on a numbered question, Stop here first; Enter
     // The note comes after the model's words it followed, not above them.
     expect(shown.indexOf("Looking around.")).toBeGreaterThanOrEqual(0);
     expect(shown.lastIndexOf("Looking around.")).toBeLessThan(shown.lastIndexOf("– This task has used $1.20"));
-    expect(shown).toContain("task $5.02");
+    expect(shown).toMatch(/task [\d.]+k? tok · \$5\.02/);
     expect(shown).toMatch(/❯ 1\. Stop here[^\n]*the work so far is kept/);
     expect(shown).toMatch(/  2\. Keep going[^\n]*asks again at \$10/);
     input.write("\r");
@@ -234,11 +234,11 @@ test("a subscription is not charged per token: the footer says sub ≈$, and the
   }
 });
 
-test("the footer shows one task figure, leaving session totals to /status", () => {
-  expect(formatFooterSpend({ tokens: 48_213, cost: 0.314 }, { tokens: 48_213, cost: 0.314 }, true, true)).toBe("task $0.31");
-  expect(formatFooterSpend({ tokens: 40_000, cost: 0.01 }, { tokens: 1_100_000, cost: 0.04 }, true, true)).toBe("task $0.01");
-  expect(formatFooterSpend({ tokens: 40_000, cost: 0.01 }, { tokens: 1_100_000, cost: 0.04 }, false, true)).toBe("task $0.01");
+test("the footer shows the task's tokens and its cost, leaving session totals to /status", () => {
+  expect(formatFooterSpend({ tokens: 48_213, cost: 0.314 }, { tokens: 48_213, cost: 0.314 }, true, true)).toBe("task 48.2k tok · $0.31");
+  expect(formatFooterSpend({ tokens: 40_000, cost: 0.01 }, { tokens: 1_100_000, cost: 0.04 }, true, true)).toBe("task 40k tok · $0.01");
+  expect(formatFooterSpend({ tokens: 40_000, cost: 0.01 }, { tokens: 1_100_000, cost: 0.04 }, false, true)).toBe("task 40k tok · $0.01");
   expect(formatFooterSpend({ tokens: 40_000, cost: 0 }, { tokens: 90_000, cost: 0 }, false, false)).toBe("task 40k tok");
-  expect(formatFooterSpend({ tokens: 40_000, cost: 0.01 }, { tokens: 90_000, cost: 0.31 }, false, true, "subscription")).toBe("task sub ≈$0.01");
+  expect(formatFooterSpend({ tokens: 40_000, cost: 0.01 }, { tokens: 90_000, cost: 0.31 }, false, true, "subscription")).toBe("task 40k tok · sub ≈$0.01");
   expect(formatFooterSpend({ tokens: 0, cost: 0 }, { tokens: 0, cost: 0 }, false, true)).toBe("");
 });
