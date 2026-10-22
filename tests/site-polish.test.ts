@@ -65,7 +65,7 @@ describe("site polish content", () => {
     expect(page.match(/<section id="([^"]+)"/)![1]).toBe("setup-casper");
     expect(page).toContain("Casper sets it up for you (Mist, Central, ClearPass)");
     expect(page).toContain('id="setup-own"');
-    expect(page).toContain("Casper can set up its network server (casper-network-mcp 0.1.5");
+    expect(page).toContain("Casper can set up its network server (casper-network-mcp 0.1.6");
     const toc = page.match(/<nav class="toc"[\s\S]*?<\/nav>/)![0];
     expect(toc.match(/href="#([^"]+)"/)![1]).toBe("setup-casper");
   });
