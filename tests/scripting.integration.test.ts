@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { childTestLimit } from "./support/limits";
 import { cleanUpAfterEach, fixture, savedConversations, userText } from "./support/scripting";
 
 cleanUpAfterEach();
@@ -23,6 +24,20 @@ test("--model and --effort choose this run's model and effort without touching t
   expect(plain.exit).toBe(0);
   expect(f.payloads[2]!.model).toBe("first");
 }, 60_000);
+
+test("--effort goes with a model whose name has a colon (an Ollama tag such as qwen3.5:9b), and the name alone still routes", async () => {
+  const f = await fixture();
+  const models = path.join(f.home, ".casper/agent/models.json");
+  const config = JSON.parse(await readFile(models, "utf8"));
+  config.providers.fixture.models.push({ id: "qwen3.5:9b", reasoning: true });
+  await writeFile(models, JSON.stringify(config));
+  for (const effort of [["--effort", "off"], ["--effort", "high"], []]) {
+    const result = await f.run(["--model", "fixture/qwen3.5:9b", ...effort, "Answer without tools"]);
+    expect({ effort, exit: result.exit, stderr: result.stderr }).toEqual({ effort, exit: 0, stderr: "" });
+    expect(result.stdout).toContain(" model     fixture/qwen3.5:9b for this run (--model)");
+  }
+  expect(f.payloads.map((payload) => [payload.model, payload.reasoning_effort])).toEqual([["qwen3.5:9b", undefined], ["qwen3.5:9b", "high"], ["qwen3.5:9b", undefined]]);
+}, childTestLimit(3));
 
 test("casper - takes the one-shot prompt from stdin, keeping it out of the process list", async () => {
   const f = await fixture();

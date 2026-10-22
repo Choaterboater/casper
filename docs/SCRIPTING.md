@@ -57,7 +57,7 @@ pipe (a terminal on stdin) or an empty stdin is a usage error (exit 64).
 | Flag | Effect |
 |---|---|
 | `--model <provider/model-id[:effort]>` | Use this model for this run only. Also accepts `@role` selectors (`@fast`, `@build`, `@reason`, `@review`, `@default`; see [CONFIGURATION.md](CONFIGURATION.md#model-roles-and-automatic-effort)). The saved default is never changed. |
-| `--effort <level\|auto>` | Reasoning effort for this run only: `auto`, `off`, `minimal`, `low`, `medium`, `high`, `xhigh` or `max`. Any level works on any model: a level the model lacks runs as the nearest level above it, else below (`medium` on a model with only low and high runs as high; a model without reasoning runs without it). Not remembered. Do not combine with an effort suffix in `--model`. |
+| `--effort <level\|auto>` | Reasoning effort for this run only: `auto`, `off`, `minimal`, `low`, `medium`, `high`, `xhigh` or `max`. Any level works on any model: a level the model lacks runs as the nearest level above it, else below (`medium` on a model with only low and high runs as high; a model without reasoning runs without it). Not remembered. Do not combine with an effort suffix in `--model` (`provider/model-id:high`); a colon that is part of the model's name is not one, so `--model ollama/qwen3.5:9b --effort off` works. |
 | `-p` / `--print` | Run one prompt, print the result and exit, even in a terminal. |
 | `--json` | Forces one-shot mode. JSON Lines events on stdout ([below](#json-events)). Everything a person would read (banner, transcript, receipt) goes to stderr. Needs a prompt. |
 | `--verify` / `--no-verify` | Casper runs the checks after this run's edits (`auto`), or runs none (`off`). Cannot be combined. See [VERIFICATION.md](VERIFICATION.md). |

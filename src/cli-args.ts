@@ -156,7 +156,10 @@ export function parseCliArgs(argv: readonly string[]): CliOptions {
   }
   if (options.verify && options.noVerify) throw new UsageError("--verify and --no-verify cannot be combined");
   if (options.continueConversation && options.resume) throw new UsageError("--continue and --resume cannot be combined");
-  if (options.effort && options.model?.includes(":")) throw new UsageError("Give the effort either in --model provider/model-id:effort or in --effort, not both");
+  // Only an effort word after the last colon is an effort, as model-routing.ts reads it: `ollama/qwen3.5:9b` is a name.
+  if (options.effort && options.model?.includes(":") && isEffortSelection(options.model.slice(options.model.lastIndexOf(":") + 1).toLowerCase())) {
+    throw new UsageError("Give the effort either in --model provider/model-id:effort or in --effort, not both");
+  }
 
   options.rest = args;
   if (args.length === 1 && args[0] === "-") {

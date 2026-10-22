@@ -302,6 +302,16 @@ test("value options take `--name value` or `--name=value`", () => {
   expect(() => parseCliArgs(["--bogus=1", "hi"])).toThrow("Unknown option --bogus=1");
 });
 
+test("a colon in a model's name is not an effort: --effort goes with it; only an effort after the last colon clashes", () => {
+  // Ollama tags such as qwen3.5:9b are part of the name, as model-routing.ts reads them.
+  expect(parseCliArgs(["--model", "ollama/qwen3.5:9b", "--effort", "off", "hi"])).toMatchObject({ model: "ollama/qwen3.5:9b", effort: "off", command: "prompt" });
+  expect(parseCliArgs(["--model", "ollama/qwen3.5:9b", "hi"])).toMatchObject({ model: "ollama/qwen3.5:9b", command: "prompt" });
+  expect(parseCliArgs(["--model", "ollama/qwen3.5:9b", "hi"]).effort).toBeUndefined();
+  for (const model of ["provider/model:high", "provider/model:HIGH", "ollama/qwen3.5:9b:high", "provider/model:auto"]) {
+    expect(() => parseCliArgs(["--model", model, "--effort", "low", "hi"])).toThrow("Give the effort either in --model provider/model-id:effort or in --effort, not both");
+  }
+});
+
 test("--continue and --resume parse for prompts and interactive sessions alike", () => {
   expect(parseCliArgs(["--continue"])).toMatchObject({ continueConversation: true, command: "interactive" });
   expect(parseCliArgs(["--resume=01a0d1", "go", "on"])).toMatchObject({ resume: "01a0d1", command: "prompt" });
