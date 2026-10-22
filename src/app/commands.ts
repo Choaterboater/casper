@@ -50,12 +50,12 @@ import { renderProjectSummary } from "../tui/banner";
 import { LifecycleRegistry } from "./lifecycle";
 import type { VisualizationRouter } from "../visualize/router";
 import type { RuntimeAuthenticationResult, RuntimeAuthProvider, RuntimeSession, RuntimeTool, AgentRuntime } from "../runtime/types";
-import { describeChecksPlan, type ChecksPlan } from "../verify/mode";
+import { describeChecksPlan, TESTS_WITHOUT_COMMAND, type ChecksPlan } from "../verify/mode";
 import { detectedMigrations, MIGRATIONS_CHECK } from "../verify/migrations-check";
 import { detectedE2e, E2E_CHECK } from "../verify/e2e";
 import { COMPOSE_CHECK, detectedCompose } from "../verify/compose";
 import { TOOL_CALL_LIMIT, type TaskObservations } from "../task/observations";
-import { NO_CHECKS_FOUND, type PartNotReviewed, type TaskResult } from "../task/result";
+import { NO_CHECKS_FOUND, NO_TEST_COMMAND, type PartNotReviewed, type TaskResult } from "../task/result";
 import { showReceiptDetail } from "./undo";
 import { UndoStore } from "../task/undo";
 import { tildePath } from "../new/scaffold";
@@ -659,7 +659,8 @@ export async function runSlashCommand(host: CommandHost, prompt: string): Promis
         if (note) {
           if (host.offeredAppSmoke?.root === host.activeWorkspaceRoot()) return host.runVerification([], repair);
           host.output.write(note);
-          return { status: "incomplete", repairAttempts: 0, rounds: [], results: [], reason: NO_CHECKS_FOUND };
+          return { status: "incomplete", repairAttempts: 0, rounds: [], results: [],
+            reason: host.projectContext.model.testsWithoutCommand ? NO_TEST_COMMAND : NO_CHECKS_FOUND };
         }
         // A Python project with only tests: one line says what isn't there, and the verdict is about what ran,
         // not "Incomplete" and a "has no command" line for each of typecheck, lint and build.
@@ -1727,6 +1728,7 @@ export async function noChecksNote(model: ProjectModel, root: string, homeDir: s
   const runnable = names.some((name) => !(CHECK_NAMES as readonly string[]).includes(name) || model.commands[name as keyof ProjectModel["commands"]]?.trim());
   if (runnable) return undefined;
   const folder = path.basename(root) || root;
+  if (model.testsWithoutCommand) return `[verify] ${TESTS_WITHOUT_COMMAND.replace("found tests", `found tests in ${folder}`)}. Say "set up the test command".\n`;
   const children = await childProjectsWithTests(root, homeDir).catch(() => []);
   if (!children.length) return `[verify] No tests in ${folder} yet. Say "add tests" and Casper writes some.\n`;
   const lines = [`No checks found in ${folder}.`];

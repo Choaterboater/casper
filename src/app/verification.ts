@@ -18,7 +18,7 @@ import { autoDetectedChecks } from "../verify/migrations-check";
 import type { NamedCheckRunner, NetworkToolContext } from "../verify/registry";
 import { PROJECT_YAML, saveNamedCheck, saveProjectTimeout } from "../project/config-write";
 import { askLabFailure, labCheckRunner } from "./lab-checks";
-import type { ProjectCommand } from "../project/model";
+import { isTestFile, type ProjectCommand } from "../project/model";
 import { manualChecks, resolveVerificationMode, selectedChecks, type ChecksPlan } from "../verify/mode";
 import { measuredCheckTime, recordCheckTimings } from "../verify/timings";
 import { checkEvent } from "./json-events";
@@ -247,7 +247,7 @@ export async function checksPlan(app: CasperApp, context: ProjectContext): Promi
   const web = mode === "auto" && context.pages !== "off" ? await detectWebService(app.activeWorkspaceRoot(), { frameworks: context.model.frameworks,
     packageManager: context.model.packageManager, services: context.services ?? {} }).catch(() => undefined) : undefined;
   return { mode, checks, ...(mode === "offer" && measuredMs !== undefined ? { slow: true } : {}), ...(manual.length ? { manual } : {}),
-    ...(lab.length ? { lab } : {}), ...(found.length ? { found } : {}),
+    ...(lab.length ? { lab } : {}), ...(found.length ? { found } : {}), ...(context.model.testsWithoutCommand ? { testsWithoutCommand: true as const } : {}),
     ...(isDetectedWebService(web) ? { pages: redactPreview(terminalText(web.label)).slice(0, 120) } : {}) };
 }
 
@@ -279,7 +279,8 @@ export async function saveFoundCheck(app: CasperApp, name: string): Promise<void
  * current checks (including explicitly approved command replacements), not other rewritten settings: the full file
  * is read again when Casper next starts. */
 export async function projectAfterSetup(app: CasperApp, context: ProjectContext, changed: string[]): Promise<ProjectContext | undefined> {
-  if (!changed.some((file) => !file.includes("/") || file === ".casper/project.yaml")) return undefined;
+  // A top-level file (package.json), the project file, or a test file (a first bun test gives `bun test`).
+  if (!changed.some((file) => !file.includes("/") || file === ".casper/project.yaml" || isTestFile(file))) return undefined;
   let fresh: ProjectContext;
   try { fresh = await app.loadProjectContextFn(context.info); } catch { return undefined; }
   if (fresh.projectFile !== context.projectFile) {
@@ -288,7 +289,7 @@ export async function projectAfterSetup(app: CasperApp, context: ProjectContext,
     return undefined;
   }
   applySessionCheckOverrides(app, fresh.model);
-  const checks = (c: ProjectContext) => JSON.stringify([c.model.commands, c.model.namedChecks ?? {}, c.verification.checks ?? null]);
+  const checks = (c: ProjectContext) => JSON.stringify([c.model.commands, c.model.namedChecks ?? {}, c.verification.checks ?? null, c.model.testsWithoutCommand ?? false]);
   if (checks(fresh) === checks(context)) return undefined;
   app.projectContext = fresh;
   followTheme(app, context.theme);

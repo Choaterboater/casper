@@ -48,7 +48,7 @@ import { planQuestions, readPlan, savePlan, updatePlan, wantsSpec, type SavedPla
 import { PlanBuild } from "../flows/plan-build";
 import { PROJECT_YAML, saveProjectCommand } from "../project/config-write";
 import type { TaskClassification } from "../task/classify";
-import { planAutoChecks } from "../verify/mode";
+import { planAutoChecks, TESTS_WITHOUT_COMMAND } from "../verify/mode";
 import { outsideWritesReceipt, sandboxReceipt } from "./sandbox";
 import { explainModelError } from "../runtime/model-errors";
 import { tildePath } from "../new/scaffold";
@@ -382,7 +382,7 @@ export async function runModelTask(app: CasperApp, prompt: string, options: { fl
           proofSkipped = !verification.results.length && verification.pages && !verification.smoke?.checks.length
             ? verification.pages.pages.every((page) => page.consoleChecked) ? PAGES_ONLY_PROOF : PAGES_ANSWER_ONLY_PROOF
             : proofSkipReason({ intent: classification.intent, testCommand, snapshot: before !== undefined, changedCode,
-              testsAddedNow: !testCommand && Boolean(context.model.commands.test?.trim()) });
+              testsAddedNow: !testCommand && Boolean(context.model.commands.test?.trim()), testsWithoutCommand: Boolean(context.model.testsWithoutCommand) });
         }
         if (proving && verification.status === "pass" && changedCode && !redefined.length) {
           const initialReview = parseChecklist(app.lastAnswer);
@@ -489,7 +489,7 @@ export async function runModelTask(app: CasperApp, prompt: string, options: { fl
               command: testCommand!, request: prompt, checks: autoChecks?.run ?? [], verification, session, definitionBefore, repair: false }));
           } else {
             proofSkipped = proofSkipReason({ intent: classification.intent, testCommand, snapshot: before !== undefined, changedCode,
-              testsAddedNow: !testCommand && Boolean(context.model.commands.test?.trim()) });
+              testsAddedNow: !testCommand && Boolean(context.model.commands.test?.trim()), testsWithoutCommand: Boolean(context.model.testsWithoutCommand) });
           }
           const mode = context.verification.acceptance;
           if ((mode === true || mode === "warn") && testCommand && changedCode && proof?.status !== "unproven" && !stoppedNow()) {
@@ -561,6 +561,7 @@ export async function runModelTask(app: CasperApp, prompt: string, options: { fl
       // Smoke checks ran even without a configured command, so "no checks" no longer describes the task.
       verificationMode, ...(!flag && !configured && verificationMode === "auto" ? { verificationDefaulted: true as const } : {}),
       ...(autoChecks?.skipped && !verification?.smoke && !verification?.pages ? { autoSkipped: autoChecks.skipped } : {}),
+      ...(autoChecks?.skipped === "no-checks" && !verification?.smoke && !verification?.pages && context.model.testsWithoutCommand ? { testsWithoutCommand: true as const } : {}),
       ...(pageNotes?.length && !verification?.pages ? { pageNotes } : {}), ...(pagesShown ? { pagesShown } : {}),
       ...(notReviewed.length ? { partsNotReviewed: notReviewed } : {}), ...(crewChecks ? { crewChecks } : {}),
       ...(app.taskTurnLimit !== undefined ? { turnLimit: app.taskTurnLimit } : {}), ...(app.taskSpendStop ? { spendLimit: { ...app.taskSpendStop } } : {}), ...(proof ? { proof } : {}), ...(proofSkipped && !proof ? { proofSkipped } : {}), ...(review ? { review } : {}),
@@ -1142,10 +1143,11 @@ export const PAGES_ANSWER_ONLY_PROOF = "pages answer, but their console was not 
 const NOT_COMPARED: Record<string, string> = { document: "this was a docs request", configure: "this was a setup request",
   inspect: "this read as a question", visualize: "this asked for a diagram" };
 
-export function proofSkipReason(options: { intent: string; testCommand?: string; snapshot: boolean; changedCode: boolean; testsAddedNow?: boolean }): string {
+export function proofSkipReason(options: { intent: string; testCommand?: string; snapshot: boolean; changedCode: boolean; testsAddedNow?: boolean; testsWithoutCommand?: boolean }): string {
   if (options.intent === "refactor") return "a refactor should not change behavior, so no test is expected to fail without it";
   if (["document", "inspect", "visualize", "configure"].includes(options.intent)) return `${NOT_COMPARED[options.intent]}, so the tests were not run without the change`;
   if (!options.testCommand && options.testsAddedNow) return "the tests came with this change, so there is no version without it to compare with";
+  if (!options.testCommand && options.testsWithoutCommand) return `${TESTS_WITHOUT_COMMAND}; say "set up the test command"`;
   if (!options.testCommand) return 'there are no tests yet to compare with; say "add tests"';
   if (!options.snapshot) return "Casper could not record the workspace before the change";
   if (!options.changedCode) return "no app code changed, only tests, data or docs";

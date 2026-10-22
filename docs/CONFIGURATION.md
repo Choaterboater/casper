@@ -490,10 +490,15 @@ When no `verify:` or `commands:` entry sets a check, Casper looks for one in the
 
 | Project | What Casper runs |
 |---|---|
-| Node (`package.json`) | The `test`, `lint`, `build` scripts, and `typecheck`, `check-types` or `tsc` for typecheck, run with the package manager (`bun run test`, `npm run test`, …). The package manager comes from `packageManager` in `package.json`, else the lockfile, else npm. |
+| Node (`package.json`) | The `test`, `lint`, `build` scripts, and `typecheck`, `check-types` or `tsc` for typecheck, run with the package manager (`bun run test`, `npm run test`, …). A `check` script fills the check it runs when no script of that name does: the tests when it (or a script it runs) starts a test runner (`bun test`, `vitest`, `jest`, …), else typecheck (`tsc`, `svelte-check`, …), else lint (`eslint`, `biome`, …); one Casper can't read runs as the test check. The package manager comes from `packageManager` in `package.json`, else the lockfile, else npm. |
+| Bun tests (`*.test.ts`, `*_test.js`, `*.spec.tsx`, …) | `bun test` when no script runs the tests, in a Bun project or wherever the test files import `bun:test`. |
 | Python (`pyproject.toml` or any `requirements*.txt`) | `pytest`, `ruff check .` and `mypy .` when those names appear in those files; bare `mypy` when `[tool.mypy]` lists `files`. A build (`python -m build`, `uv build`, `poetry build`) when `pyproject.toml` has `[build-system]`. |
 | Rust (`Cargo.toml`) | `cargo test`, `cargo clippy`, `cargo build` |
 | Go (`go.mod`) | `go test ./...`, `go build ./...` |
+
+Test files are looked for at the top of the project and in `tests`, `test`, `__tests__`, `spec`, `src` and
+`lib`, a few folders down. When Casper finds tests but no command runs them, the receipt, `/status` and `/verify`
+say `Casper found tests but no command that runs them` instead of "no tests yet".
 
 Python tools run through uv (`uv.lock`: `uv run pytest`), poetry (`poetry.lock` or
 `[tool.poetry]`: `poetry run pytest`), else the project's `.venv` or `venv` interpreter

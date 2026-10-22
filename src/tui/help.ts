@@ -31,7 +31,7 @@ export const RECEIPT_HELP = `What a receipt's first line means, and what to do:
   ✓ Verified                    The checks pass and a test fails without the change, so it is proven. Review it as usual.
   ⚠ Checks passed · not proven  The checks pass, but nothing showed they test the change (no comparison ran, or a refactor needs none). Look at the change, or ask for a test that fails without it.
   ⚠ Not verified                The checks don't show the change works: the tests pass without it too, a check ran only through bash, or a pass is from before the last edit. Do what the receipt says, often /verify.
-  ⚠ Not checked                 The change was not tested: a check timed out or could not start, or there are no tests yet. Run it again with /verify <check>, or say "add tests".
+  ⚠ Not checked                 The change was not tested: a check timed out or could not start, there are no tests yet, or Casper has no command for the tests it found. Run it again with /verify <check>, say "add tests", or say "set up the test command".
   ⚠ Incomplete                  The task stopped early: a turn or spend limit, commands Casper stopped, or a check that never ran. Send another request to go on.
   ✗ Failed                      A check fails on the final files, or the model run failed. Ctrl+T shows the log; /verify repair <check> asks the model to fix it.
   ⚠ Stopped                     You stopped the task. What changed so far is kept: /diff shows it, /undo puts it back.
