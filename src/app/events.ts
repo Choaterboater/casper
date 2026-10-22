@@ -1,5 +1,5 @@
 import type { InteractiveTerminal } from "../tui/terminal";
-import { BUSY_GLYPH, commandLabel, formatDuration, formatElapsed, formatToolActivity, lastOutputLine, NOT_RUN_GLYPH, NOTE_GLYPH, redactPreview, runningElapsed, terminalText, toolTarget } from "../tui/format";
+import { BUSY_GLYPH, commandLabel, formatDuration, formatElapsed, formatToolActivity, lastOutputLine, lineText, NOT_RUN_GLYPH, NOTE_GLYPH, redactPreview, runningElapsed, terminalText, toolTarget } from "../tui/format";
 import type { RuntimeEvent } from "../runtime/types";
 import type { OutputWriter } from "./commands";
 import { SPEND_STOP_REASON } from "../task/spend";
@@ -66,6 +66,8 @@ interface Step {
   kind: StepKind;
   path?: string;
   input?: ToolStart["input"];
+  /** A shell step's title from the AI, shown with its command. */
+  description?: string;
   startedAt: number;
   endedAt?: number;
   /** The start event, to redraw the running line with its elapsed time. */
@@ -146,6 +148,21 @@ export function buildersLine(goals: readonly string[], reviewers = 0): string | 
   return `${who} working${short.length ? `: ${short.join(", ")}` : ""}${more}`;
 }
 
+const SENTENCES = new Intl.Segmenter("en", { granularity: "sentence" });
+
+/** The AI's line before a group of tool calls, for the status row ("Fixing the port test"): the last sentence of its last
+ * line, with markdown marks and the closing stop taken off and secrets hidden, at most 100 characters. Undefined when
+ * it says nothing. Display only. */
+export function intentLine(words: string): string | undefined {
+  const last = redactPreview(words).split("\n").map(line => line.trim()).filter(Boolean).at(-1);
+  if (!last) return undefined;
+  const plain = lineText(last).replace(/^(?:[-*+>]\s+|\d+[.)]\s+|#+\s+)+/, "").replace(/\*\*|__|`/g, "").replace(/\s+/g, " ").trim();
+  const sentence = (Array.from(SENTENCES.segment(plain)).at(-1)?.segment ?? "").trim().replace(/[\s.:;…]+$/, "");
+  const chars = Array.from(sentence);
+  if (chars.length < 3) return undefined;
+  return chars.length > 100 ? `${chars.slice(0, 99).join("")}…` : sentence;
+}
+
 /** What a running step is doing, for the status row: "Running bun test", "Reading src/x.ts", "web_fetch docs.x.com". */
 function doing(step: Step, fit: { root?: string }, commands?: Partial<Record<ProjectCommand, string>>): string {
   const human = runningCheck(step.input, commands) ?? githubLabel(step.input, "", true);
@@ -196,6 +213,10 @@ export class RuntimeEventView {
   private outsideToSay: string[] = [];
   private assistantWords = "";
   private testFirst = false;
+  /** The AI's shown words since its last tool call, and the line of them that leads the status row while their group of
+   * tool calls is open (see intentLine). */
+  private words = "";
+  private intent?: string;
 
   constructor(private readonly terminal: InteractiveTerminal, private readonly output: OutputWriter,
     private readonly callbacks: RuntimeEventCallbacks) {}
@@ -292,7 +313,7 @@ export class RuntimeEventView {
     lines.push(...extra);
     plain.push(...extra);
     const status = this.statusText(now, builders);
-    this.terminal.setWork(lines.length || status ? { rows: lines, plain, ...(status ? { status } : {}) } : undefined);
+    this.terminal.setWork(lines.length || status ? { rows: lines, plain, ...(status ? { status } : {}), ...(status && this.intent ? { intent: this.intent } : {}) } : undefined);
   }
 
   /** The status row's words: what the model is doing or what Casper waits for, else the newest running step (and how
@@ -401,6 +422,8 @@ export class RuntimeEventView {
     const done = this.steps.filter(step => step.endedAt !== undefined && (final || !step.recovery || step.heldOnce));
     if (!done.length) return;
     this.steps = this.steps.filter(step => !done.includes(step));
+    // The group's line goes with it; the next group's words bring their own.
+    if (!this.steps.length) this.intent = undefined;
     this.endSpeech();
     this.ensureLineBreak();
     if (!this.terminal.rich) {
@@ -412,6 +435,7 @@ export class RuntimeEventView {
     const fold = planFold(done.map(step => ({
       toolName: step.toolName, kind: step.kind, printed: step.printed ?? step.line, title: step.title ?? step.line,
       ...(step.input ? { input: step.input } : {}), ...(step.path !== undefined ? { path: step.path } : {}),
+      ...(step.description ? { description: step.description } : {}),
       ...(step.endedAt !== undefined ? { elapsedMs: step.endedAt - step.startedAt } : {}),
       ...(step.failed ? { failed: true } : {}), ...(step.retried ? { retried: true } : {}), ...(step.notRun || step.note ? { notRun: true } : {}),
       ...(step.output ? { output: step.output } : {}), ...(step.lines ? { lines: step.lines } : {}), ...(step.diff ? { diff: step.diff } : {}),
@@ -473,6 +497,7 @@ export class RuntimeEventView {
   reset(): void {
     this.fold(true);
     this.assistantWords = ""; this.testFirst = false;
+    this.words = ""; this.intent = undefined;
     this.steps = [];
     this.stopStepTimer();
     for (const check of this.checks.values()) if (check.minutes) clearInterval(check.minutes);
@@ -593,6 +618,7 @@ export class RuntimeEventView {
         this.setStaticActivity();
         this.speaking = true;
         this.terminal.assistant(delta);
+        this.words = (this.words + delta).slice(-2000);
         this.endedWithNewline = true;
         break;
       case "tool_start": {
@@ -621,12 +647,15 @@ export class RuntimeEventView {
           break;
         }
         this.endSpeech();
+        // The words since the last tool call open this group: their last line leads the status row while it runs.
+        if (this.words.trim()) { this.intent = intentLine(this.words); this.words = ""; }
         // A failed edit followed at once by another edit of the same file was retried: count it, don't print it.
         const last = this.steps.at(-1);
         const path = typeof event.input?.path === "string" ? event.input.path : undefined;
         if (last?.failed && last.kind === "edit" && stepKind(event.toolName) === "edit" && path !== undefined && last.path === path) last.retried = true;
         this.steps.push({ ...(event.toolCallId ? { id: event.toolCallId } : {}), toolName: event.toolName, kind: stepKind(event.toolName),
-          ...(path !== undefined ? { path } : {}), ...(event.input ? { input: event.input } : {}), start: event, startedAt: this.now(),
+          ...(path !== undefined ? { path } : {}), ...(event.input ? { input: event.input } : {}), ...(event.description ? { description: event.description } : {}),
+          start: event, startedAt: this.now(),
           line: formatToolActivity(event, undefined, this.fit(2)) });
         this.clearResponseActivity(); this.status = undefined;
         this.renderBox();
@@ -665,7 +694,7 @@ export class RuntimeEventView {
           if (!previous.recovery || !recoveredBy(previous.recovery, previous, event)) continue;
           const reason = previous.recovery === "conflict" ? "conflicts resolved" : previous.recovery === "test-first" ? "expected test-first failure · rerun passed" : `${previous.recovery} · retry finished`;
           previous.failed = false; previous.recovery = undefined; previous.note = reason;
-          previous.line = previous.printed = `${NOTE_GLYPH} ${commandLabel(redactPreview(previous.input?.command ?? previous.toolName), 60)} — ${reason}`;
+          previous.line = previous.printed = `${NOTE_GLYPH} ${previous.description ? `${redactPreview(previous.description)} · ` : ""}${commandLabel(redactPreview(previous.input?.command ?? previous.toolName), 60)} — ${reason}`;
         }
         // A timeout or busy service waits for its retry, which is the model's next call of that tool. When that call is
         // something else, the failure shows at the next fold. Held to the task's end, an ssh that timed out early in a
@@ -678,9 +707,9 @@ export class RuntimeEventView {
         // `timed`: with the step's time. The rich terminal's folded lines leave it out (the footer and box show time).
         // A designed refusal is a neutral one-line note, never a failure box.
         const endLine = (inset: number, detail: boolean, timed = true) => notRun
-          ? `${NOTE_GLYPH}${formatToolActivity({ type: "tool_start", toolName: event.toolName, ...(event.input ? { input: event.input } : {}) }, undefined, this.fit(inset + suffix.length)).slice(BUSY_GLYPH.length)}${suffix}${refusal ? ` · ${redactPreview(refusal).slice(0, 180)}` : ""}`
+          ? `${NOTE_GLYPH}${formatToolActivity({ type: "tool_start", toolName: event.toolName, ...(event.input ? { input: event.input } : {}), ...(event.description ? { description: event.description } : {}) }, undefined, this.fit(inset + suffix.length)).slice(BUSY_GLYPH.length)}${suffix}${refusal ? ` · ${redactPreview(refusal).slice(0, 180)}` : ""}`
           : formatToolActivity(note ? event : detail ? shown : { ...shown, output: undefined }, timed ? elapsed : undefined, this.fit(inset));
-        const label = formatToolActivity({ type: "tool_start", toolName: event.toolName, ...(event.input ? { input: event.input } : {}) }, undefined, this.fit()).slice(BUSY_GLYPH.length + 1);
+        const label = formatToolActivity({ type: "tool_start", toolName: event.toolName, ...(event.input ? { input: event.input } : {}), ...(event.description ? { description: event.description } : {}) }, undefined, this.fit()).slice(BUSY_GLYPH.length + 1);
         this.expanded = event.diff && !event.isError ? { title: label, body: event.diff, diff: true }
           : { title: `${label}${notRun ? " · not run" : note ? ` · ${note}` : event.isError ? " · failed" : ""}`, body: (refusal ?? event.output?.text ?? "").replace(/\n$/, "") || "(no output text)", diff: false };
         if (!this.terminal.rich) {
@@ -707,7 +736,7 @@ export class RuntimeEventView {
         }
         if (!step) {
           // It ended after its turn folded (or never said it started): it still shows until the next fold or receipt.
-          step = { toolName: event.toolName, kind: stepKind(event.toolName), startedAt: this.now() - (elapsed ?? 0), line: "" };
+          step = { toolName: event.toolName, kind: stepKind(event.toolName), ...(event.description ? { description: event.description } : {}), startedAt: this.now() - (elapsed ?? 0), line: "" };
           this.steps.push(step);
         }
         step.endedAt = this.now();
@@ -733,7 +762,7 @@ export class RuntimeEventView {
         this.setStaticActivity();
         this.endSpeech();
         this.fold(true);
-        this.assistantWords = ""; this.testFirst = false;
+        this.assistantWords = ""; this.testFirst = false; this.words = "";
         this.toolStarted.clear();
         this.ensureLineBreak();
         this.sayOutsideReads();

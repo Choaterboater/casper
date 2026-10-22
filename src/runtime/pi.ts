@@ -46,7 +46,7 @@ import type {
   SettingsManager,
   ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
-import { Type } from "typebox";
+import { Type, type TObject, type TProperties } from "typebox";
 import { gitGuardReason } from "./git-guard";
 import { classifyPath, displayPath, fileToolGate, gitInternalsCommand, privatePathCommand, realpathLongest, resolveToolPath, shellTempPath } from "../platform/project-paths";
 /** The AI's tools that take a file or folder `path`. */
@@ -60,7 +60,7 @@ import { ToolHistory, TOOL_HISTORY_ENTRY } from "./tool-history";
 import { ELISION_NOTE, elisionTexts, newElisions } from "./elision";
 import { addsSecret } from "../secrets/files";
 import { ToolArgumentRepair } from "./tool-repair";
-import { nativeEditPath, observationInput, editPatch, observationOutput, patchLineCounts, writeLineCounts, type ToolObservationInput } from "./observation";
+import { nativeEditPath, observationInput, editPatch, observationOutput, patchLineCounts, stepTitle, writeLineCounts, type ToolObservationInput } from "./observation";
 import type {
   AgentRuntime,
   RuntimeAuthenticationOptions,
@@ -117,6 +117,8 @@ class PiToolController {
 class PiRuntimeSession implements RuntimeSession {
   private readonly listeners = new Set<RuntimeEventListener>();
   private readonly toolInputs = new Map<string, ToolObservationInput>();
+  /** The AI's title for each running shell step, by call id (display only). */
+  private readonly toolTitles = new Map<string, string>();
   /** When each running command's output was last forwarded (throttle), by call id. */
   private readonly progressAt = new Map<string, number>();
   private readonly writes = new Map<string, { before: string | undefined | null; after: string }>();
@@ -487,12 +489,14 @@ class PiRuntimeSession implements RuntimeSession {
     this.unsubscribePi?.();
     this.unsubscribePi = undefined;
     this.toolInputs.clear();
+    this.toolTitles.clear();
     this.listeners.clear();
   }
 
   private bind(session: AgentSession): void {
     this.unsubscribePi?.();
     this.toolInputs.clear();
+    this.toolTitles.clear();
     this.writes.clear();
     this.unsubscribePi = session.subscribe((event) => {
       switch (event.type) {
@@ -546,7 +550,9 @@ class PiRuntimeSession implements RuntimeSession {
           // A secret the AI writes into a file is a receipt line naming the file (src/secrets/files.ts addsSecret).
           const texts = file === undefined ? undefined : elisionTexts(event.toolName, Object(event.args), before ?? undefined);
           if (file !== undefined && texts && addsSecret(file, texts.before, texts.after)) input.secretWritten = displayPath(file, this.runtime.cwd);
-          this.emit({ type: "tool_start", toolName: event.toolName, toolCallId: event.toolCallId, input });
+          const description = stepTitle(event.toolName, event.args);
+          if (description !== undefined && this.toolTitles.size < 64) this.toolTitles.set(event.toolCallId, description);
+          this.emit({ type: "tool_start", toolName: event.toolName, toolCallId: event.toolCallId, input, ...(description !== undefined ? { description } : {}) });
           break;
         }
         case "tool_execution_update": {
@@ -563,6 +569,8 @@ class PiRuntimeSession implements RuntimeSession {
           this.progressAt.delete(event.toolCallId);
           const input = this.toolInputs.get(event.toolCallId);
           this.toolInputs.delete(event.toolCallId);
+          const description = this.toolTitles.get(event.toolCallId);
+          this.toolTitles.delete(event.toolCallId);
           const write = this.writes.get(event.toolCallId);
           this.writes.delete(event.toolCallId);
           const kept = !event.isError && event.result?.details?.sessionOnlyCheck === true;
@@ -571,11 +579,12 @@ class PiRuntimeSession implements RuntimeSession {
           const diff = !event.isError && event.toolName === "edit" ? editPatch(event.result) : undefined;
           // Lookup notes (empty results and skipped repeats) need bounded text even on success.
           this.emit({ type: "tool_end", toolName: event.toolName, toolCallId: event.toolCallId, input, output: ["bash", "casper_check", "read", "grep", "find", "ls"].includes(event.toolName) || event.isError || kept ? observationOutput(event.result) : undefined,
-            isError: event.isError, ...(kept ? { sessionOnlyCheck: true } : {}), ...(lines ? { lines } : {}), ...(diff ? { diff } : {}) });
+            isError: event.isError, ...(description !== undefined ? { description } : {}), ...(kept ? { sessionOnlyCheck: true } : {}), ...(lines ? { lines } : {}), ...(diff ? { diff } : {}) });
           break;
         }
         case "agent_end": {
           this.toolInputs.clear();
+          this.toolTitles.clear();
           this.progressAt.clear();
           const held = this.heldError; this.heldError = undefined;
           if (held) this.emit(event.willRetry ? { ...held, retrying: true } : held);
@@ -678,6 +687,14 @@ export function reportNowText(reason: string): string {
 
 /** Tools whose output may hold a secret (see scrubToolOutput): native reads and shells, dev servers, pages, language servers. */
 export const SCRUBBED_TOOLS: ReadonlySet<string> = new Set(["read", "bash", "powershell", "grep", "service", "browser", "lsp"]);
+
+/** What the shell's optional step title asks of the model (decision 25 counts it): the screen shows it with the command. */
+export const STEP_TITLE_HELP = "Optional title, at most 8 words, shown with the command (\"Run the unit tests\")";
+/** A shell tool's parameters with the optional `description` step title. Display only: Pi runs the command as before,
+ * and every check and approval reads the command, never the title. */
+export function withStepTitle<P extends TProperties>(parameters: TObject<P>) {
+  return Type.Object({ ...parameters.properties, description: Type.Optional(Type.String({ description: STEP_TITLE_HELP })) });
+}
 export const SCRUB_FAILED_TEXT = "Output not shown: Casper could not check it for device secrets. Try a smaller read or another command.";
 
 /** The path context the file and command gates read. denyRead follows the app's current workspace when the
@@ -1051,7 +1068,7 @@ export class PiRuntime implements AgentRuntime {
           });
           const execute: typeof bash.execute = (id, ...args) =>
             withToolReason(reasons.get(id) ?? "", () => bash.execute(id, ...args));
-          pi.registerTool(repairing({ ...bash, execute }));
+          pi.registerTool(repairing({ ...bash, parameters: withStepTitle(bash.parameters), execute }));
         }
         if (options.scrubToolOutput) pi.on("tool_result", async (event, ctx) => {
           if (!SCRUBBED_TOOLS.has(event.toolName)) return;

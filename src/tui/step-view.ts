@@ -6,8 +6,8 @@ import { commandLabel, displayPath, failureLines, formatDuration, redactPreview,
 import { renderPanel } from "./presentation";
 import { checkName, githubLabel } from "./tool-status";
 
-/** A finished step as the folded row names it. */
-export interface NamedStep { toolName: string; input?: ToolObservationInput; elapsedMs?: number }
+/** A finished step as the folded row names it. `description`: a shell step's title from the AI. */
+export interface NamedStep { toolName: string; input?: ToolObservationInput; elapsedMs?: number; description?: string }
 
 /** One kind of step in a folded row: "read a.ts, b.ts", "ran git status, bun test (2m05s)". */
 export interface StepPart {
@@ -27,6 +27,37 @@ function shown(text: string, max = 120): string {
   const line = redactPreview(text).replace(/\s+/g, " ").trim();
   const chars = [...line];
   return chars.length > max ? `${chars.slice(0, max - 1).join("")}…` : line;
+}
+
+/** Verbs a step title often starts with that do not just add -ed, as the fold row says them done. */
+const IRREGULAR: Readonly<Record<string, string>> = { run: "ran", rerun: "reran", build: "built", rebuild: "rebuilt", find: "found",
+  read: "read", write: "wrote", rewrite: "rewrote", make: "made", get: "got", set: "set", reset: "reset", put: "put", take: "took",
+  see: "saw", do: "did", redo: "redid", undo: "undid", keep: "kept", split: "split", cut: "cut", send: "sent", shut: "shut", hold: "held" };
+/** Verbs a step title often starts with that add -ed (-d, -ied, or a doubled last letter). */
+const REGULAR = new Set(["add", "analyze", "append", "apply", "archive", "back", "block", "boot", "cancel", "change", "check", "clean", "clear",
+  "clone", "close", "collect", "commit", "compare", "compile", "configure", "confirm", "convert", "copy", "count", "create", "debug", "delete",
+  "deploy", "diff", "disable", "download", "drop", "edit", "enable", "export", "extract", "fetch", "filter", "fix", "follow", "format",
+  "generate", "grep", "import", "initialize", "insert", "inspect", "install", "kill", "launch", "lint", "list", "load", "log", "look", "map",
+  "mark", "measure", "merge", "monitor", "mount", "move", "open", "parse", "patch", "pause", "ping", "plan", "poll", "prepare", "preview",
+  "print", "probe", "pull", "push", "query", "rebase", "reboot", "record", "reinstall", "reload", "remove", "rename", "render", "repair",
+  "replace", "replay", "restart", "restore", "resume", "retry", "review", "revert", "save", "scan", "search", "serve", "show", "skip", "sort",
+  "start", "stash", "stop", "submit", "summarize", "switch", "sync", "tag", "test", "time", "trace", "trim", "try", "uninstall", "unmount",
+  "update", "upgrade", "upload", "validate", "verify", "view", "wait", "watch", "zip"]);
+const DOUBLED = new Set(["commit", "debug", "drop", "format", "grep", "log", "map", "plan", "scan", "skip", "stop", "submit", "tag", "trim", "zip"]);
+
+/** "Run the unit tests" → "Ran the unit tests", for the fold row, which says what was done. A title that does not start
+ * with one of these verbs is kept as the AI wrote it. */
+export function pastTense(title: string): string {
+  const match = /^([A-Za-z]+)([\s\S]*)$/.exec(title);
+  if (!match) return title;
+  const verb = match[1]!, rest = match[2]!, lower = verb.toLowerCase();
+  let past = IRREGULAR[lower];
+  if (past === undefined && REGULAR.has(lower)) {
+    past = DOUBLED.has(lower) ? `${lower}${lower.at(-1)}ed` : lower.endsWith("e") ? `${lower}d`
+      : /[^aeiou]y$/.test(lower) ? `${lower.slice(0, -1)}ied` : `${lower}ed`;
+  }
+  if (past === undefined) return title;
+  return `${/^[A-Z]/.test(verb) ? `${past[0]!.toUpperCase()}${past.slice(1)}` : past}${rest}`;
 }
 
 /** What a group of finished steps did, by kind, each kind once and in the order it first ran: reads, searches, folders
@@ -58,8 +89,10 @@ export function describeSteps(steps: readonly NamedStep[], fit: ToolLineFit = {}
           add(verb!.toLowerCase(), ["PR", "PRs"], target.join(" "));
           break;
         }
-        const label = typeof input.command === "string" ? commandLabel(redactPreview(input.command), 60).replace(/ …$/, "") : step.toolName;
         const slow = step.elapsedMs !== undefined && step.elapsedMs >= SLOW_MS ? ` (${formatDuration(step.elapsedMs)})` : "";
+        // A titled step is named by its title, said done: "Ran the unit tests".
+        if (step.description) { add(`${pastTense(shown(step.description, 80))}${slow}`, ["step", "steps"], ""); break; }
+        const label = typeof input.command === "string" ? commandLabel(redactPreview(input.command), 60).replace(/ …$/, "") : step.toolName;
         add("ran", ["command", "commands"], `${shown(label)}${slow}`);
         break;
       }
@@ -73,8 +106,10 @@ export function describeSteps(steps: readonly NamedStep[], fit: ToolLineFit = {}
   return [...parts.values()];
 }
 
-/** One part as words: every name, the first `count` and how many more, or only how many. `base`: paths by file name. */
+/** One part as words: every name, the first `count` and how many more, or only how many. `base`: paths by file name.
+ * A part with no names (a titled step) is its words alone. */
 function partText(part: StepPart, count: number, base: boolean): string {
+  if (!part.names.length) return part.verb;
   const names = base && part.paths ? part.names.map(name => path.basename(name) || name) : part.names;
   const total = names.length;
   if (count >= total) return `${part.verb} ${names.join(", ")}`;

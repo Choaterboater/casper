@@ -266,7 +266,13 @@ such as `sudo -u root` or `env -i` before it; a script of
 several commands names its programs and leaves out `cd`, `export`, `echo` headings, loop words and comments
 (`git rev-parse, git log, git diff`), and a heredoc script says its program and length (`python3 script (12 lines)`).
 `/output` shows the whole command, secrets hidden. The `✓` or `✗` says how a call ended, so there
-is no "completed".
+is no "completed". The AI may give a shell step a title (the shell tool's optional `description`, at most 8 words; one
+line, secrets hidden, at most 80 characters). The row then shows the title with the real program,
+`✓ Run the unit tests · bun test`, and the folded row names the step by its title, said done:
+`└ Checked the port config · Ran the unit tests (12s)` (a title that starts with an uncommon verb is kept as written).
+A title never shows alone, and approval boxes, permission checks, receipts, `/output` and `--json` use the real
+command only; a step with no title keeps its usual label. The title costs every request about 30 tokens
+([decision 25](adr/0002/25-visibility-over-a-smaller-prompt.md)).
 
 On a rich terminal the steps show where they happen: under the AI's words, in plain words updated in
 place. Searches, reads and folder listings share one line that counts them,
@@ -300,15 +306,17 @@ counted as failed. A skipped check keeps its `○ … — skipped` line.
 One status row sits above the prompt while work runs: the spinner, what Casper is doing or waiting for,
 and `Esc stops`. It reads `Waiting for <provider/model> · 0s` as soon as a request is
 sent, and ticks elapsed time even when the provider sends nothing back yet or no intermediate progress events; progress updates change it to reasoning
-or tool preparation (`Reasoning · 3.0k chars · 12s`, `Preparing write · 1.2k chars · 3s`). When nothing has arrived for 10 s it reads `Waiting for <provider/model> · 14s`. While a step runs it names the newest one (`Running bun test · 4s (+1 more)`, `Reading src/x.ts · 1s`); while Casper's own check runs, `Checking test · 1m10s`. A narrow window cuts the words, never `Esc stops`. A provider retry is one dim `–` line in the transcript, `– Can't reach <provider> · trying again in 4s (1 of 3) · Esc stops`, not repeated in the status row; it names the cause: `<provider> is busy` for a rate limit, `<provider>'s host for this model failed` when one of OpenRouter's hosts fails, `<provider> answered with an error` for another error. A check Casper runs itself (typecheck, lint, test and the rest) adds a live row `• test · 3m05s` after 10 s with the last line it printed dimly under it (not at `/details quiet`); a plain terminal prints `[checks] test still running · 3m` once a minute for a long check, and `--json` prints nothing extra. It never displays hidden reasoning or generated arguments; the live rows and the status row step aside while a question or picker waits for you, never show more rows than fit above the prompt, and are gone when
+or tool preparation (`Reasoning · 3.0k chars · 12s`, `Preparing write · 1.2k chars · 3s`). When nothing has arrived for 10 s it reads `Waiting for <provider/model> · 14s`. While a step runs it names the newest one (`Running bun test · 4s (+1 more)`, `Reading src/x.ts · 1s`); while Casper's own check runs, `Checking test · 1m10s`. When the AI wrote a line before the running group of tool calls, the row starts with it: `Fixing the port test · Running bun test · 4s · Esc stops` (the line's last sentence, secrets hidden, gone when the group folds). A narrow window drops that line first, then cuts the words, never `Esc stops`. A provider retry is one dim `–` line in the transcript, `– Can't reach <provider> · trying again in 4s (1 of 3) · Esc stops`, not repeated in the status row; it names the cause: `<provider> is busy` for a rate limit, `<provider>'s host for this model failed` when one of OpenRouter's hosts fails, `<provider> answered with an error` for another error. A check Casper runs itself (typecheck, lint, test and the rest) adds a live row `• test · 3m05s` after 10 s with the last line it printed dimly under it (not at `/details quiet`); a plain terminal prints `[checks] test still running · 3m` once a minute for a long check, and `--json` prints nothing extra. It never displays hidden reasoning or generated arguments; the live rows and the status row step aside while a question or picker waits for you, never show more rows than fit above the prompt, and are gone when
 the receipt or the prompt returns. The plain terminal and scripts print one end line per tool call;
 having no live rows, they also print `• bash · bun test` when a call other than a look or an edit is still running after two seconds,
 so a long test run does not look hung.
 
 Help and results group related facts instead of one long paragraph. Assistant
-instructions favor the answer or action first, numbered human steps when needed,
-and one concrete next action when work remains. Unknown checks, estimates and
-remaining uncertainty stay explicit. This is guidance to the model; a provider's replies may not follow it.
+instructions ask for one short line before each group of tool calls (what the AI will do and why) and one line after
+it changes config, a device or another machine; the final answer favors the answer or action first, numbered human
+steps when needed, and one concrete next action when work remains. Unknown checks, estimates and
+remaining uncertainty stay explicit. This is guidance to the model; a provider's replies may not follow it
+([decision 25](adr/0002/25-visibility-over-a-smaller-prompt.md)).
 
 The prompt box keeps a fixed two-column gutter: `❯` while idle (also for the first command-line request), a dim `type to queue a message` on an empty working prompt (a draft keeps its gutter), `?` while an exclusive line input waits for you. An open choice box replaces the prompt entirely:
 there is no empty `?` input row. Typed answers appear inline in the selected Other row; approval comments appear beside No. An open question's

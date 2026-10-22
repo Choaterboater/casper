@@ -3,11 +3,13 @@ import { execFileSync } from "node:child_process";
 import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { createBashToolDefinition } from "@earendil-works/pi-coding-agent";
 import { CasperApp } from "../src/app";
 import { browserDefaults } from "../src/browser/discovery";
 import { loadProjectContext } from "../src/project/context";
 import { systemPromptAppend, DEFAULT_SYSTEM_PROMPT_APPEND, LEAN_SYSTEM_PROMPT_APPEND } from "../src/app/prompt";
 import { projectGuidance, type GuidanceModel, type GuidanceSetting } from "../src/runtime/guidance";
+import { withStepTitle } from "../src/runtime/pi";
 import type { AgentRuntime, RuntimeSession, RuntimeStartOptions, RuntimeTool } from "../src/runtime/types";
 import { SkillRegistry } from "../src/skills/registry";
 import { removeTempDir } from "./support/temp-dir";
@@ -17,16 +19,20 @@ import { removeTempDir } from "./support/temp-dir";
  * 4 characters. Raise a budget only on purpose: every request pays it. */
 
 /** A few percent above the sizes when this was set (October 2026: 11,754 characters fixed, about 4,000 o200k tokens
- * with Pi's own tools; it was 15,464 before the trims). */
+ * with Pi's own tools; it was 15,464 before the trims). Decision 25 (docs/adr/0002/25-visibility-over-a-smaller-prompt.md)
+ * lets the AI say what it does for up to about 1,000 tokens more; fixed and lean are raised only by what that uses: the
+ * line before each group of tool calls and the line after a change, 160 characters full and 77 lean. */
 const BUDGET = {
-  fixed: 12_200,
+  fixed: 12_360,
   /** Includes unchanged JSON schemas; lean wording saves at least a fifth of the full fixed request. */
-  lean: 9_000,
+  lean: 9_080,
   preamble: 1_200,
   /** casper_page is one short line: its guide comes back from the tool, never in the fixed prompt. */
   tools: { browser: 3_500, casper_read_untrusted: 1_100, casper_check: 950, delegate: 950, casper_session: 350, casper_page: 400 } as Record<string, number>,
   /** In a Git repository delegate also offers builders (about 50 tokens more). */
   delegateWithBuilders: 1_150,
+  /** Decision 25: the shell's optional step title, added to Pi's bash tool for every request (129 characters). */
+  stepTitle: 130,
 };
 
 const cleanup: Array<() => unknown> = [];
@@ -170,4 +176,10 @@ test("big hosted models get exactly the full text and descriptions; off restores
     expect(off.system).toBe(off.fullSystem);
     expect(off.toolText).toBe(hosted.toolText);
   }
+});
+
+test("the shell's optional step title adds only its own small budget to every request (decision 25)", () => {
+  const base = createBashToolDefinition(process.cwd()).parameters;
+  expect(JSON.stringify(withStepTitle(base)).length - JSON.stringify(base).length).toBeLessThan(BUDGET.stepTitle);
+  expect(Object.keys(withStepTitle(base).properties)).toEqual([...Object.keys(base.properties), "description"]);
 });

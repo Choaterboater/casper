@@ -1,4 +1,4 @@
-import { redactPreview } from "../tui/format";
+import { lineText, redactPreview } from "../tui/format";
 import { homedir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -23,6 +23,18 @@ export function nativeEditPath(input: string): string | undefined {
   catch { return undefined; } // Pi rejects an invalid file URL before any write.
 }
 export interface ToolObservationOutput { text: string; truncated: boolean }
+
+/** A shell step's title from the AI (the shell tool's optional `description`, decision 25): one plain line, secrets
+ * hidden, at most 80 characters. Display only: never evidence or a permission, and always shown with the command. */
+export function stepTitle(toolName: string, args: unknown): string | undefined {
+  if (toolName !== "bash" && toolName !== "powershell") return undefined;
+  const value = typeof args === "object" && args !== null ? Reflect.get(args, "description") : undefined;
+  if (typeof value !== "string") return undefined;
+  const text = lineText(redactPreview(value)).replace(/\s+/g, " ").trim();
+  if (!text) return undefined;
+  const chars = Array.from(text);
+  return chars.length > 80 ? `${chars.slice(0, 79).join("")}…` : text;
+}
 
 /** The AI's native tools that change files, as the ask-before-changes gate names them: edit, write and an lsp rename. */
 export function fileChangeTool(toolName: string, input: Record<string, unknown> | undefined): string | undefined {
