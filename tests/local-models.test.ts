@@ -81,7 +81,7 @@ test("finds Ollama, LM Studio, llama.cpp and vLLM where their variables point, w
       { id: "gemma3:4b", contextWindow: 128000, trained: 131072, servedLater: true, images: true, tools: false, request: { keep_alive: "30m" } },
       { id: "custom:latest", contextWindow: 8192, trained: 131072, tools: false, request: { temperature: 0.6, keep_alive: "30m" } },
     ] },
-    { provider: "lm-studio", name: "LM Studio", baseUrl: `${lmStudio.url}/v1`, models: [{ id: "qwen2.5-coder-7b", contextWindow: 16384 }, { id: "llava-7b", images: true }] },
+    { provider: "lm-studio", name: "LM Studio", baseUrl: `${lmStudio.url}/v1`, models: [{ id: "qwen2.5-coder-7b", contextWindow: 16384 }, { id: "llava-7b", servedLater: true, images: true }] },
     { provider: "llama.cpp", name: "llama.cpp", baseUrl: `${llama.url}/v1`, models: [{ id: "llama-3.2-1b", contextWindow: 8192 }] },
     { provider: "vllm", name: "vLLM", baseUrl: `${vllm.url}/v1`, models: [{ id: "Qwen/Qwen3-8B", contextWindow: 32768 }] },
   ]);
@@ -391,37 +391,77 @@ test("a request to a found server carries only the word local, never another pro
   }
 });
 
-test("an Ollama window not known until the model loads is read after its first answer, and a much smaller one is told once", async () => {
+test("an Ollama window is read after every answer: one not known until the model loads, a reload with another, never past what the model takes", async () => {
   const chunk = (body: unknown) => `data: ${JSON.stringify(body)}\n\n`;
-  let loaded = false;
+  // The window Ollama loaded the model with; undefined while it isn't loaded.
+  let served: number | undefined;
   const ollama = serve({
-    "POST /v1/chat/completions": () => { loaded = true; return new Response(
+    "POST /v1/chat/completions": () => { served ??= 4096; return new Response(
       chunk({ id: "1", object: "chat.completion.chunk", created: 0, model: "qwen3:8b", choices: [{ index: 0, delta: { role: "assistant", content: "hi" }, finish_reason: "stop" }] })
       + "data: [DONE]\n\n", { headers: { "content-type": "text/event-stream" } }); },
-    "GET /api/ps": () => Response.json({ models: loaded ? [{ name: "qwen3:8b", model: "qwen3:8b", context_length: 4096 }] : [] }),
+    "GET /api/ps": () => Response.json({ models: served ? [{ name: "qwen3:8b", model: "qwen3:8b", context_length: served }] : [] }),
   });
   const baseUrl = `${ollama.url}/v1`;
   const guessed = () => [{ provider: "ollama", name: "Ollama", baseUrl, models: [{ id: "qwen3:8b", contextWindow: 40960, trained: 40960, servedLater: true as const }] }];
   const runtime = await runtimeIn();
   registerLocalServers(runtime, guessed());
-  const model = runtime.getModel("ollama", "qwen3:8b")!;
+  let model = runtime.getModel("ollama", "qwen3:8b")!;
   expect(servedWindowWarning(model)).toBeUndefined();
-  await runtime.completeSimple(model, { messages: [{ role: "user", content: "hello", timestamp: Date.now() }] });
-  for (let i = 0; i < 100 && model.contextWindow !== 4096; i++) await Bun.sleep(5);
-  expect([model.contextWindow, model.maxTokens]).toEqual([4096, 1024]);
+  const answer = async (window: number) => {
+    await runtime.completeSimple(model, { messages: [{ role: "user", content: "hello", timestamp: Date.now() }] });
+    for (let i = 0; i < 200 && model.contextWindow !== window; i++) await Bun.sleep(5);
+    return [model.contextWindow, model.maxTokens];
+  };
+  expect(await answer(4096)).toEqual([4096, 1024]);
   expect(servedWindowWarning(model)).toBe("Ollama runs qwen3:8b with a 4,096-token window, though the model takes 40,960; Casper keeps the conversation inside 4,096. "
     + "To raise it, start Ollama with OLLAMA_CONTEXT_LENGTH=32768 ollama serve, or set PARAMETER num_ctx 32768 in a Modelfile (see docs/CONFIGURATION.md, Local models).");
-  // Read once: a later answer doesn't ask again, and a later list that only guesses keeps what was read.
-  await runtime.completeSimple(model, { messages: [{ role: "user", content: "again", timestamp: Date.now() }] });
-  await Bun.sleep(20);
-  expect(ollama.seen.filter((request) => request.path === "/api/ps").length).toBe(1);
-  registerLocalServers(runtime, guessed());
-  expect(runtime.getModel("ollama", "qwen3:8b")!.contextWindow).toBe(4096);
   // The notice comes once per session, in place of the small-window one.
   const models = new PiModels(runtime, os.tmpdir(), os.tmpdir());
   const session = { model } as unknown as Parameters<PiModels["smallWindowNotice"]>[0];
   expect(models.smallWindowNotice(session)).toContain("OLLAMA_CONTEXT_LENGTH=32768");
   expect(models.smallWindowNotice(session)).toBeUndefined();
+  // Ollama loads it again with a bigger window (its setting raised): the next answer reads it.
+  served = 16384;
+  expect(await answer(16384)).toEqual([16384, 4096]);
+  // A later list that only guesses keeps what was read.
+  registerLocalServers(runtime, guessed());
+  model = runtime.getModel("ollama", "qwen3:8b")!;
+  expect(model.contextWindow).toBe(16384);
+  // Never past the most the model takes, and read once per answer.
+  served = 65536;
+  expect(await answer(40960)).toEqual([40960, 10240]);
+  expect(ollama.seen.filter((request) => request.path === "/api/ps").length).toBe(3);
+});
+
+test("an LM Studio model not loaded at the look gets the window LM Studio loads it with, read after its answers", async () => {
+  const chunk = (body: unknown) => `data: ${JSON.stringify(body)}\n\n`;
+  let loaded: number | undefined;
+  const lmStudio = serve({
+    "GET /api/v0/models": () => Response.json({ data: [{ id: "qwen2.5-coder-7b", type: "llm", max_context_length: 32768,
+      ...loaded ? { state: "loaded", loaded_context_length: loaded } : { state: "not-loaded" } }] }),
+    "POST /v1/chat/completions": () => { loaded ??= 4096; return new Response(
+      chunk({ id: "1", object: "chat.completion.chunk", created: 0, model: "qwen2.5-coder-7b", choices: [{ index: 0, delta: { role: "assistant", content: "hi" }, finish_reason: "stop" }] })
+      + "data: [DONE]\n\n", { headers: { "content-type": "text/event-stream" } }); },
+  });
+  // Not loaded: only the most it takes is known, and it stands in until LM Studio loads it.
+  const found = await discoverLocalServers({ env: { LM_STUDIO_BASE_URL: lmStudio.url },
+    fetch: ((url: string, init?: RequestInit) => url.startsWith(lmStudio.url) ? fetch(url, init) : Promise.reject(new Error("refused"))) as typeof fetch });
+  expect(found.servers).toEqual([{ provider: "lm-studio", name: "LM Studio", baseUrl: `${lmStudio.url}/v1`,
+    models: [{ id: "qwen2.5-coder-7b", contextWindow: 32768, trained: 32768, servedLater: true }] }]);
+  const runtime = await runtimeIn();
+  registerLocalServers(runtime, found.servers);
+  const model = runtime.getModel("lm-studio", "qwen2.5-coder-7b")!;
+  const answer = async (window: number) => {
+    await runtime.completeSimple(model, { messages: [{ role: "user", content: "hello", timestamp: Date.now() }] });
+    for (let i = 0; i < 200 && model.contextWindow !== window; i++) await Bun.sleep(5);
+    return [model.contextWindow, model.maxTokens];
+  };
+  // LM Studio loaded it with its default of 4,096, then with 16,384 from its load settings.
+  expect(await answer(4096)).toEqual([4096, 1024]);
+  loaded = 16384;
+  expect(await answer(16384)).toEqual([16384, 4096]);
+  // Ollama's advice is for Ollama only.
+  expect(servedWindowWarning(model)).toBeUndefined();
 });
 
 test("no notice when Ollama serves at least half the model's window, or 32k or more", async () => {
