@@ -78,6 +78,7 @@
           </li>
           <li><a href="#released">Released</a>
             <ul>
+              <li><a href="#v030">v0.3.0: a context bar</a></li>
               <li><a href="#v0250">v0.2.50: receipts you can read</a></li>
               <li><a href="#v0246">v0.2.46: local models</a></li>
               <li><a href="#v0245">v0.2.45: browser sign-in</a></li>
@@ -124,7 +125,7 @@
         <h2 id="next-h">Next release</h2>
         <aside class="callout soon">
           <strong class="callout-title">Built, not released</strong>
-          <p>Nothing on the main branch is waiting: everything built so far is in v0.2.50. New work shows here before the next preview.</p>
+          <p>Nothing on the main branch is waiting: everything built so far is in v0.3.0. New work shows here before the next preview.</p>
         </aside>
       </section>
 
@@ -366,10 +367,23 @@
         and on the <a href="https://github.com/Choaterboater/casper/releases">Releases page</a>.</p>
         <div class="stack">
 
+        <details class="card release" id="v030" aria-labelledby="v030-h" open>
+          <summary class="release-heading">
+            <h3 id="v030-h">v0.3.0 · A context bar in the footer, diagrams in the browser, and small local models that get further</h3>
+            <span class="badge ok">current preview</span>
+          </summary>
+          <ul>
+            <li><strong>A context bar.</strong> The footer shows the context as a bar with the tokens in the window out of its size, and counts the task's tokens again.</li>
+            <li><strong>Diagrams in the browser.</strong> Every diagram opens as a page Casper makes from it, and network diagrams get device icons in tiers and port labels.</li>
+            <li><strong>Named Central logins.</strong> <code>/mcp login central &lt;name&gt;</code> saves a second Central login, with casper-network-mcp 0.1.6.</li>
+            <li><strong>Small models that get further.</strong> <code>delegate</code> uses the conversation's model, a refused command says what the AI can do instead, and <code>casper_read_untrusted</code> needs no schema.</li>
+          </ul>
+        </details>
+
         <details class="card release" id="v0250" aria-labelledby="v0250-h" open>
           <summary class="release-heading">
             <h3 id="v0250-h">v0.2.50 · Receipts you can read, an AI that says what it is doing, and local models that compact in time</h3>
-            <span class="badge ok">current preview</span>
+            <span class="badge">previous preview</span>
           </summary>
           <ul>
             <li><strong>Receipts you can read.</strong> The receipt is a card with labelled rows for checks, changes, config and other machines, and <code>/help receipt</code> explains its words.</li>
@@ -384,7 +398,7 @@
         <details class="card release" id="v0246" aria-labelledby="v0246-h" open>
           <summary class="release-heading">
             <h3 id="v0246-h">v0.2.46 · Local models that work, honest proof, and a browser that waits for web apps</h3>
-            <span class="badge">previous preview</span>
+            <span class="badge">released</span>
           </summary>
           <ul>
             <li><strong>Local models that work.</strong> <code>ollama/qwen3:8b</code> style names work, a server that just started is waited for, and models that can't use tools are marked in <code>/model</code>.</li>
@@ -395,7 +409,7 @@
           </ul>
         </details>
 
-        <details class="card release" id="v0245" aria-labelledby="v0245-h" open>
+        <details class="card release" id="v0245" aria-labelledby="v0245-h">
           <summary class="release-heading">
             <h3 id="v0245-h">v0.2.45 · Sign in for the AI's browser, the right network server, and fewer false Incompletes</h3>
             <span class="badge">released</span>
@@ -1276,7 +1290,7 @@
   <footer class="site-footer">
     <div class="container footer-inner">
       <div>
-        <p><strong>Casper 0.2.50</strong> · early preview, unsigned</p>
+        <p><strong>Casper 0.3.0</strong> · early preview, unsigned</p>
         <p><a href="https://github.com/Choaterboater/casper/blob/main/LICENSE">MIT licence</a> · © 2026 Choaterboater</p>
         <p>Built on the <a href="https://github.com/earendil-works/pi">Pi SDK</a>. Other parts keep their own licences (<a href="https://github.com/Choaterboater/casper/blob/main/THIRD_PARTY_NOTICES.txt">notices</a>).</p>
       </div>
