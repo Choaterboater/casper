@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { activeThemeName, useTheme } from "../src/tui/theme";
+import { GLYPHS } from "../src/tui/glyphs";
 import type { FoldView } from "../src/tui/terminal";
 import { ansiCells, cellsFor, type Cell } from "./support/ansi-cells";
 import { withEnv } from "./support/env";
@@ -10,6 +11,8 @@ const WIDTH = 100;
 const fold = (failures: FoldView["failures"], edits: FoldView["edits"] = []): FoldView => ({ parts: [], lines: [], edits, editLines: 10, failures });
 /** The default theme's warning, error and success colours (yellow, red, green), whatever theme an earlier test left on. */
 const AMBER = "33", RED = "31", GREEN = "32";
+/** The failure box's top line: square-cornered on the old Windows console. */
+const BOX_TOP = `${GLYPHS.corners[0]}─ ✗ bash · npm test — failed`;
 let previous = activeThemeName();
 beforeEach(() => { previous = activeThemeName(); useTheme("default"); });
 afterEach(() => { useTheme(previous); });
@@ -45,7 +48,7 @@ test("a failed step is amber while the AI works: its live row, its folded box, a
     f.terminal.write("✗ test · exit 1 · 2.3s\n");
   }, ["npm test — failed", "Error: boom", "make — failed", "test · exit 1"]);
   // The box's frame and title, the line of a failure that printed nothing, and the check line.
-  expect(tone(folded, "╭─ ✗ bash · npm test — failed")).toEqual([AMBER]);
+  expect(tone(folded, BOX_TOP)).toEqual([AMBER]);
   expect(tone(folded, "✗ bash · make — failed")).toEqual([AMBER]);
   expect(tone(folded, "✗ test · exit 1 · 2.3s")).toEqual([AMBER]);
   // What the step printed keeps the terminal's own colour.
@@ -88,5 +91,5 @@ test("NO_COLOR draws the same failures with no colour or style at all", async ()
     f.terminal.writeResult("✗ Failed — test failed\n");
   }, ["npm run lint — failed", "npm test — failed", "Failed — test failed"], true);
   for (const cell of cells.flat()) expect(cell).toMatchObject({ foreground: "default", background: "default", dim: false, bold: false, inverse: false });
-  for (const text of ["✗ bash · npm run lint — failed", "╭─ ✗ bash · npm test — failed", "▌ ✗ Failed — test failed"]) expect(cellsFor(cells, text).length).toBeGreaterThan(0);
+  for (const text of ["✗ bash · npm run lint — failed", BOX_TOP, "▌ ✗ Failed — test failed"]) expect(cellsFor(cells, text).length).toBeGreaterThan(0);
 });
