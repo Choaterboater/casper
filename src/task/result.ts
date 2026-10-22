@@ -10,7 +10,7 @@ import type { ServiceState } from "../services/manager";
 import type { SmokeReport } from "../services/smoke";
 import type { AppSmokeReport } from "../services/try-it";
 import { formatPageReport, pageFailureSummary } from "../services/page-report";
-import type { AutoCheckSkip, VerificationMode } from "../verify/mode";
+import { TESTS_WITHOUT_COMMAND, type AutoCheckSkip, type VerificationMode } from "../verify/mode";
 import type { ChangeProof } from "../verify/proof";
 import type { AcceptanceResult } from "../verify/acceptance";
 import { ROUND_MAX_TURNS, type RequirementsReview } from "./review";
@@ -100,6 +100,8 @@ export interface TaskResult {
   verificationDefaulted?: true;
   /** Why auto mode ran no check after the model turn. */
   autoSkipped?: AutoCheckSkip;
+  /** With no check to run, the project still has test files Casper has no command for: said as that, not "no tests". */
+  testsWithoutCommand?: true;
   /** `--max-turns` stopped the model after this many turns, before it finished. */
   turnLimit?: number;
   /** The spend pause stopped the model (Stop here, or a run that can't ask): what the task had used, and the limit. */
@@ -268,6 +270,8 @@ export function taskExitCode(report?: VerificationReport, task?: TaskResult, opt
 
 /** The reason on `/verify`'s report when the folder has nothing to run: exit 2 like any unfinished check, other words. */
 export const NO_CHECKS_FOUND = "no checks found";
+/** The same when the folder has test files Casper has no command for. */
+export const NO_TEST_COMMAND = "tests found, no command";
 
 /** "3 commands Casper stopped before they reached it": nothing the AI says about that machine happened through them. */
 export const remoteNotRunText = (commands: number) => `${commands} ${commands === 1 ? "command" : "commands"} Casper stopped before ${commands === 1 ? "it" : "they"} reached it`;
@@ -682,6 +686,7 @@ function receiptParts(task: TaskResult, options: ReceiptOptions, onScreen = fals
     const only = (what: string) => `only ${what} changed${task.changedPaths?.length ? ` (${pathList(task.changedPaths, safe, false)})` : ""}`;
     if (task.autoSkipped === "no-checks") {
       if (options.checksHintShown) why("– Not verified — no checks set up", "Not verified", "no checks set up");
+      else if (task.testsWithoutCommand) why(TESTS_WITHOUT_COMMAND_LINE, "Not checked", undefined, SET_UP_TEST_COMMAND);
       else why(NO_CHECKS_LINE, "Not checked", "no tests yet", '"add tests"');
     }
     else if (task.autoSkipped === "app-data") why(`– Checks skipped — ${only("a running app's database files")}; ${slash("/verify")} runs them anyway.`, "Checks skipped", only("a running app's database files"), slash("/verify"));
@@ -765,6 +770,10 @@ function changedShort(paths: string[], safe: (text: string) => string): string {
 
 /** The full no-checks line, shown once per session; later receipts say it short. */
 export const NO_CHECKS_LINE = '– Not checked — no tests yet. Say "add tests".';
+/** What to say when the project has tests but Casper has no command to run them. */
+const SET_UP_TEST_COMMAND = '"set up the test command"';
+/** The same line when the project has test files and no command runs them: there are tests, Casper can't run them. */
+export const TESTS_WITHOUT_COMMAND_LINE = `– Not checked — ${TESTS_WITHOUT_COMMAND}. Say ${SET_UP_TEST_COMMAND}.`;
 
 /** The undo reason when a task changed nothing: nothing to say on the receipt. */
 export const UNDO_NOTHING_CHANGED = "no files changed";
@@ -888,6 +897,7 @@ function withVerdict(task: TaskResult, body: string[], options: ReceiptOptions, 
         : task.remoteNotRun?.length ? `– Incomplete — ${remoteNotRunVerdict(task.remoteNotRun, safe)}`
         : task.wroteToolCallAsText ? "– Did not act — the model wrote a tool call as text instead of using it"
         : report?.reason === NO_CHECKS_FOUND && !report.results.length ? NO_CHECKS_LINE
+        : report?.reason === NO_TEST_COMMAND && !report.results.length ? TESTS_WITHOUT_COMMAND_LINE
         // The AI withdrew every browser check it recorded: nothing is left to show the page works.
         : task.browser?.status === "incomplete" && report?.status !== "incomplete" && task.browser.checks.length > 0
           && !countedBrowserChecks(task.browser.checks).length ? "– Incomplete — every browser check was withdrawn; none is left to show the page works"
@@ -895,8 +905,9 @@ function withVerdict(task: TaskResult, body: string[], options: ReceiptOptions, 
         : task.browser?.status === "incomplete" && report?.status !== "incomplete" && countedBrowserChecks(task.browser.checks).length > 0
           && countedBrowserChecks(task.browser.checks).every((check) => check.status === "pass") ? `– Incomplete — ${browserPassedVerdict(countedBrowserChecks(task.browser.checks))}`
         : "– Incomplete — not every check ran";
-      lines = [head(line, line === NO_CHECKS_LINE ? "Not checked" : line.startsWith("– Did not act") ? "Did not act" : "Incomplete", {
-        actions: line === NO_CHECKS_LINE ? ['"add tests"'] : stopped && options.surface === "one-shot" ? ["casper --continue"] : [] }), ...body];
+      lines = [head(line, line === NO_CHECKS_LINE || line === TESTS_WITHOUT_COMMAND_LINE ? "Not checked" : line.startsWith("– Did not act") ? "Did not act" : "Incomplete", {
+        actions: line === NO_CHECKS_LINE ? ['"add tests"'] : line === TESTS_WITHOUT_COMMAND_LINE ? [SET_UP_TEST_COMMAND]
+          : stopped && options.surface === "one-shot" ? ["casper --continue"] : [] }), ...body];
       break;
     }
     case "verified":
@@ -918,7 +929,9 @@ function withVerdict(task: TaskResult, body: string[], options: ReceiptOptions, 
       break;
     }
     case "not_verified":
-      lines = body.includes(NO_CHECKS_LINE) ? promote(NO_CHECKS_LINE, NO_CHECKS_LINE, "Not checked") : promote("– Not verified", `– Not verified — ${notVerifiedReason(task)}`, "Not verified"); break;
+      lines = body.includes(NO_CHECKS_LINE) ? promote(NO_CHECKS_LINE, NO_CHECKS_LINE, "Not checked")
+        : body.includes(TESTS_WITHOUT_COMMAND_LINE) ? promote(TESTS_WITHOUT_COMMAND_LINE, TESTS_WITHOUT_COMMAND_LINE, "Not checked")
+        : promote("– Not verified", `– Not verified — ${notVerifiedReason(task)}`, "Not verified"); break;
     case "unchanged":
       lines = body.length ? promote("– No files changed", "– No files changed", "No files changed") : body; break;
   }

@@ -192,8 +192,12 @@ explains a sweep that did not run. See [Crews](CREWS.md).
 
 **No checks set up.** If files changed but there are no checks, the change is `not_verified`
 (`– Not checked — no tests yet. Say "add tests".`), and the model writes tests and the check when
-you ask. The startup banner shows no checks line until there is something to check; `/status`
-says `none yet; say "add tests" and Casper writes some`. The one-shot
+you ask. When the project has tests but no command runs them (Jest-style tests and no `test` script, or pytest
+tests in a project that doesn't list pytest), the line is
+`– Not checked — Casper found tests but no command that runs them. Say "set up the test command".` instead, with
+the same outcome and exit code. The startup banner shows no checks line until there is something to check; `/status`
+says `none yet; say "add tests" and Casper writes some` (or `none: Casper found tests but no command that runs them;
+say "set up the test command"`). The one-shot
 exit code depends on who asked for checking:
 
 - checking only by default: exit 0;
@@ -220,7 +224,8 @@ what a shell command changed there is not counted.
 `[verify] No checks found in Documents. Tests found in sample-tools: /project sample-tools`, or
 `[verify] No tests in Documents yet. Say "add tests" and Casper writes some.` when no folder inside
 has tests. The receipt says `– Not checked — no tests yet. Say "add tests".` and a one-shot run exits 2, so a script never
-passes with nothing checked. In a project that has only tests, `/verify` says
+passes with nothing checked. In a folder with tests no command runs, both say so:
+`[verify] Casper found tests in demo but no command that runs them. Say "set up the test command".` In a project that has only tests, `/verify` says
 `[verify] No typecheck, lint or build command here, so Casper runs test.` and runs that.
 
 **Bash runs do not count.** When the model runs a test through its own bash tool, Casper reports
@@ -332,6 +337,7 @@ The lines below the verdict give the evidence:
 ✗ test could not start — go isn't installed on this computer; install it, then /verify test
 – Not verified — test ran via bash only (npm test: passed). Run /verify test to record a check.
 – Not checked — no tests yet. Say "add tests".
+– Not checked — Casper found tests but no command that runs them. Say "set up the test command".
 – Not verified — stale: files changed after the last passing test. Run /verify test.
 – No files changed, so Casper ran no checks
 ✓ Proven: test fails without this change (exit 1) and passes with it

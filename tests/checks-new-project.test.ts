@@ -10,11 +10,12 @@ import { SkillRegistry } from "../src/skills/registry";
 import { removeTempDir } from "./support/temp-dir";
 
 /** A project the model sets up in its own turn (package.json with a test script) is checked on that turn. */
-async function run(files: Record<string, string>, options: { projectYaml?: string; checkFirst?: string } = {}) {
+async function run(files: Record<string, string>, options: { projectYaml?: string; checkFirst?: string; before?: Record<string, string> } = {}) {
   const root = await mkdtemp(path.join(os.tmpdir(), "casper-new-checks-"));
   const home = path.join(root, "home"); const project = path.join(root, "project");
   await Promise.all([mkdir(home), mkdir(project)]);
   await writeFile(path.join(project, "notes.txt"), "Only notes here before the task.\n");
+  for (const [name, text] of Object.entries(options.before ?? {})) await writeFile(path.join(project, name), text);
   if (options.projectYaml) { await mkdir(path.join(project, ".casper")); await writeFile(path.join(project, ".casper/project.yaml"), options.projectYaml); }
   let tools: RuntimeTool[] = [];
   const checkRuns: string[] = [];
@@ -34,7 +35,7 @@ async function run(files: Record<string, string>, options: { projectYaml?: strin
             const check = tools.find((tool) => tool.name === "casper_check");
             checkRuns.push((await check!.execute({ check: options.checkFirst })).text);
           }
-          for (const [name, text] of Object.entries(files)) await writeFile(path.join(project, name), text);
+          for (const [name, text] of Object.entries(files)) { await mkdir(path.dirname(path.join(project, name)), { recursive: true }); await writeFile(path.join(project, name), text); }
           emit({ type: "assistant_response_start", provider: "fixture", model: "demo" });
           emit({ type: "assistant_text_delta", delta: "Set up the project.\n" });
           emit({ type: "assistant_response_end", stopReason: "stop" });
@@ -69,6 +70,29 @@ test("a package.json the model writes in this turn gets its test check on this t
   expect(result?.verification?.results.map((check) => check.name)).toEqual(["test"]);
   // The tests are new, so there is no "without the change" to prove against; the receipt says why, plainly.
   expect(output).toContain("the tests came with this change");
+}, 60_000);
+
+test("a project whose only check is a check script is checked with it after the change", async () => {
+  const { output, result } = await run({ "package.json": JSON.stringify({ name: "demo", scripts: { check: "bun -e \"process.exit(0)\"" } }) });
+  expect(output).not.toContain("no tests yet");
+  expect(output).toContain("✓ test passed");
+  expect(result?.verification?.results.map((check) => [check.name, check.command])).toEqual([["test", "bun run check"]]);
+}, 60_000);
+
+test("tests Casper has no command for are named on the receipt, not called missing", async () => {
+  const { output, result } = await run({ "package.json": "{}", "add.js": "module.exports = (a, b) => a + b;\n", "add.test.js": "test('adds', () => {});\n" });
+  expect(output).not.toContain("no tests yet");
+  expect(output).toContain("Casper found tests but no command that runs them");
+  expect(result).toMatchObject({ autoSkipped: "no-checks", testsWithoutCommand: true });
+});
+
+test("the model's first bun test in a test folder is checked on the same turn", async () => {
+  const { output, result } = await run({ "src/add.ts": "export const add = (a: number, b: number) => a + b;\n",
+    "tests/add.test.ts": "import { expect, test } from 'bun:test';\nimport { add } from '../src/add';\ntest('adds', () => expect(add(1, 2)).toBe(3));\n" },
+  { before: { "package.json": JSON.stringify({ name: "demo" }) } });
+  expect(output).not.toContain("no tests yet");
+  expect(output).toContain("✓ test passed");
+  expect(result?.verification?.results.map((check) => [check.name, check.command])).toEqual([["test", "bun test"]]);
 }, 60_000);
 
 test("a change that adds no check leaves the receipt as it was", async () => {

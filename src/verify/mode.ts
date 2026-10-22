@@ -68,12 +68,18 @@ export interface ChecksPlan {
   found?: string[];
   /** The dev server Casper starts to open changed pages after each change ("bun run dev"); auto mode only. */
   pages?: string;
+  /** No check, but the project has test files Casper has no command for. */
+  testsWithoutCommand?: true;
 }
 
 /** Something to say on the checks line: a check, a page check, or a /verify-only, lab or found check. */
 export function hasChecks(plan: ChecksPlan): boolean {
   return Boolean(plan.checks.length || plan.pages || plan.manual?.length || plan.lab?.length || plan.found?.length);
 }
+
+/** The project has test files but no command that runs them, in the words /status, /verify, the proof line and the
+ * receipt use (a project's `check` script or bun tests are found, so this is what is left: jest-style tests and no script). */
+export const TESTS_WITHOUT_COMMAND = "Casper found tests but no command that runs them";
 
 /** The banner's and /status's plain line for a ChecksPlan. */
 export function describeChecksPlan(plan: ChecksPlan): string {
@@ -83,7 +89,7 @@ export function describeChecksPlan(plan: ChecksPlan): string {
     + (plan.found?.length ? ` · found, not saved: ${plan.found.join(", ")} (/verify add <name> saves one)` : "");
   // Pages run only in auto mode (Casper opens them itself after a change).
   const checks = [...plan.checks, ...(plan.pages && plan.mode === "auto" ? [`pages (${plan.pages})`] : [])];
-  if (!checks.length) return `none yet; say "add tests" and Casper writes some${manual}`;
+  if (!checks.length) return plan.testsWithoutCommand ? `none: ${TESTS_WITHOUT_COMMAND}; say "set up the test command"${manual}` : `none yet; say "add tests" and Casper writes some${manual}`;
   return `${checks.join(", ")} — ${plan.mode === "auto" ? "run after each change"
     : plan.slow ? "offered with /verify (they take a minute or more)" : "offered with /verify (verification.mode: offer)"}${manual}`;
 }

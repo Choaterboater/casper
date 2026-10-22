@@ -35,6 +35,9 @@ export interface ProjectModel {
   frameworks: string[];
   packageManager: string | null;
   commands: Partial<Record<ProjectCommand, string>>;
+  /** Test files Casper found (in a test folder, next to the code or at the top) with no test command to run them:
+   * Casper says that, not "no tests yet". Absent when there is a test command or no test file. */
+  testsWithoutCommand?: true;
   verificationScopes?: Partial<Record<ProjectCommand, VerificationScope>>;
   /** Checks the project named under verify.checks, next to the four built-in ones. */
   namedChecks?: Record<string, NamedCheckSpec>;
@@ -126,8 +129,10 @@ function sortedUnique(values: Iterable<string>): string[] {
 //    uv and poetry run unittest as `uv run python -m unittest` (there is no `unittest` program).
 // 7: plain Python scripts (no pyproject or requirements) with unittest test files run them too, and a top-level
 //    test*.py is part of the fingerprint.
+// 8: a `check` script fills the test, typecheck or lint check by what it runs; bun tests no script runs run with
+//    `bun test`; test files with no command are noted (testsWithoutCommand); the test files found are in the fingerprint.
 /** Bump when detection changes what it derives from the same files, so cached models are rebuilt. */
-const DETECTION_VERSION = 7;
+const DETECTION_VERSION = 8;
 /** requirements.txt, requirements-dev.txt, requirements_test.txt ...: Python projects without a pyproject. */
 const REQUIREMENTS = /^requirements[\w.-]*\.txt$/i;
 /** Python package names (as a whole word, not inside another name) and the framework they give. */
@@ -140,6 +145,27 @@ const PYTHON_NETWORK_SDKS: Array<[RegExp, string]> = [
 ];
 /** A project-local virtual environment decides which Python runs the tools. */
 export const VIRTUALENVS = [".venv", "venv"];
+/** Where Casper looks for test files, besides the top level: the test folders and the code folders. */
+const TEST_SEARCH = ["tests", "test", "__tests__", "spec", "src", "lib"];
+/** How deep and how much it reads there: tests are near the top, and a big tree must not slow every open. */
+const TEST_SEARCH_DEPTH = 4, TEST_SEARCH_ENTRIES = 3000;
+/** Dependencies, build output and environments: their tests are not the project's. */
+const NOT_THE_PROJECTS = new Set(["node_modules", "vendor", "dist", "build", "out", "target", "coverage", "venv", "site-packages", "__pycache__"]);
+/** Bun's test files (Jest's and Vitest's names too): add.test.ts, add_test.js, add.spec.tsx, add_spec.mjs. */
+const JS_TEST_FILE = /[._](?:test|spec)\.[cm]?[jt]sx?$/;
+/** Other languages' test files, only to say a project has tests Casper has no command for: test_a.py, a_test.py,
+ * a_spec.rb, a_test.rb, AddTest.java, AddTests.cs, AddTest.kt. Go, Rust and Swift always have their own command. */
+const OTHER_TEST_FILE = /^test_.+\.py$|_test\.(?:py|rb)$|_spec\.rb$|Tests?\.(?:java|kt|cs)$/;
+/** Test runners, type checkers and linters a `check` script may run, as whole words. */
+const TEST_RUNNERS = /(?<![\w-])(?:bun test|vitest|jest|mocha|ava|node --test|playwright test|cypress run)(?![\w-])/;
+const TYPE_CHECKERS = /(?<![\w-])(?:tsc|vue-tsc|svelte-check|astro check)(?![\w-])/;
+const LINTERS = /(?<![\w-])(?:eslint|biome|oxlint|stylelint|prettier --check)(?![\w-])/;
+
+/** A file Casper counts as a test: one the model adds may give the project a test command (`bun test`) this turn. */
+export function isTestFile(file: string): boolean {
+  const name = file.slice(Math.max(file.lastIndexOf("/"), file.lastIndexOf("\\")) + 1);
+  return JS_TEST_FILE.test(name) || OTHER_TEST_FILE.test(name);
+}
 
 async function rootSignals(root: string): Promise<string[]> {
   let names: string[];
@@ -157,10 +183,13 @@ async function fingerprint(
   root: string,
   signals: string[],
   overrides: ProjectModelOverrides,
+  /** The test files Casper found: a first one (an AI's mid-task, anywhere it looks) rebuilds the model. */
+  tests: readonly string[],
 ): Promise<string> {
   const hash = createHash("sha256");
   hash.update(`detection:${DETECTION_VERSION}\n`);
   hash.update(JSON.stringify(overrides));
+  hash.update(`tests:${tests.join("\n")}\n`);
 
   for (const name of signals) {
     try {
@@ -312,7 +341,66 @@ function nodeCommands(
       result[kind] = scriptCommand(packageManager, selected);
     }
   }
+  // A `check` script is the project's own check: it fills the check it runs (the tests, a type check or a lint) when
+  // no script of that name does. One Casper can't read runs as the test check, since it is how the project checks.
+  if (scripts.check) {
+    const kind = checkScriptKind(scripts);
+    result[kind] ??= scriptCommand(packageManager, "check");
+  }
   return result;
+}
+
+/** What the `check` script runs, with the scripts it runs in turn (`bun run lint && bun run unit`), a few levels down:
+ * the tests when any part runs a test runner, else a type check, else a lint, else (unknown) the tests. */
+function checkScriptKind(scripts: Record<string, string>): ProjectCommand {
+  const texts: string[] = [];
+  const visit = (name: string, depth: number) => {
+    const text = scripts[name];
+    if (typeof text !== "string" || texts.includes(text)) return;
+    texts.push(text);
+    if (depth >= 3) return;
+    for (const match of text.matchAll(/\b(?:npm|pnpm|yarn|bun)\s+(?:run\s+)?([\w:.-]+)/g)) visit(match[1]!, depth + 1);
+    if (/\bnpm\s+t(?:est)?\b/.test(text)) visit("test", depth + 1);
+  };
+  visit("check", 0);
+  const all = texts.join("\n");
+  if (TEST_RUNNERS.test(all)) return "test";
+  if (TYPE_CHECKERS.test(all)) return "typecheck";
+  if (LINTERS.test(all)) return "lint";
+  return "test";
+}
+
+/** The project's test files (bun's, and other languages' to say they have no command), relative to its root, at most 20:
+ * at the top level and in its test and code folders, a few levels down, never in dependencies, build output, hidden
+ * folders or links. None in the home folder: its src is not a project. */
+async function projectTests(root: string): Promise<string[]> {
+  if (path.resolve(root) === path.resolve(os.homedir())) return [];
+  const found: string[] = [];
+  let budget = TEST_SEARCH_ENTRIES;
+  const visit = async (relative: string, depth: number): Promise<void> => {
+    if (found.length >= 20 || budget <= 0) return;
+    const entries = (await readdir(path.join(root, relative), { withFileTypes: true }).catch(() => []))
+      .sort((left, right) => left.name.localeCompare(right.name));
+    budget -= entries.length;
+    for (const entry of entries) {
+      if (found.length >= 20) return;
+      const child = relative ? `${relative}/${entry.name}` : entry.name;
+      if (entry.isFile() && isTestFile(entry.name)) found.push(child);
+      else if (entry.isDirectory() && depth < TEST_SEARCH_DEPTH && !entry.name.startsWith(".") && !NOT_THE_PROJECTS.has(entry.name)
+        && (relative || TEST_SEARCH.includes(entry.name))) await visit(child, depth + 1);
+    }
+  };
+  await visit("", 0);
+  return found;
+}
+
+/** A test file imports bun:test: Bun runs it, whatever the lockfile says. */
+async function importsBunTest(root: string, files: readonly string[]): Promise<boolean> {
+  for (const file of files.slice(0, 10)) {
+    const text = await readFile(path.join(root, file), "utf8").then((source) => source.slice(0, 64 * 1024), () => "");
+    if (/\bfrom\s*["']bun:test["']|\brequire\(\s*["']bun:test["']\s*\)/.test(text)) return true;
+  }
+  return false;
 }
 
 /** Where Python tools run: the project's own runner (uv, poetry), else its virtual environment's
@@ -432,6 +520,7 @@ async function detectModel(
   project: ProjectInfo,
   signals: string[],
   overrides: ProjectModelOverrides,
+  tests: readonly string[],
 ): Promise<ProjectModel> {
   const names = new Set(signals);
   const packageSource = await readText(project.root, "package.json");
@@ -508,6 +597,14 @@ async function detectModel(
     const flag = process.platform === "darwin" ? " --disable-sandbox" : "";
     commands = { test: `swift test${flag}`, build: `swift build${flag}`, ...commands };
   }
+  // Tests no command runs yet: Bun runs its own test files with no script (in a Bun project, or wherever they import
+  // bun:test); any others are said as found, never as "no tests yet".
+  let testsWithoutCommand = false;
+  if (!commands.test && !overrides.commands?.test?.trim() && tests.length) {
+    const bunTests = tests.filter((file) => JS_TEST_FILE.test(path.basename(file)));
+    if (bunTests.length && (packageManager === "bun" || await importsBunTest(project.root, bunTests))) commands = { ...commands, test: "bun test" };
+    else testsWithoutCommand = true;
+  }
   const structure = await detectRepositoryStructure(project.root);
 
   return {
@@ -517,6 +614,7 @@ async function detectModel(
     frameworks: overrides.frameworks ?? sortedUnique(frameworks),
     packageManager,
     commands: { ...commands, ...(overrides.commands ?? {}) },
+    ...(testsWithoutCommand ? { testsWithoutCommand: true as const } : {}),
     verificationScopes: overrides.verificationScopes,
     ...(overrides.namedChecks && Object.keys(overrides.namedChecks).length ? { namedChecks: overrides.namedChecks } : {}),
     architecture: overrides.architecture ?? structure.architecture,
@@ -532,14 +630,15 @@ export async function loadProjectModel(
   const homeDir = options.homeDir ?? os.homedir();
   const overrides = options.overrides ?? {};
   const signals = await rootSignals(project.root);
-  const currentFingerprint = await fingerprint(project.root, signals, overrides);
+  const tests = await projectTests(project.root);
+  const currentFingerprint = await fingerprint(project.root, signals, overrides, tests);
   const filePath = cachePath(project.root, homeDir);
   const cached = await readCache(filePath, currentFingerprint);
   if (cached) {
     return cached;
   }
 
-  const model = await detectModel(project, signals, overrides);
+  const model = await detectModel(project, signals, overrides, tests);
   await writeCache(filePath, { schemaVersion: 1, fingerprint: currentFingerprint, model });
   return model;
 }
