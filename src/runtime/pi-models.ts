@@ -272,6 +272,11 @@ export class PiModels {
     await this.updatePolicy(settings => { settings.modelRoles = roles; });
     return roles;
   }
+  /** "ollama/hf.co/owner/model:tag": the provider is before the first slash, the id is all the rest. */
+  private static parseReference(text: string): ModelReference | undefined {
+    const slash = text.indexOf("/");
+    return slash > 0 && slash < text.length - 1 ? { provider: text.slice(0, slash), id: text.slice(slash + 1) } : undefined;
+  }
   private defaultReference(settings = this.preferences()): ModelReference | undefined {
     const provider = settings.getDefaultProvider(); const id = settings.getDefaultModel();
     return provider && id ? { provider, id } : undefined;
@@ -460,7 +465,7 @@ export class PiModels {
 
   async create<T extends { session: AgentSession }>(cwd: string, manager: SessionManager,
     create: (options: { settingsManager: SettingsManager; modelRuntime: ModelRuntime; model: AgentSession["model"] }) => Promise<T>,
-    readOnly?: Pick<RuntimeReadOnlyStartOptions, "modelRole" | "keepEffort"> & { compact?: boolean }): Promise<T> {
+    readOnly?: Pick<RuntimeReadOnlyStartOptions, "modelRole" | "keepEffort" | "sessionModel"> & { compact?: boolean }): Promise<T> {
     const preferences = this.preferences();
     // A repository is never trusted implicitly: projectTrusted:false is Pi's single gate for
     // `.pi/` extensions (in-process code), SYSTEM.md/APPEND_SYSTEM.md, prompts, themes and
@@ -478,20 +483,28 @@ export class PiModels {
     this.fitCompaction(settingsManager, () => made?.systemPrompt !== undefined && Array.isArray(made.state?.tools)
       ? fixedRequestTokens(made.systemPrompt, made.state.tools) : OWN_PART);
     const recorded = manager.buildSessionContext().model;
+    // A helper whose role is unset takes the saved default; when there is none, or it isn't signed in, the session's own
+    // model (one picked for this run only, a local model in a fresh home). Without it the helper had no model at all.
+    const fallback = readOnly?.sessionModel ? PiModels.parseReference(readOnly.sessionModel) : undefined;
+    const saved = this.defaultReference(preferences);
     // The model this start needs may be a found server's, still being probed: only then does the start wait for it.
-    const wanted = recorded ? { provider: recorded.provider, id: recorded.modelId } : this.defaultReference(preferences);
+    const wanted = recorded ? { provider: recorded.provider, id: recorded.modelId } : saved ?? fallback;
     // Only a model on a server Casper looks for is waited for, and only that server: a missing cloud model never waits.
     const role = !recorded && readOnly?.modelRole && this.getRoles()[readOnly.modelRole] ? readOnly.modelRole : undefined;
     await this.localWhen(() => role ? this.unresolved(`@${role}`) : Boolean(wanted && isLocalProvider(wanted.provider) && !this.catalog.getModel(wanted.provider, wanted.id)),
       role ? { here: true } : { provider: wanted?.provider });
+    const usable = (reference: ModelReference) => Boolean(this.catalog.getModel(reference.provider, reference.id)) && this.catalog.hasConfiguredAuth(reference.provider);
+    const startDefault = fallback && (!saved || !usable(saved)) ? fallback : saved;
+    if (startDefault === fallback && fallback && isLocalProvider(fallback.provider))
+      await this.localWhen(() => !this.catalog.getModel(fallback.provider, fallback.id), { provider: fallback.provider });
     const roles = this.getRoles();
     const routed = readOnly?.modelRole && roles[readOnly.modelRole]
       ? resolveModelSelection(`@${readOnly.modelRole}`, this.catalog.getModels(), roles, this.defaultReference(preferences)) : undefined;
-    const reference = recorded ? { provider: recorded.provider, id: recorded.modelId } : routed?.reference ?? this.defaultReference(preferences);
-    const saved = reference && recorded ? this.recorded(manager, reference) : undefined;
+    const reference = recorded ? { provider: recorded.provider, id: recorded.modelId } : routed?.reference ?? startDefault;
+    const kept = reference && recorded ? this.recorded(manager, reference) : undefined;
     const helper = !recorded && !routed && readOnly?.modelRole && !readOnly.keepEffort ? HELPER_EFFORT[readOnly.modelRole] : undefined;
     const selection: Selection = { reference, source: recorded ? "conversation" : reference ? "default" : "none",
-      role: saved?.role ?? routed?.role, effort: saved?.effort ?? routed?.effort ?? (!recorded && !helper && reference && this.autoDefault(reference) ? "auto" : undefined) };
+      role: kept?.role ?? routed?.role, effort: kept?.effort ?? routed?.effort ?? (!recorded && !helper && reference && this.autoDefault(reference) ? "auto" : undefined) };
     const model = reference ? this.catalog.getModel(reference.provider, reference.id) : undefined;
     let initializing = true;
     const modelRuntime = new Proxy(this.catalog, {

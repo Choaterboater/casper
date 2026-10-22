@@ -1237,7 +1237,7 @@ export class PiRuntime implements AgentRuntime {
         return { ...created, services, diagnostics: services.diagnostics };
       };
       return models.create(cwd, sessionManager, build, bounded && { ...(readOnly?.modelRole ? { modelRole: readOnly.modelRole } : {}),
-        ...(readOnly?.keepEffort ? { keepEffort: true } : {}), compact: !readOnlyTools });
+        ...(readOnly?.keepEffort ? { keepEffort: true } : {}), ...(bounded.sessionModel ? { sessionModel: bounded.sessionModel } : {}), compact: !readOnlyTools });
     };
 
     this.runtime = await createAgentSessionRuntime(createRuntime, {

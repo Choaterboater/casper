@@ -1017,3 +1017,32 @@ test("/login's last row adds a model server: the address, the name kept, no key;
   expect(result.auth).not.toContain("ollama-127-0-0-1"); // No key given: nothing in the login file for it.
   expect(result.status).toMatchObject({ provider: `ollama-127-0-0-1-${new URL(ollama).port}`, model: "qwen3:8b" });
 }, 60_000);
+
+test("a helper with no role set works on the model this run picked when nothing is saved: a local model in a fresh home", async () => {
+  const { home, project } = await looksHome();
+  // --model picks for this run only (persist: false): nothing is saved, and no role is set.
+  const result = await startWithLooks(home, project, [here], `
+    const picked = await session.selectModel({ query: "ollama/qwen3:8b", persist: false });
+    const helperRuntime = new PiRuntime();
+    try {
+      const helper = await helperRuntime.startReadOnly({ cwd: process.cwd(), signal: new AbortController().signal, maxTurns: 1, maxToolCalls: 1, modelRole: "fast",
+        sessionModel: session.getStatus().provider + "/" + session.getStatus().model });
+      console.log(JSON.stringify({ picked: picked.selected, helper: helper.getStatus() }));
+    } finally { await helperRuntime.dispose(); }`);
+  expect(result.picked).toBe(true);
+  expect(result.helper).toMatchObject({ provider: "ollama", model: "qwen3:8b", auth: "configured" });
+}, 60_000);
+
+test("a helper with no role set still takes a saved default that works, not the session's model", async () => {
+  const { home, project } = await looksHome();
+  await mkdir(path.join(home, ".casper"), { recursive: true });
+  await writeFile(path.join(home, ".casper", "settings.json"), JSON.stringify({ defaultProvider: "ollama", defaultModel: "gemma3:4b" }));
+  const result = await startWithLooks(home, project, [here], `
+    const helperRuntime = new PiRuntime();
+    try {
+      const helper = await helperRuntime.startReadOnly({ cwd: process.cwd(), signal: new AbortController().signal, maxTurns: 1, maxToolCalls: 1, modelRole: "fast",
+        sessionModel: "ollama/qwen3:8b" });
+      console.log(JSON.stringify({ helper: helper.getStatus() }));
+    } finally { await helperRuntime.dispose(); }`);
+  expect(result.helper).toMatchObject({ provider: "ollama", model: "gemma3:4b" });
+}, 60_000);

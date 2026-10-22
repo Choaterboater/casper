@@ -1027,7 +1027,7 @@ ID, `provider/id`, `@default` (your saved default model), or another role, optio
 Where roles are used: explorer subagents and the [untrusted-text reader](READER.md) use `fast` (the
 reader falls back to the session's model), reviewer subagents and the
 [acceptance check](VERIFICATION.md#independent-acceptance-check-experimental) use `review`, and
-roles that are not set fall back to Casper's startup default. See [DELEGATION.md](DELEGATION.md).
+roles that are not set fall back to Casper's startup default, or to the conversation's model when no default is saved or its provider isn't signed in. See [DELEGATION.md](DELEGATION.md).
 An explorer or reviewer whose role is not set works at `low` or `medium` effort (never above
 your saved effort); set the role, with or without `:effort`, to choose instead. The
 [`/security-review` AI review](SECURITY_CHECKS.md) keeps your effort.

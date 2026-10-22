@@ -685,3 +685,18 @@ test("review: a helper gets the project's denyRead as private paths, like the ma
   await agents.run(task);
   expect(child.options?.privatePaths).toEqual(["/data/greencli-logs"]);
 });
+
+test("each child is told the main session's model now, for a role that is not set", async () => {
+  let model: string | undefined = "ollama/qwen3:8b";
+  const child = new ChildRuntime();
+  const agents = new SubagentManager({ runtimeFactory: () => child, cleanupGraceMs: 20, sessionModel: () => model });
+  cleanup.push(() => agents.close());
+  await agents.run(task);
+  expect(child.options?.sessionModel).toBe("ollama/qwen3:8b");
+  model = undefined;
+  const next = new ChildRuntime();
+  const none = new SubagentManager({ runtimeFactory: () => next, cleanupGraceMs: 20, sessionModel: () => model });
+  cleanup.push(() => none.close());
+  await none.run(task);
+  expect(next.options && "sessionModel" in next.options).toBe(false);
+});
