@@ -888,6 +888,12 @@ only. See [platform support](PLATFORM_SUPPORT.md) for host-validation limits.
   Plain lines that arrive before the first prompt (a fast typist, or a pipe) are
   read in order once Casper starts reading. On a plain terminal, lines a person types during
   work go to the AI or the queue as above; piped lines that arrive during work are dropped.
+- A line you send while the AI's step only waits ends that wait, so the AI reads the line now. A slow shell command
+  (one the AI gave no time limit, with **Slow commands** on) moves to the background and keeps running, as it would
+  at its limit. The browser's sign-in window closes as if you had closed it, and a sign-in you finished there is kept
+  (`[browser] Closing the sign-in window so Casper reads your line; …`). A service start stops waiting for readiness
+  and keeps starting. Other steps finish first, as before: a command with its own time limit or on Casper's ssh login,
+  a slow command when 4 already run in the background, MCP calls, helpers (`delegate`) and checks (`casper_check`).
 
 Daily commands include `/help`, `/status`, `/project`, `/diff`, `/verify`, `/skills`,
 `/mcp`, `/lsp`, `/browser`, `/permissions`, `/model`, `/effort` and:

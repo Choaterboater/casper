@@ -1281,7 +1281,8 @@ export const CLEANUP_NOTE = "[The command finished, but Casper could not confirm
  * wanted to write /etc/hosts") so it stops retrying. Pi writes the full output of a long command to a temp file;
  * that file goes in a private folder of Casper's (os.tmpdir() is read at that moment), not the shared temp folder.
  * A command run without its own timeout gets the default limit; with slow commands on, one still running then moves
- * to the shell's background commands (same process, same sandbox wrap) and the call returns its output so far.
+ * to the shell's background commands (same process, same sandbox wrap) and the call returns its output so far. A line
+ * the person sends the AI moves it there sooner (src/app/steer-waits.ts).
  * Such a command that stalls (no output and no CPU for a while, src/runtime/stalled-commands.ts) is ended, in the
  * foreground or the background, with the reason added to its output.
  */
@@ -1369,13 +1370,35 @@ export function casperBashOperations(shell: RuntimeShell | undefined, local: Bas
         }
       })();
       if (!background) return await run;
+      const adopt = () => options.signal?.aborted ? undefined
+        : background.adopt({ command, startedAt, output: seen, done: run, stop: () => stop.abort(), ...(logDir ? { logDir } : {}) });
+      /** `why` ends where "moved to the background" starts; from now on its output goes there. */
+      const moveOut = (handed: NonNullable<ReturnType<typeof adopt>>, why: string) => {
+        options.signal?.removeEventListener("abort", forward);
+        onData(Buffer.from(`\n[${why} moved to the background as ${handed.id} (stdin closed). `
+          + `Casper adds a note when it ends.${handed.log ? ` Its output goes on in ${handed.log}.` : ""} To stop it: the service tool (stop, service ${handed.id}) when you have it; the person can use /tasks.]\n`));
+        moved = handed.write;
+        return { exitCode: 0 };
+      };
       let timer: ReturnType<typeof setTimeout> | undefined;
       const late = new Promise<"late">((resolve) => { timer = setTimeout(() => resolve("late"), limit * 1000); });
-      const first = await Promise.race([run, late]).finally(() => clearTimeout(timer));
+      // A line the person sends moves it to the background now, as the limit does, so the AI reads the line: Pi reads
+      // one only once every call of the step has ended. Not on Casper's ssh login, which may still ask for a password;
+      // with no room in the background the command runs on and the line waits, as before.
+      const line = Promise.withResolvers<"line">();
+      const unlisten = wrapped.ssh ? undefined : shell?.whenSteered?.(() => line.resolve("line"));
+      let first: Awaited<typeof run> | "late" | "line";
+      try {
+        first = await Promise.race([run, late, line.promise]);
+        if (first === "line") {
+          const handed = adopt();
+          if (handed) return moveOut(handed, `The person sent you a message, so after ${Math.round((Date.now() - startedAt) / 1000)} s this`);
+          first = await Promise.race([run, late]);
+        }
+      } finally { clearTimeout(timer); unlisten?.(); }
       if (first !== "late") return first;
       options.signal?.removeEventListener("abort", forward);
-      const handed = options.signal?.aborted ? undefined
-        : background.adopt({ command, startedAt, output: seen, done: run, stop: () => stop.abort(), ...(logDir ? { logDir } : {}) });
+      const handed = adopt();
       if (!handed) {
         stop.abort();
         await run.catch(error => { if (error instanceof ProcessCleanupError) throw error; });
@@ -1383,10 +1406,7 @@ export function casperBashOperations(shell: RuntimeShell | undefined, local: Bas
         onData(Buffer.from(`\n[Stopped at the limit: ${background.max} slow commands already run in the background.]\n`));
         throw new Error(`timeout:${limit}`);
       }
-      onData(Buffer.from(`\n[Still running after ${limit} s, so it moved to the background as ${handed.id} (stdin closed). `
-        + `Casper adds a note when it ends.${handed.log ? ` Its output goes on in ${handed.log}.` : ""} To stop it: the service tool (stop, service ${handed.id}) when you have it; the person can use /tasks.]\n`));
-      moved = handed.write;
-      return { exitCode: 0 };
+      return moveOut(handed, `Still running after ${limit} s, so it`);
     },
   };
 }

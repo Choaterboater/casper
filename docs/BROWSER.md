@@ -381,8 +381,11 @@ The AI's browser is headless and starts with an empty profile, so a page behind 
   the page. Sign in there, then close the window. Casper prints
   `[browser] A Chrome window is open at <site>. Sign in there, then close the window. ...` while it waits (up to 10
   minutes; then the window is closed and the AI is told it timed out).
+- A line you send the AI while the window is open closes it as if you had, so the AI reads your line now. A sign-in
+  you finished there is kept. Casper prints `[browser] Closing the sign-in window so Casper reads your line; a
+  sign-in you finished there is kept.`
 - The AI's next page opens headless on the same profile, signed in. The AI gets only how the window ended
-  (`window closed`, `cancelled` or `timed out`), never cookies, storage or what you typed.
+  (`window closed`, `cancelled`, `timed out` or `person wrote`), never cookies, storage or what you typed.
 - The sign-in lasts until this browser session closes: the profile is deleted then, as always. A crash that makes
   Casper start a fresh Chrome deletes it too, so you sign in again.
 - A run that can't ask (`casper -p`, a script) and a computer with no screen (a NAS over ssh, Linux without

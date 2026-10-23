@@ -55,9 +55,10 @@ function showBody(bytes: Buffer, complete: boolean, contentType: string): string
  * is the current task's smoke checks, which `check` records into and Casper replays after the change. */
 /** `commands`: slow bash commands moved to the background (cmd-1), which status lists and logs and stop take. */
 /** `approve`: the same gate the AI's bash has when no sandbox runs (a numbered question), or undefined to start. */
+/** `whenSteered`: a line the person sends the AI ends a start's wait for readiness (src/app/steer-waits.ts). */
 export function serviceTool(manager: () => ServiceManager, lifetime?: AbortSignal, smoke?: () => SmokeChecks | undefined,
   approve?: (command: string, signal: AbortSignal, options?: { reached?: boolean }) => Promise<string | undefined>,
-  commands?: () => BackgroundCommands | undefined): RuntimeTool {
+  commands?: () => BackgroundCommands | undefined, whenSteered?: (end: () => void) => () => void): RuntimeTool {
   const describe = (services: ServiceManager, name: string) => services.status().find(service => service.name === name)!;
   /** The /preview app and public link start only after the person asks (and, for the link, says yes). */
   const allowed = (services: ServiceManager, name: string) => {
@@ -117,8 +118,37 @@ export function serviceTool(manager: () => ServiceManager, lifetime?: AbortSigna
       body: showBody(bytes, complete, response.headers.get("content-type") ?? ""), timeMs };
   }
 
+  /** A start or restart waits for readiness. A line the person sends the AI ends the wait, not the start: the service
+   * keeps starting, the turn's stop no longer reaches it (as for a slow command in the background), and the call
+   * returns now, so the AI reads the line (Pi reads one only once every call of the step has ended). */
+  async function unlessSteered<T>(work: (signal: AbortSignal) => Promise<T>, signal: AbortSignal): Promise<T | "line"> {
+    if (!whenSteered) return work(signal);
+    const own = new AbortController();
+    const forward = () => own.abort(signal.reason);
+    if (signal.aborted) own.abort(signal.reason); else signal.addEventListener("abort", forward, { once: true });
+    const line = Promise.withResolvers<"line">();
+    const unlisten = whenSteered(() => line.resolve("line"));
+    try {
+      const working = work(own.signal);
+      const first = await Promise.race([working, line.promise]);
+      // How it goes on shows in status and logs.
+      if (first === "line") working.catch(() => {});
+      return first;
+    } finally { unlisten(); signal.removeEventListener("abort", forward); }
+  }
+
   async function run(services: ServiceManager, args: Record<string, unknown>, signal: AbortSignal): Promise<Record<string, unknown>> {
-    const start = async (name: string) => { const { restarted } = await services.ensureFresh(name, signal); return { restarted, service: describe(services, name) }; };
+    // The call's start goes on. A restart that is still stopping the old run shows "starting" a moment later; it says so
+    // now, so the AI doesn't take it for stopped and start it a second time.
+    const steered = (name: string | undefined) => {
+      const service = name ? describe(services, name) : undefined;
+      return { ...(service ? { service: service.state === "starting" || service.state === "ready" ? service : { ...service, state: "starting" } } : {}),
+        guidance: "The person sent you a message, so this stopped waiting for the service to be ready. It keeps starting: read the message; status or logs show when it is ready." };
+    };
+    const start = async (name: string) => {
+      const fresh = await unlessSteered(inner => services.ensureFresh(name, inner), signal);
+      return fresh === "line" ? steered(name) : { restarted: fresh.restarted, service: describe(services, name) };
+    };
     const action = args.action;
     const background = commands?.();
     if (action === "status") {
@@ -156,11 +186,18 @@ export function serviceTool(manager: () => ServiceManager, lifetime?: AbortSigna
       if (refused) throw new Error(refused);
       // Joining the same command then takes the declared start's path, so a stale one restarts.
       // The sandbox may fail to start on this very command: then it asks too, before it runs not sandboxed.
-      return start((await services.startCommand(command, { ready: spec, timeoutMs, ...(approve ? { approve: (inner: AbortSignal) => approve(command, inner, { reached: true }) } : {}) }, signal)).name);
+      const started = await unlessSteered(launch => services.startCommand(command, { ready: spec, timeoutMs, ...(approve ? { approve: (inner: AbortSignal) => approve(command, inner, { reached: true }) } : {}) }, launch), signal);
+      // An ad-hoc service is named when its slot is made: found by its command.
+      if (started === "line") return steered(services.status().find(service => service.name.startsWith("adhoc-") && service.command === command)?.name);
+      return start(started.name);
     }
     const name = string(args.service, "service");
     if (action === "start") return start(allowed(services, name));
-    if (action === "restart") return { service: await services.restart(allowed(services, name), signal) };
+    if (action === "restart") {
+      const target = allowed(services, name);
+      const restarted = await unlessSteered(inner => services.restart(target, inner), signal);
+      return restarted === "line" ? steered(target) : { service: restarted };
+    }
     if (action === "stop") { const stopped = await services.stop(name); return { stopped, service: describe(services, name) }; }
     if (action === "logs") {
       const lines = Math.min(200, Math.max(1, Number.isInteger(args.lines) ? Number(args.lines) : 40));

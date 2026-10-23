@@ -125,7 +125,9 @@ it moves to the background instead of being stopped: the AI gets its output so f
 (`cmd-1`), the command keeps running under the same sandbox it started in, `/tasks` lists it, and when it
 ends the AI gets a short note with its exit code and last lines of output. Its input is closed, so a
 command waiting for you to type ends instead. At most 4 run this way at once; past that a slow command
-is stopped at 2 minutes as before. A command the AI gave its own time limit is stopped at it, and servers
+is stopped at 2 minutes as before. A line you send the AI while one runs moves it to the background at
+once (when there is room), so the AI reads your line instead of waiting for the command. A command the
+AI gave its own time limit is stopped at it, and servers
 still go through the service tool. Every one is stopped, with whatever it started, when Casper exits.
 It is on. Turn it off with `/settings` (it writes `slow_commands: false`) and a slow command is
 stopped at 2 minutes. A project file can't set it.
