@@ -1,6 +1,7 @@
 import { constants } from "node:fs";
 import { AsyncLocalStorage } from "node:async_hooks";
 import { access, mkdir, readFile, stat, writeFile } from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
 import { parse } from "yaml";
 import { createEditToolDefinition, createWriteToolDefinition, type ToolDefinition } from "@earendil-works/pi-coding-agent";
@@ -37,7 +38,8 @@ export class CheckChangeGuard {
   private taskKey: unknown;
   private sessionOnly = false;
   private pending = Promise.resolve();
-  constructor(private readonly root: string, private readonly options?: CheckChangeOptions) {}
+  /** `home`: where the shell's `~` and $HOME lead (a test seam). */
+  constructor(private readonly root: string, private readonly options?: CheckChangeOptions, private readonly home = os.homedir()) {}
 
   private async configured(text?: string): Promise<Record<string, string>> {
     const source = text ?? await readFile(path.join(this.root, ".casper/project.yaml"), "utf8").catch(() => "");
@@ -123,22 +125,23 @@ export class CheckChangeGuard {
     if (readOnlyCommand(command, { root: this.root })) return undefined;
     // Executing the configured command is not permission to rewrite it.
     if (Object.values(this.options?.commands() ?? await this.configured()).includes(command.trim())) return undefined;
-    const { targets, unclearCopy } = shellWritePaths(command, this.root);
+    const { targets, globs, anywhere } = shellWritePaths(command, this.root, this.home);
     const refusal = "Not run: this command may change a configured check. Use native edit/write so Casper can show old → new and ask 'Change the test check for this project?'";
-    if (unclearCopy) return refusal;
     for (const file of await this.files()) {
       const relative = path.relative(realpathLongest(this.root), file);
       if (isOutside(relative)) continue;
-      if (targets.some((target) => !isOutside(path.relative(realpathLongest(target), file)))) return refusal;
+      if (anywhere || targets.some((target) => !isOutside(path.relative(realpathLongest(target), file)))
+        || globs.some((glob) => globReaches(glob, file))) return refusal;
     }
     return undefined;
   }
 }
 
 /** Keep literal cd operands scoped to their shell; a copy's destination can replace all its descendants. */
-function shellWritePaths(command: string, root: string): { targets: string[]; unclearCopy: boolean } {
+function shellWritePaths(command: string, root: string, home: string): { targets: string[]; globs: string[]; anywhere: boolean } {
   const targets: string[] = [];
-  let unclearCopy = false;
+  const globs: string[] = [];
+  let anywhere = false;
   const visit = (text: string, folders: string[], depth: number) => {
     if (depth > 4) return;
     let cursor = 0;
@@ -153,7 +156,7 @@ function shellWritePaths(command: string, root: string): { targets: string[]; un
         while (/^-[LP]+$/.test(args[operand] ?? "")) operand++;
         if (args[operand] === "--") operand++;
         if (args.length === operand + 1) {
-          const moved = folders.map((folder) => path.resolve(folder, args[operand]!));
+          const moved = folders.map((folder) => path.resolve(folder, expandHome(args[operand]!, folder, home) ?? args[operand]!));
           folders = text.slice(end).trimStart().startsWith("&&") ? moved : [...folders, ...moved];
         }
         continue;
@@ -167,11 +170,16 @@ function shellWritePaths(command: string, root: string): { targets: string[]; un
           ? joined.startsWith("--") ? joined.slice(joined.indexOf("=") + 1) : joined.replace(/^-[a-zA-Z]*t(?=.)/, "")
           : args.at(-1);
         if (destination) {
-          if (/[$`~*?{}[\]]/.test(destination)) unclearCopy = true;
-          operands.push(destination);
+          // Where the shell would put it: a path, a glob or, past a variable it can't know, the folder above or anywhere.
+          for (const folder of folders) {
+            const where = copyDestination(destination, folder, home);
+            targets.push(...where.paths);
+            globs.push(...where.globs);
+            if (where.anywhere) anywhere = true;
+          }
         }
       }
-      for (const operand of operands) for (const folder of folders) targets.push(path.resolve(folder, operand));
+      for (const operand of operands) for (const folder of folders) targets.push(path.resolve(folder, expandHome(operand, folder, home) ?? operand));
       if (["sh", "bash", "dash", "zsh", "ksh", "ash", "fish"].includes(name)) {
         const flag = args.findIndex((word) => /^-[a-z]*c[a-z]*$/i.test(word));
         if (flag >= 0 && args[flag + 1]) visit(args[flag + 1]!, folders, depth + 1);
@@ -181,7 +189,88 @@ function shellWritePaths(command: string, root: string): { targets: string[]; un
     }
   };
   visit(command, [root], 0);
-  return { targets, unclearCopy };
+  return { targets, globs, anywhere };
+}
+
+/** The most brace lists expand to before a destination is taken as unknown. */
+const BRACE_LIMIT = 32;
+/** Parts of a word the shell replaces with something Casper can't know (a variable, a command) or can't list (a brace
+ * list it doesn't split), and the glob characters, which it matches against the configured checks. */
+const UNKNOWN = /[$`{}]/;
+const GLOB = /[*?[\]]/;
+
+/** A path word with `~`, `~+`, $HOME and $PWD as the shell expands them; undefined for another user's `~name` or `~-`. */
+function expandHome(word: string, folder: string, home: string): string | undefined {
+  let text = word;
+  const tilde = /^~([^/]*)(?=\/|$)/.exec(text);
+  if (tilde) {
+    if (tilde[1] === "") text = home + text.slice(1);
+    else if (tilde[1] === "+") text = folder + text.slice(2);
+    else return undefined;
+  }
+  return text.replace(/\$(?:\{HOME\}|HOME\b)/g, () => home).replace(/\$(?:\{PWD\}|PWD\b)/g, () => folder);
+}
+
+/** A cp destination as the shell reads it: `~`, $HOME and the like expanded, and brace lists split. Each result is a
+ * path, a glob, or past a part Casper can't know the folder above it; `anywhere` when that part leads the word, the
+ * home of another user, or a `..` after it could climb out. */
+function copyDestination(word: string, folder: string, home: string): { paths: string[]; globs: string[]; anywhere: boolean } {
+  const paths: string[] = [], globs: string[] = [];
+  const text = expandHome(word, folder, home);
+  if (text === undefined) return { paths, globs, anywhere: true };
+  for (const each of braces(text)) {
+    const parts = each.split(/[\\/]/);
+    const first = parts.findIndex((part) => UNKNOWN.test(part) || GLOB.test(part));
+    if (first < 0) { paths.push(path.resolve(folder, each)); continue; }
+    const absolute = path.isAbsolute(each);
+    // A `..` after an unknown part could climb out of the folder above it; so could an unknown first part.
+    if ((first === 0 && !absolute) || parts.slice(first).includes("..")) return { paths, globs, anywhere: true };
+    const above = path.resolve(folder, parts.slice(0, first).join("/") || path.sep);
+    if (parts.slice(first).some((part) => UNKNOWN.test(part))) paths.push(above);
+    else globs.push(path.join(realpathLongest(above), ...parts.slice(first)));
+  }
+  return { paths, globs, anywhere: false };
+}
+
+/** Simple brace lists ({a,b}) split into each word, as the shell does. A nested list, a range or too many words stays
+ * as it is, and its braces then mark it unknown. */
+function braces(word: string): string[] {
+  let words = [word];
+  for (;;) {
+    const next: string[] = [];
+    let split = false;
+    for (const each of words) {
+      const list = /\{([^{}]*,[^{}]*)\}/.exec(each);
+      if (!list) { next.push(each); continue; }
+      split = true;
+      for (const choice of list[1]!.split(",")) next.push(each.slice(0, list.index) + choice + each.slice(list.index + list[0].length));
+    }
+    if (!split) return words;
+    if (next.length > BRACE_LIMIT) return [word];
+    words = next;
+  }
+}
+
+/** Whether a glob names the file or a folder it is in (a copy into a folder can replace what it holds). Matched with
+ * `/` separators: `*` and `?` stay within one name, `[…]` is a set of characters. */
+function globReaches(glob: string, file: string): boolean {
+  const slash = (text: string) => text.split(path.sep).join("/");
+  let source = "";
+  const pattern = slash(glob);
+  for (let index = 0; index < pattern.length; index++) {
+    const char = pattern[index]!;
+    if (char === "*") source += "[^/]*";
+    else if (char === "?") source += "[^/]";
+    else if (char === "[" && pattern.indexOf("]", index + 2) > 0) {
+      const close = pattern.indexOf("]", index + 2);
+      const set = pattern.slice(index + 1, close).replace(/^!/, "^").replace(/\\/g, "\\\\");
+      source += `[${set}]`;
+      index = close;
+    } else source += char.replace(/[.+^${}()|\\[\]]/g, "\\$&");
+  }
+  const match = new RegExp(`^${source}$`);
+  for (let at = file, before = ""; at !== before; before = at, at = path.dirname(at)) if (match.test(slash(at))) return true;
+  return false;
 }
 
 /** Only write operands, never a reader's input or a copy's source. Output operators inside quotes are data. */

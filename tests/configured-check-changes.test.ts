@@ -274,13 +274,75 @@ test("recursive shell copies cannot reach execution or ordinary approval through
   let ran = false, approved = false;
   const ops = casperBashOperations({ wrap: async (command) => ({ command }), approve: async () => { approved = true; return undefined; } },
     { exec: async () => { ran = true; return { exitCode: 0 }; } }, project.guard);
-  for (const command of ["cp -r replacement/. .", "cp -r replacement/. ~+", "cp -r replacement/. ~/project", "cp -a replacement/. ./", "cp -R replacement/. .", "cp -r -t. replacement/.", "cp -Rt. replacement/.", "cp -r --target-directory=. replacement/.", "cp -r --target-dir=. replacement/.", "env cp -r replacement/. .", "sh -c 'cp -r replacement/. .'", "cd replacement && cp -r . .."]) {
+  for (const command of ["cp -r replacement/. .", "cp -r replacement/. ~+", "cp -a replacement/. ./", "cp -R replacement/. .", "cp -r -t. replacement/.", "cp -Rt. replacement/.", "cp -r --target-directory=. replacement/.", "cp -r --target-dir=. replacement/.", "env cp -r replacement/. .", "sh -c 'cp -r replacement/. .'", "cd replacement && cp -r . .."]) {
     await expect(ops.exec(command, project.root, { onData() {} })).rejects.toThrow("Use native edit/write");
   }
   expect(ran).toBe(false);
   expect(approved).toBe(false);
   expect(await readFile(path.join(project.root, "check.ts"), "utf8")).toBe("real check");
   expect(await project.guard.shellReason("cp source.txt output.txt")).toBeUndefined();
+  // `~` is the shell's home: the project reached through it is refused, as when it is named any other way.
+  const home = new CheckChangeGuard(project.root, undefined, path.dirname(project.root));
+  expect(await home.shellReason(`cp -r replacement/. ~/${path.basename(project.root)}`)).toContain("Use native edit/write");
+});
+
+test("a copy or move out of the project is not refused for how its destination is written: ~, a brace list, a glob or a trailing /", async () => {
+  const project = await setup();
+  const folder = await mkdtemp(path.join(os.tmpdir(), "casper-copy-out-")); roots.push(folder);
+  const name = path.basename(folder);
+  // Shell words: forward slashes, which a shell on Windows reads too (a backslash is an escape there).
+  const outside = folder.split(path.sep).join("/");
+  // `~` leads to the folder that holds it, as a home holds a folder you copy to.
+  const guard = new CheckChangeGuard(project.root, undefined, path.dirname(folder));
+  for (const command of [
+    `cp -r configs docs ${outside}/`,
+    `cp -r configs docs ~/${name}/`,
+    `cp -r {configs,docs} ~/${name}`,
+    `cp README.md notes.md ${outside}/{configs,docs}/`,
+    `mkdir -p ~/${name}/dest && cp -r configs docs ~/${name}/dest/`,
+    `cp *.md ${outside}/archive/`,
+    `cp -r docs ${outside}/*/`,
+    `cp -r docs "$HOME/${name}"`,
+    `cp -r docs \${HOME}/${name}/`,
+    `cp -r docs ${outside}/$NAME/`,
+    `cp -t ~/${name} README.md`,
+    `mv configs docs ~/${name}/`,
+    `mv {configs,docs} ${outside}/`,
+    `cd ~/${name} && touch notes.md`,
+    `echo done > ~/${name}/log.txt`,
+  ]) expect({ command, reason: await guard.shellReason(command) }).toEqual({ command, reason: undefined });
+});
+
+test("a copy, move or other write onto a configured check is still refused, however its path is written", async () => {
+  const project = await setup();
+  const name = path.basename(project.root);
+  const guard = new CheckChangeGuard(project.root, undefined, path.dirname(project.root));
+  for (const command of [
+    "cp output.txt .casper/project.yaml",
+    "cp output.txt .casper/quick-test.ts",
+    `cp output.txt ~/${name}/.casper/quick-test.ts`,
+    `cp -r replacement/. ~/${name}/`,
+    "cp output.txt .casper/*.ts",
+    "cp output.txt .casper/{quick-test,other}.ts",
+    "cp output.txt $DEST",
+    "cp output.txt \"`pwd`/.casper/quick-test.ts\"",
+    "cp output.txt ~other/project",
+    `cp output.txt ${os.tmpdir().split(path.sep).join("/")}/$X/../..`,
+    "mv output.txt .casper/project.yaml",
+    "mv .casper /tmp/dest",
+    // `~` and $HOME lead into the project here, for every write, not only a copy's destination.
+    `mv output.txt ~/${name}/.casper/project.yaml`,
+    `mv output.txt "$HOME/${name}/.casper/quick-test.ts"`,
+    `cd ~/${name} && cp output.txt .casper/quick-test.ts`,
+    `echo test > ~/${name}/.casper/project.yaml`,
+  ]) expect({ command, refused: (await guard.shellReason(command))?.includes("Use native edit/write") }).toEqual({ command, refused: true });
+});
+
+test("the docs say how a command's paths and a copy's destination are read, and which ones are still refused", async () => {
+  const docs = (await readFile(path.join(import.meta.dir, "..", "docs/VERIFICATION.md"), "utf8")).replace(/\s+/g, " ");
+  expect(docs).toContain("Paths are read as the shell reads them: `~` and `$HOME` are your home folder and `~+` and `$PWD` the folder the command runs in. In a copy's destination, a brace list `{a,b}` is each of its words");
+  expect(docs).toContain("copying or moving files out of the project, to a folder written any of those ways, is never refused, and a write to a check through `~` is refused like any other");
+  expect(docs).toContain("A copy's destination Casper can't know (a variable or a command at its start, another user's `~name`, or a `..` after an unknown part) is refused as before.");
 });
 
 test("missing, quoted and test-folder check scripts remain guarded at their write boundary", async () => {
