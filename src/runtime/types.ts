@@ -115,6 +115,9 @@ export interface RuntimeShell {
   /** Stalled commands (on unless turned off): seconds of no output and no CPU that end a command run without its own
    * timeout. Undefined: such a command is left to its limit. */
   stallSeconds?(): number | undefined;
+  /** A line the person sends the AI while a slow command runs: `end` is called once, and the command moves to the
+   * background as it would at its limit, so the AI reads the line now. Returns the function that stops listening. */
+  whenSteered?(end: () => void): () => void;
 }
 
 /** Safe preflight diagnostic; callers may surface this exact message without forwarding provider errors. */

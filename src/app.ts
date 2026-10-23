@@ -92,6 +92,7 @@ import { submitDuringWork, cycleEffort } from "./app/during-work";
 import { browserSession, serviceManager, stopDebugger, backgroundTasks } from "./app/task-tools";
 import type { BigModelChoice } from "./app/big-model";
 import { openProjectCommand } from "./app/workspace";
+import { SteerWaits } from "./app/steer-waits";
 import { ensureSessionWorkspace, handleBranchCommand, handleSwitchCommand } from "./app/session-branches";
 import { setCheckProgress } from "./verify/progress";
 import type { PageSession } from "./pages/session";
@@ -211,6 +212,8 @@ export class CasperApp {
   services?: ServiceManager;
   /** Slow commands moved to the background (src/runtime/background-commands.ts), for the session. */
   backgroundCommands?: BackgroundCommands;
+  /** Steps that only wait (a sign-in window, a slow command, a service start) and end when a line reaches the AI. */
+  readonly steerWaits = new SteerWaits();
   debugSession?: DebugSession;
   references?: ReferenceLibrary;
   lsp?: LSPManager;

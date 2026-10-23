@@ -69,9 +69,10 @@ export async function prepareCapabilities(app: CasperApp, task: string): Promise
 }
 
 /** A check/request owns only the services it starts; an explicit start/restart instead preserves that service. */
-function taskServiceTool(app: CasperApp): RuntimeTool {
+export function taskServiceTool(app: CasperApp): RuntimeTool {
   const tool = serviceTool(() => serviceManager(app), app.commandAbort?.signal, () => app.smokeTask,
-    app.shell?.approve ? (command, signal, options) => app.shell!.approve!(command, signal, options) : undefined, () => app.backgroundCommands);
+    app.shell?.approve ? (command, signal, options) => app.shell!.approve!(command, signal, options) : undefined, () => app.backgroundCommands,
+    app.steerWaits.listen);
   return { ...tool, async execute(args, signal, context) {
     const running = new Set(app.services?.status().filter(service => service.state === "ready" || service.state === "starting").map(service => service.name));
     const result = await tool.execute(args, signal, context);
@@ -167,6 +168,11 @@ export function browserSession(app: CasperApp): BrowserSession {
       return picked?.trim() === "Yes";
     },
     signInNotice: (message) => { if (!app.closing) { app.events.ensureLineBreak(); app.output.write(`[browser] ${message}\n`); } },
+    // A line you send the AI while the window is open closes it as you would, so the AI reads the line now.
+    whenSteered: (end) => app.steerWaits.listen(() => {
+      if (!app.closing) { app.events.ensureLineBreak(); app.output.write("[browser] Closing the sign-in window so Casper reads your line; a sign-in you finished there is kept.\n"); }
+      end();
+    }),
     checkPictures: () => app.projectContext?.showPages !== "off",
     services: () => serviceManager(app),
   });

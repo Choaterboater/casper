@@ -2,6 +2,7 @@ import { afterEach, expect, test } from "bun:test";
 import { mkdir, mkdtemp, realpath } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { SteerWaits } from "../src/app/steer-waits";
 import { discoverBrowser } from "../src/browser/discovery";
 import { BrowserSession, screenAvailable, type BrowserSessionOptions } from "../src/browser/session";
 import { removeTempDir } from "./support/temp-dir";
@@ -85,3 +86,20 @@ browserTest("the action's own time waits for the person, and a window left open 
   const left = await fixture({ confirmSignIn: async () => true, signInTimeoutMs: 300, signInNotice: () => {} });
   expect(await left.session.run({ action: "signin", url: `${left.base}/login` })).toMatchObject({ signedIn: "timed out" });
 }, 45_000);
+
+browserTest("a line the person sends the AI while the window is open ends the wait as closing it does: the sign-in is kept and the AI hears they wrote", async () => {
+  const waits = new SteerWaits();
+  const f = await fixture({ confirmSignIn: async () => true, whenSteered: waits.listen, signInNotice: () => {} });
+  const signin = f.session.run({ action: "signin", url: `${f.base}/login` });
+  let told = 0;
+  for (let i = 0; i < 300 && !told; i++) { told = waits.steered(); if (!told) await Bun.sleep(50); }
+  expect(told).toBe(1);
+  const result = await signin;
+  expect(result).toMatchObject({ signedIn: "person wrote", url: `${f.base}/login`,
+    guidance: "The person sent you a message while the sign-in window was open, so it was closed; a sign-in they finished there is kept. Read the message first. Open the page again to check you are signed in. The sign-in lasts until this browser session closes." });
+  expect(await f.session.run({ action: "open", url: `${f.base}/` })).toMatchObject({ title: "signed in" });
+  // A window closed the usual way stops listening too: a later line ends nothing.
+  const closed = await fixture({ confirmSignIn: async () => true, whenSteered: waits.listen });
+  expect(await closed.session.run({ action: "signin", url: `${closed.base}/login` })).toMatchObject({ signedIn: "window closed" });
+  expect(waits.steered()).toBe(0);
+}, 60_000);

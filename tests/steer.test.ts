@@ -4,6 +4,9 @@ import os from "node:os";
 import path from "node:path";
 import { isolatedEnvironment } from "../src/platform/environment";
 import type { AgentRuntime } from "../src/runtime/types";
+import { currentShell } from "../src/app/runtime-start";
+import { browserSession, serviceManager, taskServiceTool } from "../src/app/task-tools";
+import type { BrowserSessionOptions } from "../src/browser/session";
 import { richApp } from "./support/app";
 import { removeTempDir } from "./support/temp-dir";
 
@@ -23,8 +26,9 @@ const sse = (body: string) => new Response(body + "data: [DONE]\n\n", { headers:
 const answer = (text: string) => sse(chunk({ role: "assistant", content: text }, "stop"));
 const listCall = () => sse(chunk({ role: "assistant", tool_calls: [{ index: 0, id: "call_0", type: "function", function: { name: "ls", arguments: "{}" } }] }, null) + chunk({}, "tool_calls"));
 
-/** Runs `body` against a real PiRuntime session in a child process, with a local fixture provider. */
-async function run(respond: (count: number) => Response, body: string) {
+/** Runs `body` against a real PiRuntime session in a child process, with a local fixture provider. `prelude` runs
+ * before the session starts; `startOptions` are added to its start options. */
+async function run(respond: (count: number) => Response, body: string, prelude = "", startOptions = "") {
   const root = await realpath(await mkdtemp(path.join(os.tmpdir(), "casper-steer-"))); roots.push(root);
   const home = path.join(root, "home"); const project = path.join(root, "project"); const agent = path.join(home, ".pi/agent");
   await mkdir(agent, { recursive: true }); await mkdir(project); await mkdir(path.join(home, ".casper"));
@@ -42,7 +46,8 @@ async function run(respond: (count: number) => Response, body: string) {
   await writeFile(path.join(home, ".casper/settings.json"), JSON.stringify(routing));
   const env = { ...isolatedEnvironment(home), TMPDIR: root, PI_CODING_AGENT_DIR: agent, CASPER_AGENT_DIR: agent, CASPER_OFFLINE: "1", PI_OFFLINE: "1", PI_TELEMETRY: "0" };
   const child = Bun.spawn([process.execPath, "-e", `import { PiRuntime } from ${JSON.stringify(path.join(repo, "src/runtime/pi.ts"))};
-    const runtime = new PiRuntime(); const session = await runtime.start({ cwd: process.cwd(), localModels: false });
+    ${prelude}
+    const runtime = new PiRuntime(); const session = await runtime.start({ cwd: process.cwd(), localModels: false, ${startOptions} });
     try { ${body} } finally { await runtime.dispose(); }`], { cwd: project, env, stdout: "pipe", stderr: "pipe" });
   const [stdout, stderr, exit] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
   expect({ exit, stderr }).toEqual({ exit: 0, stderr: "" });
@@ -59,6 +64,33 @@ test("a line steered in while the model works reaches it at its next step; with 
   expect(result).toEqual({ idle: false, steered: true, unsent: [] });
   expect(JSON.stringify(payloads.at(-1)!.messages)).toContain("ALSO_MENTION_PINEAPPLE");
   expect(JSON.stringify(payloads[0]!.messages)).not.toContain("too early");
+}, 90_000);
+
+const bashCall = (command: string) => sse(chunk({ role: "assistant", tool_calls: [{ index: 0, id: "call_0", type: "function", function: { name: "bash", arguments: JSON.stringify({ command }) } }] }, null) + chunk({}, "tool_calls"));
+
+test.skipIf(process.platform === "win32")("a line steered in while a slow command runs reaches the model at once: the command moves to the background and keeps running", async () => {
+  const module = (name: string) => JSON.stringify(path.join(repo, name));
+  // The shell as the app holds it: slow commands on (a 60 s limit, far past this test) and listening for a line.
+  const prelude = `const { BackgroundCommands } = await import(${module("src/runtime/background-commands.ts")});
+    const { SteerWaits } = await import(${module("src/app/steer-waits.ts")});
+    const waits = new SteerWaits(), listening = Promise.withResolvers();
+    const commands = new BackgroundCommands({ notify: () => {}, limitSeconds: 60 });`;
+  const shell = "shell: { wrap: async (command) => ({ command }), background: () => commands, whenSteered: (end) => { listening.resolve(); return waits.listen(end); } }";
+  const { result, payloads } = await run(count => count === 1 ? bashCall("echo started; sleep 20; echo finished") : answer("DONE"), `
+    // As steerOrQueue does once the command waits: the line goes to the model, then the waits end.
+    const steered = Promise.race([listening.promise.then(async () => ({ sent: await session.steer("ALSO_MENTION_PINEAPPLE"), ended: waits.steered() })),
+      new Promise(resolve => setTimeout(() => resolve("the command never listened"), 30_000).unref())]);
+    await session.prompt("Run the slow command");
+    console.log(JSON.stringify({ steered: await steered, running: commands.list().map(entry => entry.id), unsent: session.takeUnsent() }));
+    await commands.close();`, prelude, shell);
+  expect(result).toEqual({ steered: { sent: true, ended: 1 }, running: ["cmd-1"], unsent: [] });
+  expect(payloads).toHaveLength(2);
+  // The command's result (its output so far, not its last line) and then the line, in the same next request.
+  const next = payloads[1]!.messages;
+  const output = JSON.stringify(next.find(message => message.role === "tool"));
+  expect(output).toContain("this moved to the background as cmd-1");
+  expect(output).not.toContain("finished");
+  expect(JSON.stringify(next.slice(next.findIndex(message => message.role === "tool")))).toContain("ALSO_MENTION_PINEAPPLE");
 }, 90_000);
 
 function fakeRuntime(state: { prompts: string[]; steered: string[]; steering: boolean; gates: Array<ReturnType<typeof Promise.withResolvers<void>>>; unsent?: string[] }): AgentRuntime {
@@ -102,6 +134,41 @@ test("Enter mid-task sends the line to the AI while it works; otherwise it is qu
     // Echoed once, with ❯, when it was typed; not again as "> then add a title" when it runs.
     expect(app.screen()).toContain("❯ then add a title");
     expect(app.screen()).not.toContain("> then add a title");
+  } finally { for (const gate of state.gates) gate.resolve(); await app.close(); }
+}, 30_000);
+
+const SERVICE = `"${process.execPath}" "${path.join(import.meta.dir, "fixtures", "service-server.ts")}"`;
+
+test("a line that reaches the AI ends the steps only waiting then: the AI's shell, a service start and the sign-in window; a queued line ends none", async () => {
+  process.env.TERM = "xterm-256color";
+  const state = { prompts: [] as string[], steered: [] as string[], steering: true, gates: [Promise.withResolvers<void>(), Promise.withResolvers<void>()] };
+  const app = await richApp(() => fakeRuntime(state));
+  try {
+    await app.until(text => text.includes("idle"));
+    app.input.write("write a poem\r");
+    await app.until(() => state.prompts.length === 1);
+    const casper = app.app;
+    const ended: string[] = [];
+    // How the AI's shell and the sign-in window listen while they wait (each ends its own wait when told).
+    currentShell(casper).whenSteered!(() => ended.push("shell"));
+    (browserSession(casper) as unknown as { options: BrowserSessionOptions }).options.whenSteered!(() => ended.push("sign-in"));
+    // A service start that never gets ready: the line ends the wait, and the call says it is starting.
+    casper.projectContext!.services = { api: { command: SERVICE, port: "auto", ready: { log: "a line it never prints" }, timeoutMs: 60_000 } };
+    const start = taskServiceTool(casper).execute({ action: "start", service: "api" }, new AbortController().signal);
+    for (let i = 0; i < 200 && serviceManager(casper).status()[0]?.state !== "starting"; i++) await Bun.sleep(25);
+    app.input.write("make it rhyme\r");
+    await app.until(text => text.includes("sent to Casper"));
+    expect(state.steered).toEqual(["make it rhyme"]);
+    const envelope = JSON.parse((await start).text);
+    expect((envelope.data ?? envelope).service).toMatchObject({ name: "api", state: "starting" });
+    expect(ended).toEqual(["shell", "sign-in"]);
+    await app.until(text => text.includes("[browser] Closing the sign-in window so Casper reads your line; a sign-in you finished there is kept."));
+    // While Casper runs checks or writes the receipt the line is queued, and no wait ends for it.
+    state.steering = false;
+    currentShell(casper).whenSteered!(() => ended.push("not this time"));
+    app.input.write("then add a title\r");
+    await app.until(text => text.includes("queued · runs when this task ends"));
+    expect(ended).toEqual(["shell", "sign-in"]);
   } finally { for (const gate of state.gates) gate.resolve(); await app.close(); }
 }, 30_000);
 

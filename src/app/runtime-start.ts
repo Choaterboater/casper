@@ -245,6 +245,7 @@ export function currentShell(app: CasperApp): RuntimeShell {
     background: () => app.projectContext?.slowCommands === false ? undefined : backgroundCommands(app),
     // Not on Windows: CPU is not read there, and silence alone would end a quiet build.
     stallSeconds: () => app.projectContext?.stalledCommands === false || process.platform === "win32" ? undefined : STALL_SECONDS,
+    whenSteered: (end) => app.steerWaits.listen(end),
   };
 }
 

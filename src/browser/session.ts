@@ -53,6 +53,9 @@ export interface BrowserSessionOptions {
   confirmSignIn?: (request: SignInApproval, signal: AbortSignal) => Promise<boolean | undefined>;
   /** Told what to do while the sign-in window is open; `done` ends the wait as closing the window does. */
   signInNotice?: (message: string, done: () => void) => void;
+  /** A line the person sends the AI while the sign-in window is open: `end` ends the wait as closing the window does,
+   * and the AI is told they wrote. Returns the function that stops listening. */
+  whenSteered?: (end: () => void) => () => void;
   /** Test seams, never model-supplied: whether this computer can show a window, the sign-in window's own
    * headless mode (tests never open a real one) and how long the person has. */
   hasScreen?: () => boolean;
@@ -66,6 +69,8 @@ export interface BrowserSessionOptions {
 const DEV_SLOT = "web";
 export interface MetadataApproval { address: string; url: string }
 export interface SignInApproval { origin: string; url: string }
+/** How the sign-in window's wait ended: closed (or the person said done), timed out, or the person wrote to the AI. */
+type SignInEnd = "window closed" | "timed out" | "person wrote";
 /** How long the person has to sign in in the window Casper opened (signin). */
 const SIGN_IN_MS = 10 * 60_000;
 /** A window Casper can show: macOS and Windows always; Linux and the like only with a display. */
@@ -2046,12 +2051,19 @@ export class BrowserSession {
       signal.throwIfAborted();
       if (yes === undefined) throw new Error("Not run: signing in needs the person at the keyboard, and this run can't ask you. Ask the user to sign in, or use the site's API token.");
       if (!yes) return { signedIn: "cancelled", url, guidance: "The person said no to a sign-in window; ask them how they want to sign in." };
-      const ended = await this.signInWindow(url, signal);
+      // A line the person sends the AI from here on ends the wait as closing the window does, so the AI reads it now.
+      const wrote = Promise.withResolvers<"person wrote">();
+      const unlisten = this.options.whenSteered?.(() => wrote.resolve("person wrote"));
+      let ended: SignInEnd;
+      try { ended = await this.signInWindow(url, signal, wrote.promise); } finally { unlisten?.(); }
+      if (ended === "person wrote") {
+        return { signedIn: ended, url, guidance: `The person sent you a message while the sign-in window was open, so it was closed; a sign-in they finished there is kept. Read the message first. ${guidance}` };
+      }
       return { signedIn: ended, url, guidance: ended === "timed out" ? `The sign-in window timed out and was closed. ${guidance}` : guidance };
     } finally { this.deadline?.resume(); }
   }
-  /** Opens the sign-in window and waits for the person to close it (or say done), at most signInTimeoutMs. */
-  private async signInWindow(url: string, signal: AbortSignal): Promise<"window closed" | "timed out"> {
+  /** Opens the sign-in window and waits for the person to close it (or say done, or write to the AI), at most signInTimeoutMs. */
+  private async signInWindow(url: string, signal: AbortSignal, wrote: Promise<"person wrote">): Promise<SignInEnd> {
     const supplied = this.options.executablePath ?? process.env.CASPER_BROWSER_EXECUTABLE;
     const executablePath = await discoverBrowser(supplied);
     if (!executablePath || !path.isAbsolute(executablePath)) throw new Error("Browser unavailable: install Chrome yourself or set CASPER_BROWSER_EXECUTABLE to an absolute executable path");
@@ -2066,7 +2078,7 @@ export class BrowserSession {
       env: browserEnvironment(this.profile) });
     const chrome = window.process();
     const owner = chrome ? ownSpawnedTree(chrome.pid, () => chrome.exitCode === null && chrome.signalCode === null) : undefined;
-    let ended: "window closed" | "timed out" = "window closed";
+    let ended: SignInEnd = "window closed";
     try {
       const [first] = await window.pages();
       const page = first ?? await window.newPage();
@@ -2078,6 +2090,7 @@ export class BrowserSession {
       const outcome = await Promise.race([
         new Promise<"window closed">(resolve => window.once("disconnected", () => resolve("window closed"))),
         finished.then(() => "window closed" as const),
+        wrote,
         new Promise<"timed out">(resolve => { timer = setTimeout(() => resolve("timed out"), this.options.signInTimeoutMs ?? SIGN_IN_MS); }),
         new Promise<never>((_, reject) => signal.addEventListener("abort", () => reject(signal.reason), { once: true })),
       ]).finally(() => clearTimeout(timer));

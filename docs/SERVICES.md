@@ -114,7 +114,10 @@ During a task the model uses one `service` tool, with these actions:
   command again joins the running one (restarting it first when an edit made it stale or
   it no longer answers, reported as `restarted`), and relaunches it under the same name if it
   stopped, failed or crashed. At most 4 ad-hoc services run at once, and at most 4 are
-  kept: starting a fifth drops the oldest one that is not running.
+  kept: starting a fifth drops the oldest one that is not running. A line the person sends the AI
+  while a `start` or `restart` waits for readiness ends the wait, not the start: the call says
+  the service is `starting`, the AI reads the line, and the service keeps starting (Esc no longer
+  stops it; `stop` or `/services stop` does).
 - **`status`**, **`logs`** (the most recent `lines`, default 40 and at most 200,
   optionally only lines containing `filter`), **`restart`** and **`stop`**. `status` also lists
   slow shell commands Casper moved to the background (see **Slow commands** in
