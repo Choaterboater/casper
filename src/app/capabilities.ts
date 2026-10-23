@@ -10,6 +10,7 @@ import type { RuntimeTool } from "../runtime/types";
 import type { RenderedVisualization, VisualizationRouter } from "../visualize/router";
 import { visualizationTools } from "../visualize/tools";
 import { MCP_ADD_TOOL } from "../mcp/add-tool";
+import { SKILL_ADD_TOOL, skillNamed } from "../skills/add-tool";
 import { mcpNamed } from "../task/classify";
 
 /** What one task's tool surface is assembled from. Tool factories close over live app state,
@@ -60,6 +61,9 @@ export interface TaskCapabilitySource {
   serviceTool: () => RuntimeTool;
   /** casper_mcp_add: the AI adds an MCP server after the person's yes. Offered from the first task that names MCP. */
   mcpAdd?: RuntimeTool;
+  /** casper_skill_add: the AI adds a skill after the person has seen it and said yes. Offered from the first task that
+   * names a skill. */
+  skillAdd?: RuntimeTool;
   /** Tool names already offered in this session. They stay offered, so the tool list, and with it
    * the provider's prompt cache, does not change from one turn to the next. */
   offered?: ReadonlySet<string>;
@@ -95,6 +99,7 @@ export async function assembleTaskTools(task: string, source: TaskCapabilitySour
   const picture = source.picture !== undefined && (picturesRequested(task) || kept("make_picture"));
   const diagram = !source.diagramOff && (diagramRequested(task) || kept("visualize"));
   const mcpAdd = source.mcpAdd !== undefined && (mcpNamed(task) || kept(MCP_ADD_TOOL));
+  const skillAdd = source.skillAdd !== undefined && (skillNamed(task) || kept(SKILL_ADD_TOOL));
   return [
     ...await source.broker.prepare(task),
     source.delegate,
@@ -112,5 +117,6 @@ export async function assembleTaskTools(task: string, source: TaskCapabilitySour
     ...(github ? [source.githubTool!()] : []),
     ...(diagram ? visualizationTools({ router: source.visualization, projectRoot: source.projectRoot, privatePaths: source.privatePaths ?? [], ...(source.showDiagram ? { show: source.showDiagram } : {}) }) : []),
     ...(mcpAdd ? [source.mcpAdd!] : []),
+    ...(skillAdd ? [source.skillAdd!] : []),
   ];
 }

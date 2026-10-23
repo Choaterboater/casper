@@ -171,6 +171,7 @@ Local commands:
   /skills inspect <id>              Show a skill and its fingerprint (sha256)
   /skills trust <id>                Show a skill, then 1 No · 2 Trust it (exactly what was shown)
   /skills block <id>                Never use this skill
+  (ask in chat: "add a skill …")    The AI writes it; Casper shows the whole text, then 1 No · 2 Yes, add it (~/.casper/skills)
   /<name> [words]                   Your own command: ~/.casper/commands/<name>.md sent as a request, your words put in for $1 or $ARGUMENTS; Casper's commands win a name
   /pack add <folder or link>        Add a skill pack from a folder or https://github.com/owner/repo@<commit>: shows it, then 1 No · 2 Yes, add it · 3 Show me what's inside
   /pack list                        The packs you added, and any not used because their files changed

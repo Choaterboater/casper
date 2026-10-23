@@ -154,7 +154,8 @@ Ctrl+D on an empty prompt exits. [Keys and commands](docs/TERMINAL_UX.md#quick-r
 - **Pull requests and CI.** Ask which pull requests are open or why a check failed; Casper reads
   the failing step through `gh`, and the AI never sees your GitHub login. [GitHub](docs/GITHUB.md)
 - **Skill packs and themes.** `/pack add` a folder or a GitHub commit of skills after a box that
-  shows every file; pick a colour theme in `/settings`, one grouped screen you can search. [Packs](docs/PACKS.md)
+  shows every file, or ask in chat to add one skill: Casper shows its whole text and asks first. Pick a colour
+  theme in `/settings`, one grouped screen you can search. [Packs](docs/PACKS.md) · [Skills](docs/SKILLS.md#add-your-own)
 - **New projects.** `casper new` starts a project with tests and a first commit, with no model
   call. [New projects](docs/NEW.md)
 
