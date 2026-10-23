@@ -11,6 +11,8 @@ import { SkillRegistry } from "../src/skills/registry";
 import { formatReceipt, taskExitCode } from "../src/task/result";
 import { formatFooterSpend, formatTaskSpend, requestSpendLimit, SpendGuard } from "../src/task/spend";
 import { formatCost, formatTokens } from "../src/tui/format";
+import { readableFooter } from "../src/tui/footer-layout";
+import { visibleWidth } from "@earendil-works/pi-tui";
 import { fakeWriter } from "./support/tty";
 import { removeTempDir } from "./support/temp-dir";
 
@@ -234,11 +236,65 @@ test("a subscription is not charged per token: the footer says sub ≈$, and the
   }
 });
 
-test("the footer shows the task's tokens and its cost, leaving session totals to /status", () => {
+test("the footer shows the task's figure and, once an earlier task counted any, the session's running total", () => {
+  // The first task: the two are the same, so only the task shows.
   expect(formatFooterSpend({ tokens: 48_213, cost: 0.314 }, { tokens: 48_213, cost: 0.314 }, true, true)).toBe("task 48.2k tok · $0.31");
-  expect(formatFooterSpend({ tokens: 40_000, cost: 0.01 }, { tokens: 1_100_000, cost: 0.04 }, true, true)).toBe("task 40k tok · $0.01");
-  expect(formatFooterSpend({ tokens: 40_000, cost: 0.01 }, { tokens: 1_100_000, cost: 0.04 }, false, true)).toBe("task 40k tok · $0.01");
-  expect(formatFooterSpend({ tokens: 40_000, cost: 0 }, { tokens: 90_000, cost: 0 }, false, false)).toBe("task 40k tok");
-  expect(formatFooterSpend({ tokens: 40_000, cost: 0.01 }, { tokens: 90_000, cost: 0.31 }, false, true, "subscription")).toBe("task 40k tok · sub ≈$0.01");
+  expect(formatFooterSpend({ tokens: 40_000, cost: 0.01 }, { tokens: 1_100_000, cost: 0.04 }, true, true)).toBe("task 40k tok · $0.01 │ session 1.1M tok · $0.04");
+  // A new task before its first answer: the session total still shows, never a reset to nothing.
+  expect(formatFooterSpend({ tokens: 0, cost: 0 }, { tokens: 90_000, cost: 0.31 }, true, true)).toBe("session 90k tok · $0.31");
+  // A free model: tokens only, for both.
+  expect(formatFooterSpend({ tokens: 40_000, cost: 0 }, { tokens: 90_000, cost: 0 }, false, false)).toBe("task 40k tok │ session 90k tok");
+  expect(formatFooterSpend({ tokens: 40_000, cost: 0.01 }, { tokens: 90_000, cost: 0.31 }, false, true, "subscription")).toBe("task 40k tok · sub ≈$0.01 │ session 90k tok · sub ≈$0.31");
+  // Money a priced model counted earlier still shows after a switch to a free one.
+  expect(formatFooterSpend({ tokens: 40_000, cost: 0 }, { tokens: 90_000, cost: 0.31 }, false, false)).toBe("task 40k tok │ session 90k tok · $0.31");
   expect(formatFooterSpend({ tokens: 0, cost: 0 }, { tokens: 0, cost: 0 }, false, true)).toBe("");
+});
+
+test("a narrow footer drops the session total before the task's figure, and never wraps", () => {
+  const details = `casper/main │ fixture/demo · high │ ctx 20.6k / 32k · 63%~ │ ${formatFooterSpend({ tokens: 2_100, cost: 0.02 }, { tokens: 180_000, cost: 1.4 }, true, true)}`;
+  const wide = readableFooter("idle", details, 160, false);
+  expect(wide).toContain("task 2.1k tok · $0.02 │ session 180k tok · $1.40");
+  const narrow = Array.from({ length: 60 }, (_, i) => 120 - i).map(width => ({ width, line: readableFooter("idle", details, width, false) }));
+  const firstWithoutSession = narrow.find(({ line }) => !line.includes("session"))!;
+  expect(firstWithoutSession.line).toContain("task 2.1k tok · $0.02");
+  for (const { width, line } of narrow) {
+    expect(visibleWidth(line)).toBeLessThanOrEqual(width);
+    expect(line).not.toContain("\n");
+    if (line.includes("session")) expect(line).toContain("task 2.1k tok");
+  }
+});
+
+test("the session total grows across tasks and never drops when a new one starts, also after a stop", async () => {
+  const f = await fixture({ priced: true }, [0.5, 0.25]);
+  const input = Object.assign(new PassThrough(), { isTTY: true, setRawMode() {} });
+  const screen = fakeWriter();
+  screen.writer.columns = 202;
+  const app = f.make(input, screen.writer);
+  const interactive = app.runInteractive(f.project);
+  const idleAfter = (marker: string) => (output: string) => output.lastIndexOf("idle ") > output.lastIndexOf(marker);
+  const shows = (text: string) => (output: string) => Bun.stripANSI(output).includes(text);
+  try {
+    await screen.until(output => output.includes("idle"));
+    input.write("tidy the notes\r");
+    await screen.until(output => idleAfter("tidy the notes")(output) && output.includes("task 2.4k tok · $0.75"));
+    input.write("and again\r");
+    await screen.until(output => idleAfter("and again")(output) && shows("task 2.4k tok · $0.75 │ session 4.8k tok · $1.50")(output));
+    // A stopped task, then a new request: the session figure keeps what came before, and only grows.
+    const sessionTokens = () => [...Bun.stripANSI(screen.output).matchAll(/session (\d+(?:\.\d)?)k tok/g)].map(match => Number(match[1]));
+    f.state.costs = [0.1];
+    input.write("one more\r");
+    await screen.until(output => output.lastIndexOf("one more") > 0);
+    input.write("\x1b");
+    await screen.until(idleAfter("one more"));
+    expect(sessionTokens().at(-1)).toBeGreaterThanOrEqual(4.8);
+    input.write("last one\r");
+    await screen.until(output => idleAfter("last one")(output) && (sessionTokens().at(-1) ?? 0) >= 6);
+    const seen = sessionTokens();
+    expect(seen.every((value, i) => i === 0 || value >= seen[i - 1]!)).toBe(true);
+  } finally {
+    input.write("/exit\r");
+    await interactive;
+    await app.close();
+    await f.cleanup();
+  }
 });
