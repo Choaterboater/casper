@@ -112,6 +112,18 @@ export function mcpNamed(text: string): boolean {
 export const MCP_TYPED = "MCP servers: to add one, call casper_mcp_add (it asks the user first; if it can't, it says the /mcp add line "
   + "to type). To connect one Casper lists, the user types /mcp connect <name>: you can't run / commands.";
 
+/** A request to pick up an earlier session ("continue last session", "pick up where we left off"), typos included.
+ * Not "continue the last task": that is usually this conversation's own work. */
+export function continueNamed(text: string): boolean {
+  return /(?:continue|resume|pick\s+up|carry\s+on|go\s+back\s+to|get\s+back\s+to)\W.{0,40}\b(?:last|previous|earlier|prior|old|yesterday'?s?)\b.{0,30}\b(?:session|conversation|chat|thread)s?\b|\bwhere\s+(?:we|you|i)\s+left\s+off\b/i.test(text);
+}
+
+/** Said only in a request to continue an earlier session: conversations are saved per folder, and only the person can
+ * reopen one. The AI had answered such a request by trying to read Casper's own records, which stay closed to it. */
+export const CONTINUE_TYPED = "Earlier sessions: if this conversation doesn't have the work, tell the user conversations are saved per folder: "
+  + "they type /continue for the most recent one here, or /resume to pick one (in another folder, start Casper there). "
+  + "You can't run / commands or read saved conversations.";
+
 export function formatTaskPrompt(
   request: string,
   classification: TaskClassification,
@@ -133,10 +145,11 @@ export function formatTaskPrompt(
   // "(X, not Y):" framing had been echoed back as invented tool summaries. If the work stops before the
   // review (checks still failing, a turn limit), no later round asks for tests either; that is accepted.
   const mcp = mcpNamed(options.typed ?? request);
+  const continued = continueNamed(options.typed ?? request);
   if (options.proveChange && options.reviewFollows) {
-    if (!underSpecified && !options.afterContext && !mcp) return request;
+    if (!underSpecified && !options.afterContext && !mcp && !continued) return request;
     return [...(underSpecified ? ["The target is under-specified: if the ask tool is available, ask one concrete question with options before the first edit."] : []),
-      ...(mcp ? [MCP_TYPED] : []), "User request:", request].join("\n");
+      ...(mcp ? [MCP_TYPED] : []), ...(continued ? [CONTINUE_TYPED] : []), "User request:", request].join("\n");
   }
   const availableChecks = [...CHECK_NAMES
     .filter((name) => model.commands[name])
@@ -155,6 +168,7 @@ export function formatTaskPrompt(
     `- available configured checks: ${availableChecks.length ? availableChecks.join("; ") : "none detected"}`,
     ...(options.machines?.length ? [`- machines: this conversation worked on ${options.machines.join(", ")} over ssh.${sshByName(options.machines)} Work meant for one of them happens there (its files, its services), not in this folder, unless the request asks for files here. Check a change there where the person will see it (its web page in the browser tool, or its API) before you call it done or go on; if you can't, say it is not checked.`] : []),
     ...(mcp ? [`- ${MCP_TYPED}`] : []),
+    ...(continued ? [`- ${CONTINUE_TYPED}`] : []),
     // Which checks to pick and when is in casper_check's description; this is what it does not say.
     "If you ran tests yourself, say in one line what ran and the result. Don't claim a check passed that didn't run.",
     // Auto mode only: Casper owns the final run, so the model need not select checks to record them.

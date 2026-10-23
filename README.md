@@ -135,7 +135,7 @@ Ctrl+D on an empty prompt exits. [Keys and commands](docs/TERMINAL_UX.md#quick-r
 - **Undo.** `Next: 1 Show diff · 2 Undo` after each task; `/undo`, `/redo` and `/diff` work on any
   saved task, also outside git; `/rewind` goes back to just before an earlier prompt to edit it. A task that rebases
   or pulls counts only its own edits, and Undo leaves what git brought in alone. [Undo](docs/UNDO.md)
-- **Sessions.** Pick up a past chat (`--continue`, `/resume`), or try an idea in a named branch with
+- **Sessions.** Pick up a past chat (`--continue`, `/continue`, `/resume`), or try an idea in a named branch with
   its own folder. [Sessions](docs/SESSIONS.md)
 - **Pages in your browser.** When seeing beats reading (options side by side, a mock-up, a
   dashboard, a report for others), the AI makes a page by itself and it opens in your

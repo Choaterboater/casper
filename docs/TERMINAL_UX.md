@@ -48,6 +48,7 @@ over the network, and `/references add` downloads files after asking you.
 | `/compact [instructions]` | Summarize the conversation (**makes a model request**) |
 | `/clear`, `/new` | Start a fresh conversation; files and saved conversations stay |
 | `/resume [id]` | Pick a saved conversation from a numbered list, or go back to one (the start of its ID is enough) |
+| `/continue` | Go back to the most recent other conversation saved in this folder, as `casper --continue` does at startup |
 | `/diff [n\|list]` | The last task's changes (also outside git), task n's, or a list to pick from; before any task, git's view |
 | `/undo [n]`, `/redo [n]` | Put the last task's (or task n's) files back, or back again (no model; [UNDO.md](UNDO.md)) |
 | `/rewind [n]` | Back to just before an earlier prompt (a numbered list, newest first; `/rewind 1` is your last), its words back in the prompt to edit and send; when later tasks changed files, `2 Conversation and files` puts them back too. No model; nothing is deleted ([UNDO.md](UNDO.md#rewind-to-an-earlier-prompt)) |
@@ -855,7 +856,7 @@ only. See [platform support](PLATFORM_SUPPORT.md) for host-validation limits.
   `… — closed for the task's question; type the command again`. A private box for a key or a
   password (`/login`, `/mcp login`) is never closed under you: the task's box waits until it is done.
 - Only the commands that would change what the task works on, or start model work of their own
-  (one at a time), wait: `/clear` and `/new`, `/resume`, `/compact`, `/undo`, `/redo`, `/rewind`,
+  (one at a time), wait: `/clear` and `/new`, `/resume`, `/continue`, `/compact`, `/undo`, `/redo`, `/rewind`,
   `/branch <name>`, `/switch`, `/project <name>`, `/project new`, `/plan`, `/verify`,
   `/review`, `/security-review`, `/delegate` (it stops the debugger the task may use), `/crew` (its list
   applies copies to your folder; `/crew drop` runs) and a picked suggestion. They keep their draft
@@ -900,6 +901,7 @@ Daily commands include `/help`, `/status`, `/project`, `/diff`, `/verify`, `/ski
 | `/clear` | Fresh saved conversation; files stay as they are (`/undo` puts a task's files back); the earlier conversation stays resumable |
 | `/resume` | Pick a saved conversation from a numbered list (title · when · messages; 1 stays here); then the last few turns show |
 | `/resume <id>` | Go back to that conversation; the first few characters of its ID are enough |
+| `/continue` | Go back to this folder's most recent other conversation (not the one you are in, nor an empty one `/clear` left); then the last few turns show. With none it says so and nothing changes |
 | `/branch`, `/switch <name>` | Existing named-workspace navigation and its approval policy |
 | `/output [n]` | Full command and output of the last task's n-th most recent tool call (1 = latest; 20 retained per task); out-of-range n is a usage error |
 

@@ -162,6 +162,25 @@ test("--continue picks up the latest conversation and --resume the one whose ID 
   expect(f.payloads.length).toBe(requests);
 }, 120_000);
 
+test("/continue opens this folder's newest conversation as --continue does, for a one-shot run only, and saves no empty one", async () => {
+  const f = await fixture();
+  const none = await f.run(["/continue"]);
+  expect({ exit: none.exit, stderr: none.stderr }).toEqual({ exit: 0, stderr: "" });
+  expect(none.stdout).toContain("[session] No earlier conversation in this workspace; starting a new one.");
+  expect((await f.run(["remember ALPHA"])).exit).toBe(0);
+  await Bun.sleep(20);
+  expect((await f.run(["remember BRAVO"])).exit).toBe(0);
+  const [bravo, alpha] = await savedConversations(f);
+  expect(alpha && bravo && alpha !== bravo).toBeTruthy();
+
+  const continued = await f.run(["/continue"]);
+  expect({ exit: continued.exit, stderr: continued.stderr }).toEqual({ exit: 0, stderr: "" });
+  expect(continued.stdout).toContain(`[session] Opened "remember BRAVO" for this run only: a one-shot run doesn't change what Casper opens next. Use casper --resume ${bravo!.slice(0, 8)} "<prompt>" to continue it.`);
+  // No model call, and the run's own new conversation was dropped, not saved for the next /continue to find.
+  expect(f.payloads).toHaveLength(2);
+  expect(await savedConversations(f)).toEqual([bravo!, alpha!]);
+}, childTestLimit(6));
+
 test("--max-turns stops a model that keeps working, runs no checks and exits 2", async () => {
   const f = await fixture((request) => ({ tools: [{ name: "write", args: { path: `turn-${request}.txt`, content: "x\n" } }] }));
   await mkdir(path.join(f.project, ".casper"));

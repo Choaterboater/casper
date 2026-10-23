@@ -659,6 +659,7 @@ receipt
         <p>Conversations are saved per folder, so you can pick up where you left off, or try a risky idea
         on the side.</p>
         <pre><code>casper --continue        carry on with this folder's last chat
+/continue                the same, from inside a session
 /resume                  list saved chats; /resume &lt;id&gt; brings one back
 /clear                   start fresh (the old chat stays resumable)
 /branch try-evpn         a named branch, in its own Git worktree
@@ -801,7 +802,7 @@ Type a request and press Enter (during a task it steers the AI or waits in the q
   /mcp, /lab             Tool servers (writes off until you turn them on); your lab devices
   /mcp setup network     Set up Casper's server for Mist, Central and ClearPass; /mcp login adds a login
   /references            Search vendor specs you downloaded (/references add gets one)
-  /resume, /clear        Pick up a saved conversation, or start a fresh one
+  /continue, /resume     Go back to this folder's last conversation, or pick one; /clear starts fresh
   /settings [name]       Browse settings by area, type to search, or change one by name
 Ctrl+T shows the last step in full. Ctrl+V pastes a picture. Ctrl+C twice on an empty line exits. Approvals always need a fresh yes from you. think hard: or big model: at the start of a request sets that task (/help words).</pre>
         </details>

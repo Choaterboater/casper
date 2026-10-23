@@ -377,13 +377,28 @@ export async function runSlashCommand(host: CommandHost, prompt: string): Promis
       host.output.write("[context] Conversation compacted; context usage may remain unavailable until the next response.\n");
       return;
     }
-    if (prompt === "/clear" || /^\/resume(?:\s|$)/.test(prompt)) {
+    if (prompt === "/clear" || prompt === "/continue" || /^\/resume(?:\s|$)/.test(prompt)) {
       if (host.subagents.isBusy) throw new Error("Wait for active subagents before changing conversations.");
       host.machines = [];
       const session = await host.ensureRuntime();
-      let id = prompt.slice(7).trim();
+      let id = prompt.startsWith("/resume") ? prompt.slice(7).trim() : "";
       let title: string | undefined;
-      if (prompt !== "/clear") {
+      if (prompt === "/continue") {
+        if (!session.listConversations || !session.resumeConversation) throw new Error("This runtime does not support saved conversations.");
+        let current: string | undefined;
+        try { current = session.getSessionInfo?.().sessionId; } catch { current = undefined; }
+        const all = await session.listConversations();
+        // What --continue opens at startup: the most recent conversation saved here, other than the one you are in
+        // and the empty one /clear leaves.
+        const newest = all.filter(item => item.id !== current && item.messages !== 0).sort((a, b) => b.modified.localeCompare(a.modified))[0];
+        if (!newest) {
+          // The one you are in is listed once it has a reply: then nothing changes, and it says so.
+          const said = all.some(item => item.id === current);
+          host.output.write(`[session] No earlier conversation in this workspace; ${said ? "staying in this one" : "starting a new one"}.\n`);
+          return;
+        }
+        id = newest.id; title = conversationLabel(newest).title;
+      } else if (prompt !== "/clear") {
         if (!session.listConversations) {
           if (!id) throw new Error("This runtime does not support conversation listing. Use /branch and /switch for named workspaces.");
         } else {
@@ -429,7 +444,8 @@ export async function runSlashCommand(host: CommandHost, prompt: string): Promis
         await session.clearConversation();
       } else {
         if (!session.resumeConversation) throw new Error("This runtime does not support conversation resume.");
-        await session.resumeConversation(id);
+        // As at startup, a new conversation with no reply yet is dropped, not saved for the next /continue to find.
+        await session.resumeConversation(id, prompt === "/continue" ? { keepUnwritten: false } : undefined);
       }
       host.lastTaskRequest = undefined;
       // Like --continue and --resume, a one-shot /clear or /resume does not change what later sessions open, and says so.
