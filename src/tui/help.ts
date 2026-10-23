@@ -17,7 +17,7 @@ Type a request and press Enter (during a task it steers the AI or waits in the q
   /mcp, /lab             Tool servers (writes off until you turn them on); your lab devices
   /mcp setup network     Set up Casper's server for Mist, Central and ClearPass; /mcp login adds a login
   /references            Search vendor specs you downloaded (/references add gets one)
-  /resume, /clear        Pick up a saved conversation, or start a fresh one
+  /continue, /resume     Go back to this folder's last conversation, or pick one; /clear starts fresh
   /settings [name]       Browse settings by area, type to search, or change one by name
 Ctrl+T shows the last step in full. Ctrl+V pastes a picture. Ctrl+C twice on an empty line exits. Approvals always need a fresh yes from you. think hard: or big model: at the start of a request sets that task (/help words).
 `;
@@ -114,6 +114,7 @@ Local commands:
   /compact [instructions]           Summarize context using the model (not a local-only command)
   /clear, /new                      New conversation; no file rollback
   /resume [id]                      Pick a saved conversation (or give the start of its ID)
+  /continue                         Go back to the most recent other conversation saved in this folder, as casper --continue does at startup
   /diff [n|list]                    Task n's changes (default: the last task in this folder), also outside git; list picks one. Before any task in this folder: git status plus tracked diff against HEAD
   /undo [n]                         Put back the files of the last task (or task n); files changed since are left alone
   /redo [n]                         Put an undone task's files back as the task left them
@@ -250,7 +251,7 @@ Side questions: a line you start with ? (? what does ECONNRESET mean) goes to yo
 Shift+Tab cycles auto and the model's supported levels and saves the level it stops at, like /effort. One-off --effort never saves.
 /effort auto lets Casper pick per request: low for reading/explaining/diagrams, medium for tests and configuration, high for fixes, features and refactors, from the model's supported levels.
 Context is estimated and may be unavailable; cost estimates are not subscription billing.
-/clear keeps saved conversations and workspace files. /resume takes the start of an ID; /switch uses workspace names.
+/clear keeps saved conversations and workspace files. Conversations are saved per folder: /continue and /resume see this folder's. /resume takes the start of an ID; /switch uses workspace names.
 Esc or Ctrl+C cancels the picker. Plain/redirected terminals list models; use an exact ID to select.
 Restored conversations keep their model; a missing or unavailable model blocks sending.
 Without a restored selection or Casper default, choose with /model; there is no other fallback.

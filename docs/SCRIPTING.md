@@ -62,7 +62,7 @@ pipe (a terminal on stdin) or an empty stdin is a usage error (exit 64).
 | `--json` | Forces one-shot mode. JSON Lines events on stdout ([below](#json-events)). Everything a person would read (banner, transcript, receipt) goes to stderr. Needs a prompt. |
 | `--verify` / `--no-verify` | Casper runs the checks after this run's edits (`auto`), or runs none (`off`). Cannot be combined. See [VERIFICATION.md](VERIFICATION.md). |
 | `--require-verification` | Forces one-shot mode and implies `--verify`. Changes Casper did not verify exit **3** instead of 0. Needs a prompt. Cannot be combined with `--no-verify`. |
-| `--continue` | Continue this folder's most recent conversation. With none, a new one starts, with the notice `[session] No earlier conversation in this workspace; starting a new one.` |
+| `--continue` | Continue this folder's most recent conversation. With none, a new one starts, with the notice `[session] No earlier conversation in this workspace; starting a new one.` In a session, `/continue` does the same. |
 | `--resume <id-prefix>` | Continue the saved conversation whose ID starts with this prefix. `casper /resume` lists IDs. No match, or more than one, is a usage error. Cannot be combined with `--continue`. |
 | `--cd <path>` | Work in that folder instead of the current directory. A path that is not a folder is a usage error. |
 | `--max-turns <n>` | Forces one-shot mode. Stop each model request after `n` model turns (1–9999). The run is then incomplete (exit 2) and Casper runs no checks. The requirements review (`verification.review: true`) and the proof repair round have their own 12-turn budget; hitting that is not this stop (see [VERIFICATION.md](VERIFICATION.md#requirements-review)). |

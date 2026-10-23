@@ -60,7 +60,7 @@ test("every subcommand in the table is in /help all", () => {
 
 test("a command that takes nothing after its name says so; it never asks whether you meant itself", () => {
   for (const line of ["/theme 3", "/theme extra", "/status x", "/context extra", "/usage extra", "/doctor extra", "/clear extra",
-    "/exit now", "/quit now", "/tree x"]) {
+    "/continue last session", "/exit now", "/quit now", "/tree x"]) {
     const name = line.split(" ")[0]!;
     expect(commandProblem(line)).toBe(`Usage: ${name}, with nothing after it.`);
     expect(unknownCommandMessage(name)).not.toContain(`Did you mean ${name}?`);
@@ -70,7 +70,7 @@ test("a command that takes nothing after its name says so; it never asks whether
   expect(commandProblem("/qiut")).toContain("Did you mean /quit?");
   // No hint and no subcommands means no words after the name: the table says which.
   expect(COMMAND_REGISTRY.filter((command) => !takesArguments(command)).map((command) => command.name))
-    .toEqual(["status", "context", "usage", "clear", "theme", "hotkeys", "doctor", "exit", "tree"]);
+    .toEqual(["status", "context", "usage", "clear", "continue", "theme", "hotkeys", "doctor", "exit", "tree"]);
 });
 
 test("the menu dims exactly what waits during work: the same table as the check that runs the line", () => {
