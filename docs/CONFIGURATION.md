@@ -58,7 +58,11 @@ run), `/settings` lists them. `/details <level>` saves the work shown the same w
 The AI can search the web and read public pages, with no question: `web_search` uses DuckDuckGo
 by default, and `web_fetch` reads one page. Both reach only public `https` pages, on any port
 (`http` is upgraded), checked again on every redirect; a search or address holding a secret is
-refused and never sent, and secrets on a page are hidden before the AI sees it. Turn them off with
+refused and never sent, and secrets on a page are hidden before the AI sees it. When a page can't be read this way
+(a sign-in page, a site that turns anything but a browser away, a page that shows its text only with JavaScript, or
+a site that doesn't answer), the result tells the AI to open it in its own browser ([BROWSER.md](BROWSER.md#pages-web_fetch-cant-read)),
+whose `signin` asks you first; without the browser, to ask you to open it. An address `web_fetch` refuses (private,
+local, cloud metadata, or one that doesn't exist) is never pointed there. Turn them off with
 `/settings` (it writes `web: false`, or `web.enabled: false` when your `web:` sets a provider).
 Brave Search (`web: { provider: brave }`, with your key saved as `brave` in
 `~/.casper/agent/auth.json`) and your own SearXNG (`web: { provider: searxng, searxngUrl: <address> }`)
