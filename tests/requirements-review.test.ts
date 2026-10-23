@@ -20,6 +20,25 @@ test("the review checklist is read from the model's answer: ticked and open requ
   expect(parseChecklist("Everything is covered.")).toBeUndefined();
 });
 
+test("open items are plain lines that never look like boxes to tick, and checkboxes a model still writes read the same", () => {
+  expect(OPEN_ITEM_FORMAT).toBe("Still not done: <requirement> — <why it is still not done>");
+  expect(parseChecklist([
+    "The timeout needs a library change.",
+    "",
+    "Still not done: handshake timeout — node:tls has no handshake timeout option",
+    "- **Still not done:** retry on refused — needs a backoff setting",
+    "Covered now: `--json` prints one array line — tests/json.test.ts",
+  ].join("\n"))).toEqual({
+    done: ["`--json` prints one array line — tests/json.test.ts"],
+    open: ["handshake timeout — node:tls has no handshake timeout option", "retry on refused — needs a backoff setting"],
+  });
+  // The review's delta answer in the plain form: its gaps and its count, as the checkbox form gave them.
+  expect(parseReview("Requirements review:\nCovered now: unknown option exits 2 — tests/cli.test.ts\nStill not done: handshake timeout — no option\nCovered: 5 of 6 requirements."))
+    .toEqual({ fixed: ["unknown option exits 2 — tests/cli.test.ts"], open: ["handshake timeout — no option"], covered: 5, total: 6 });
+  // Prose that only mentions the words is no item.
+  expect(parseChecklist("The handshake is still not done because the library lacks it.")).toBeUndefined();
+});
+
 test("the review prompt checks every stated requirement, from the request and the project docs, but answers only the gaps", () => {
   const prompt = requirementsReviewPrompt("Add --tls to portcheck.");
   expect(prompt).toContain("Add --tls to portcheck.");
@@ -31,9 +50,12 @@ test("the review prompt checks every stated requirement, from the request and th
   expect(prompt).toContain("Check one case at a time");
   expect(prompt).toContain("Do not weaken, skip or delete tests");
   expect(prompt).toContain("Run the tests once");
-  // The answer re-listed every covered requirement (3.7-4.9x Pi's length); it now names only gaps and a count.
-  expect(prompt).toContain("- [x] <requirement> — <the test you added for it>");
-  expect(prompt).toContain("- [ ] <requirement> — <why it is still not done>");
+  // The answer re-listed every covered requirement (3.7-4.9x Pi's length); it now names only gaps and a count, in plain
+  // lines: checkboxes looked like options to pick in the transcript.
+  expect(prompt).toContain("Covered now: <requirement> — <the test you added for it>");
+  expect(prompt).toContain("Still not done: <requirement> — <why it is still not done>");
+  expect(prompt).not.toContain("[ ]");
+  expect(prompt).not.toContain("[x]");
   // The open-item line is the task turn's own, so both rounds read the same way.
   expect(prompt).toContain(OPEN_ITEM_FORMAT);
   expect(prompt).toContain("Covered: <n> of <m> requirements.");
@@ -100,8 +122,9 @@ test("with the review off, the first turn asks only for the open requirements, i
   const model = { commands: { test: "npm test" } } as unknown as Parameters<typeof formatTaskPrompt>[2];
   const prompt = formatTaskPrompt("Add --tls to portcheck.", { intent: "implement", mode: "modify", verification: [] }, model, { proveChange: true, reviewFollows: false });
   // A checklist in any other shape reads as none. The covered ones are left out: a full ticked list made answers long.
-  expect(prompt).toContain("- [ ] <requirement> — <why it is still not done>");
-  expect(prompt).not.toContain("- [x] <requirement>");
+  expect(prompt).toContain("Still not done: <requirement> — <why it is still not done>");
+  expect(prompt).not.toContain("[ ]");
+  expect(prompt).not.toContain("<the test you added for it>");
   expect(prompt).toContain("Do not list the covered ones");
   expect(prompt).toContain("is several requirements");
   expect(parseChecklist("Requirements:\n- [ ] --tls timeout — not implemented")).toEqual({ done: [], open: ["--tls timeout — not implemented"] });

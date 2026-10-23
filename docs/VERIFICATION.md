@@ -391,6 +391,30 @@ For a one-shot repair, use `casper -p "/verify repair test"`. `/receipt` (or
 freshness, reuse, and the "not independently certified" note described in
 [How checks are tracked](#how-checks-are-tracked).
 
+### When a task is not done yet
+
+In a session the card comes when the work is done. When the AI's last words ask you something (a question, `say done
+when …`, `tell me which …`) or say what it does next and it stops (`Next I'll …`, `Let me check …`), Casper shows one
+line instead of the card and its numbered keys, which could pass for the options the AI just offered:
+
+```
+? Waiting for your answer · /receipt 12 shows the 2 files changed so far
+Paused — the AI said what it does next; say go, or tell it what to change
+```
+
+The part after `·` comes only when the task changed something. The receipt is saved as always, so `/receipt`, `/undo`
+and `/diff` work. The card that ends the work adds `– Also changed before your answer: 2 files (/receipt 12)`; when
+your answer needs no change, the card is the one held back. A failure, a stop, work that did not finish, a secret
+Casper saw and a risky config line always keep their card, with the line under it and no keys. When the card would only
+say that no files changed (no check ran, nothing changed in the project, outside it or on another machine, and nothing
+needs you), there is no card at all: the AI's message is the whole result, as with a plain question. `--verbose` always prints the full receipt (the line follows it), and one-shot runs and `--json` are
+unchanged.
+
+Casper reads only the closing words of the AI's last message: its last paragraph, past a code block, the open items and
+a list of options under it, and only when no tool ran after them. A guess the wrong way shows the line after a
+finished task (its card follows your next request, and `/receipt` has it now) or the card as before. The AI is told
+to ask with the ask tool, not in a question ending its reply, and not to stop just to say what it will do next.
+
 ### When a check fails
 
 **Already broken before the change.** Before the first repair, Casper runs each failing check on
@@ -600,7 +624,8 @@ time. The checks and the proof, not the review, keep Casper at zero false "done"
 
 **With it off**, the first turn of a **code change in auto mode** with a `test` check asks the
 model to check every requirement and to end its answer with only the ones still not done
-(`- [ ] requirement — why not done`), plus a test that fails without the change. A full ticked list
+(`Still not done: requirement — why not done`, plain lines that never look like boxes to tick or options to
+pick), plus a test that fails without the change. A full ticked list
 made answers long and is the model's own claim anyway. The receipt reports any open item as the
 model's own claim (it makes the change not verified), and the change is still proven.
 
@@ -618,8 +643,8 @@ The answer reports only the gaps and a count, not the requirements that were alr
 
 ```
 Requirements review:
-- [x] unknown option exits 2 — tests/cli.test.ts       (a gap the review added a test or fix for)
-- [ ] handshake timeout — not implemented              (a gap still open)
+Covered now: unknown option exits 2 — tests/cli.test.ts    (a gap the review added a test or fix for)
+Still not done: handshake timeout — not implemented        (a gap still open)
 Covered: 5 of 6 requirements.
 ```
 

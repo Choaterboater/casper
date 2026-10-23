@@ -43,6 +43,7 @@ import { useTelemetrySetting } from "./runtime/openrouter-attribution";
 import type { AgentRuntime, RuntimeSession, RuntimeImage, RuntimeTool, RuntimeShell } from "./runtime/types";
 import { SkillRegistry, skillRegistryOptions } from "./skills/registry";
 import type { TaskResult, TaskUsage } from "./task/result";
+import type { TaskClassification } from "./task/classify";
 import { TaskObservations } from "./task/observations";
 import { pastedFolderParent, PastedImageFiles } from "./app/images";
 import { LifecycleRegistry } from "./app/lifecycle";
@@ -296,6 +297,11 @@ export class CasperApp {
   /** The text of the response being streamed, and of the last response that had text. */
   responseText = "";
   lastAnswer = "";
+  /** A tool ran after lastAnswer's words, so they are not the task's last words (src/task/ending.ts). */
+  toolAfterAnswer = false;
+  /** Tasks that changed something and ended asking you or paused, so they showed a line instead of their card; the
+   * card that ends the work names them. With the folder each ran in, and its request for that card's next steps. */
+  heldCards: Array<{ task: TaskResult; root: string; request: string; classification: TaskClassification }> = [];
   /** casper_check calls in flight: their results were requested by the model, not by Casper. */
   modelCheckCalls = 0;
   /** Turns after which --max-turns stopped the current task's model request. */

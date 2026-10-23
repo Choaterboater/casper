@@ -101,6 +101,9 @@ test("/help receipt says what each verdict means and what to do", () => {
   }
   expect(RECEIPT_HELP).toContain("/verify repair <check>");
   expect(RECEIPT_HELP).toContain("Ctrl+T shows the log");
+  // How a task that is not done ends, so the line under the AI's question is explained too.
+  expect(RECEIPT_HELP).toContain("? Waiting for your answer     The AI asked you something.");
+  expect(RECEIPT_HELP).toContain("Paused — the AI said what it does next   It stopped after saying what it will do. Say go, or tell it what to change.");
 });
 
 test("the first problem receipt of a session ends with where its words are explained, grey, once", async () => {
