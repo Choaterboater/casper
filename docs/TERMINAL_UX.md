@@ -774,7 +774,9 @@ only. See [platform support](PLATFORM_SUPPORT.md) for host-validation limits.
   Esc skips. A question that takes a typed answer (the AI's, a new project's name) ends
   with one more numbered row that Casper adds, never the AI: `Other — type your own answer`.
   Picking it (its number, or Up/Down and Enter) highlights it; the answer appears inline beside Other,
-  Enter sends it, and Esc (or Up/Down on an empty answer) goes back to the list. Typing letters straight into the box works too and highlights the same row.
+  in full as it wraps. When the box can't hold all of it, the part where the cursor is shows (the end, while
+  you type on) with `…` for the rest, and a box too small for the words after the whole label keeps only
+  `Other —`. Enter sends all of it, and Esc (or Up/Down on an empty answer) goes back to the list. Typing letters straight into the box works too and highlights the same row.
   Approvals and pickers that take keys only have no Other row. A number picks a row only
   while nothing is typed, so a custom answer cannot start with a row's number unless
   Other is picked first (or a letter is typed first); a digit past the last row is ordinary text. A list longer
@@ -815,8 +817,8 @@ only. See [platform support](PLATFORM_SUPPORT.md) for host-validation limits.
   (the AI's own, a new project's name) takes typing and pastes.
 - Every box takes the same input: approvals (an MCP change, a host, a shell command, a device
   check, `/mcp writes`) are the same numbered panel as any question. Use Up/Down and Enter, or a digit shortcut
-  (no Enter); Esc skips without approval. Typing words selects No with an inline comment; Enter declines and sends
-  those words as direction for Casper (or keeps them in the draft when no task can take them). Keys pressed in the first moment after a box opens (about 0.3 s) are ignored, so a key
+  (no Enter); Esc skips without approval. Typing words selects No with an inline comment, shown like a typed
+  answer (in full, or the part where the cursor is); Enter declines and sends all of those words as direction for Casper (or keeps them in the draft when no task can take them). Keys pressed in the first moment after a box opens (about 0.3 s) are ignored, so a key
   typed mid-sentence never answers a box that just appeared.
 - Casper's own numbered questions and approvals also work on the plain terminal: it prints the
   choices as numbered lines and reads `Type 1, 2 or 3:` (`Type 1-24:` past nine); a number or

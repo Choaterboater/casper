@@ -7,7 +7,7 @@ import { imageLabel, imageMimeType, MAX_IMAGE_BYTES, MAX_IMAGES, promptPath } fr
 import { readClipboardFiles } from "./clipboard-files";
 import { commandMenu, COMMANDS, findCommand, fitDescriptions, type MenuCommand, menuRunsDuringWork } from "./commands";
 import { BUSY_GLYPH, dim, formatElapsed, hasLineControls, hasTerminalControls, lineText, markdownTheme, PROMPT_GLYPH, terminalText, tint } from "./format";
-import { answerRecord, answerRecordText, choiceHint, KEY_PICK_MAX, keyChoice, MODEL_REASON_PREFIX, OTHER_CHOICE, typedChoice, type PickRecord } from "./choices";
+import { answerRecord, answerRecordText, choiceHint, choiceNumber, KEY_PICK_MAX, keyChoice, MODEL_REASON_PREFIX, OTHER_CHOICE, typedChoice, type PickRecord } from "./choices";
 import { typedDuringTask } from "./give-way";
 import { GLYPHS } from "./glyphs";
 import { StreamingMarkdown } from "./markdown-stream";
@@ -83,6 +83,62 @@ function slashLine(lines: readonly string[], cursorLine: number, cursorCol: numb
 const IDLE_TAIL = " │ idle";
 
 type AskOption = { label: string; description?: string };
+
+/** How far a cut typed row moves its start forward (or its end back) to begin (or end) with a whole word. */
+const WORD_EDGE = 16;
+/** Columns the Other row keeps for the words typed after its label; with fewer, the label is just "Other". */
+const TYPED_ROOM = 20;
+
+/** Words typed in a box (an answer on the Other row, a comment on an approval) on their row, laid out by `layout` at
+ * most `width` columns wide: all of them when they fit in `maxLines` rows, else the part around the cursor (where letters
+ * go in, at the end while typing goes on) with … for what is left out. They were cut at 100 characters, so the end of
+ * a long answer never showed while it was typed. */
+function typedRowLines(text: string, cursor: number, maxLines: number, width: number, layout: (shown: string) => string[]): string[] {
+  const chars = Array.from(text);
+  const length = chars.length;
+  const rows = Math.max(1, maxLines);
+  const lines = (start: number, end: number) => {
+    let shown = chars.slice(start, end).join("");
+    if (start > 0) shown = `…${shown.trimStart()}`;
+    if (end < length) shown = `${shown.trimEnd()}…`;
+    return layout(shown);
+  };
+  const fits = (start: number, end: number) => lines(start, end).length <= rows;
+  if (visibleWidth(text) <= rows * width && fits(0, length)) return lines(0, length);
+  // A row holds at most `width` characters, so the part shown is never longer than this.
+  const most = rows * width;
+  /** The first `at` in [low, high] found to pass, or high + 1 when none does. Less text mostly fits more easily (a word
+   * moving beside the label can break that by a row), and whatever this returns has been tested and passes. */
+  const first = (low: number, high: number, passes: (at: number) => boolean) => {
+    while (low <= high) { const middle = (low + high) >> 1; if (passes(middle)) high = middle - 1; else low = middle + 1; }
+    return low;
+  };
+  const space = (at: number) => /\s/.test(chars[at] ?? " ");
+  // A cut moves to the nearest word edge only while the words next to the cursor stay in view.
+  const wordStart = (start: number) => {
+    if (space(start - 1)) return start;
+    for (let at = start; at < Math.min(start + WORD_EDGE, cursor - WORD_EDGE); at++) if (space(at)) return at + 1;
+    return start;
+  };
+  const wordEnd = (end: number) => {
+    if (space(end)) return end;
+    for (let at = end - 1; at >= Math.max(end - WORD_EDGE, cursor + WORD_EDGE); at--) if (space(at)) return at;
+    return end;
+  };
+  // Typing at the end, or near it: as much before the cursor as fits, and all that follows it.
+  const start = first(Math.max(0, length - most), cursor, at => fits(at, length));
+  if (start <= cursor) {
+    // A whole first word can take a row more: it may not fit beside the label where a cut word did.
+    const word = wordStart(start);
+    return lines(word !== start && fits(word, length) ? word : start, length);
+  }
+  // Typing further back: as much before the cursor as fits, then what fits after it.
+  const from = Math.min(cursor, first(Math.max(0, cursor - most), cursor, at => fits(at, cursor)));
+  let end = Math.max(cursor, first(cursor, Math.min(length, from + most), at => !fits(from, at)) - 1);
+  while (end > cursor && !fits(from, end)) end--;
+  const [wordFrom, wordTo] = [wordStart(from), wordEnd(end)];
+  return (wordFrom !== from || wordTo !== end) && fits(wordFrom, wordTo) ? lines(wordFrom, wordTo) : lines(from, end);
+}
 
 /** Work in progress for the screen: the steps of the open group (rows under the AI's words) and what Casper is doing or
  * waiting for now (the status row above the prompt). `rows` are the raw steps, one per call (Ctrl+O); `plain` the
@@ -1100,18 +1156,25 @@ export class TerminalSurface {
       head.push(...context.flatMap(line => wrapTextWithAnsi(this.muted(line), width)).slice(0, contextBudget));
     }
     if (!typing && this.editor.getText() && !comment && head.length < headBudget) head.push(this.muted(`Number: ${this.editor.getText()}`));
-    const commentChars = Array.from(comment);
-    const preview = commentChars.slice(0, 100).join("") + (commentChars.length > 100 ? "…" : "");
+    // The row that shows what is typed: the answer on the Other row, or an approval's comment on its No.
+    const typedAt = typing ? choices : comment ? 0 : -1;
+    const typed = typedAt < 0 ? undefined : this.typedText();
     const entries = Array.from({ length: count }, (_, index) => {
       const entry = index < choices ? this.askOptions![index]! : { label: OTHER_CHOICE };
       const marker = this.askMulti && index < choices ? (this.askSelections.has(index) ? "[x] " : "[ ] ") : "";
-      const typedAnswer = typing && index === choices ? this.editor.getExpandedText().replace(/\s+/g, " ").trim() : "";
-      const answerPreview = Array.from(typedAnswer).slice(0, 100).join("") + (Array.from(typedAnswer).length > 100 ? "…" : "");
-      return { ...entry, ...(index === 0 && comment ? { description: undefined } : {}),
-        label: marker + entry.label + (index === 0 && comment ? ` — ${preview}` : typing && index === choices ? ` — ${answerPreview}` : "") };
+      return { ...entry, ...(index === typedAt ? { description: undefined } : {}), label: marker + entry.label };
     });
     const labelWidth = Math.max(0, ...this.askOptions?.map(row => visibleWidth(row.label)) ?? [], ...(this.askTyped ? [visibleWidth(OTHER_CHOICE)] : [])) + (this.askMulti ? 4 : 0);
-    const option = (index: number, compact: boolean) => pickerOptionLines(entries, index, index === active, width, this.io.color, { compact, labelWidth });
+    // Typed words show in full after the row's label; in fewer than `maxLines` rows, the part where the cursor is. An
+    // Other row too small for words after its whole label keeps only "Other".
+    const option = (index: number, compact: boolean, maxLines = height) => {
+      if (index !== typedAt) return pickerOptionLines(entries, index, index === active, width, this.io.color, { compact, labelWidth });
+      const whole = entries[index]!.label;
+      const room = Math.max(1, maxLines) * Math.max(1, width - 2 - visibleWidth(choiceNumber(index, count))) - visibleWidth(`${whole} — `);
+      const label = whole === OTHER_CHOICE && room < TYPED_ROOM && visibleWidth(typed!.text) > room ? OTHER_CHOICE.split(" — ")[0]! : whole;
+      return typedRowLines(typed!.text, typed!.cursor, maxLines, width, shown => pickerOptionLines([{ label: `${label} — ${shown}` }],
+        0, true, width, this.io.color, { count, offset: index, compact, labelWidth }));
+    };
     const fit = (lines: string[]) => lines.map(line => truncateToWidth(line, width));
     const all = (compact: boolean) => fit([...head, ...Array.from({ length: count }, (_, index) => option(index, compact)).flat(), ...tail]);
     const full = all(false);
@@ -1124,10 +1187,26 @@ export class TerminalSurface {
     tail = tail.slice(0, Math.max(0, available - 1));
     const cues = available - tail.length >= 3;
     const room = available - tail.length - (cues ? 2 : 0);
-    const rows = Array.from({ length: count }, (_, index) => option(index, true));
+    const rows = Array.from({ length: count }, (_, index) => option(index, true, room));
     const window = pickerWindow(rows, active, room, width);
     return fit([...head, ...(cues ? [this.muted(window.start ? `  … ${window.start} more above` : "")] : []), ...window.lines,
       ...(cues ? [this.muted(window.end < count ? `  … ${count - window.end} more below` : "")] : []), ...tail]);
+  }
+
+  /** What is typed in the open box as its row shows it (a big paste as its text, each run of spaces or lines as one
+   * space) and where the cursor is in it. */
+  private typedText(): { text: string; cursor: number } {
+    const expanded = this.editor.getExpandedText();
+    const text = expanded.replace(/\s+/g, " ").trim();
+    const lines = this.editor.getLines();
+    const { line, col } = this.editor.getCursor();
+    const before = [...lines.slice(0, line), (lines[line] ?? "").slice(0, col)].join("\n");
+    const after = [(lines[line] ?? "").slice(col), ...lines.slice(line + 1)].join("\n");
+    // A big paste is a marker in the editor, never holding the cursor, and its text here. The side of the cursor without
+    // one reads the same in both; with one on each side, the end stands in for the cursor.
+    const typedBefore = expanded.endsWith(after) ? expanded.slice(0, expanded.length - after.length)
+      : expanded.startsWith(before) ? before : expanded;
+    return { text, cursor: Math.min(Array.from(text).length, Array.from(typedBefore.replace(/\s+/g, " ").trimStart()).length) };
   }
 
   /** Enter on the list: the highlighted option, or every toggled option (the highlighted one if none). */

@@ -33,7 +33,7 @@ test.each([24, 40, 80])("wrapped settings options respect the row budget and ret
   }
 });
 
-test("a long typed refusal has a bounded preview but submits the entire comment as No", async () => {
+test("a long typed refusal stays in its box with its end in view, where the letters go, and submits the entire comment as No", async () => {
   const session = box();
   const comment = "Please do not run this command ".repeat(200) + "final-comment-marker";
   try {
@@ -44,14 +44,38 @@ test("a long typed refusal has a bounded preview but submits the entire comment 
       expect(lines.length).toBeLessThanOrEqual(height);
       expect(lines.every(line => visibleWidth(line) <= width)).toBe(true);
       expect(Bun.stripANSI(lines.join("\n"))).toContain("Run this command?");
-      expect(Bun.stripANSI(lines.join("\n"))).toContain("❯ 1. No");
-      expect(lines.join("\n")).not.toContain("final-comment-marker");
+      // The start gives way to "…"; the end, where typing goes on, shows (a word wider than the row breaks in two).
+      expect(Bun.stripANSI(lines.join("\n"))).toContain("❯ 1. No —");
+      expect(Bun.stripANSI(lines.join("")).replace(/\s+/g, "")).toMatch(/No—….*marker/);
     }
     session.input.write("\r");
     expect(await answer).toBe("No");
     // The closed approval's record keeps the unabridged refusal, not its inline preview.
     const transcript = (session.surface as unknown as { transcript: { render(width: number): string[] } }).transcript;
     expect(Bun.stripANSI(transcript.render(200).join("\n"))).toContain("final-comment-marker");
+  } finally { session.close(); }
+});
+
+test("a long answer typed on the Other row fits every budget, its end in view, and is sent whole", async () => {
+  const session = box();
+  const typed = "Please keep the parser change small ".repeat(60) + "final-answer-marker";
+  try {
+    const answer = session.surface.ask("How far should I take this now?", [{ label: "Just the fix", description: "the smallest change" }, { label: "Stop here" }],
+      false, undefined, "ai");
+    session.input.write(typed);
+    for (const width of [20, 30, 40, 80]) for (const height of [1, 2, 3, 6, 10, 18]) {
+      const lines = session.render(width, height);
+      const text = Bun.stripANSI(lines.join("\n"));
+      expect({ width, height, rows: lines.length <= height, wide: lines.every(line => visibleWidth(line) <= width) })
+        .toEqual({ width, height, rows: true, wide: true });
+      // A word wider than the row breaks in two, so the end is looked for across rows.
+      const end = Bun.stripANSI(lines.join("")).replace(/\s+/g, "").includes("…") && text.replace(/\s+/g, "").includes("marker");
+      expect({ width, height, row: text.includes("❯ 3. Other"), end }).toEqual({ width, height, row: true, end: true });
+    }
+    // One row, too narrow for words after the whole label: the label keeps its first word.
+    expect(Bun.stripANSI(session.render(40, 1).join("\n"))).toBe("❯ 3. Other — …small final-answer-marker");
+    session.input.write("\r");
+    expect(await answer).toEqual([typed]);
   } finally { session.close(); }
 });
 
