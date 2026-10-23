@@ -28,6 +28,7 @@ import { severalModelsMessage } from "./model-words";
 import { BackgroundCommands } from "../runtime/background-commands";
 import { STALL_SECONDS } from "../runtime/stalled-commands";
 import { checkChangeOptions } from "./check-changes";
+import { showWaiting } from "./during-work";
 
 /** One adapter-construction owner, shared by auth and session startup. */
 export function acquireRuntime(app: CasperApp): Promise<AgentRuntime> {
@@ -99,6 +100,7 @@ export async function ensureRuntime(app: CasperApp): Promise<RuntimeSession> {
       await applyRunConversation(app, app.session);
       await applyRunSelection(app, app.session);
       app.unsubscribe = app.session.subscribe(event => {
+        if (event.type === "waiting") { app.steering = event.lines; showWaiting(app); return; }
         if (event.type === "tool_start") rememberTool(app, event.toolName);
         if (event.type === "tool_start" && event.toolName === "casper_check") app.modelCheckCalls++;
         if (event.type === "tool_end" && event.toolName === "casper_check") app.modelCheckCalls = Math.max(0, app.modelCheckCalls - 1);

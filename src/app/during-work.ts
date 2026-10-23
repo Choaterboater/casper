@@ -21,16 +21,47 @@ import { chooseModel, handledHere, modelChangeRequest, namesModel, severalModels
 /** After a task: lines the AI never read join the queue. A stopped task runs nothing more: its queued lines go
  * back into the prompt (the rich terminal) for you to send or clear. */
 export function settleQueuedLines(app: CasperApp): void {
+  app.steering = [];
   let unsent: string[] = [];
   try { unsent = app.session?.takeUnsent?.() ?? []; } catch { /* nothing left to take */ }
   app.queuedLines.unshift(...unsent);
   // Lines the AI read are done with: only lines still waiting keep their record of what was pasted.
   for (const line of app.linePastes.keys()) if (!app.queuedLines.includes(line)) app.linePastes.delete(line);
+  showWaiting(app);
   if (!app.queuedLines.length || !app.commandAbort?.signal.aborted || app.closing) return;
   const lines = app.queuedLines.splice(0);
+  showWaiting(app);
   const count = `${lines.length} queued line${lines.length === 1 ? "" : "s"}`;
   if (app.terminal.restoreDraft(lines.join("\n"), takeLinePastes(app, lines))) app.output.write(`[cancel] Your ${count} ${lines.length === 1 ? "is" : "are"} back in the prompt; Enter sends ${lines.length === 1 ? "it" : "them"}.\n`);
   else app.output.write(`[cancel] Dropped your ${count}; type ${lines.length === 1 ? "it" : "them"} again to send.\n`);
+}
+
+/** The lines typed during this task that wait for the AI, on screen until it reads them: steered ones first, then the
+ * queued ones that run when the task ends. */
+export function showWaiting(app: CasperApp): void {
+  if (!app.closing) app.terminal.setWaiting([...app.steering, ...app.queuedLines]);
+}
+
+/** Before anything is aborted: the lines the AI hasn't read come out of the runtime, so a stopped step never adds them
+ * to the conversation. They join the queue, which a stopped task puts back in the prompt. */
+export function holdBackSteered(app: CasperApp): void {
+  let lines: string[] = [];
+  try { lines = app.session?.unsteer?.() ?? []; } catch { /* nothing left to take */ }
+  app.queuedLines.unshift(...lines);
+  app.steering = [];
+}
+
+/** ↑ on an empty prompt during a task: the newest line still waiting comes back into the prompt, unsent. */
+export function takeBackNewest(app: CasperApp): boolean {
+  let line = app.queuedLines.pop();
+  if (line === undefined) {
+    // The runtime's "waiting" event then shows the lines still waiting.
+    try { line = app.session?.unsteer?.(true)[0]; } catch { line = undefined; }
+  }
+  if (line === undefined) return false;
+  showWaiting(app);
+  app.terminal.restoreDraft(line, takeLinePastes(app, [line]));
+  return true;
 }
 
 /** What was pasted into `lines`, for lines going back into the prompt; their record here is done with. */
@@ -118,8 +149,9 @@ export async function steerOrQueue(app: CasperApp, line: string): Promise<void> 
   let sent = false;
   try { sent = await app.session?.steer?.(line) ?? false; } catch { sent = false; }
   if (app.closing) return;
+  const back = app.terminal.canTakeBack() ? " · ↑ takes it back" : "";
   // A step that only waits (a sign-in window, a slow command, a service start) ends now, so the AI reads the line now.
-  if (sent) { app.output.write("  ↳ sent to Casper · it reads this at its next step\n"); app.steerWaits.steered(); return; }
+  if (sent) { app.output.write(`  ↳ sent to Casper · it reads this when its current step ends${back}\n`); app.steerWaits.steered(); return; }
   // The task ended while Casper asked the AI: nothing would run the queue now, so the line goes back in the prompt.
   if (!app.commandActive) {
     if (app.terminal.restoreDraft(line, takeLinePastes(app, [line]))) app.output.write("  ↳ the task had just ended · your line is back in the prompt\n");
@@ -127,8 +159,9 @@ export async function steerOrQueue(app: CasperApp, line: string): Promise<void> 
     return;
   }
   app.queuedLines.push(line);
+  showWaiting(app);
   const waiting = app.queuedLines.length;
-  app.output.write(`  ↳ queued · runs when this task ends${waiting > 1 ? ` (${waiting} waiting)` : ""} · Esc stops the task and gives it back\n`);
+  app.output.write(`  ↳ queued · runs when this task ends${waiting > 1 ? ` (${waiting} waiting)` : ""}${back || " · Esc stops the task and gives it back"}\n`);
 }
 
 /** /effort <level> during a task: the model's next step uses it; the step already running keeps its level. */

@@ -67,6 +67,7 @@ function fakeApp(over: Partial<Record<string, unknown>> = {}) {
     terminal: {
       restoreDraft: (text: string, pasted: readonly string[] = []) => { restored.push({ text, pasted }); return true; },
       takeSubmittedPastes: () => [block],
+      setWaiting: () => {}, canTakeBack: () => true,
     },
     output: { write: (text: string) => { output.push(text); } },
     ...over,

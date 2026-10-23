@@ -89,7 +89,7 @@ import type { NewProjectOptions, NewProjectResult } from "./new/scaffold";
 import { chooseAnswer, approveChoice, confirmYes, recordedApproval } from "./app/approvals";
 import { networkSetupHost, networkLoginHost, networkLoginFile, revertWrites, reportImports, refreshNetworkReleaseCheck } from "./app/network-host";
 import { updateFooter, displayLevel, expandLastStep } from "./app/footer";
-import { submitDuringWork, cycleEffort } from "./app/during-work";
+import { submitDuringWork, cycleEffort, holdBackSteered, takeBackNewest } from "./app/during-work";
 import { browserSession, serviceManager, stopDebugger, backgroundTasks } from "./app/task-tools";
 import type { BigModelChoice } from "./app/big-model";
 import { openProjectCommand } from "./app/workspace";
@@ -261,6 +261,8 @@ export class CasperApp {
   /** Lines typed during a task that the AI could not read then: each runs as the next request, in order. They live
    * here, never in the prompt editor, so no queued line can ever answer an approval box. */
   readonly queuedLines: string[] = [];
+  /** Lines steered to the AI that it hasn't read yet (the runtime's "waiting" event), shown until it reads them. */
+  steering: string[] = [];
   /** What was pasted into a line typed during work, by the line, until it runs (words count only where typed). */
   readonly linePastes = new Map<string, readonly string[]>();
   /** What side questions (`? …`) cost this session; shown in /usage, never in the conversation's totals. */
@@ -544,6 +546,8 @@ export class CasperApp {
     // notifications: off (/settings) quiets the bell and the desktop notification, read each time it would ring.
     this.terminal.setNotifications(() => this.projectContext?.notifications !== false);
     this.terminal.setBusySubmit((line, plain) => submitDuringWork(this, line, plain));
+    // ↑ on an empty prompt during a task takes the newest waiting line back into the prompt.
+    this.terminal.setTakeBack(() => takeBackNewest(this));
     // Ctrl+X: MCP writes off everywhere, at once, even while work runs.
     this.terminal.setWritesRevert(() => revertWrites(this));
     // ctrl+t: the last step in full, even while work runs.
@@ -690,6 +694,8 @@ export class CasperApp {
 
   close(): Promise<void> {
     if (this.closeWork) return this.closeWork;
+    // Lines the AI hasn't read stay out of the conversation that is saved.
+    if (this.commandActive) holdBackSteered(this);
     this.closing = true;
     this.updateCheckAbort.abort();
     this.commandAbort?.abort();

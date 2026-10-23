@@ -881,12 +881,16 @@ only. See [platform support](PLATFORM_SUPPORT.md) for host-validation limits.
   `plan first:`) and `ultrathink` anywhere in it set that task only; see
   [Words you can use](#words-you-can-use).
 - Anything else you type during work goes to the AI. While the model is working it reads the
-  line at its next step (`↳ sent to Casper · it reads this at its next step`); while Casper
-  runs checks or writes the receipt, the line is queued and runs as the next request
-  (`↳ queued · runs when this task ends`). The line is echoed once (`❯ …`, after the words
+  line when its current step ends (`↳ sent to Casper · it reads this when its current step ends`),
+  which can be a while for a long step (a step that only waits ends at once, as below); while Casper runs checks or writes
+  the receipt, the line is queued and runs as the next request (`↳ queued · runs when this task
+  ends`). Until the AI reads it, each line shows above the prompt as `↳ waiting: …` (the newest 3),
+  and the row goes when the AI has read it. ↑ on an empty prompt (or Alt+Up) takes the newest
+  waiting line back into the prompt, unsent. The line is echoed once (`❯ …`, after the words
   shown so far) when you type it, not again when it runs. A line the AI never got to read runs next too. Esc
-  stops the task and puts queued lines back in the prompt instead of running them. Queued
-  lines live outside the prompt, so a queued line never answers an approval box.
+  stops the task and puts every waiting line back in the prompt instead of running it: Casper
+  takes them out before it stops anything, so a stopped step never adds them to the conversation.
+  Queued lines live outside the prompt, so a queued line never answers an approval box.
   Pickers borrow exclusive input ownership; pretyped text cannot answer a later
   exact approval. NO_COLOR keeps input controls, while TERM=dumb/redirected output
   uses plain line input and retains existing fail-closed cooked-terminal approval.

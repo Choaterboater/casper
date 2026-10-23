@@ -362,6 +362,8 @@ export type RuntimeEvent =
   | { type: "turn_limit"; turns: number }
   /** A plain-words heads-up for the person, not part of the conversation. */
   | { type: "notice"; message: string }
+  /** The steered lines the model hasn't read yet, oldest first; empty once it has read them all. */
+  | { type: "waiting"; lines: string[] }
   | { type: "error"; message: string };
 
 export type RuntimeEventListener = (event: RuntimeEvent) => void;
@@ -437,6 +439,9 @@ export interface RuntimeSession {
   steer?(text: string): Promise<boolean>;
   /** Lines steered in that the model never read (the run ended first); they are taken out of the runtime. */
   takeUnsent?(): string[];
+  /** Takes steered lines back before the model reads them: all of them, or only the newest. Called before an abort, so
+   * an aborted step never adds them to the conversation. */
+  unsteer?(newest?: boolean): string[];
   /** A bounded child near its deadline: its next tool call or turn ends its work and, with `reportTurn`, it gets the
    * tool-free turn to report, with `reason` as its limit. */
   wrapUp?(reason: string): void;

@@ -20,7 +20,7 @@ import { commandFileShown, loadUserCommands, userCommandRequest } from "./user-c
 import { leadingImagePath, startsWithImageFile } from "./images";
 import { serviceManager } from "./task-tools";
 import { updateFooter, loadPaneSetting, askPaneOnce, paneCommand, detailsCommand } from "./footer";
-import { settleQueuedLines } from "./during-work";
+import { holdBackSteered, settleQueuedLines } from "./during-work";
 import { newProjectFlowWithAbort, openProjectFolder, newProjectCommand, initialProjectRequest, openWorkspaceBeforeRuntime } from "./workspace";
 import { rebindWorkspace } from "./session-branches";
 import { runModelTask, runSuggestion } from "./task-run";
@@ -329,6 +329,8 @@ export function cancelCurrent(app: CasperApp): void {
   if (!app.commandActive && app.sideAbort) { app.sideAbort.abort(); return; }
   if (!app.commandActive) { app.cancelBeforeCommand = true; return; }
   if (app.commandAbort?.signal.aborted) return;
+  // First, before any tool or request is aborted: an aborted step would add a waiting line to the conversation.
+  holdBackSteered(app);
   app.commandAbort?.abort();
   app.taskRuntimeCancelled = true;
   void app.lifecycle.close("debug").catch(() => {});

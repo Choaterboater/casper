@@ -461,6 +461,19 @@ class PiRuntimeSession implements RuntimeSession {
     return true;
   }
 
+  unsteer(newest = false): string[] {
+    const session = this.runtime.session;
+    if (!session.pendingMessageCount) return [];
+    const queued = session.clearQueue();
+    const lines = [...queued.steering, ...queued.followUp];
+    if (!newest) return lines;
+    const taken = lines.pop()!;
+    // Pi's queue takes nothing out but everything: the rest go back in, in order.
+    for (const line of queued.steering.filter((_, i) => i < lines.length)) void session.steer(line);
+    for (const line of lines.slice(queued.steering.length)) void session.followUp(line);
+    return [taken];
+  }
+
   takeUnsent(): string[] {
     const left = this.unsent.splice(0);
     if (!this.promptActive) {
@@ -523,6 +536,9 @@ class PiRuntimeSession implements RuntimeSession {
             // A provider error may be retried: Pi decides at agent_end, so the error waits until then.
             if (event.message.stopReason === "error") this.heldError = end; else this.emit(end);
           }
+          break;
+        case "queue_update":
+          this.emit({ type: "waiting", lines: [...event.steering, ...event.followUp] });
           break;
         case "auto_retry_start":
           this.emit({ type: "retry", provider: session.model?.provider, attempt: event.attempt, maxAttempts: event.maxAttempts,
