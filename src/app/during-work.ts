@@ -8,7 +8,8 @@ import { runTasksCommand } from "./background";
 import { canonicalLine, runsDuringWork, sessionFlag } from "../tui/commands";
 import { commandProblem } from "../tui/help";
 import { loadUserCommands, usableCommands } from "./user-commands";
-import { leadingImagePath } from "./images";
+import { attachImages, leadingImagePath } from "./images";
+import type { RuntimeImage } from "../runtime/types";
 import { updateFooter } from "./footer";
 import { backgroundTasks } from "./task-tools";
 import { handleSlashCommand } from "./command-loop";
@@ -31,6 +32,9 @@ export function settleQueuedLines(app: CasperApp): void {
   if (!app.queuedLines.length || !app.commandAbort?.signal.aborted || app.closing) return;
   const lines = app.queuedLines.splice(0);
   showWaiting(app);
+  // A pasted picture can't go back into the prompt with its line: said, so it isn't missed.
+  const pictures = lines.filter(line => app.lineImages.delete(line)).length;
+  if (pictures) app.output.write(`[cancel] A picture you pasted during the task didn't come back with its line; paste it again (Ctrl+V).\n`);
   const count = `${lines.length} queued line${lines.length === 1 ? "" : "s"}`;
   if (app.terminal.restoreDraft(lines.join("\n"), takeLinePastes(app, lines))) app.output.write(`[cancel] Your ${count} ${lines.length === 1 ? "is" : "are"} back in the prompt; Enter sends ${lines.length === 1 ? "it" : "them"}.\n`);
   else app.output.write(`[cancel] Dropped your ${count}; type ${lines.length === 1 ? "it" : "them"} again to send.\n`);
@@ -91,8 +95,15 @@ export function submitDuringWork(app: CasperApp, line: string, plain = false): t
     if (problem) { queueMicrotask(() => app.output.write(`[error] ${terminalText(problem)}\n`)); return true; }
   }
   if (runsDuringWork(line)) { queueMicrotask(() => duringTask(() => runCommandDuringWork(app, canonicalLine(line)))); return true; }
-  // The AI reads a line during a task as text only, so a line that starts with a picture waits to go with it.
-  if (line.startsWith("/")) return `${picture ? "Your picture" : terminalText(line.split(/\s+/)[0]!)} waits until this task ends${plain ? "; type it again then" : " · draft kept · Esc stops the task"}`;
+  // One of your own commands waits for the task, as the other lines that start with / do.
+  if (line.startsWith("/") && !picture) return `${terminalText(line.split(/\s+/)[0]!)} waits until this task ends${plain ? "; type it again then" : " · draft kept · Esc stops the task"}`;
+  const pictures = app.terminal.takePastedImages();
+  // A line with a picture (pasted, or a file's path) goes to the AI with it, as at the prompt.
+  if (picture || pictures.size || mayNamePicture(line)) {
+    const typedPastes = app.terminal.takeSubmittedPastes();
+    inOrder(app, () => steerWithPictures(app, line, pictures, typedPastes));
+    return true;
+  }
   const pasted = app.terminal.takeSubmittedPastes();
   // A side question gets its own answer now; the working AI never sees it.
   const side = sideQuestionsOn(app) ? sideQuestionText(line, pasted) : undefined;
@@ -110,8 +121,15 @@ export function submitDuringWork(app: CasperApp, line: string, plain = false): t
     });
     return true;
   }
-  void steerOrQueue(app, line);
+  inOrder(app, () => steerOrQueue(app, line));
   return true;
+}
+
+/** Lines reach the AI in the order they were typed, even when a picture takes a moment to read. */
+const lastSteer = new WeakMap<CasperApp, Promise<void>>();
+function inOrder(app: CasperApp, work: () => Promise<void>): void {
+  const next = (lastSteer.get(app) ?? Promise.resolve()).then(work, work).catch(() => {});
+  lastSteer.set(app, next);
 }
 
 /** One command typed during a task (an alias already spelled as its command). Its outcome and errors are written as
@@ -143,6 +161,43 @@ function runCommandDuringWork(app: CasperApp, line: string): void {
   // /permissions shows its screen without the stop-asking box, which would stand in front of the task's own boxes.
   if (line === "/permissions" || line === "/permissions details") { void runPermissionsDuringWork(app, line).catch(failed); return; }
   void handleSlashCommand(app, line).catch(failed);
+}
+
+/** A line that may name a picture file: the cheap test before any file is read. */
+function mayNamePicture(line: string): boolean {
+  return /\.(?:png|jpe?g|gif|webp)\b/i.test(line);
+}
+
+/** A line typed during work with pictures: read as a request's are (app/images.ts: size and count limits, a share
+ * path on Windows not opened without a yes, which can't be asked during work), then steered with them. A model that
+ * can't see pictures gets the line without them, and says so. A line Casper can't steer is queued with its pictures. */
+async function steerWithPictures(app: CasperApp, line: string, pasted: Map<number, RuntimeImage>, typedPastes: string[]): Promise<void> {
+  if (typedPastes.length) app.linePastes.set(line, typedPastes);
+  const attached = await attachImages(line, { cwd: app.activeWorkspaceRoot(), pasted, saveTo: app.pastedImageFiles }).catch(() => undefined);
+  if (app.closing) return;
+  for (const note of attached?.notes ?? []) app.output.write(`[image] ${terminalText(note)}\n`);
+  let images = attached?.images ?? [];
+  if (!images.length) return steerOrQueue(app, line);
+  let sees = true;
+  try { sees = app.session?.getStatus?.().images !== false; } catch { sees = true; }
+  if (!sees) {
+    app.output.write(`[image] This model can't see pictures; the AI gets your line without ${images.length === 1 ? "it" : "them"}.\n`);
+    images = [];
+  }
+  let sent = false;
+  try { sent = await app.session?.steer?.(attached!.text, images) ?? false; } catch { sent = false; }
+  if (app.closing) return;
+  if (sent) {
+    const count = images.length ? ` with ${images.length === 1 ? "your picture" : `${images.length} pictures`}` : "";
+    // As for a line without pictures: ↑ takes it back, and a step that only waits ends now, so the AI reads it now.
+    const back = app.terminal.canTakeBack() ? " · ↑ takes it back" : "";
+    app.output.write(`  ↳ sent to Casper${count} · it reads this when its current step ends${back}\n`);
+    app.steerWaits.steered();
+    return;
+  }
+  // Not steered: it runs as the next request, with the pictures pasted into it (a file's path is read again then).
+  if (pasted.size) app.lineImages.set(line, pasted);
+  return steerOrQueue(app, line);
 }
 
 export async function steerOrQueue(app: CasperApp, line: string): Promise<void> {

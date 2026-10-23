@@ -162,7 +162,10 @@ export async function handlePrompt(app: CasperApp, prompt: string, typed?: { pas
     if (app.suggestions.pending) await app.suggestions.settle(prompt, app.projectContext);
     else app.suggestions.forgetChoice();
     // Pictures pasted into this line (Ctrl+V) go with it, or with nothing when it is a command.
-    app.pastedImages = app.terminal.takePastedImages();
+    // A queued line typed during work brings the pictures pasted into it.
+    const kept = app.lineImages.get(prompt);
+    app.lineImages.delete(prompt);
+    app.pastedImages = kept ?? app.terminal.takePastedImages();
     // A picture file dropped into an empty prompt starts the line with "/": that is a request, not a command.
     // Commands go straight on (no wait, so a close that arrives with the line still finds the command running).
     if (command && leadingImagePath(prompt) !== undefined) command = !await startsWithImageFile(prompt, { cwd: app.activeWorkspaceRoot() });

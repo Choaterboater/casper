@@ -744,8 +744,10 @@ only. See [platform support](PLATFORM_SUPPORT.md) for host-validation limits.
 - Pictures: Ctrl+V (Alt+V on Windows) pastes the clipboard's picture as `[image 1]`, and
   a picture file dropped or typed as a full path (`/…/shot.png`, `~/…`, `C:\…`) becomes
   `[image N]` when you send, also at the start of the line (then it is a request, not a
-  command; during work such a `/…` line keeps its draft, `Your picture waits until this task ends`,
-  since the AI reads a line typed during work as text only). A macOS screenshot's name, with its
+  command). During work a line with a picture goes to the AI with it, read by the same rules
+  (`↳ sent to Casper with your picture`); a picture on another computer's Windows share isn't
+  opened then, since Casper can't ask during work. A line that is queued keeps a pasted picture
+  for when it runs; Esc gives the line back but not the pasted picture, and says so. A macOS screenshot's name, with its
   narrow space before AM or PM, is read whole. PNG, JPEG, GIF and WebP, up to 20 MB each (a pasted picture too) and 8 a
   request. With no picture on the clipboard, files you copied in Finder, Explorer or a
   Linux file manager go in as quoted paths, as if dropped: a picture file among them is

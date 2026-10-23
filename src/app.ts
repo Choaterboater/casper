@@ -265,6 +265,8 @@ export class CasperApp {
   steering: string[] = [];
   /** What was pasted into a line typed during work, by the line, until it runs (words count only where typed). */
   readonly linePastes = new Map<string, readonly string[]>();
+  /** Pictures pasted (Ctrl+V) into a line typed during work that was queued, by the line, until it runs. */
+  readonly lineImages = new Map<string, Map<number, RuntimeImage>>();
   /** What side questions (`? …`) cost this session; shown in /usage, never in the conversation's totals. */
   readonly sideQuestions: SideQuestionUsage = { requests: 0, tokens: 0, estimatedCost: 0, unknown: false };
   /** An idle side question while it waits for its answer (Esc stops it). */

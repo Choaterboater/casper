@@ -129,6 +129,8 @@ class PiRuntimeSession implements RuntimeSession {
   private heldError?: Extract<RuntimeEvent, { type: "assistant_response_end" }>;
   /** Steered lines the model never read; see takeUnsent. */
   private readonly unsent: string[] = [];
+  /** Pictures steered in with a line, by its text: Pi's queue gives back only the text, and the lines ↑ leaves keep theirs. */
+  private readonly steeredPictures = new Map<string, Array<{ type: "image"; data: string; mimeType: string }>>();
   private progressChars = 0;
   private progressReported = 0;
   /** The end of the current reasoning block's text and the headline last sent from it (status row only). */
@@ -446,6 +448,7 @@ class PiRuntimeSession implements RuntimeSession {
     } finally {
       // A line steered in after the model's last step is not lost: it comes back through takeUnsent.
       if (session.pendingMessageCount) { const left = session.clearQueue(); this.unsent.push(...left.steering, ...left.followUp); }
+      this.steeredPictures.clear();
       agent.streamFunction = stream;
       if (maxTurns !== undefined) agent.finishTurn = previousFinish;
       promptSignal.removeEventListener("abort", cancel);
@@ -454,10 +457,12 @@ class PiRuntimeSession implements RuntimeSession {
     }
   }
 
-  async steer(text: string): Promise<boolean> {
+  async steer(text: string, images?: readonly RuntimeImage[]): Promise<boolean> {
     const session = this.runtime.session;
     if (this.readOnly || !this.promptActive || !session.isStreaming) return false;
-    await session.steer(text);
+    const pictures = images?.length ? images.map(({ data, mimeType }) => ({ type: "image" as const, data, mimeType })) : undefined;
+    if (pictures) this.steeredPictures.set(text, pictures);
+    await session.steer(text, pictures);
     return true;
   }
 
@@ -466,10 +471,11 @@ class PiRuntimeSession implements RuntimeSession {
     if (!session.pendingMessageCount) return [];
     const queued = session.clearQueue();
     const lines = [...queued.steering, ...queued.followUp];
-    if (!newest) return lines;
+    if (!newest) { for (const line of lines) this.steeredPictures.delete(line); return lines; }
     const taken = lines.pop()!;
-    // Pi's queue takes nothing out but everything: the rest go back in, in order.
-    for (const line of queued.steering.filter((_, i) => i < lines.length)) void session.steer(line);
+    this.steeredPictures.delete(taken);
+    // Pi's queue takes nothing out but everything: the rest go back in, in order, with their pictures.
+    for (const line of queued.steering.filter((_, i) => i < lines.length)) void session.steer(line, this.steeredPictures.get(line));
     for (const line of lines.slice(queued.steering.length)) void session.followUp(line);
     return [taken];
   }
