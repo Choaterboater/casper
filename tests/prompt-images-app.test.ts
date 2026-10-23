@@ -180,7 +180,7 @@ test("a picture file dropped at the start of the line is a request, not a comman
   }
 });
 
-test.skipIf(process.platform === "win32")("a macOS screenshot dropped at the start of a line during work waits as a draft, then goes as a picture", async () => {
+test.skipIf(process.platform === "win32")("a macOS screenshot dropped at the start of a line during work is a picture, not a command: queued, it goes with the line", async () => {
   const hold = Promise.withResolvers<void>();
   const f = await fixture({ vision: true, hold: hold.promise });
   // The name macOS gives a screenshot has U+202F before PM; the terminal escapes only the ASCII spaces.
@@ -193,15 +193,13 @@ test.skipIf(process.platform === "win32")("a macOS screenshot dropped at the sta
     f.input.write("hello\r");
     await f.screen.until(() => f.prompts.length === 1);
     f.input.write(`${shot.replaceAll(" ", "\\ ")}  i like it\r`);
-    // The AI reads a line during work as text only: the line stays in the prompt instead.
-    await f.screen.until((output) => output.includes("Your picture waits until this task ends · draft kept"));
+    // This runtime can't steer, so the line is queued and runs next as a request, with its picture.
+    await f.screen.until((output) => output.includes("queued · runs when this task ends"));
     expect(f.screen.output).not.toContain("Unknown command");
+    expect(f.screen.output).not.toContain("waits until this task ends");
     hold.resolve();
+    await f.screen.until(() => f.prompts.length === 2);
     await f.screen.until(idleAfter("Looked."));
-    const sent = f.screen.output.length;
-    f.input.write("\r");
-    // Idle again before /exit is typed: a line typed while the task ends, before the prompt reopens, stays a draft.
-    await f.screen.until((output) => idleAfter("Looked.")(output.slice(sent)));
     expect(f.prompts).toHaveLength(2);
     expect(f.prompts[1]!.text).toContain("[image 1]  i like it");
     expect(f.prompts[1]!.text).toContain(`[image 1] is the file ${shot}`);

@@ -434,9 +434,9 @@ export interface RuntimeSession {
    * still finish) and emits turn_limit; unset means no Casper turn limit. `images` go with the text (a model
    * that can't see them gets a placeholder from the runtime). */
   prompt(text: string, signal?: AbortSignal, options?: { request: string; maxTurns?: number; images?: readonly RuntimeImage[] }): Promise<void>;
-  /** A line the user typed while the model works: the model reads it at its next step. False, with nothing sent,
+  /** A line the user typed while the model works, with its pictures: the model reads it at its next step. False, with nothing sent,
    * when no prompt is running (the caller keeps it as the next request). */
-  steer?(text: string): Promise<boolean>;
+  steer?(text: string, images?: readonly RuntimeImage[]): Promise<boolean>;
   /** Lines steered in that the model never read (the run ended first); they are taken out of the runtime. */
   takeUnsent?(): string[];
   /** Takes steered lines back before the model reads them: all of them, or only the newest. Called before an abort, so
