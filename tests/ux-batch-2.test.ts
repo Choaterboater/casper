@@ -221,9 +221,9 @@ test("session-only native check outcomes are quiet notes, not failed or complete
   expect(observations.snapshot(undefined).possibleMutations).toBe(false);
 });
 
-test("footer has one task figure, never session totals, and working input carries a dim queue hint", async () => {
-  expect(formatFooterSpend({ tokens: 6_400_000, cost: 10.99 }, { tokens: 53_500_000, cost: 90 }, true, true, "subscription")).toBe("task 6.4M tok · sub ≈$10.99");
-  expect(formatFooterSpend({ tokens: 12, cost: 0 }, { tokens: 100, cost: 0 }, false, false)).toBe("task 12 tok");
+test("footer has the task figure, then the session total, and working input carries a dim queue hint", async () => {
+  expect(formatFooterSpend({ tokens: 6_400_000, cost: 10.99 }, { tokens: 53_500_000, cost: 90 }, true, true, "subscription")).toBe("task 6.4M tok · sub ≈$10.99 │ session 53.5M tok · sub ≈$90.00");
+  expect(formatFooterSpend({ tokens: 12, cost: 0 }, { tokens: 100, cost: 0 }, false, false)).toBe("task 12 tok │ session 100 tok");
   const f = tty(120);
   const pending = f.terminal.readCommand();
   f.input.write("request\r"); await pending;

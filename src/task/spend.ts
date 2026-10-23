@@ -39,11 +39,23 @@ export function formatTaskSpend(spent: { tokens: number; cost: number }, priced:
   return `${tokens} · ${billing === "subscription" ? "sub ≈" : ""}${formatCost(spent.cost)}`;
 }
 
-/** One task figure in the footer: its tokens, and its cost unless the model is free. Session totals live in /status. */
-export function formatFooterSpend(task: { tokens: number; cost: number }, _session: { tokens: number; cost: number }, _working: boolean,
+/** The session's running total so far: "session 180k tok · $1.40". It never goes down within a session. Cost shows
+ * when any was counted, also from a priced model used earlier; a session on free models shows tokens only. */
+export function formatSessionSpend(session: { tokens: number; cost: number }, priced: boolean | undefined, billing?: "subscription" | "per-token"): string {
+  const tokens = `session ${formatTokens(session.tokens)} tok`;
+  if (session.cost <= 0) return tokens;
+  return `${tokens} · ${billing === "subscription" && priced !== false ? "sub ≈" : ""}${formatCost(session.cost)}`;
+}
+
+/** The footer's spend groups: this task's figure, then the session's running total once an earlier task counted
+ * any, so starting a new task (or stopping one and typing) never looks like a reset. The session group comes last,
+ * so a narrow footer drops it before the task's. */
+export function formatFooterSpend(task: { tokens: number; cost: number }, session: { tokens: number; cost: number }, _working: boolean,
   priced: boolean | undefined, billing?: "subscription" | "per-token"): string {
-  if (!task.tokens && !task.cost) return "";
-  return formatTaskSpend(task, priced, billing);
+  const groups: string[] = [];
+  if (task.tokens || task.cost) groups.push(formatTaskSpend(task, priced, billing));
+  if (session.tokens > task.tokens || session.cost > task.cost) groups.push(formatSessionSpend(session, priced, billing));
+  return groups.join(" │ ");
 }
 
 /** Per task: says the note at noteAt and again at five times it, and asks at the pause limit, then again at each
