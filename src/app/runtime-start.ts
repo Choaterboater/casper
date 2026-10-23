@@ -106,7 +106,8 @@ export async function ensureRuntime(app: CasperApp): Promise<RuntimeSession> {
         if (event.type === "assistant_response_end") spendNote(app);
         if (event.type === "assistant_response_start") app.responseText = "";
         else if (event.type === "assistant_text_delta") app.responseText = (app.responseText + event.delta).slice(-65_536);
-        else if (event.type === "assistant_response_end" && app.responseText.trim()) app.lastAnswer = app.responseText;
+        else if (event.type === "assistant_response_end" && app.responseText.trim()) { app.lastAnswer = app.responseText; app.toolAfterAnswer = false; }
+        else if (event.type === "tool_start") app.toolAfterAnswer = true;
         app.events.handle(event);
         if (app.onEvent) for (const mapped of app.eventMapper.map(event)) app.onEvent(mapped);
       });

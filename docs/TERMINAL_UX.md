@@ -382,7 +382,9 @@ card's Next row, on its edge, without the `Next:` word. With diff or undo offere
 reason is on its own line, and a step that saves something shows the exact text it will write
 (`saves verify.test: uv run pytest in .casper/project.yaml`). Nothing waits: a lone number on the empty
 prompt picks the step, and anything else you type is simply your next request. Casper's rules are local
-and free; only a step marked "uses tokens" asks the model anything.
+and free; only a step marked "uses tokens" asks the model anything. No row comes after a task that ends asking you
+something or paused after saying what it does next: its numbers could pass for the options the AI just offered
+([When a task is not done yet](VERIFICATION.md#when-a-task-is-not-done-yet)).
 
 Two steps ship: "Add a test that proves this bug stays fixed" (a fix whose tests pass without it too)
 and "Remember <command> as this project's test command" (the model ran a known test runner, such as

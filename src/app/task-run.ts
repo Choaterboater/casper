@@ -19,7 +19,8 @@ import type { RuntimeImage, RuntimeSession } from "../runtime/types";
 import { formatSelectedSkills } from "../skills/registry";
 import { classifyTask, formatTaskPrompt, underSpecifiedTarget } from "../task/classify";
 import { machineNames, rememberMachines } from "./machines";
-import { answerClaimsBrowserPass, receiptView, rememberSessionNotes, shortReceiptText, undoPathsShown, formatTaskResult, UNDO_NOT_PROJECT, type TaskResult } from "../task/result";
+import { answerClaimsBrowserPass, receiptView, rememberSessionNotes, shortReceiptText, undoPathsShown, formatTaskResult, UNDO_NOT_PROJECT, type ReceiptOptions, type ReceiptView, type TaskResult } from "../task/result";
+import { changedSoFar, endingLine, mustStand, quietReceipt, taskEnding, withEarlierChanges } from "../task/ending";
 import { OBSERVED_EDITS_LIMIT, TaskObservations } from "../task/observations";
 import { isToolCallAsText, TOOL_CALL_AS_TEXT_LINE } from "../task/text-tool-call";
 import { diffSnapshots, tooManyFiles, type TreeChanges } from "../task/changes";
@@ -582,6 +583,12 @@ export async function runModelTask(app: CasperApp, prompt: string, options: { fl
       // to compare, when no tool that could change a file ran.
       const answeredOnly = (changedPaths?.length === 0 || (!changedPaths && !observations.possibleMutations && !observations.observedEdits.length))
         && !app.lastTaskResult.testRunner;
+      // How it ended, in a session: the AI asks you something, or it said what it does next and stopped
+      // (src/task/ending.ts). Words a tool ran after are not its last.
+      const ending = app.interactive && !app.toolAfterAnswer ? taskEnding(app.lastAnswer) : undefined;
+      // Work held in another folder (a switch since) is not this work.
+      app.heldCards = app.heldCards.filter((held) => held.root === workspaceRoot);
+      const options = () => receiptOptions(app, workspaceRoot);
       // A stop at --max-turns or at the spend limit is always said on a receipt.
       if ((classification.intent !== "general" && !answeredOnly) || execution !== "completed" || wroteToolCall || app.taskTurnLimit !== undefined || app.taskSpendStop !== undefined || verification || browser?.checks.length || observations.possibleMutations || observations.changedPaths?.length || observations.changedDuringChecks?.length || observations.observedEdits.length || observations.observedChecks.length
         || app.planBuild || branchMoved || observations.remoteChanges?.length || observations.remoteNotRun?.length || observations.secretInCommand || observations.secretInFiles?.length || app.cleanupReports.length) {
@@ -591,20 +598,36 @@ export async function runModelTask(app: CasperApp, prompt: string, options: { fl
         const { stat } = await app.taskUndo.finish(undoStart, { request: prompt, task: app.lastTaskResult, session, servers: [...app.taskChangeServers] });
         const task = app.lastTaskResult;
         // The short receipt is a card on a session's rich terminal; one-shot runs keep its lines, --verbose the full form.
-        const view = app.verbose ? undefined : receiptView(task, { surface: receiptSurface(app), ...receiptFolder(app, workspaceRoot),
-          ...(app.checksHintShown ? { checksHintShown: true as const } : {}), undoNamed: app.undoNamed, seenNotes: app.receiptNotesSeen });
-        const receipt = view ? shortReceiptText(view) : formatTaskResult(task);
-        if (!view) app.terminal.writeReceipt(`${receipt}\n`); else app.terminal.writeResult(`${receipt}\n`, app.interactive ? view : undefined);
-        if (!app.verbose) {
-          if (task.autoSkipped === "no-checks" && !task.verification && !task.observedChecks?.length && task.execution === "completed") app.checksHintShown = true;
-          // Only the files the receipt printed: ones past its limit are named on a later one.
-          for (const shown of undoPathsShown(task, app.undoNamed)) app.undoNamed.add(shown);
-          // The session notes it said in full are said short from now on.
-          rememberSessionNotes(app.receiptNotesSeen, task);
+        const view = app.verbose ? undefined : receiptView(task, options());
+        const quiet = Boolean(view && app.interactive && quietReceipt(view, task));
+        if (view && ending && !mustStand(task)) {
+          // Not done: one line instead of the card and its numbered keys, which could pass for the AI's options. The
+          // receipt is saved (/receipt, /undo, /diff); the card that ends the work names what changed so far.
+          if (changedSoFar(task)) app.heldCards.push({ task, root: workspaceRoot, request: prompt, classification });
+          app.terminal.offerNext(undefined);
+          writeEnding(app, endingLine(ending, task));
+        } else if (quiet && !app.heldCards.length) {
+          // Nothing ran and nothing changed: the AI's message is the whole result, as with a plain answer.
+          app.terminal.offerNext(undefined);
+        } else {
+          // This task's card, or, when it changed nothing, the card of the work held before your answer.
+          const held = quiet ? app.heldCards.pop() : undefined;
+          const shown = held?.task ?? task;
+          const shownView = held ? receiptView(shown, options()) : view;
+          showReceipt(app, shown, shownView && !ending ? withEarlierChanges(shownView, app.heldCards.splice(0).map((entry) => entry.task)) : shownView);
+          // The per-file table stays behind Diff and --verbose; the receipt already says how many files changed.
+          if (app.verbose && stat.trim()) app.output.write(stat.endsWith("\n") ? stat : `${stat}\n`);
+          // A result that must stand (a failure, a stop) shows under a question too: then the line, and no keys.
+          if (ending) { app.terminal.offerNext(undefined); writeEnding(app, endingLine(ending, task)); }
+          else if (app.interactive) await offerNextSteps(app, shown, held?.request ?? prompt, held?.classification ?? classification);
+          receiptShown = true;
         }
-        // The per-file table stays behind Diff and --verbose; the receipt already says how many files changed.
-        if (app.verbose && stat.trim()) app.output.write(stat.endsWith("\n") ? stat : `${stat}\n`);
-        if (app.interactive) await offerNextSteps(app, app.lastTaskResult, prompt, classification);
+      } else if (!ending && app.heldCards.length) {
+        // A plain answer that ends work which asked you first: that work's card, naming what changed before it.
+        const held = app.heldCards.pop()!;
+        const view = app.verbose ? undefined : receiptView(held.task, options());
+        showReceipt(app, held.task, view && withEarlierChanges(view, app.heldCards.splice(0).map((entry) => entry.task)));
+        if (app.interactive) await offerNextSteps(app, held.task, held.request, held.classification);
         receiptShown = true;
       }
     }
@@ -1122,6 +1145,30 @@ export function receiptFolder(app: CasperApp, root: string): { folder?: string }
   if (inside) return {};
   // cmd and Windows PowerShell never expand ~, so on Windows the command names the folder in full.
   return { folder: process.platform === "win32" ? root : tildePath(root, app.sessionHomeDir ?? os.homedir()) };
+}
+
+/** How this session says a task's receipt: the surface, the folder, and what earlier receipts already said. */
+function receiptOptions(app: CasperApp, root: string): ReceiptOptions {
+  return { surface: receiptSurface(app), ...receiptFolder(app, root), ...(app.checksHintShown ? { checksHintShown: true as const } : {}),
+    undoNamed: app.undoNamed, seenNotes: app.receiptNotesSeen };
+}
+
+/** A task's receipt: the card (a session's rich terminal), its lines, or with --verbose the full form; then what it
+ * said is said short on later receipts. */
+function showReceipt(app: CasperApp, task: TaskResult, view: ReceiptView | undefined): void {
+  const receipt = view ? shortReceiptText(view) : formatTaskResult(task);
+  if (!view) app.terminal.writeReceipt(`${receipt}\n`); else app.terminal.writeResult(`${receipt}\n`, app.interactive ? view : undefined);
+  if (app.verbose) return;
+  if (task.autoSkipped === "no-checks" && !task.verification && !task.observedChecks?.length && task.execution === "completed") app.checksHintShown = true;
+  // Only the files the receipt printed: ones past its limit are named on a later one.
+  for (const shown of undoPathsShown(task, app.undoNamed)) app.undoNamed.add(shown);
+  // The session notes it said in full are said short from now on.
+  rememberSessionNotes(app.receiptNotesSeen, task);
+}
+
+/** The line a task that is not done ends with (src/task/ending.ts), in a block of its own like a receipt. */
+function writeEnding(app: CasperApp, line: string): void {
+  app.terminal.write(`${line}\n`, "group");
 }
 
 /** Whether the task's code may differ from its start. A shell command's effect is unknown, so the tree is

@@ -20,19 +20,24 @@ export type RequirementsReview =
 export const ROUND_MAX_TURNS = 12;
 
 const ITEM = /^\s*[-*]\s*\[([ xX])\]\s+(.+?)\s*$/;
+/** The plain lines the model is asked for, which never look like boxes to tick: "Still not done: …", "Covered now: …". */
+const PLAIN_ITEM = /^\s*(?:[-*•]\s+)?(?:\*\*)?(still not done|covered now):(?:\*\*)?\s+(.+?)\s*$/i;
 const MAX_DONE = 50;
 const MAX_ITEM_CHARS = 300;
 
-/** Checkbox lines from the answer; undefined when it has none. Ticked items are capped at 50 for the
- * receipt; open items never are, since an admitted gap makes the change not verified. */
+/** Open and done lines from the answer, plain or as checkboxes; undefined when it has none. Done items are capped at 50
+ * for the receipt; open items never are, since an admitted gap makes the change not verified. */
 export function parseChecklist(answer: string): { done: string[]; open: string[] } | undefined {
   const done: string[] = [];
   const open: string[] = [];
   for (const line of answer.split(/\r?\n/)) {
-    const item = ITEM.exec(line);
-    if (!item || (item[1] !== " " && done.length >= MAX_DONE)) continue;
-    const text = item[2]!.length > MAX_ITEM_CHARS ? `${item[2]!.slice(0, MAX_ITEM_CHARS - 1)}…` : item[2]!;
-    (item[1] === " " ? open : done).push(text);
+    const box = ITEM.exec(line), plain = box ? undefined : PLAIN_ITEM.exec(line);
+    if (!box && !plain) continue;
+    const isOpen = box ? box[1] === " " : plain![1]!.toLowerCase() === "still not done";
+    const item = box ? box[2]! : plain![2]!;
+    if (!isOpen && done.length >= MAX_DONE) continue;
+    const text = item.length > MAX_ITEM_CHARS ? `${item.slice(0, MAX_ITEM_CHARS - 1)}…` : item;
+    (isOpen ? open : done).push(text);
   }
   return done.length || open.length ? { done, open } : undefined;
 }
@@ -54,10 +59,10 @@ export function parseReview(answer: string): RequirementsReview | undefined {
     ...(covered ? { covered: Number(covered[1]), total: Number(covered[2]) } : {}) };
 }
 
-/** The checklist format parseChecklist reads. The task turn asks only for its open-item line (the gaps; a full
- * ticked list made answers long and is the model's own claim anyway); the review's delta answer reuses that line
- * under its own heading and a count. */
-export const OPEN_ITEM_FORMAT = "- [ ] <requirement> — <why it is still not done>";
+/** The open-item line parseChecklist reads: plain words, so the gaps an answer ends with never look like boxes to tick
+ * or options to pick. The task turn asks only for this line (the gaps; a full ticked list made answers long and is the
+ * model's own claim anyway); the review's delta answer reuses it under its own heading and a count. */
+export const OPEN_ITEM_FORMAT = "Still not done: <requirement> — <why it is still not done>";
 
 /** Checks every case but answers only the gaps: a full re-listed checklist made the answer 3.7-4.9x
  * Pi's length and the round 41-44% of the wall time, with no first-time-right gain in pinned runs. */
@@ -71,7 +76,7 @@ export function requirementsReviewPrompt(request: string): string {
     "A requirement is covered only when a test you can name asserts it; code that merely looks right or an unasserted claim is not enough. For every uncovered one, add the test now and fix the code if it fails. Do not weaken, skip or delete tests. Run the tests once your additions are done.",
     "Your answer reports only the gaps, one case per line: do not list requirements that were already covered and do not summarize the change. End it with:",
     "Requirements review:",
-    "- [x] <requirement> — <the test you added for it>",
+    "Covered now: <requirement> — <the test you added for it>",
     OPEN_ITEM_FORMAT,
     "Covered: <n> of <m> requirements.",
     "With no gaps, answer only:",

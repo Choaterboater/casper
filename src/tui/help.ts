@@ -36,6 +36,9 @@ export const RECEIPT_HELP = `What a receipt's first line means, and what to do:
   ✗ Failed                      A check fails on the final files, or the model run failed. Ctrl+T shows the log; /verify repair <check> asks the model to fix it.
   ⚠ Stopped                     You stopped the task. What changed so far is kept: /diff shows it, /undo puts it back.
 Green is proven or passed, amber needs a look, red failed. /receipt shows every line of the last receipt.
+A task that is not done ends with a line instead of a receipt, and its receipt is saved (/receipt):
+  ? Waiting for your answer     The AI asked you something. Answer it; the receipt that ends the work names what changed before your answer.
+  Paused — the AI said what it does next   It stopped after saying what it will do. Say go, or tell it what to change.
 `;
 
 /** The keys, in /help all and /hotkeys. */
