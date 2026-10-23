@@ -277,3 +277,117 @@ test("a line typed as the task ends is never stranded: it comes back in the prom
     expect(prompts[1]).toContain("make it rhyme");
   } finally { gate.resolve(); await app.close(); }
 }, 30_000);
+
+test("a line taken back before the model's next step never reaches it; taking back the newest leaves the rest to be read", async () => {
+  const { result, payloads } = await run(count => count === 1 ? listCall() : answer("DONE"), `
+    const waiting = [];
+    let taken;
+    session.subscribe(event => {
+      if (event.type === "waiting") waiting.push(event.lines);
+      if (event.type === "tool_start" && taken === undefined) {
+        taken = (async () => {
+          await session.steer("KEEP_PINEAPPLE"); await session.steer("DROP_MANGO"); await session.steer("DROP_KIWI");
+          const newest = session.unsteer(true);
+          await Bun.sleep(0);
+          return { newest, all: [] };
+        })();
+      }
+    });
+    await session.prompt("List the files");
+    console.log(JSON.stringify({ taken: await taken, waiting, unsent: session.takeUnsent() }));`);
+  expect((result.taken as { newest: string[] }).newest).toEqual(["DROP_KIWI"]);
+  const sent = JSON.stringify(payloads.at(-1)!.messages);
+  expect(sent).toContain("KEEP_PINEAPPLE");
+  expect(sent).toContain("DROP_MANGO");
+  expect(sent).not.toContain("DROP_KIWI");
+  // The screen hears each change, and the last says nothing waits.
+  expect((result.waiting as string[][]).some(lines => lines.includes("DROP_KIWI"))).toBe(true);
+  expect((result.waiting as string[][]).at(-1)).toEqual([]);
+}, 90_000);
+
+test("unsteer() takes every waiting line out before the model reads any", async () => {
+  const { result, payloads } = await run(count => count === 1 ? listCall() : answer("DONE"), `
+    let taken;
+    session.subscribe(event => {
+      if (event.type === "tool_start" && taken === undefined) taken = session.steer("NEVER_SENT_FIG").then(() => session.unsteer());
+    });
+    await session.prompt("List the files");
+    console.log(JSON.stringify({ taken: await taken, unsent: session.takeUnsent() }));`);
+  expect(result).toEqual({ taken: ["NEVER_SENT_FIG"], unsent: [] });
+  expect(JSON.stringify(payloads)).not.toContain("NEVER_SENT_FIG");
+}, 90_000);
+
+/** A runtime that behaves as Pi does on an abort: a line still waiting goes into the conversation. */
+function waitingRuntime(state: { prompts: string[]; waiting: string[]; conversation: string[]; order: string[]; gate: ReturnType<typeof Promise.withResolvers<void>> }) {
+  let listener: ((event: import("../src/runtime/types").RuntimeEvent) => void) | undefined;
+  const say = () => listener?.({ type: "waiting", lines: [...state.waiting] });
+  const runtime: AgentRuntime = {
+    async start() {
+      return {
+        setTools: () => {}, getStatus: () => ({ provider: "fixture", model: "demo", auth: "configured" as const }),
+        getState: () => ({ cwd: "", isStreaming: true }),
+        subscribe: (next) => { listener = next; return () => { listener = undefined; }; },
+        abort: async () => { state.order.push("abort"); state.conversation.push(...state.waiting.splice(0)); say(); state.gate.resolve(); },
+        steer: async (text: string) => { state.waiting.push(text); say(); return true; },
+        unsteer: (newest?: boolean) => { state.order.push("unsteer"); const taken = newest ? state.waiting.splice(-1) : state.waiting.splice(0); say(); return taken; },
+        takeUnsent: () => [],
+        prompt: async (text: string) => { state.prompts.push(text); state.conversation.push(text); await state.gate.promise; },
+      };
+    },
+    async dispose() {},
+  };
+  return { runtime, read: () => { state.conversation.push(...state.waiting.splice(0)); say(); } };
+}
+type Surface = { waitingRows(width: number): string[] };
+const surfaceOf = (app: Awaited<ReturnType<typeof richApp>>) => (app.app as unknown as { terminal: { surface: Surface } }).terminal.surface;
+
+test("Esc during a step puts a waiting line back in the prompt, never in the conversation", async () => {
+  process.env.TERM = "xterm-256color";
+  const state = { prompts: [] as string[], waiting: [] as string[], conversation: [] as string[], order: [] as string[], gate: Promise.withResolvers<void>() };
+  const app = await richApp(() => waitingRuntime(state).runtime);
+  try {
+    await app.until(text => text.includes("idle"));
+    app.input.write("sign me in\r");
+    await app.until(() => state.prompts.length === 1);
+    app.input.write("good to go\r");
+    await app.until(text => text.includes("sent to Casper · it reads this when its current step ends · ↑ takes it back"));
+    app.input.write("\x1b");
+    await app.until(text => text.includes("back in the prompt"));
+    // Taken out first, then aborted: the line never joined the conversation.
+    expect(state.order.slice(0, 2)).toEqual(["unsteer", "abort"]);
+    expect(state.conversation).toHaveLength(1);
+    expect(state.conversation.join("\n")).not.toContain("good to go");
+    app.input.write("\r");
+    await app.until(() => state.prompts.length === 2);
+    expect(state.prompts[1]).toContain("good to go");
+  } finally { state.gate.resolve(); await app.close(); }
+}, 30_000);
+
+test("a waiting line shows above the prompt until the AI reads it; ↑ on an empty prompt takes the newest back", async () => {
+  process.env.TERM = "xterm-256color";
+  const state = { prompts: [] as string[], waiting: [] as string[], conversation: [] as string[], order: [] as string[], gate: Promise.withResolvers<void>() };
+  const fake = waitingRuntime(state);
+  const app = await richApp(() => fake.runtime);
+  try {
+    await app.until(text => text.includes("idle"));
+    app.input.write("write a poem\r");
+    await app.until(() => state.prompts.length === 1);
+    app.input.write("make it rhyme\r");
+    app.input.write("and short\r");
+    await app.until(() => state.waiting.length === 2);
+    await app.until(() => surfaceOf(app).waitingRows(100).length === 2);
+    const rows = surfaceOf(app).waitingRows(100).map(row => Bun.stripANSI(row));
+    expect(rows).toEqual(["↳ waiting: make it rhyme", "↳ waiting: and short · ↑ takes it back"]);
+    // ↑ takes back the newest: it leaves the runtime and comes back as the draft, unsent.
+    app.input.write("\x1b[A");
+    await app.until(() => state.waiting.length === 1);
+    expect(state.order).toEqual(["unsteer"]);
+    await app.until(() => surfaceOf(app).waitingRows(100).length === 1);
+    const editor = (app.app as unknown as { terminal: { surface: { editor: { getText(): string } } } }).terminal.surface.editor;
+    expect(editor.getText()).toBe("and short");
+    // The AI reads the other: its row clears.
+    fake.read();
+    await app.until(() => surfaceOf(app).waitingRows(100).length === 0);
+    expect(state.conversation.slice(1)).toEqual(["make it rhyme"]);
+  } finally { state.gate.resolve(); await app.close(); }
+}, 30_000);

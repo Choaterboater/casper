@@ -282,6 +282,9 @@ export class TerminalSurface {
   private update?: string;
   /** Ctrl+X: turn writes off everywhere. True when something was on. */
   private onWritesRevert?: () => boolean;
+  private onTakeBack?: () => boolean;
+  /** Lines typed during the task that the AI hasn't read yet, oldest first. */
+  private waitingLines: string[] = [];
   private cwd = "";
   private autocomplete?: AutocompleteProvider;
   private started = false;
@@ -397,7 +400,7 @@ export class TerminalSurface {
       render: width => {
         const editorLines = this.editor.render(width);
         const rule = this.border("─".repeat(width));
-        const status = this.statusRow(width);
+        const status = [...this.waitingRows(width), ...this.statusRow(width)];
         // Crew rows never own input or displace a picker/approval. Small windows reserve the answer first.
         const crew = this.slot || this.lending ? [] : this.crewRows(Math.max(1, width - 2),
           Math.max(0, this.terminal.rows - editorLines.length - (this.pendingAsk || this.pendingLine ? 10 : 4)));
@@ -506,6 +509,12 @@ export class TerminalSurface {
         const offered = this.command && !this.waiting && !this.busy && !this.editor.getText() ? this.nextKeys.get(data) : undefined;
         this.nextKeys = undefined;
         if (offered !== undefined) { this.editor.onSubmit?.(offered); return { consume: true }; }
+      }
+      // ↑ on an empty prompt during a task takes back the newest line the AI hasn't read (Copilot CLI's key; Alt+Up as
+      // in Pi, where the terminal passes it on: Windows Terminal keeps Alt+arrows for its panes).
+      if (this.busy && !this.pendingAsk && !this.pendingLine && this.waitingLines.length && !this.editor.getText()
+        && (matchesKey(data, "up") || matchesKey(data, "alt+up")) && this.onTakeBack?.()) {
+        this.render(); return { consume: true };
       }
       if (this.pendingAsk && this.askOptions && !this.editor.getText() && (matchesKey(data, "up") || matchesKey(data, "down"))) {
         // On an empty answer line, Up/Down goes back to the list from the Other row.
@@ -717,6 +726,13 @@ export class TerminalSurface {
   /** Your own commands (Markdown files), read when the / menu opens. */
   setUserCommands(list: () => readonly MenuCommand[]): void { this.userCommands = list; }
   setWritesRevert(handler: (() => boolean) | undefined): void { this.onWritesRevert = handler; }
+  setTakeBack(handler: (() => boolean) | undefined): void { this.onTakeBack = handler; }
+  setWaiting(lines: readonly string[]): void {
+    const next = lines.map(line => lineText(terminalText(line)).replace(/\s+/g, " ").trim()).filter(Boolean);
+    if (next.join("\n") === this.waitingLines.join("\n")) return;
+    this.waitingLines = next;
+    this.render();
+  }
   setBadge(text?: string): void {
     const next = text ? terminalText(text).replace(/\s+/g, " ").trim() || undefined : undefined;
     if (next === this.badge) return;
@@ -854,6 +870,19 @@ export class TerminalSurface {
   /** The one row above the prompt while work runs: the spinner, the AI's intent and what Casper is doing or waiting for,
    * and that Esc stops it. Nothing while a question or picker waits on you. A narrow window drops the intent, then cuts
    * the words, never the key. */
+  /** One muted row per waiting line, at most 3 (the newest), and the key that takes the newest back. */
+  private waitingRows(width: number): string[] {
+    if (!this.waitingLines.length || this.closed || this.pendingAsk || this.pendingLine) return [];
+    const shown = this.waitingLines.slice(-3);
+    const more = this.waitingLines.length - shown.length;
+    const hint = " · ↑ takes it back";
+    return shown.map((line, i) => {
+      const lead = `↳ waiting${i === 0 && more ? ` (+${more})` : ""}: `;
+      const tail = i === shown.length - 1 && this.busy ? hint : "";
+      const room = Math.max(4, width - 2 - visibleWidth(lead) - visibleWidth(tail));
+      return truncateToWidth(this.muted(`${lead}${truncateToWidth(line, room, "…")}${tail}`), width);
+    });
+  }
   private statusRow(width: number): string[] {
     if (!this.work || this.waiting || this.closed) return [];
     const spin = this.accent(SPINNER_FRAMES[this.spinnerFrame]!);
