@@ -130,7 +130,13 @@ writing the file; it ends when this Casper session closes. The edit shows a quie
 No, Enter, cancellation or a run that cannot ask leaves the file unchanged. Unrelated project settings
 remain ordinary edits. Shell commands targeting a possible check rewrite (including directory copies)
 are refused and directed to native edit/write so the exact change can be shown. Plain reads and copying
-checks to unrelated files are not rewrites; other shell permission rules still apply. This text guard is
+checks to unrelated files are not rewrites; other shell permission rules still apply. Paths are read as the
+shell reads them: `~` and `$HOME` are your home folder and `~+` and `$PWD` the folder the command runs in.
+In a copy's destination, a brace list `{a,b}` is each of its words, and a glob is matched against the checks
+and their folders. So copying or moving files out of the project, to a folder written any of those ways, is
+never refused, and a write to a check through `~` is refused like any other. A copy's destination Casper
+can't know (a variable or a command at its start, another user's `~name`, or a `..` after an unknown part)
+is refused as before. This text guard is
 not an operating-system sandbox against opaque scripts. User-issued setup commands keep their own flows.
 
 ## Working on Casper's own tests
