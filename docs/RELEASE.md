@@ -14,11 +14,33 @@ when releasing. Existing historical notes below stay as written; feature tests c
 reference docs, not a per-PR release-note or roadmap entry. Release-prep checks verify the version and
 installer targets (`tests/release-install.test.ts`, `tests/release-targets.test.ts`).
 
-Casper distributes an unsigned **v0.3.1 preview**, not a stable release. The installers
-download from `https://github.com/Choaterboater/casper/releases/download/v0.3.1`,
+Casper distributes an unsigned **v0.3.2 preview**, not a stable release. The installers
+download from `https://github.com/Choaterboater/casper/releases/download/v0.3.2`,
 because GitHub's `latest/download` link skips preview releases. The first published
 preview was **v0.1.0**. A published release is never changed; every fix ships under a
 new version.
+
+## v0.3.2: lines you type during a task, skills you add in chat, and pages that need a browser
+
+### Added
+
+- `/continue` goes back to this folder's most recent conversation from inside a session.
+- Ask in chat to add a skill, and Casper shows its whole text and adds it only after your yes.
+- The footer shows the session's running total beside the task's figure, so a new task never looks like a reset.
+- A picture you add during a task goes to the AI with your line.
+
+### Changed
+
+- A line you type during a task shows as waiting until the AI reads it, and ↑ takes it back.
+- A line you send while a step only waits, such as a sign-in window, ends that wait so the AI reads it now.
+- A task that asks you something or stops to say what comes next ends with one line, not a receipt card.
+- When a web page can't be read directly, the AI opens it in its own browser or asks you to.
+
+### Fixed
+
+- Copying or moving files out of the project is no longer refused as a possible check change.
+- A long answer typed into a question or an approval stays in view while you type.
+- Esc during a task puts the lines still waiting for the AI back in the prompt instead of losing them.
 
 ## v0.3.1: MCP servers on your own network, with the keys they need
 
