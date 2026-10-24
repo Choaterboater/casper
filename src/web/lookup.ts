@@ -88,6 +88,35 @@ async function readCapped(body: ReadableStream<Uint8Array> | null, limit: number
 const TEXT_TYPES = /^(?:text\/[\w.+-]+|application\/(?:json|[\w.-]+\+json|xml|[\w.-]+\+xml|javascript|x-yaml|yaml))$/;
 const HTML_TYPES = new Set(["text/html", "application/xhtml+xml"]);
 
+/** A site that couldn't be reached (refused, reset, a TLS failure), though its name was found and is public: a browser
+ * may still reach it, as some sites answer only browsers. */
+export class UnreachableError extends Error {}
+
+/** Why a page's text may not be the page asked for: a sign-in page, a site that turned the lookup away, or a page that
+ * shows its text only with JavaScript. A browser reads the last two; the first needs the person to sign in. */
+export type UnreadPage = "sign-in" | "turned-away" | "javascript";
+/** Paths of sign-in pages, as the browser's checks read them (src/browser/session.ts). */
+const SIGN_IN_PATH = /\/(?:auth\/authorize|oauth2?\/authorize|log-?in|sign-?in|sign_in|sso)(?:\/|\.html?$|$)/i;
+const PASSWORD_FIELD = /<input\b[^>]*\btype\s*=\s*["']?password\b/i;
+/** Bot checks and blocks that stand in front of a page. */
+const TURNED_AWAY = /\b(?:just a moment|checking your browser|attention required|verify (?:that )?you are (?:a )?human|are you a robot|captcha|access denied|request (?:was )?blocked)\b/i;
+const NEEDS_SCRIPT = /\b(?:enable javascript|javascript (?:is )?(?:required|disabled|turned off)|requires javascript)\b/i;
+/** Less text than this, with a password field or behind a bot check, is that form or check, not an article beside it. */
+const SHORT_PAGE = 1500;
+
+/** What a fetched HTML page is, when it is not the page asked for; undefined for an ordinary page or any other type (an
+ * API's 401 or 403 is its own answer). `asked` is the address requested, `here` where the redirects ended. */
+export function unreadPage(status: number, asked: URL, here: URL, html: string, text: string): UnreadPage | undefined {
+  const short = text.trim().length < SHORT_PAGE;
+  // A sign-in page asked for by its own address is the page asked for.
+  const askedSignIn = SIGN_IN_PATH.test(asked.pathname);
+  const sentAway = here.pathname !== asked.pathname && SIGN_IN_PATH.test(here.pathname) && !askedSignIn;
+  if (status === 401 || sentAway || (short && !askedSignIn && PASSWORD_FIELD.test(html))) return "sign-in";
+  if (status === 403 || status === 429 || (short && (status === 503 || status < 300) && TURNED_AWAY.test(text))) return "turned-away";
+  if (status < 300 && (NEEDS_SCRIPT.test(text) || (text.trim().length < 200 && /<script\b/i.test(html)))) return "javascript";
+  return undefined;
+}
+
 function mediaType(header: string | null): { type: string; charset?: string } {
   const [type = "", ...params] = (header ?? "").split(";");
   const charset = params.map((part) => /^\s*charset\s*=\s*"?([\w.:-]+)"?\s*$/i.exec(part)?.[1]).find(Boolean);
@@ -117,6 +146,8 @@ function cutText(text: string, limit: number): { text: string; cut: boolean } {
 export interface WebFetchResult {
   source: "web_fetch"; url: string; finalUrl: string; status: number; contentType: string; fetchedAt: string;
   guidance: string; title?: string; truncated: boolean; secretsHidden: number; text: string;
+  /** Set when the text is not the page asked for (src/web/tools.ts says what reads it). */
+  unread?: UnreadPage;
 }
 export interface WebSearchResult {
   source: "web_search"; provider: string; query: string; guidance: string; results: SearchHit[]; secretsHidden: number;
@@ -243,8 +274,10 @@ export class WebLookup {
     const fetched = await this.get(target.href, { accept: "text/html,application/xhtml+xml,text/plain;q=0.9,application/json;q=0.9,*/*;q=0.1" }, signal);
     let text = decode(fetched.bytes, fetched.charset, fetched.complete);
     let title: string | undefined;
+    let unread: UnreadPage | undefined;
     if (HTML_TYPES.has(fetched.contentType)) {
       const page = await htmlToText(text, fetched.url.href);
+      unread = unreadPage(fetched.status, target, fetched.url, text, page.text);
       text = page.text;
       title = page.title || undefined;
     }
@@ -261,6 +294,7 @@ export class WebLookup {
         source: "web_fetch", url: target.href, finalUrl: fetched.url.href, status: fetched.status, contentType: fetched.contentType,
         fetchedAt: (this.options.now?.() ?? new Date()).toISOString(), guidance: webGuidance(bareHost(fetched.url)),
         ...(scrubbed.value.title ? { title: scrubbed.value.title } : {}), truncated, secretsHidden: scrubbed.hidden, text: shown,
+        ...(unread ? { unread } : {}),
       };
     };
     let high = Buffer.byteLength(body);
@@ -295,7 +329,7 @@ function sendError(error: unknown, timeout: AbortSignal, host: string): Error {
   if (timeout.aborted) return new OutcomeUnknownError(`${host} did not answer within ${TIMEOUT_MS / 1000} seconds`);
   if (error instanceof Error && error.name === "AbortError") return error;
   const reason = error instanceof Error ? error.message : String(error);
-  return new Error(`could not reach ${host} (${reason.slice(0, 200)})`);
+  return new UnreachableError(`could not reach ${host} (${reason.slice(0, 200)})`);
 }
 
 /** Your own provider address (web.searxngUrl): http or https, no user name or password. */

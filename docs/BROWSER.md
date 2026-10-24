@@ -365,6 +365,15 @@ bounded, non-atomic filesystem observations: they do **not** prove which build t
 server is serving, that the input scope is complete, or that external state stayed
 unchanged. Screenshots and model claims never count as assertion passes.
 
+## Pages `web_fetch` can't read
+
+A page `web_fetch` can't read comes here. When `web_fetch` gets a sign-in page, a site that turns it away (`403`, `429`
+or a bot check), a page that shows its text only with JavaScript, or no answer at all, its result tells the AI to open
+the page in this browser and `inspect` it, and for a sign-in page to use `signin` first, which asks you (below). When
+the browser tool isn't offered (`browser: off`), the result tells the AI to ask you to open the page yourself and paste
+what it needs. An address `web_fetch` refuses on purpose (private, local, cloud metadata, or a name that doesn't
+exist) is never pointed here, and an API's own `401` or `403` answer is left as it is.
+
 ## Signing in
 
 The AI's browser is headless and starts with an empty profile, so a page behind a login (a Home Assistant at

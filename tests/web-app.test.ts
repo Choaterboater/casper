@@ -28,7 +28,8 @@ async function folders() {
   return { home, project };
 }
 
-async function session(home: string, project: string, onPrompt: (tools: RuntimeTool[]) => Promise<void> = async () => {}) {
+async function session(home: string, project: string, onPrompt: (tools: RuntimeTool[]) => Promise<void> = async () => {},
+  respond?: (request: WebHttpRequest) => Response) {
   let tools: RuntimeTool[] = [];
   const requests: WebHttpRequest[] = [];
   let picks = 0;
@@ -55,7 +56,7 @@ async function session(home: string, project: string, onPrompt: (tools: RuntimeT
     verificationMode: "off",
     webSeams: {
       dns: async () => [{ address: "93.184.215.14", family: 4 }],
-      http: async (request) => { requests.push(request); return new Response("<p>Install with bun add x</p>", { headers: { "content-type": "text/html" } }); },
+      http: async (request) => { requests.push(request); return respond?.(request) ?? new Response("<p>Install with bun add x</p>", { headers: { "content-type": "text/html" } }); },
     },
   });
   app.terminal.pick = async () => { picks++; return undefined; };
@@ -107,6 +108,24 @@ test("/settings typed during a task never stops that task's web lookups: the the
     expect(run.text()).toContain("[settings] Web lookups: off. Saved in ~/.casper/config.yaml. The running task keeps what it had; your next request uses it.\n");
     expect(run.app.web).toBeUndefined();
   } finally { useTheme(undefined); await run.app.close(); }
+});
+
+test("a page web_fetch can't read points to the browser the session offers, or to the person with browser: off", async () => {
+  for (const config of ["", "browser: off\n"]) {
+    const { home, project } = await folders();
+    if (config) await writeFile(path.join(home, ".casper", "config.yaml"), config);
+    let shown: { data?: { status: number; unread?: string; next?: string } } | undefined;
+    const run = await session(home, project, async (tools) => {
+      shown = JSON.parse((await tools.find((tool) => tool.name === "web_fetch")!.execute({ url: "https://docs.example.com/install" })).text);
+    }, () => new Response("<title>Access denied</title><p>Please enable JS and disable any ad blocker</p>", { status: 403, headers: { "content-type": "text/html" } }));
+    // The address in the request offers the browser tool, unless browser: off.
+    await run.app.runOnce("Read https://docs.example.com/install and tell me how to install x.", project);
+    const offered = run.tools().some((tool) => tool.name === "browser");
+    expect({ config, offered, status: shown?.data?.status, unread: shown?.data?.unread }).toEqual({ config, offered: !config, status: 403, unread: "turned-away" });
+    expect(shown?.data?.next).toStartWith(config ? "Tell the person you can't read this page here" : "The site turned this lookup away (status 403)");
+    expect(run.picks()).toBe(0);
+    await run.app.close();
+  }
 });
 
 test("web: off in your own config takes both tools away", async () => {
