@@ -218,6 +218,15 @@ tags: [mist, naming]
 Site names are <city>-<building>. AP names are <site>-ap<nn>.
 ```
 
+Or ask in chat ("add a skill: our lab sites are named <city>-<building>"), or point the AI to a skill you found. The AI
+writes the name, description, tags and text and calls `casper_skill_add`; Casper writes the `---` header itself.
+Casper prints the whole file, every line behind a `│`, then asks `Add the skill <name>?` (`1 No · 2 Yes, add it`).
+Nothing is written before your 2, and nothing answers that box for you: not "Yes to everything" (`/permissions all`),
+not a remembered answer. A yes writes `~/.casper/skills/<name>/SKILL.md`, never over a name a skill already has or a
+folder that's there, and the next request it fits uses it. A run that can't ask (one-shot, `--json`) adds nothing. The
+text is at most 8 KB and holds no keys or tokens; a bigger set of skills is a pack ([PACKS.md](PACKS.md)). The tool comes
+with the first request that names a skill, so other requests pay nothing for it.
+
 Your own skills load next to the bundled ones, ranked as described in
 [CONFIGURATION.md](CONFIGURATION.md#skills). Words inside a link in your request (`https://…`, `github.com/owner/repo`)
 don't count toward a skill's name, tags or description: a repository named `casper-network-mcp` doesn't pick a

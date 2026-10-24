@@ -33,6 +33,7 @@ import { PartRecord } from "../crew/parts";
 import { spendGate } from "./spend-gate";
 import { pageToolFor, showDiagramPage } from "./pages";
 import { mcpAddToolFor } from "./mcp-add";
+import { skillAddToolFor } from "./skill-add";
 import { pictureToolFor } from "./pictures";
 import { sameRuntimeInputs } from "../services/try-it";
 import { runtimeChanges } from "../services/detect";
@@ -56,6 +57,7 @@ export async function prepareCapabilities(app: CasperApp, task: string): Promise
       root: () => app.activeWorkspaceRoot(), reruns: app.githubReruns, secrets: () => ownSecretValues(app),
     }),
     mcpAdd: mcpAddToolFor(app),
+    skillAdd: skillAddToolFor(app),
     offered: app.offeredTools,
   });
   if (app.planBuild) nextTools.push(app.planBuild.tool());
