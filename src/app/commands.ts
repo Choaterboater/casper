@@ -12,7 +12,7 @@ import { ProjectMemory } from "../memory/store";
 import { HELP_TEXT, FULL_HELP_TEXT, HOTKEYS_TEXT, LOGIN_HELP, RECEIPT_HELP, helpFor, unknownCommandMessage, wrapHelp } from "../tui/help";
 import { loadUserCommands, userCommandsHelp } from "./user-commands";
 import { conversationCommand, runLogout } from "./peer-commands";
-import { chooseModel, severalModelsMessage } from "./model-words";
+import { chooseModel, failoverText, severalModelsMessage } from "./model-words";
 import { formatTerminalJSON } from "../tui/json";
 import { formatCacheHitRate, formatCostLong, formatCostShort, formatTokenSplit } from "../tui/usage";
 import { effortChoices, effortProblem } from "../tui/effort";
@@ -257,6 +257,13 @@ export async function runSlashCommand(host: CommandHost, prompt: string): Promis
           roles = await session.setModelRole(args[1]!, args[2] === "clear" ? undefined : args[2]);
         } else throw new Error("Usage: /model roles, /model big <selector|clear> or /model role <fast|build|reason|review> <selector|clear>");
         host.output.write(`${["fast", "build", "reason", "review"].map(role => ` ${role.padEnd(9)} ${roles[role] ?? "not configured"}${role === "reason" ? " (your big model)" : ""}`).join("\n")}\n[model] Role mappings are saved globally; the current model is unchanged. Use /model @role[:effort] to select a configured role.\n`);
+        return;
+      }
+      if (/^failover(?:\s|$)/.test(argument)) {
+        if (!session.getFailover || !session.setFailover) throw new Error("This runtime does not support failover.");
+        const ids = argument.split(/\s+/).slice(1);
+        const list = !ids.length ? session.getFailover() : await session.setFailover(ids.length === 1 && ids[0] === "clear" ? undefined : ids);
+        host.output.write(failoverText(list));
         return;
       }
       if (!session.selectModel) throw new Error("This runtime does not support model selection.");

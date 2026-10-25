@@ -413,6 +413,9 @@ export interface RuntimeSession {
   /** That provider's key, for a request Casper makes itself (make_picture); never shown. Undefined when none. */
   providerKey?(provider: string): Promise<string | undefined>;
   setModelRole?(role: string, selector?: string): Promise<Record<string, string>>;
+  /** Your failover list (/model failover): the models a task switches to when its model hits a limit, as provider/id. */
+  getFailover?(): string[];
+  setFailover?(models: readonly string[] | undefined): Promise<string[]>;
   setEffort?(level: string, persist: boolean): Promise<RuntimeStatus>;
   getUsage?(): RuntimeUsage;
   /** One model call outside the conversation, with the conversation's model and effort unless `effort`

@@ -18,7 +18,7 @@ import { CLAUDE_SUBSCRIPTION } from "./claude-subscription";
 
 type Selection = { reference?: ModelReference; source: "conversation" | "default" | "none"; role?: string; effort?: string; auto?: RuntimeStatus["autoEffort"] };
 type Settings = ReturnType<SettingsManager["getGlobalSettings"]>;
-type Preferences = { modelRoles?: ModelRoles; autoEffortModels?: string[] };
+type Preferences = { modelRoles?: ModelRoles; autoEffortModels?: string[]; modelFailover?: string[] };
 const ENTRY = "casper.model-selection";
 /** A helper whose role is not set works at this effort, or the saved one if lower: an explorer looks things up, a reviewer reads a diff. */
 const HELPER_EFFORT = { fast: "low", review: "medium" } as const;
@@ -187,7 +187,9 @@ export class PiModels {
     }
     if (settings.autoEffortModels !== undefined && (!Array.isArray(settings.autoEffortModels)
       || settings.autoEffortModels.some(value => typeof value !== "string"))) throw new Error("Casper autoEffortModels must contain model identifiers.");
-    return { modelRoles: roles, autoEffortModels: settings.autoEffortModels };
+    if (settings.modelFailover !== undefined && (!Array.isArray(settings.modelFailover)
+      || settings.modelFailover.some(value => typeof value !== "string" || !value.includes("/")))) throw new Error("Casper modelFailover must list models as provider/id.");
+    return { modelRoles: roles, autoEffortModels: settings.autoEffortModels, modelFailover: settings.modelFailover };
   }
 
   private async updatePolicy(update: (settings: Preferences) => void): Promise<void> {
@@ -261,6 +263,45 @@ export class PiModels {
   }
 
   getRoles(): ModelRoles { return { ...this.policy().modelRoles }; }
+  /** The models a task switches to when its model hits a limit (src/runtime/failover.ts), in your order. */
+  getFailover(): string[] { return [...this.policy().modelFailover ?? []]; }
+  /** Saves your failover list: exact ids the catalog has, once each; none clears it. */
+  async setFailover(models?: readonly string[]): Promise<string[]> {
+    this.lifetime.signal.throwIfAborted();
+    const list = [...new Set((models ?? []).map((model) => model.trim()).filter(Boolean))];
+    for (const selector of list) {
+      const reference = PiModels.parseReference(selector);
+      if (!reference || !this.catalog.getModel(reference.provider, reference.id)) {
+        throw new Error(`${selector} is not a model Casper knows: use exact ids from /model (provider/id).`);
+      }
+    }
+    await this.updatePolicy(settings => { if (list.length) settings.modelFailover = list; else delete settings.modelFailover; });
+    return list;
+  }
+  /** A model a task can switch to now: in the catalog, signed in, able to call tools. */
+  failoverModel(provider: string, id: string): AgentSession["model"] {
+    const model = this.catalog.getModel(provider, id);
+    if (!model || this.staleAuth.has(provider) || !this.catalog.hasConfiguredAuth(provider) || cantUseTools(model)) return undefined;
+    return model;
+  }
+  /** The task goes on with `model` after yours hit a limit: for this task only. Your choice stays as it was (nothing is
+   * recorded or saved), and the effort you chose carries over as far as the model has it. */
+  async failoverTo(session: AgentSession, model: NonNullable<AgentSession["model"]>): Promise<void> {
+    await session.setModel(model, { persist: false });
+    const effort = this.selections.get(session)?.effort;
+    if (effort) this.applyEffort(session, effort, true);
+  }
+  /** After a task that switched models: back to yours, for the next task. False when there is nothing to go back to. */
+  async failBack(session: AgentSession): Promise<boolean> {
+    const selection = this.selections.get(session);
+    const reference = selection?.reference;
+    if (!selection || !reference || (session.model?.provider === reference.provider && session.model.id === reference.id)) return false;
+    const model = this.catalog.getModel(reference.provider, reference.id);
+    if (!model) return false;
+    await session.setModel(model, { persist: false });
+    if (selection.effort) this.applyEffort(session, selection.effort, true);
+    return true;
+  }
   async setRole(role: string, selector?: string): Promise<ModelRoles> {
     this.lifetime.signal.throwIfAborted();
     if (this.busy) throw new Error("Wait for active work before changing model roles.");

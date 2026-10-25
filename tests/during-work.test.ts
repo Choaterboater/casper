@@ -16,7 +16,7 @@ test("every command runs during a task, with any words after it; only the few th
     "/receipt", "/receipt 3", "/receipt list", "/output", "/output 2", "/output all", "/mcp", "/tree", "/project", "/sandbox", "/allowed",
     "/secrets", "/skills", "/lsp", "/effort", "/effort low", "/effort high --session", "/thinking low", "/cost", "/branch", "/hotkeys",
     "/pane", "/pane off", "/model", "/model --session", "/model fixture/other", "/model --session fixture/other", "/model @reason",
-    "/model roles", "/model role fast x", "/model big x", "/copy", "/export", "/rename x", "/logout", "/login", "/login codex", "/theme",
+    "/model roles", "/model role fast x", "/model big x", "/model failover", "/model failover x y", "/model failover clear", "/copy", "/export", "/rename x", "/logout", "/login", "/login codex", "/theme",
     "/config", "/settings", "/mcp connect x", "/mcp writes on", "/sandbox forget h", "/allowed forget 1", "/allowed forget all",
     "/secrets files off", "/skills trust a b", "/lsp connect x", "/memory remember x", "/references add", "/visualize repo",
     "/browser open https://example.com", "/services start web", "/debug start app", "/lab import hosts.txt", "/suggestions off",

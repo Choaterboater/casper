@@ -84,7 +84,8 @@
           </ul>
           <p>If you skip <code>/login</code>, Casper opens sign-in on your first request and picks that
           provider's default model (for OpenRouter, <code>deepseek/deepseek-v4.1-flash</code>).
-          <code>/model</code> picks another one. Casper never replaces a model you chose. Type keys or
+          <code>/model</code> picks another one. Casper never replaces a model you chose: failover (below) only carries
+          a task that hit a limit on to another model, says so, and goes back for your next request. Type keys or
           codes only in the private login prompt, never in the chat.</p>
           <p>With OpenRouter, <code>/model</code> lists a model the day OpenRouter adds it: Casper reads
           OpenRouter's public model list (your key is not sent) as a session starts, every 5 minutes and
@@ -93,6 +94,10 @@
           cheapest, newest, smartest or largest context. OpenRouter's models show how smart they are as
           <code>AA 55</code>, the Artificial Analysis Intelligence Index (higher is smarter; <code>—</code>
           means not rated yet).</p>
+          <p>When a model hits a rate or usage limit, a task can go on with the next model you list with
+          <code>/model failover</code>, compacted first when that model's window is smaller. After a free
+          OpenRouter model, the newest free ones follow by themselves. Casper never adds a paid model you didn't
+          list, and never moves a conversation from another model to a free one by itself.</p>
           <p>A model on your own computer works too: start Ollama, LM Studio, llama.cpp, vLLM, SGLang or an
           MLX server (MLX LM / vllm-mlx) and its models show in <code>/model</code>, with no sign-in and no file to edit.
           Automatic local discovery checks five loopback ports: 11434, 1234, 8080, 8000 and 30000.
