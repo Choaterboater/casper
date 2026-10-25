@@ -11,9 +11,13 @@
  *
  * The engine lets Casper own a provider's model list (ModelRuntime.registerProvider with `models`), which replaces the
  * engine's own. So each update takes Casper's list off, reads the engine's list as it is now, and lays the new one on.
+ *
+ * The same read also says what the catalog has no field for (when OpenRouter added each model, its scores):
+ * src/runtime/model-facts.ts keeps it, and /model shows and sorts by it.
  */
 import type { ModelRuntime, ProviderModelConfig } from "@earendil-works/pi-coding-agent";
 import type { AnyModel } from "@earendil-works/pi-ai";
+import { forgetModelFacts, setModelFacts, type ModelFacts } from "./model-facts";
 
 export const OPENROUTER_MODELS_URL = "https://openrouter.ai/api/v1/models";
 const OPENROUTER_API = "https://openrouter.ai/api/v1";
@@ -33,12 +37,19 @@ export const openRouterModelDefaults: { fetch: (url: string, init?: RequestInit)
 export interface OpenRouterModel {
   id: string;
   name?: string;
+  /** When OpenRouter listed it, in seconds since 1970. */
+  created?: number | null;
   context_length?: number | null;
   pricing?: { prompt?: string; completion?: string; input_cache_read?: string; input_cache_write?: string };
   architecture?: { input_modalities?: string[]; output_modalities?: string[] };
   supported_parameters?: string[];
   top_provider?: { context_length?: number | null; max_completion_tokens?: number | null };
   expiration_date?: string | null;
+  /** Scores OpenRouter shows with the model: Artificial Analysis' indexes and Design Arena's boards. */
+  benchmarks?: {
+    artificial_analysis?: { intelligence_index?: number | null; coding_index?: number | null; agentic_index?: number | null } | null;
+    design_arena?: Array<{ arena?: string; category?: string; rank?: number | null; elo?: number; win_rate?: number }> | null;
+  } | null;
 }
 
 type ChatModelConfig = Extract<ProviderModelConfig, { reasoning: boolean }>;
@@ -74,6 +85,30 @@ function pictures(model: OpenRouterModel): boolean | undefined {
 function ended(model: OpenRouterModel, now: number): boolean {
   const last = typeof model.expiration_date === "string" ? Date.parse(model.expiration_date) : Number.NaN;
   return Number.isFinite(last) && now >= last + 24 * 60 * 60_000;
+}
+
+const score = (value: unknown) => typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : undefined;
+
+/** What OpenRouter's list says about a model beyond the catalog's fields (src/runtime/model-facts.ts). Only what the
+ * list says: a price it doesn't fix (a router's), a date or a score it doesn't give is left out, never 0. */
+export function openRouterModelFacts(model: OpenRouterModel): ModelFacts {
+  const input = perMillion(model.pricing?.prompt);
+  const output = perMillion(model.pricing?.completion);
+  const price = free(model) ? { input: 0, output: 0 } : input !== undefined && output !== undefined ? { input, output } : undefined;
+  const contextWindow = windowOf(model);
+  const created = count(model.created);
+  const aa = model.benchmarks?.artificial_analysis;
+  const board = Array.isArray(model.benchmarks?.design_arena) ? model.benchmarks.design_arena : [];
+  const codingRank = count(board.find((entry) => entry?.category === "codecategories" && (entry.arena ?? "models") === "models")?.rank);
+  const scores = { intelligence: score(aa?.intelligence_index), coding: score(aa?.coding_index), agentic: score(aa?.agentic_index), codingRank };
+  return {
+    free: free(model) || (price !== undefined && price.input === 0 && price.output === 0),
+    ...price ? { price } : {},
+    ...contextWindow ? { contextWindow } : {},
+    ...created ? { created: created * 1000 } : {},
+    tools: Array.isArray(model.supported_parameters) && model.supported_parameters.includes("tools"),
+    ...Object.fromEntries(Object.entries(scores).filter(([, value]) => value !== undefined)),
+  };
 }
 
 /** A model the engine doesn't list yet, through OpenRouter's OpenAI-style endpoint. None for one Casper can't work
@@ -165,19 +200,21 @@ export function applyOpenRouterModels(catalog: Catalog, live: readonly OpenRoute
 }
 
 /** The newest list this process read (a helper takes it), what in it Casper uses, and when. */
-let latest: { at: number; models: OpenRouterModel[]; facts: string } | undefined;
+let latest: { at: number; models: OpenRouterModel[]; signature: string } | undefined;
 let reading: Promise<OpenRouterModel[]> | undefined;
 
-/** Tests only: forget the list this process read. */
-export function forgetOpenRouterModels(): void { latest = undefined; reading = undefined; }
+/** Tests only: forget the list this process read, and what it said about its models. */
+export function forgetOpenRouterModels(): void { latest = undefined; reading = undefined; forgetModelFacts("openrouter"); }
 
-/** What the catalog takes from the list: a read with the same facts is the same list (nothing to lay on again). */
-const factsOf = (models: readonly OpenRouterModel[]) => JSON.stringify(models.map((model) => [model.id, model.name, model.context_length,
+/** What Casper takes from the list (the catalog's fields, and the facts /model shows): a read with the same signature is
+ * the same list (nothing to lay on again). */
+const signatureOf = (models: readonly OpenRouterModel[]) => JSON.stringify(models.map((model) => [model.id, model.name, model.context_length,
   model.pricing?.prompt, model.pricing?.completion, model.pricing?.input_cache_read, model.pricing?.input_cache_write,
   model.architecture?.input_modalities, model.architecture?.output_modalities, model.supported_parameters,
-  model.top_provider?.context_length, model.top_provider?.max_completion_tokens, model.expiration_date]));
+  model.top_provider?.context_length, model.top_provider?.max_completion_tokens, model.expiration_date, openRouterModelFacts(model)]));
 
-/** Reads OpenRouter's list, or returns the one read under `freshMs` ago. Throws when it can't be read. */
+/** Reads OpenRouter's list, or returns the one read under `freshMs` ago. Throws when it can't be read. A new list also
+ * replaces what is known about OpenRouter's models (src/runtime/model-facts.ts): the same read, no second request. */
 function readList(seams: { fetch: typeof openRouterModelDefaults.fetch; freshMs: number }, signal: AbortSignal): Promise<OpenRouterModel[]> {
   if (latest && Date.now() - latest.at < seams.freshMs) return Promise.resolve(latest.models);
   reading ??= (async () => {
@@ -189,8 +226,10 @@ function readList(seams: { fetch: typeof openRouterModelDefaults.fetch; freshMs:
       });
       if (!response.ok) throw new Error(`OpenRouter's model list answered HTTP ${response.status}.`);
       const models = parseOpenRouterModels(await response.json());
-      const facts = factsOf(models);
-      latest = { at: Date.now(), models: latest?.facts === facts ? latest.models : models, facts };
+      const signature = signatureOf(models);
+      const same = latest?.signature === signature;
+      latest = { at: Date.now(), models: same ? latest!.models : models, signature };
+      if (!same) setModelFacts("openrouter", new Map(models.map((model) => [model.id, openRouterModelFacts(model)])));
       return latest.models;
     } finally { reading = undefined; }
   })();

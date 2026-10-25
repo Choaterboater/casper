@@ -7,6 +7,7 @@ import { stripVTControlCharacters } from "node:util";
 import { terminalText, tint } from "../tui/format";
 import { errorText, refreshFailure } from "./model-errors";
 import { cantUseTools, NO_TOOLS } from "./local-models";
+import { modelFacts, type ModelFacts } from "./model-facts";
 
 /** The slice of ModelRuntime the browser consumes; `pi-model-picker.ts` passes a sanitized view
  * whose provider/id/name values are already control-character safe. */
@@ -30,6 +31,9 @@ const SEARCH_FURNITURE = 4; // header, blank, search, blank
 const TAGS_WIDTH = 18;
 const PRICE_WIDTH = 12;
 const CTX_WIDTH = 9;
+const SCORE_WIDTH = 5;
+/** The list's width from which each row also shows its score: below it the score is the first column to go. */
+const SCORE_MIN_WIDTH = 90;
 
 /** "a", "a and b", "a, b and c". */
 function listWords(words: readonly string[]): string {
@@ -96,6 +100,19 @@ function fmtPrice(n: number): string {
   return n.toFixed(n < 0.1 ? 4 : 2).replace(/0+$/, "").replace(/\.$/, "");
 }
 
+/** 55.12 → "55.1", 57 → "57". */
+const fmtScore = (n: number) => String(Number(n.toFixed(1)));
+
+/** The orders Ctrl+O steps through, in turn. A model with nothing to sort by goes last; ties keep the usual order. */
+export const MODEL_SORTS = ["usual", "free", "cheapest", "newest", "score", "context"] as const;
+export type ModelSort = typeof MODEL_SORTS[number];
+/** What the header says after "sorted:". */
+const SORT_NAMES: Record<ModelSort, string> = { usual: "", free: "free first", cheapest: "cheapest", newest: "newest", score: "AA score", context: "largest context" };
+const SCORE_LEGEND = "AA: Artificial Analysis Intelligence Index · higher is smarter · — not rated";
+
+/** Which columns a row has room for: a narrow list drops the score first, then the tags, then the price. */
+type Columns = { score: boolean; price: boolean; tags: boolean };
+
 export interface ModelBrowserOptions {
   tui: TUI;
   catalog: ModelBrowserCatalog;
@@ -120,12 +137,19 @@ export interface ModelBrowserOptions {
   onForgetServer?(name: string): void;
   /** What adding or forgetting a server just said, at the top of the right side until a key is pressed. */
   notice?: readonly string[];
+  /** The order the list opens in (Ctrl+O steps through them), and what to call when it changes. */
+  sort?: ModelSort;
+  onSort?(sort: ModelSort): void;
+  /** What is known about a model beyond the catalog (src/runtime/model-facts.ts); tests pass their own. */
+  facts?(provider: string, id: string): ModelFacts | undefined;
 }
 
 declare module "@earendil-works/pi-tui" {
   interface Keybindings {
     /** Forget one of your model servers (Ctrl+X on its row in /model). */
     "casper.models.forget": true;
+    /** The next order for /model's list (Ctrl+O). */
+    "casper.models.sort": true;
   }
 }
 
@@ -142,9 +166,9 @@ function middleCut(text: string, width: number): string {
 
 /** Casper's full-screen model browser in the spirit of omp's picker: a provider sidebar on the
  * left (where it opens, unless search words were given; Up/Down pick whose models show), a
- * search-backed model list on the right with context/price/capability columns, and a summary +
- * hint footer. Tab, Enter or Right moves to the list. No kind filters. Keys flow through
- * `getKeybindings()`; unbound keys edit the search input from either side. */
+ * search-backed model list on the right with score/context/price/capability columns, and a summary +
+ * hint footer. Tab, Enter or Right moves to the list; Ctrl+O changes its order from either side. No kind filters.
+ * Keys flow through `getKeybindings()`; unbound keys edit the search input from either side. */
 export class ModelBrowser {
   private readonly searchInput = new Input();
   private readonly refreshAbortController = new AbortController();
@@ -158,6 +182,8 @@ export class ModelBrowser {
   private scope: string | undefined; // undefined = all providers
   private sidebarIndex = 0;
   private focus: "sidebar" | "main";
+  private sort: ModelSort;
+  private readonly facts: (provider: string, id: string) => ModelFacts | undefined;
   private errorMessage?: string;
   private refreshStatusMessage = "Refreshing model catalogs…";
   private refreshStatusSuccess = false;
@@ -170,6 +196,8 @@ export class ModelBrowser {
   constructor(private readonly options: ModelBrowserOptions) {
     this.current = options.current;
     this.defaultModel = options.defaultModel;
+    this.sort = options.sort ?? "usual";
+    this.facts = options.facts ?? modelFacts;
     // Words to search for (or a server just added) mean a model is wanted: Enter picks at once. Otherwise "where
     // from" comes first.
     this.focus = options.initialQuery || options.initialScope ? "main" : "sidebar";
@@ -238,9 +266,9 @@ export class ModelBrowser {
       const entry = this.sidebarEntries()[this.sidebarIndex];
       if (entry?.kind === "add") return this.muted(choiceHint(1, "add a model server"));
       // Keep the shared primary hint first; server shortcuts precede the search hint.
-      return this.muted(choiceHint(1, "Tab models", ...(entry?.saved && this.options.onForgetServer ? ["Ctrl+X forgets this server"] : []), "type to search"));
+      return this.muted(choiceHint(1, "Tab models", ...(entry?.saved && this.options.onForgetServer ? ["Ctrl+X forgets this server"] : []), "type to search", "Ctrl+O sort"));
     }
-    return this.muted(choiceHint(this.filteredModels.length, "Tab providers", this.options.sessionOnly ? "this session only" : "Ctrl+S this session only"));
+    return this.muted(choiceHint(this.filteredModels.length, "Tab providers", this.options.sessionOnly ? "this session only" : "Ctrl+S this session only", "Ctrl+O sort"));
   }
 
   private statusSuffix(): string {
@@ -271,7 +299,58 @@ export class ModelBrowser {
       if (providerOrder !== 0) return providerOrder;
       return b.id.localeCompare(a.id, undefined, { numeric: true });
     });
-    return sorted;
+    return this.ordered(sorted);
+  }
+
+  /** The rows in the chosen order (Ctrl+O); rows that tie keep the order they came in (the usual one, or the search's). */
+  private ordered(items: readonly Item[]): Item[] {
+    if (this.sort === "usual") return [...items];
+    const keys = new Map(items.map((item, index) => [item, [...this.sortKey(item), index] as const]));
+    return [...items].sort((a, b) => {
+      const [aGroup, aValue, aIndex] = keys.get(a)!;
+      const [bGroup, bValue, bIndex] = keys.get(b)!;
+      return aGroup - bGroup || aValue - bValue || aIndex - bIndex;
+    });
+  }
+
+  /** Where the chosen order puts a row: by group, then by value, both ascending. A row with nothing to sort by is in a
+   * later group, so it goes last. */
+  private sortKey(item: Item): [group: number, value: number] {
+    const facts = this.factsOf(item);
+    switch (this.sort) {
+      case "free": {
+        // Free models newest first (one with no date after them), then paid ones cheapest first.
+        const price = this.priceOf(item);
+        if (price === 0) return facts?.created === undefined ? [1, 0] : [0, -facts.created];
+        return price === undefined ? [3, 0] : [2, price];
+      }
+      case "cheapest": { const price = this.priceOf(item); return price === undefined ? [1, 0] : [0, price]; }
+      case "newest": return facts?.created === undefined ? [1, 0] : [0, -facts.created];
+      case "score": return facts?.intelligence === undefined ? [1, 0] : [0, -facts.intelligence];
+      case "context": return item.model.contextWindow > 0 ? [0, -item.model.contextWindow] : [1, 0];
+      default: return [0, 0];
+    }
+  }
+
+  private factsOf(item: ModelRef): ModelFacts | undefined { return this.facts(item.provider, item.id); }
+
+  /** Input and output dollars per million tokens together (0 for a free model), or none: a plan has no per-token price,
+   * and a router's is that of the model it picks. */
+  private priceOf(item: Item): number | undefined {
+    if (item.provider === "claude-subscription") return undefined;
+    const facts = this.factsOf(item);
+    if (facts) return facts.free ? 0 : facts.price ? facts.price.input + facts.price.output : undefined;
+    const cost = item.model.cost;
+    return cost ? (cost.input || 0) + (cost.output || 0) : undefined;
+  }
+
+  /** Steps to the next order: the list starts again at its top row. */
+  private nextSort(): void {
+    this.sort = MODEL_SORTS[(MODEL_SORTS.indexOf(this.sort) + 1) % MODEL_SORTS.length]!;
+    this.options.onSort?.(this.sort);
+    this.loadModelsFromSnapshot();
+    this.filterModels(this.searchInput.getValue());
+    this.selectedIndex = 0;
   }
 
   private sidebarEntries(): SidebarEntry[] {
@@ -339,7 +418,7 @@ export class ModelBrowser {
       return;
     }
     const active = this.scope === undefined ? this.allModels : this.allModels.filter(item => item.provider === this.scope);
-    const filtered = fuzzyFilter(active, query, item => searchText({ provider: item.provider, id: item.id, name: item.model.name }, this.defaultModel));
+    const filtered = this.ordered(fuzzyFilter(active, query, item => searchText({ provider: item.provider, id: item.id, name: item.model.name }, this.defaultModel)));
     const normalized = query.trim().toLowerCase();
     if (normalized && "default".startsWith(normalized)) {
       // "default" is a selector, so boost the configured default ahead of fuzzy matches.
@@ -380,21 +459,25 @@ export class ModelBrowser {
   private mainLines(width: number, height: number): string[] {
     const info = this.infoLines(width, height);
     if (info) return info;
-    const header = this.scope === undefined
+    const header = (this.scope === undefined
       ? this.accent("All models") + this.muted(` (${this.allModels.length})`)
-      : this.accent(terminalText(this.scope)) + this.muted(` (${this.filteredModels.length})`);
-    // Why a server Casper was told about isn't listed: each reason wrapped to the pane, at most a third of it.
+      : this.accent(terminalText(this.scope)) + this.muted(` (${this.filteredModels.length})`))
+      + (this.sort === "usual" ? "" : this.muted(` · sorted: ${SORT_NAMES[this.sort]}`));
+    const columns = this.columns(width);
+    // Why a server Casper was told about isn't listed: each reason wrapped to the pane, at most a third of it. Then,
+    // when rows show a score, what it is: named once, here.
     const reasons = [...this.noticeLines(width), ...this.localProblems.flatMap((line) => wrapTextWithAnsi(line, Math.max(10, width - 2)))
       .map((line) => tint(`  ${line}`, "warning", this.options.color))].slice(0, Math.max(1, Math.floor(height / 3)));
-    const lines = [header + this.statusSuffix(), ...reasons.length ? reasons : [""]];
+    const notes = [...reasons, ...columns.score ? [this.muted(`  ${SCORE_LEGEND}`)] : []];
+    const lines = [header + this.statusSuffix(), ...notes.length ? notes : [""]];
     const searchLines = this.number ? [this.muted(`Number: ${this.number}`)] : this.searchInput.render(width);
     lines.push(...searchLines, "");
     // One row reserved for the scroll cue so the window never overflows the pane.
-    const maxVisible = Math.max(1, height - SEARCH_FURNITURE - 1 - Math.max(0, reasons.length - 1));
+    const maxVisible = Math.max(1, height - SEARCH_FURNITURE - 1 - Math.max(0, notes.length - 1));
     const startIndex = Math.max(0, Math.min(this.selectedIndex - Math.floor(maxVisible / 2), this.filteredModels.length - maxVisible));
     const endIndex = Math.min(startIndex + maxVisible, this.filteredModels.length);
     for (let i = startIndex; i < endIndex; i++) {
-      lines.push(this.rowText(this.filteredModels[i]!, i === this.selectedIndex, width, i));
+      lines.push(this.rowText(this.filteredModels[i]!, i === this.selectedIndex, width, i, columns));
     }
     if (startIndex > 0 || endIndex < this.filteredModels.length) {
       lines.push(this.muted(`  (${this.selectedIndex + 1}/${this.filteredModels.length})`));
@@ -406,40 +489,61 @@ export class ModelBrowser {
     return lines.slice(0, height);
   }
 
-  private metaText(item: Item, width: number): string {
+  /** The columns the list has room for. The score shows only where some row in the list has one (OpenRouter's models),
+   * so another provider's list looks as it did. */
+  private columns(width: number): Columns {
+    return {
+      score: width >= SCORE_MIN_WIDTH && this.filteredModels.some((item) => this.factsOf(item)?.intelligence !== undefined),
+      price: width >= 44,
+      tags: width >= 72,
+    };
+  }
+
+  /** "AA 55", or "—" for a model Artificial Analysis hasn't rated: unknown, never a low score. */
+  private scoreText(item: Item): string {
+    const score = this.factsOf(item)?.intelligence;
+    return (score === undefined ? "—" : `AA ${String(Math.round(score)).padStart(2)}`).padStart(SCORE_WIDTH);
+  }
+
+  private metaText(item: Item, columns: Columns): string {
     const model = item.model;
     const ctx = fmtTokens(model.contextWindow);
     const price = this.priceText(model);
     const tags = [cantUseTools(model) ? "no tools" : "", model.reasoning ? "reasoning" : "", model.input?.includes("image") ? "vision" : ""].filter(Boolean).join(" · ");
     // Fixed-width segments keep the id column aligned across rows; empty segments pad with
-    // spaces so every row's metadata occupies the same width.
+    // spaces so every row's metadata occupies the same width. The score is never empty ("—").
     const ctxSegment = ctx ? `${ctx} ctx`.padStart(CTX_WIDTH) : "";
     const priceSegment = price.padStart(PRICE_WIDTH);
     const tagsSegment = tags ? truncateToWidth(tags, TAGS_WIDTH).padEnd(TAGS_WIDTH) : "";
-    // Narrow panes drop the right-most columns first so ids stay readable.
+    // Narrow panes drop the score first, then the right-most columns, so ids stay readable.
     const segments = [
+      columns.score ? this.scoreText(item) : "",
       ctxSegment,
-      priceSegment && width >= 44 ? priceSegment : "",
-      tagsSegment && width >= 72 ? tagsSegment : "",
+      priceSegment && columns.price ? priceSegment : "",
+      tagsSegment && columns.tags ? tagsSegment : "",
     ].filter(segment => segment.trim() !== "");
     if (!segments.length) return "";
     const composed = segments.map(segment => this.muted(segment)).join(this.muted(" · "));
     // Rows missing tags (or price) pad with trailing spaces so every row's columns land at the
     // same offsets as fully-tagged rows instead of shifting toward the right edge.
-    const classWidth = width >= 72 ? CTX_WIDTH + PRICE_WIDTH + TAGS_WIDTH + 6 : width >= 44 ? CTX_WIDTH + PRICE_WIDTH + 3 : CTX_WIDTH;
+    const classWidth = (columns.score ? SCORE_WIDTH + 3 : 0)
+      + (columns.tags ? CTX_WIDTH + PRICE_WIDTH + TAGS_WIDTH + 6 : columns.price ? CTX_WIDTH + PRICE_WIDTH + 3 : CTX_WIDTH);
     return composed + " ".repeat(Math.max(0, classWidth - visibleWidth(composed)));
   }
 
   private priceText(model: Model<Api>): string {
     if (model.provider === "claude-subscription") return "plan";
+    // A router (openrouter/auto) costs what the model it picks costs: never "free".
+    const facts = this.factsOf(model);
+    if (facts && !facts.free && !facts.price) return "varies";
     const cost = model.cost;
     if (!cost) return "";
     if (!cost.input && !cost.output) return "free";
     return `$${fmtPrice(cost.input)}/${fmtPrice(cost.output)}`;
   }
 
-  private rowText(item: Item, selected: boolean, width: number, index: number): string {
-    const meta = this.metaText(item, width);
+  private rowText(item: Item, selected: boolean, width: number, index: number, columns: Columns): string {
+    const meta = this.metaText(item, columns);
     const metaWidth = meta ? visibleWidth(meta) + 1 : 0;
     const leftWidth = Math.max(8, width - metaWidth);
     const label = `${sameRef(this.current, item) ? "✓ " : ""}${item.provider}/${item.id}${sameRef(this.defaultModel, item) ? " · default" : ""}`;
@@ -466,7 +570,9 @@ export class ModelBrowser {
     const sizes = [ctx && `${ctx} ctx`, out && `${out} out`].filter(part => part !== "");
     if (sizes.length) parts.push(this.muted(sizes.join(" · ")));
     const price = this.priceText(model);
-    if (price && price !== "plan") parts.push(this.muted(price === "free" ? "free" : `${price} per M`));
+    if (price && price !== "plan") parts.push(this.muted(price === "free" ? "free" : price === "varies" ? "price varies" : `${price} per M`));
+    const facts = this.factsOf(item);
+    if (facts) parts.push(...this.factsText(facts).map((part) => this.muted(part)));
     const tags = [cantUseTools(model) ? NO_TOOLS : "", model.reasoning ? "reasoning" : "", model.input?.includes("image") ? "vision" : ""].filter(Boolean).join(" · ");
     if (tags) parts.push(this.muted(tags));
     if (sameRef(this.current, item)) parts.push(this.accent("current"));
@@ -474,11 +580,27 @@ export class ModelBrowser {
     return "  " + parts.join(this.muted(" · "));
   }
 
+  /** The highlighted model's scores and the day its provider listed it: "AA 55.1 (coding 57, agentic 28.7)", "Design
+   * Arena coding #7", "added 2026-09-01". A model Artificial Analysis hasn't rated says so, rather than showing no score. */
+  private factsText(facts: ModelFacts): string[] {
+    const more = [facts.coding === undefined ? "" : `coding ${fmtScore(facts.coding)}`, facts.agentic === undefined ? "" : `agentic ${fmtScore(facts.agentic)}`]
+      .filter(Boolean).join(", ");
+    const aa = facts.intelligence !== undefined ? `AA ${fmtScore(facts.intelligence)}${more ? ` (${more})` : ""}` : more ? `AA ${more}` : "AA not rated";
+    return [aa, ...facts.codingRank === undefined ? [] : [`Design Arena coding #${facts.codingRank}`],
+      ...facts.created === undefined ? [] : [`added ${new Date(facts.created).toISOString().slice(0, 10)}`]];
+  }
+
   handleInput(keyData: string): void {
     const kb = getKeybindings();
     this.notice = [];
     if (kb.matches(keyData, "tui.input.tab")) {
       this.setFocus(this.focus === "sidebar" ? "main" : "sidebar");
+      this.options.tui.requestRender();
+      return;
+    }
+    if (kb.matches(keyData, "casper.models.sort")) {
+      this.number = "";
+      this.nextSort();
       this.options.tui.requestRender();
       return;
     }
