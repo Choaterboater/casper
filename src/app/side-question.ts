@@ -1,7 +1,10 @@
 /**
  * Side questions: a line the person types that starts with `?` ("? what does ECONNRESET mean"), idle or during a
  * task, goes to one separate model call (the fast model, else the conversation's) with no tools. It gets a short
- * summary of the session (project name, the task's first line, recent tool names: no file contents, no secrets). The
+ * summary of the session (project name, the task's first line, recent tool names: no file contents, no secrets). It
+ * asks with thinking off, since side questions are quick (a model that can't stop thinking gets its lowest effort),
+ * unless the fast role's own effort sets it; a request that
+ * still thinks gets thinking room on top of the answer's 1,024 tokens. An empty answer says why. The
  * answer shows as a side answer and is never added to the conversation, so the working AI never sees it. Its cost shows
  * in /usage. `sideQuestions: false` (/settings) makes such lines ordinary requests. `/btw <question>` asks the same
  * way, idle or during a task, and stays on with `sideQuestions: false` (it can't be meant as a request).
@@ -15,6 +18,8 @@ import { ensureRuntime } from "./runtime-start";
 import { pastedMask } from "./request-words";
 
 const MAX_TOKENS = 1024;
+/** Room a request that thinks gets on top of the answer's tokens (a fast role set to think, or a model that can't stop). */
+export const THINKING_ROOM = 4096;
 const RECENT_TOOLS = 8;
 
 /** What side questions cost this session. `unknown`: a provider reported no usage for one, so the totals are a floor. */
@@ -67,6 +72,15 @@ Answer in a few short sentences or a short list, in plain words. You have no too
 The task goes on without you: do not try to do it, and do not ask to.
 What Casper says about the session (names only):`;
 
+/** Why a side answer came back with no text, in plain words, with what to try. */
+export function emptyReason(answer: { stopReason?: string; maxTokens?: number }): string {
+  if (answer.stopReason === "length") {
+    const limit = answer.maxTokens ? `${answer.maxTokens.toLocaleString("en-US")}-token ` : "";
+    return `the model used its whole ${limit}limit thinking and wrote no answer. Try /btw again, or set a fast model with /model role fast`;
+  }
+  return "the model sent back no text. Try /btw again, or set a fast model with /model role fast";
+}
+
 /** Ask, show the answer as a side answer, and count its cost. Never touches the conversation. */
 export async function askSideQuestion(app: CasperApp, question: string): Promise<void> {
   const controller = new AbortController();
@@ -75,7 +89,9 @@ export async function askSideQuestion(app: CasperApp, question: string): Promise
   try {
     const session = app.session ?? await ensureRuntime(app);
     if (!session.complete) { app.output.write("  ? Side questions need a runtime that can make a separate model call.\n"); return; }
-    const answer = await session.complete({ systemPrompt: `${SYSTEM_PROMPT}\n${sideSummary(app)}`, user: question, role: "fast", effort: "low", maxTokens: MAX_TOKENS, signal });
+    const answer = await session.complete({ systemPrompt: `${SYSTEM_PROMPT}\n${sideSummary(app)}`, user: question, role: "fast",
+      // Quick by design: no thinking, unless the fast role's own effort (/model role fast <model>:low) asks for it.
+      defaultEffort: "off", maxTokens: MAX_TOKENS, thinkingRoom: THINKING_ROOM, signal });
     const usage = app.sideQuestions;
     usage.requests++;
     if (answer.usage) { usage.tokens += answer.usage.tokens; usage.estimatedCost += answer.usage.estimatedCost; }
@@ -84,7 +100,7 @@ export async function askSideQuestion(app: CasperApp, question: string): Promise
     app.events.ensureLineBreak();
     const model = answer.model ? ` · ${terminalText(answer.model)}` : "";
     if (answer.error || !answer.text.trim()) {
-      app.output.write(`  ? side answer${model} · failed: ${terminalText(answer.error ?? "no answer")}\n`);
+      app.output.write(`  ? side answer${model} · failed: ${terminalText(answer.error ?? emptyReason(answer))}\n`);
       return;
     }
     const body = terminalText(answer.text.trim()).split("\n").map((line) => `  │ ${line}`.trimEnd()).join("\n");

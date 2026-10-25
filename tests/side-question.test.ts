@@ -1,3 +1,4 @@
+import { emptyReason } from "../src/app/side-question";
 import { afterAll, expect, test } from "bun:test";
 import { EventEmitter } from "node:events";
 import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
@@ -109,7 +110,10 @@ test("idle: ? asks the side model with no tools; the answer shows as a side answ
     expect(f.asked).toHaveLength(1);
     expect(f.asked[0]).toMatchObject({ user: "what does ECONNRESET mean", role: "fast" });
     // complete() is one tool-free call outside the conversation; nothing else is offered.
-    expect(Object.keys(f.asked[0]!).sort()).toEqual(["effort", "maxTokens", "role", "signal", "systemPrompt", "user"]);
+    expect(Object.keys(f.asked[0]!).sort()).toEqual(["defaultEffort", "maxTokens", "role", "signal", "systemPrompt", "thinkingRoom", "user"]);
+    // Quick by design: thinking off unless the fast role's own effort asks for it; room for thinking when it does.
+    expect(f.asked[0]).toMatchObject({ defaultEffort: "off", maxTokens: 1024, thinkingRoom: 4096 });
+    expect(f.asked[0]!.effort).toBeUndefined();
     expect(f.asked[0]!.systemPrompt).toContain("Project: shop-api");
     expect(f.prompts).toEqual([]);
     f.input.write("/usage\r");
@@ -215,4 +219,9 @@ test("one-shot runs: a ? line is normal text for the AI", async () => {
     expect(prompts[0]).toContain("? what does ECONNRESET mean");
     expect(completes).toBe(0);
   } finally { await app.close(); await removeTempDir(root); }
+});
+
+test("an empty side answer says why in plain words, with what to try, never just 'no answer'", () => {
+  expect(emptyReason({ stopReason: "length", maxTokens: 1024 })).toBe("the model used its whole 1,024-token limit thinking and wrote no answer. Try /btw again, or set a fast model with /model role fast");
+  expect(emptyReason({ stopReason: "stop" })).toBe("the model sent back no text. Try /btw again, or set a fast model with /model role fast");
 });

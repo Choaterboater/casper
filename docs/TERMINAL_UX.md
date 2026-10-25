@@ -874,7 +874,12 @@ only. See [platform support](PLATFORM_SUPPORT.md) for host-validation limits.
   tools. It gets a short summary of the session (the project name, the task's first line and the
   tool names used lately; no file contents and no secrets). The answer shows as an indented side
   answer that names the model (`? side answer · <provider/id> · not part of the conversation`); it
-  is not added to the conversation, so the working AI never sees it. `/usage` counts its tokens
+  is not added to the conversation, so the working AI never sees it. It asks with thinking off,
+  since side questions are quick, or at the lowest effort a model allows when it can't stop
+  thinking (the newest Claude models: low); a fast role with its own effort (`/model role fast
+  <provider/model>:low`) sets it instead. A request that thinks gets 4,096 tokens of room to think
+  on top of the answer's 1,024. An answer with no text says why
+  (`… used its whole 1,024-token limit thinking and wrote no answer`). `/usage` counts its tokens
   and cost. A bare `?`, a `?` inside text and a pasted `?` line are ordinary requests, and so is
   every line of a one-shot run. Esc stops one asked while idle. `/settings` → "Side questions
   with ?" turns them off (`sideQuestions: false`). `/btw <question>` asks the same way, idle or

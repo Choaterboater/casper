@@ -73,3 +73,62 @@ test("without a role the review model still answers", async () => {
   await models.complete(session, { systemPrompt: "s", user: "u" });
   expect(used).toEqual(["reviewer"]);
 });
+
+/** A model that thinks and can turn it off; one that thinks and can't. */
+const thinker: Model = { ...base, id: "thinker", reasoning: true };
+const alwaysThinks: Model = { ...base, id: "always", reasoning: true, thinkingLevelMap: { off: null } } as Model;
+
+async function thinking(roles: Record<string, string> | undefined, conversation: Model = thinker, level = "high") {
+  const setupResult = await setup(roles);
+  const all = [base, small, reviewer, thinker, alwaysThinks];
+  const catalog = setupResult.models as unknown as { catalog: { getModels(): Model[]; getModel(p: string, id: string): Model | undefined } };
+  catalog.catalog.getModels = () => all;
+  catalog.catalog.getModel = (provider, id) => all.find((model) => model.provider === provider && model.id === id);
+  const options = () => (setupResult.sent.at(-1) as { options: { reasoning?: string; maxTokens?: number } }).options;
+  const on = { model: conversation, thinkingLevel: level } as unknown as AgentSession;
+  return { ...setupResult, options, on };
+}
+const side = { systemPrompt: "s", user: "u", role: "fast" as const, defaultEffort: "off", maxTokens: 1024, thinkingRoom: 4096 };
+
+test("a side question asks with thinking off, whatever effort the conversation uses, and keeps the 1,024-token cap", async () => {
+  const { models, options, on } = await thinking(undefined);
+  const answer = await models.complete(on, side);
+  expect(options().reasoning).toBeUndefined();
+  expect(options().maxTokens).toBe(1024);
+  expect(answer).toMatchObject({ stopReason: "stop", maxTokens: 1024 });
+});
+
+test("a fast role's own effort turns thinking on, and thinking gets room on top of the answer's tokens", async () => {
+  const { models, options, on } = await thinking({ fast: "fixture/thinker:low" });
+  const answer = await models.complete(on, side);
+  expect(options().reasoning).toBe("low");
+  expect(options().maxTokens).toBe(1024 + 4096);
+  expect(answer.maxTokens).toBe(5120);
+});
+
+test("a model that can't turn thinking off gets the room too; other callers keep their effort first", async () => {
+  const always = await thinking(undefined, alwaysThinks);
+  await always.models.complete(always.on, side);
+  expect(always.options().maxTokens).toBe(1024 + 4096);
+  // An explicit effort still wins over a role's suffix (the quarantine reader passes "off" on purpose).
+  const reader = await thinking({ fast: "fixture/thinker:high" });
+  await reader.models.complete(reader.on, { systemPrompt: "s", user: "u", role: "fast", effort: "off", maxTokens: 4096 });
+  expect(reader.options().reasoning).toBeUndefined();
+  expect(reader.options().maxTokens).toBe(4096);
+  // Without defaultEffort, a role with no suffix still follows the conversation.
+  const plain = await thinking(undefined);
+  await plain.models.complete(plain.on, { systemPrompt: "s", user: "u", role: "fast" });
+  expect(plain.options().reasoning).toBe("high");
+});
+
+test("a side question on a model that can't stop thinking asks for its lowest level, never nothing (the provider's default)", async () => {
+  // Like Anthropic's newest models: no off, adaptive thinking, effort mid-conversation; the lowest is low.
+  const adaptive = { ...base, id: "adaptive", reasoning: true, thinkingLevelMap: { off: null, minimal: null }, forceAdaptiveThinking: true, supportsMidConvoEffort: true } as unknown as Model;
+  const { models, options, on } = await thinking(undefined, adaptive);
+  await models.complete(on, side);
+  expect(options().reasoning).toBe("low");
+  expect(options().maxTokens).toBe(1024 + 4096);
+  // An explicit "off" (the untrusted-text reader's) is left as it was.
+  await models.complete(on, { systemPrompt: "s", user: "u", role: "fast", effort: "off", maxTokens: 4096 });
+  expect(options().reasoning).toBeUndefined();
+});

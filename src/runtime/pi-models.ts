@@ -1,7 +1,7 @@
 import { existsSync, lstatSync, mkdirSync, readFileSync, renameSync, rmdirSync, unlinkSync, writeFileSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import path from "node:path";
-import { getSupportedThinkingLevels } from "@earendil-works/pi-ai/compat";
+import { clampThinkingLevel, getSupportedThinkingLevels } from "@earendil-works/pi-ai/compat";
 import { SettingsManager, type AgentSession, type ModelRuntime, type SessionManager } from "@earendil-works/pi-coding-agent";
 import { classifyEffort, effortBelow, nearestEffort, resolveAutoEffort } from "./auto-effort";
 import { isEffortSelection, isModelRole, resolveModelSelection, type ModelReference, type ModelRoles, type ResolvedModelSelection } from "./model-routing";
@@ -792,10 +792,12 @@ export class PiModels {
 
   /** A one-off request outside the transcript: the configured `review` role's model when set (so a check can
    * come from a different model than the one that did the work), else the conversation's; effort is the
-   * caller's `effort` when given, else the role's suffix, else the conversation's, mapped to what the model
-   * supports. `maxTokens` caps the answer. `role: "fast"` asks for the fast model instead (the conversation's
+   * caller's `effort` when given, else the role's suffix, else the caller's `defaultEffort`, else the conversation's,
+   * mapped to what the model supports. `maxTokens` caps the answer; `thinkingRoom` is added to it when the request
+   * will think (an effort other than off, or a model that can't stop thinking), so thinking can't use up the answer's
+   * tokens. `role: "fast"` asks for the fast model instead (the conversation's
    * when none is set or it is not signed in). */
-  async complete(session: AgentSession, input: { systemPrompt: string; user: string; signal?: AbortSignal; effort?: string; maxTokens?: number; role?: "fast" }): Promise<{ text: string; error?: string; usage: { tokens: number; estimatedCost: number } | null; model?: string }> {
+  async complete(session: AgentSession, input: { systemPrompt: string; user: string; signal?: AbortSignal; effort?: string; defaultEffort?: string; maxTokens?: number; thinkingRoom?: number; role?: "fast" }): Promise<{ text: string; error?: string; usage: { tokens: number; estimatedCost: number } | null; model?: string; stopReason?: string; maxTokens?: number }> {
     const none = { tokens: 0, estimatedCost: 0 };
     const roles = this.getRoles();
     if (input.role === "fast") {
@@ -824,17 +826,27 @@ export class PiModels {
   }
 
   private async completeWith(model: AgentSession["model"], roleEffort: string | undefined, session: AgentSession,
-    input: { systemPrompt: string; user: string; signal?: AbortSignal; effort?: string; maxTokens?: number },
-    none: { tokens: number; estimatedCost: number }): Promise<{ text: string; error?: string; usage: { tokens: number; estimatedCost: number } | null; model?: string }> {
+    input: { systemPrompt: string; user: string; signal?: AbortSignal; effort?: string; defaultEffort?: string; maxTokens?: number; thinkingRoom?: number },
+    none: { tokens: number; estimatedCost: number }): Promise<{ text: string; error?: string; usage: { tokens: number; estimatedCost: number } | null; model?: string; stopReason?: string; maxTokens?: number }> {
     if (!model) return { text: "", error: "no model selected", usage: none };
     const name = `${model.provider}/${model.id}`;
-    const requested = input.effort ?? (roleEffort && roleEffort !== "auto" ? roleEffort : session.thinkingLevel);
-    const level = requested && requested !== "off" ? nearestEffort(requested, getSupportedThinkingLevels(model)) : undefined;
+    const chosen = input.effort ?? (roleEffort && roleEffort !== "auto" ? roleEffort : undefined);
+    const requested = chosen ?? input.defaultEffort ?? session.thinkingLevel;
+    const supported = getSupportedThinkingLevels(model);
+    // A default "off" on a model that can't stop thinking asks for its lowest level, as Pi's own session does: sending
+    // nothing would leave the provider's default (Anthropic's adaptive thinking falls back to high).
+    const lowest = chosen === undefined && input.defaultEffort === "off" && model.reasoning && !supported.includes("off")
+      ? clampThinkingLevel(model, "off") : undefined;
+    const level = lowest !== undefined && lowest !== "off" ? lowest
+      : requested && requested !== "off" ? nearestEffort(requested, supported) : undefined;
+    // A model that can't turn thinking off thinks anyway: it gets the room too.
+    const thinks = (level !== undefined && level !== "off") || (model.reasoning && !supported.includes("off"));
+    const maxTokens = input.maxTokens !== undefined ? input.maxTokens + (thinks ? input.thinkingRoom ?? 0 : 0) : undefined;
     const response = await this.catalog.completeSimple(model, {
       systemPrompt: input.systemPrompt,
       messages: [{ role: "user", content: input.user, timestamp: Date.now() }],
     }, { signal: input.signal, toolChoice: "none", ...(level && level !== "off" ? { reasoning: level } : {}),
-      ...(input.maxTokens !== undefined ? { maxTokens: input.maxTokens } : {}),
+      ...(maxTokens !== undefined ? { maxTokens } : {}),
       // A direct request skips the session's header hook; OpenRouter still learns it is Casper's.
       ...openRouterRequestHeaders(model) });
     const usage = response.usage;
@@ -842,6 +854,7 @@ export class PiModels {
     const reported = usage && Number.isFinite(usage.totalTokens) ? { tokens: usage.totalTokens, estimatedCost: Number.isFinite(cost) && cost >= 0 ? cost : 0,
       input: usage.input, cacheRead: usage.cacheRead, cacheWrite: usage.cacheWrite, output: usage.output } : null;
     if (response.stopReason === "error" || response.stopReason === "aborted") return { text: "", error: response.errorMessage ?? response.stopReason, usage: reported, model: name };
-    return { text: response.content.filter((part) => part.type === "text").map((part) => part.text).join(""), usage: reported, model: name };
+    return { text: response.content.filter((part) => part.type === "text").map((part) => part.text).join(""), usage: reported, model: name,
+      stopReason: response.stopReason, ...(maxTokens !== undefined ? { maxTokens } : {}) };
   }
 }
