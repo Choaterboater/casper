@@ -1047,7 +1047,10 @@ ID, `provider/id`, `@default` (your saved default model), or another role, optio
   model without `max` runs at its highest level). Automatic effort never picks `off` or `max`.
 
 Where roles are used: explorer subagents and the [untrusted-text reader](READER.md) use `fast` (the
-reader falls back to the session's model), reviewer subagents and the
+reader falls back to the session's model), side questions (`?` and `/btw`) use `fast` with
+thinking off (or the lowest effort a model that can't stop thinking allows) unless the role's own effort sets it
+(`/model role fast provider/model:low`),
+reviewer subagents and the
 [acceptance check](VERIFICATION.md#independent-acceptance-check-experimental) use `review`, and
 roles that are not set fall back to Casper's startup default, or to the conversation's model when no default is saved or its provider isn't signed in. See [DELEGATION.md](DELEGATION.md).
 An explorer or reviewer whose role is not set works at `low` or `medium` effort (never above

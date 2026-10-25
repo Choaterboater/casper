@@ -317,7 +317,7 @@ class PiRuntimeSession implements RuntimeSession {
       effortClassification: this.models.usage(session) };
   }
 
-  complete(input: { systemPrompt: string; user: string; signal?: AbortSignal; effort?: string; maxTokens?: number; role?: "fast" }) {
+  complete(input: Parameters<NonNullable<RuntimeSession["complete"]>>[0]) {
     return this.models.complete(this.runtime.session, input);
   }
 

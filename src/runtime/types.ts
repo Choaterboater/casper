@@ -419,9 +419,15 @@ export interface RuntimeSession {
    * asks for another (mapped to what the model supports); `maxTokens` caps the answer. Nothing is added
    * to the transcript. `usage` is null when the provider reported none; `model` names the model that answered. `role: "fast"` uses your fast model when it
    * is set and signed in, else the conversation's model; unset, the review model when set. */
-  complete?(input: { systemPrompt: string; user: string; signal?: AbortSignal; effort?: string; maxTokens?: number; role?: "fast" }): Promise<{ text: string; error?: string; usage: import("./model-usage").ModelUsage | null;
+  complete?(input: { systemPrompt: string; user: string; signal?: AbortSignal; effort?: string;
+    /** The effort when neither `effort` nor the role's suffix sets one (instead of the conversation's). */
+    defaultEffort?: string; maxTokens?: number;
+    /** Added to `maxTokens` when the request will think, so thinking can't use up the answer's tokens. */
+    thinkingRoom?: number; role?: "fast" }): Promise<{ text: string; error?: string; usage: import("./model-usage").ModelUsage | null;
     /** The model that answered (`provider/id`), when one was called. */
-    model?: string }>;
+    model?: string;
+    /** Why the answer ended ("stop", "length"…), and the token limit it had. */
+    stopReason?: string; maxTokens?: number }>;
   listConversations?(): Promise<RuntimeConversation[]>;
   clearConversation?(): Promise<void>;
   /** `keepUnwritten: false` drops a new conversation that has no saved response yet instead of
