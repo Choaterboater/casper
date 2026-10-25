@@ -694,8 +694,10 @@ the catalog doesn't have yet is added only if it can call tools, with OpenRouter
 until the catalog has it, a thinking model isn't offered thinking off, which some models refuse. A
 start whose model only OpenRouter's list has waits for the first read, and `/model openrouter/<id>`
 reads the list again before saying it doesn't know the id. If the list can't be read, the models
-already listed stay. `CASPER_OFFLINE=1` stops it, like the catalog downloads. See
-[decision 36](adr/0002/36-openrouter-models-live.md).
+already listed stay. `CASPER_OFFLINE=1` stops it, like the catalog downloads. The same read says
+when OpenRouter added each model and gives its Artificial Analysis scores and Design Arena coding
+rank, which `/model` shows and sorts by (Ctrl+O; see [Model and effort](TERMINAL_UX.md#model-and-effort)).
+See [decision 36](adr/0002/36-openrouter-models-live.md).
 
 ## Claude subscription through Claude Code
 

@@ -589,7 +589,7 @@ test("after an add the picker says what happened until a key is pressed; a new s
       expect(right).toContain("ollama-box · no models");
       expect(right).toContain("No models there yet.");
       expect(lines.at(-2)).toStartWith("Enter to choose · Esc to skip · Tab models");
-      expect(picker.render(120).map(stripAnsi).at(-2)).toBe("Enter to choose · Esc to skip · Tab models · Ctrl+X forgets this server · type to search");
+      expect(picker.render(120).map(stripAnsi).at(-2)).toBe("Enter to choose · Esc to skip · Tab models · Ctrl+X forgets this server · type to search · Ctrl+O sort");
       expect(lines.join("\n")).not.toContain("Use /login to sign in");
       picker.handleInput("\x1b[A");
       expect(rendered(picker)).not.toContain("Added ollama-box");

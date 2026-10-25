@@ -573,8 +573,17 @@ live rows, popups or pickers, or a duplicated prompt box (`bun test tests/termin
 ### Model and effort
 
 - `/model`: Casper's full-screen model browser. Typing searches the models; each row shows the
-  context size, price and `reasoning`/`vision` tags, with the current model first and your default
-  next, and the line under the list sums up the highlighted one. It opens on the providers on the
+  context size, price and `reasoning`/`vision` tags, in the usual order the current model first and your default
+  next, and the line under the list sums up the highlighted one. **Ctrl+O changes the order**, from either side:
+  free first (free models newest first, then paid ones cheapest first), cheapest, newest, AA score, largest
+  context, then the usual order again. The header says which (`openrouter (425) · sorted: free first`), a model
+  with nothing to sort by (no price, date or score) goes last, ties keep the usual order, and the order stays for
+  every `/model` until you quit Casper. OpenRouter's rows also show `AA 55`, the Artificial Analysis Intelligence
+  Index from OpenRouter's list, named once under the header (higher is smarter; `—` means not rated, never a low
+  score), and the line under the list adds the model's coding and agentic indexes, its Design Arena coding rank
+  and the day OpenRouter added it. A router such as `openrouter/auto` costs what the model it picks costs, so its
+  price reads `varies`, not `free`. A narrow terminal drops the score column first, then the tags, then the
+  price. It opens on the providers on the
   left (`All models`, then each provider): Up/Down there picks whose models show, and Enter, Tab or
   Right moves to the list (Tab goes back). Typing searches from either side. `/model <part of a
   name>` opens it already searched, on the list, so Enter picks at once. The left list's last row,

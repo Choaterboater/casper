@@ -3,11 +3,14 @@ import { getKeybindings, KeybindingsManager, setKeybindings, TUI_KEYBINDINGS } f
 import { terminalText } from "../tui/format";
 import { errorText } from "./model-errors";
 import type { RuntimePickerView } from "./types";
-import { ModelBrowser } from "./pi-model-browser";
+import { ModelBrowser, type ModelSort } from "./pi-model-browser";
 
 type Pick = { provider: string; id: string; persist: boolean };
 /** What the picker closed for: a model, or one of your model servers to add or forget (asked outside the picker). */
 export type PickerResult = Pick | { action: "add" } | { action: "forget"; name: string };
+
+/** The order /model's list was last left in (Ctrl+O): the next /model opens in it, until Casper quits. Tests put it back. */
+export const pickerMemory: { sort: ModelSort } = { sort: "usual" };
 
 /** Your model servers, for the left list: the rows, and opening on one (after adding it). */
 export interface PickerServers {
@@ -64,6 +67,7 @@ export async function pickPiModel(view: RuntimePickerView, catalog: ModelRuntime
   setKeybindings(new KeybindingsManager({ ...TUI_KEYBINDINGS,
     "app.models.save": { defaultKeys: "ctrl+s", description: "Select for this session only" },
     "casper.models.forget": { defaultKeys: "ctrl+x", description: "Forget this model server" },
+    "casper.models.sort": { defaultKeys: "ctrl+o", description: "Change the order of the models" },
   }));
   let settled = false;
   const removeListener = view.tui.addInputListener(data => {
@@ -91,6 +95,8 @@ export async function pickPiModel(view: RuntimePickerView, catalog: ModelRuntime
       defaultModel,
       initialQuery: query === undefined ? undefined : terminalText(query).replace(/[\r\n\t]/g, " "),
       sessionOnly,
+      sort: pickerMemory.sort,
+      onSort: (sort) => { pickerMemory.sort = sort; },
       onSelect: model => finish({ provider: model.provider, id: model.id, persist: true }),
       onSelectAsDefault: model => finish({ provider: model.provider, id: model.id, persist: false }),
       onCancel: cancel,
