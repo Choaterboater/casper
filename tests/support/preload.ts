@@ -47,6 +47,10 @@ localModelDefaults.discover = async () => ({ servers: [], problems: [] });
 const { networkReleaseDefaults } = await import("../../src/mcp/network/releases");
 networkReleaseDefaults.fetch = async () => { throw new Error("tests never reach GitHub for network server releases"); };
 
+// Nor OpenRouter for its model list (a session signed in to OpenRouter reads it): its tests pass their own fetch.
+const { openRouterModelDefaults } = await import("../../src/runtime/openrouter-models");
+openRouterModelDefaults.fetch = async () => { throw new Error("tests never reach OpenRouter for its model list"); };
+
 // A session's sandbox becomes the process-wide one (useSandbox) until its app closes. One a test leaves open
 // changes later tests in the same run (their checks, the security header), and a real one keeps its network
 // relays running after the suite: bun test runs no exit handlers. Close every app and sandbox a test opens.

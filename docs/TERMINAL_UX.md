@@ -587,7 +587,9 @@ live rows, popups or pickers, or a duplicated prompt box (`bun test tests/termin
   It refreshes the provider lists in the background and keeps the saved rows when that fails,
   saying why in a few words: `Your anthropic sign-in expired. Run /login to sign in again; showing
   saved models.`, or `Could not refresh openrouter (HTTP 503); showing saved models.`, never the
-  provider's URL or stack.
+  provider's URL or stack. With an OpenRouter sign-in it also reads OpenRouter's own model list, so a
+  model OpenRouter added today is listed before the engine's catalog has it
+  ([OpenRouter's model list](CONFIGURATION.md#provider-credentials)).
   **Enter remembers globally** in Casper's settings; **Ctrl+S selects for this session
   only** (from the providers too: it picks the list's marked model). Esc cancels from either side. `/effort` with no level is the same numbered list as every other
   choice: press a level's number (or Up/Down and Enter) to remember it; Ctrl+S picks it for

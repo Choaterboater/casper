@@ -19,6 +19,7 @@ import { withLoginDisplay, type LoginDisplay } from "../tui/login";
 import type { ModelServerActions } from "./pi-models";
 import { applyClaudeCodeVersion } from "./claude-code-version";
 import { registerClaudeSubscription } from "./claude-subscription";
+import { applyLatestOpenRouterModels, startOpenRouterModels } from "./openrouter-models";
 import { authenticatePi } from "./pi-auth";
 import { applyOpenRouterAttribution, isOpenRouterModel } from "./openrouter-attribution";
 import { retryUpstreamErrors } from "./model-errors";
@@ -945,6 +946,10 @@ export class PiRuntime implements AgentRuntime {
       });
     }
     if (!bounded) models.useModelServers(this.modelServers(modelRuntime, models));
+    // OpenRouter's own model list over the engine's (src/runtime/openrouter-models.ts): the main session reads it, a
+    // helper takes what it read.
+    if (!bounded) models.useOpenRouterModels(startOpenRouterModels(modelRuntime, this.lifetime.signal));
+    else applyLatestOpenRouterModels(modelRuntime);
     if (options.compactAt) models.useCompactAt(options.compactAt);
     const tools = new PiToolController(options.tools ?? []);
     const agentShellGuard = new AgentShellGuard(Boolean(bounded));

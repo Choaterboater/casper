@@ -612,7 +612,7 @@ Any other `sandbox` or `shell` key in a project file is named at startup and ign
 | Variable | Meaning |
 | --- | --- |
 | `CASPER_AGENT_DIR` | Folder for sign-ins, the model catalog, engine resources and conversations. Defaults to `~/.casper/agent`. Relative paths resolve from the folder you start Casper in; `~/` expands to your home folder. A folder you set here never receives the one-time import from Pi. Shell commands can't write it, as with `~/.casper`. |
-| `CASPER_OFFLINE` | Set to `1` to stop provider catalog downloads and automatic sign-in browser launches. Cached models remain available. This is **not** a network block: model calls and sign-in still use the network. |
+| `CASPER_OFFLINE` | Set to `1` to stop provider catalog downloads (OpenRouter's model list too) and automatic sign-in browser launches. Cached models remain available. This is **not** a network block: model calls and sign-in still use the network. |
 | `CASPER_NO_UPDATE_CHECK` | Set to `1` to disable background Casper update checks, notices and installs, regardless of `updates:`. `CI` disables them too. Explicit `casper update` still works. |
 | `CASPER_TELEMETRY` | Set to `0` to send no OpenRouter app attribution headers (`HTTP-Referer`, `X-OpenRouter-Title`, `X-OpenRouter-Categories`, `X-OpenRouter-App-Visibility`) on model requests and key checks; the bundled engine's own attribution is turned off with it. Works like Pi's `PI_TELEMETRY`: unset keeps attribution, and when set only `1`, `true` or `yes` keep it. An inherited `PI_TELEMETRY` is ignored. `telemetry: off` in your own config (**Send Casper's name to OpenRouter** in `/settings`) does the same; either one off is off. |
 | `CASPER_OAUTH_CALLBACK_HOST` | Address the browser sign-in listens on; defaults to `127.0.0.1`. Casper refuses browser sign-in for any other value. |
@@ -682,6 +682,20 @@ provider receives them. `CASPER_TELEMETRY=0`, or **Send Casper's name to OpenRou
 attribution; `PI_TELEMETRY` has no effect. OpenRouter shows the icon of the referer's site, so the
 referer is Casper's site (its ghost icon) rather than the GitHub page. OpenRouter keys apps by
 referer, so after this change your usage may show under a new Casper app entry.
+
+**OpenRouter's model list.** The model catalog the engine downloads is its copy of each provider's
+list, kept at pi.dev, and it can trail OpenRouter, which adds models every day, by days. With an
+OpenRouter sign-in, Casper also reads OpenRouter's own list (`https://openrouter.ai/api/v1/models`)
+as a session starts, every 5 minutes and when `/model` opens, so a model shows the day OpenRouter
+adds it. The request is a plain one: no key, and none of the app-attribution headers above. A model
+the catalog already has keeps how Casper talks to it (its API, thinking levels, longest answer and
+price tiers) and takes OpenRouter's newer name, context window, prices and picture input. A model
+the catalog doesn't have yet is added only if it can call tools, with OpenRouter's usual settings;
+until the catalog has it, a thinking model isn't offered thinking off, which some models refuse. A
+start whose model only OpenRouter's list has waits for the first read, and `/model openrouter/<id>`
+reads the list again before saying it doesn't know the id. If the list can't be read, the models
+already listed stay. `CASPER_OFFLINE=1` stops it, like the catalog downloads. See
+[decision 36](adr/0002/36-openrouter-models-live.md).
 
 ## Claude subscription through Claude Code
 
