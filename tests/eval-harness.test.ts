@@ -5,6 +5,10 @@ import path from "node:path";
 import { observeHarness, runHarness } from "../evals/harness";
 import { removeTempDir } from "./support/temp-dir";
 
+/** How long the fixture CLI may take to finish: it finishes in well under a second, but a Windows runner can stall a Bun
+ * child's start for seconds (a 2 s limit failed at 2.6 s). The limit only catches a hang. */
+const CHILD_DEADLINE_MS = 10_000;
+
 test("Casper observations use the last complete answer, not deltas or its verification claim", () => {
   const result = observeHarness("casper", [
     { v: 1, type: "session_start", session: "casper-conversation" },
@@ -146,7 +150,7 @@ test.each(["casper", "pi", "omp"] as const)("%s receives explicit identical task
     const result = await runHarness(name, {
       command: [process.execPath, path.join(import.meta.dir, "fixtures/eval-harness-cli.ts")],
       cwd: workdir, prompt: "Implement the task.", model: "github-copilot/gpt-5-mini", effort: "medium",
-      timeoutMs: 2000,
+      timeoutMs: CHILD_DEADLINE_MS,
     });
     expect(result).toMatchObject({ answer: "Scripted answer.", termination: "completed", exitCode: 0 });
     const observed = JSON.parse(await readFile(path.join(workdir, "observed.json"), "utf8"));
@@ -214,7 +218,7 @@ test.each(["casper", "pi"] as const)("%s copies only the selected provider and p
     await writeFile(modelsStorePath, '{"synthetic":true}');
     const result = await runHarness(name, {
       command: [process.execPath, path.join(import.meta.dir, "fixtures/eval-harness-cli.ts")],
-      cwd: root, prompt: "inspect seed", model: "test/model", effort: "medium", timeoutMs: 2000,
+      cwd: root, prompt: "inspect seed", model: "test/model", effort: "medium", timeoutMs: CHILD_DEADLINE_MS,
       seed: { authPath, modelsStorePath },
     });
     expect(result.termination).toBe("completed");
@@ -285,7 +289,7 @@ test("a Casper run whose checks failed is still completed through the CLI; its s
   try {
     const result = await runHarness("casper", {
       command: [process.execPath, path.join(import.meta.dir, "fixtures/eval-harness-cli.ts")],
-      cwd: workdir, prompt: "checks fail", model: "test/model", effort: "medium", timeoutMs: 2000,
+      cwd: workdir, prompt: "checks fail", model: "test/model", effort: "medium", timeoutMs: CHILD_DEADLINE_MS,
     });
     expect(result).toMatchObject({ termination: "completed", exitCode: 1, errors: [] });
   } finally { await removeTempDir(workdir); }
