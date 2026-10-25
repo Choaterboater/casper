@@ -14,11 +14,28 @@ when releasing. Existing historical notes below stay as written; feature tests c
 reference docs, not a per-PR release-note or roadmap entry. Release-prep checks verify the version and
 installer targets (`tests/release-install.test.ts`, `tests/release-targets.test.ts`).
 
-Casper distributes an unsigned **v0.3.2 preview**, not a stable release. The installers
-download from `https://github.com/Choaterboater/casper/releases/download/v0.3.2`,
+Casper distributes an unsigned **v0.3.3 preview**, not a stable release. The installers
+download from `https://github.com/Choaterboater/casper/releases/download/v0.3.3`,
 because GitHub's `latest/download` link skips preview releases. The first published
 preview was **v0.1.0**. A published release is never changed; every fix ships under a
 new version.
+
+## v0.3.3: failover when a model hits its limit, and a model list that stays current
+
+### Added
+
+- `/model failover` lists the models a task goes on with when its model hits a limit, and one line says so.
+- Ctrl+O in `/model` sorts the list: free first, cheapest, newest, smartest or largest context.
+- OpenRouter's models show how smart they are, as the Artificial Analysis Intelligence Index (`AA 55`).
+- OpenRouter's models show 🔒 when at least one host keeps nothing of your prompts, and ⚠ when every host may keep them.
+
+### Changed
+
+- `/model` lists a model the day OpenRouter adds it, from OpenRouter's own public list.
+
+### Fixed
+
+- A side question to a thinking model gets an answer instead of failing with no answer.
 
 ## v0.3.2: lines you type during a task, skills you add in chat, and pages that need a browser
 
