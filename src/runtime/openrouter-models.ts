@@ -103,10 +103,15 @@ function pictures(model: OpenRouterModel): boolean | undefined {
   const input = model.architecture?.input_modalities;
   return Array.isArray(input) ? input.includes("image") : undefined;
 }
-/** Past its end date: OpenRouter lists a model it is retiring until the end of its last day. */
-function ended(model: OpenRouterModel, now: number): boolean {
+/** When a model OpenRouter is retiring stops: OpenRouter lists it until the end of its last day. */
+function endsAt(model: OpenRouterModel): number | undefined {
   const last = typeof model.expiration_date === "string" ? Date.parse(model.expiration_date) : Number.NaN;
-  return Number.isFinite(last) && now >= last + 24 * 60 * 60_000;
+  return Number.isFinite(last) ? last + 24 * 60 * 60_000 : undefined;
+}
+/** Past its end date. */
+function ended(model: OpenRouterModel, now: number): boolean {
+  const end = endsAt(model);
+  return end !== undefined && now >= end;
 }
 
 const score = (value: unknown) => typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : undefined;
@@ -119,6 +124,7 @@ export function openRouterModelFacts(model: OpenRouterModel): ModelFacts {
   const price = free(model) ? { input: 0, output: 0 } : input !== undefined && output !== undefined ? { input, output } : undefined;
   const contextWindow = windowOf(model);
   const created = count(model.created);
+  const expires = endsAt(model);
   const aa = model.benchmarks?.artificial_analysis;
   const board = Array.isArray(model.benchmarks?.design_arena) ? model.benchmarks.design_arena : [];
   const codingRank = count(board.find((entry) => entry?.category === "codecategories" && (entry.arena ?? "models") === "models")?.rank);
@@ -128,6 +134,7 @@ export function openRouterModelFacts(model: OpenRouterModel): ModelFacts {
     ...price ? { price } : {},
     ...contextWindow ? { contextWindow } : {},
     ...created ? { created: created * 1000 } : {},
+    ...expires !== undefined ? { expires } : {},
     tools: Array.isArray(model.supported_parameters) && model.supported_parameters.includes("tools"),
     ...Object.fromEntries(Object.entries(scores).filter(([, value]) => value !== undefined)),
   };

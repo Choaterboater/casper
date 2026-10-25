@@ -1062,7 +1062,7 @@ your saved effort); set the role, with or without `:effort`, to choose instead. 
 [`/security-review` AI review](SECURITY_CHECKS.md) keeps your effort.
 
 **What is saved.** Casper owns `~/.casper/settings.json`: your default model and per-model effort,
-optional `modelRoles`, and `autoEffortModels` (full model IDs).
+optional `modelRoles`, `autoEffortModels` (full model IDs) and `modelFailover` (your [failover](#failover) list).
 
 - Changing a role does not select a model or send a request.
 - `/model` saves a new default unless `--session` comes before the model name.
@@ -1099,6 +1099,39 @@ rating is pending, done, fell back or is unavailable. `/usage` reports rating ca
 for the current session only (reloading does not bring those counters back). Usage from a bad or
 cut-off rating answer is still counted. A network failure may use tokens that are never reported;
 that usage stays unknown. Cost figures are estimates, not bills.
+
+### Failover
+
+When the model a task runs on hits a limit, the task can go on with another model instead of
+stopping. List the models, in your order, by exact ID:
+
+```text
+/model failover openrouter/vendor/model-a:free provider/model-b
+/model failover          # show the list
+/model failover clear    # remove it
+```
+
+- **What switches:** a rate limit (429 or overloaded), after the engine's own tries on the same
+  model; a usage limit (a daily or quota 429, 402, out of credits) or a model that can't run right
+  now (no endpoint, 502 to 504), at once. A rejected key (401), a refusal (403), a bad request (400)
+  or a full window never switches: another model wouldn't fix them, and a key problem needs `/login`.
+- **To what:** the first model in your list that is signed in, calls tools and can take the
+  conversation. After a free OpenRouter model, the newest free OpenRouter models follow your list
+  by themselves, if they call tools, have a window of at least 64k tokens and aren't being retired
+  within a week. Casper never adds a paid model you didn't list, and never moves a conversation
+  from any other model (a Claude plan, Copilot, Codex, a paid API) to a free one by itself: most
+  free models' hosts may keep your prompts (the ⚠ in `/model`).
+- **How:** the request that failed goes again on the new model. When the conversation doesn't fit
+  its window, that model compacts it first ([Compact at](#compact-at)); a model whose window can't
+  take the conversation even compacted is passed over. One line says what happened:
+  `Switched to provider/model-b because provider/model-a hit its rate limit; compacted the conversation to fit its window. Your next request tries provider/model-a again.`
+- **Back:** the rest of the task stays on the new model. Your next request starts on your model
+  again; your default and the conversation's model don't change.
+- With no model to switch to, the task stops at the limit as before. Casper says once a session how
+  to list models, and says when the conversation is too long for the models you listed.
+
+Only the main conversation fails over: helpers keep their own model. `/model failover` works during
+a task too, since the list is read when a limit is hit. See [decision 38](adr/0002/38-failover.md).
 
 ### Your big model
 

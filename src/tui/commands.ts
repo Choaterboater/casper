@@ -59,6 +59,7 @@ export const COMMAND_REGISTRY: readonly CommandSpec[] = [
       { name: "roles", description: "Show fast/build/reason/review role mappings", afterCleanupError: NONE },
       { name: "role", args: "<fast|build|reason|review> <selector|clear>", description: "Save or clear a role mapping" },
       { name: "big", args: "<selector|clear>", description: "Set or clear your big model (the reason role)" },
+      { name: "failover", args: "[models|clear]", description: "Models a task goes on with, in order, when its model hits a limit" },
     ] },
   { name: "effort", description: "Reasoning effort, including auto; Shift+Tab cycles and remembers it", aliases: ["thinking"], argumentHint: "[level|auto] [--session]",
     afterCleanupError: ONE_WORD_SESSION },

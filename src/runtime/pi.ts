@@ -23,6 +23,7 @@ import { applyLatestOpenRouterModels, startOpenRouterModels } from "./openrouter
 import { authenticatePi } from "./pi-auth";
 import { applyOpenRouterAttribution, isOpenRouterModel } from "./openrouter-attribution";
 import { retryUpstreamErrors } from "./model-errors";
+import { Failover } from "./failover";
 import {
   createAgentSessionFromServices,
   createAgentSessionRuntime,
@@ -138,6 +139,8 @@ class PiRuntimeSession implements RuntimeSession {
   private thinkingTail = "";
   private headline?: string;
   private promptController?: AbortController;
+  /** Each conversation's failover (src/runtime/failover.ts): the main session's only. */
+  private readonly failovers = new WeakMap<AgentSession, Failover>();
 
   constructor(
     private readonly runtime: AgentSessionRuntime,
@@ -303,6 +306,14 @@ class PiRuntimeSession implements RuntimeSession {
 
   providerKey(provider: string): Promise<string | undefined> { return this.models.providerKey(provider); }
 
+  getFailover(): string[] { return this.models.getFailover(); }
+
+  /** Allowed during work: a task reads the list only when its model hits a limit. */
+  setFailover(models: readonly string[] | undefined): Promise<string[]> {
+    if (this.readOnly) throw new Error("The failover list cannot be changed in a read-only child.");
+    return this.models.setFailover(models);
+  }
+
   setModelRole(role: string, selector?: string): Promise<Record<string, string>> {
     if (this.busy || this.readOnly || this.models.busy) throw new Error("Model roles cannot be changed during active work or in a read-only child.");
     return this.models.setRole(role, selector);
@@ -389,6 +400,8 @@ class PiRuntimeSession implements RuntimeSession {
       ...(this.readOnly ? [this.readOnly.options.signal] : []),
     ]);
     const session = this.runtime.session;
+    const failover = this.failovers.get(session);
+    failover?.startTask();
     const cancel = () => { void session.abort().catch(() => {}); };
     const agent = session.agent;
     const stream = agent.streamFunction;
@@ -453,6 +466,8 @@ class PiRuntimeSession implements RuntimeSession {
       agent.streamFunction = stream;
       if (maxTurns !== undefined) agent.finishTurn = previousFinish;
       promptSignal.removeEventListener("abort", cancel);
+      // A task that switched models after a limit: the next one starts on yours again.
+      if (failover?.endTask()) await this.models.failBack(session).catch(() => false);
       this.promptController = undefined;
       this.promptActive = false;
     }
@@ -519,6 +534,17 @@ class PiRuntimeSession implements RuntimeSession {
 
   private bind(session: AgentSession): void {
     this.unsubscribePi?.();
+    if (!this.readOnly && !this.failovers.has(session)) {
+      const failover = new Failover(session, {
+        listed: () => this.models.getFailover(),
+        usable: (provider, id) => this.models.failoverModel(provider, id),
+        switchTo: (model) => this.models.failoverTo(session, model),
+        notice: (message) => this.emit({ type: "notice", message }),
+        failed: (errorMessage) => this.emit({ type: "assistant_response_end", stopReason: "error", errorMessage }),
+        aborted: () => this.promptController?.signal.aborted ?? false,
+      });
+      if (failover.install()) this.failovers.set(session, failover);
+    }
     this.toolInputs.clear();
     this.toolTitles.clear();
     this.writes.clear();

@@ -17,7 +17,8 @@ export function cleanUpAfterEach(): void {
 }
 
 export interface Payload { model: string; messages: Array<{ role: string; content: unknown }>; reasoning_effort?: string }
-export type Step = { text: string } | { tools: Array<{ name: string; args: unknown }> };
+/** A step answers with text or tool calls, or fails as a provider does: an HTTP status and its message. */
+export type Step = { text: string } | { tools: Array<{ name: string; args: unknown }> } | { status: number; error: string };
 
 export function chunk(delta: unknown, finishReason: string | null, usage?: unknown): string {
   return `data: ${JSON.stringify({ id: "scripting", object: "chat.completion.chunk", created: 1, model: "fixture", choices: [{ index: 0, delta, finish_reason: finishReason }], ...(usage ? { usage } : {}) })}\n\n`;
@@ -25,6 +26,7 @@ export function chunk(delta: unknown, finishReason: string | null, usage?: unkno
 /** Every response reports 100 prompt and 20 completion tokens. */
 export const USAGE = { prompt_tokens: 100, completion_tokens: 20, total_tokens: 120 };
 export function respond(step: Step): Response {
+  if ("status" in step) return Response.json({ error: { message: step.error, code: step.status } }, { status: step.status });
   const body = "text" in step
     ? chunk({ role: "assistant", content: step.text }, "stop", USAGE)
     : chunk({ role: "assistant", tool_calls: step.tools.map((tool, index) => ({ index, id: `call_${index}`, type: "function", function: { name: tool.name, arguments: JSON.stringify(tool.args) } })) }, null) + chunk({}, "tool_calls", USAGE);

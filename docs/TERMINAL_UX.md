@@ -41,7 +41,7 @@ over the network, and `/references add` downloads files after asking you.
 | `/help`, `/help <word>`, `/help all` | Short help, the lines that mention a word (`/help mcp`), or the full reference |
 | `/status` | Project, model, sign-in and connections (`/project` alone shows the same) |
 | `/doctor` | Check Casper's own setup and fix what it can, each fix after a question (see [DOCTOR.md](DOCTOR.md)); during a task it only reports |
-| `/model`, `/model <words>`, `/model big <model>` | Pick a model (remembered; `--session`, before or after the model, for this conversation only); words pick the model they name (`/model opus 5.5`), several ask which, none name the closest; your big model for when repairs run out |
+| `/model`, `/model <words>`, `/model big <model>`, `/model failover <models>` | Pick a model (remembered; `--session`, before or after the model, for this conversation only); words pick the model they name (`/model opus 5.5`), several ask which, none name the closest; your big model for when repairs run out; the models a task goes on with when its model hits a limit |
 | `/effort [level\|auto]`, `/thinking` | Reasoning effort (the model's own levels; one it lacks is refused), or `auto` per request; Shift+Tab cycles it (see [Model and effort](#model-and-effort)) |
 | `/login [provider]`, `/logout [provider]` | Sign in to a provider: `codex`, `copilot`, `anthropic` or `openrouter` (see [Provider login](#provider-login)), or add a model server on another computer (the list's last row); remove a sign-in Casper saved (`/logout` alone lists them; environment variables stay) |
 | `/context`, `/usage`, `/cost` | Context estimate; session tokens and estimated cost (`/cost` is `/usage`) |
@@ -606,6 +606,13 @@ live rows, popups or pickers, or a duplicated prompt box (`bun test tests/termin
   only** (from the providers too: it picks the list's marked model). Esc cancels from either side. `/effort` with no level is the same numbered list as every other
   choice: press a level's number (or Up/Down and Enter) to remember it; Ctrl+S picks it for
   this session only.
+- `/model failover <provider/id> …`: when a task's model hits a rate or usage limit, or can't run right
+  now, the task goes on with the first of these models that is signed in, calls tools and can take the
+  conversation (compacted to fit its window first when needed), and one line says so:
+  `Switched to provider/model-b because provider/model-a hit its rate limit. Your next request tries provider/model-a again.`
+  After a free OpenRouter model the newest free OpenRouter models follow your list; Casper never adds a
+  paid model, or moves another model's conversation to a free one, by itself. `/model failover` shows
+  the list and `/model failover clear` removes it ([Failover](CONFIGURATION.md#failover)).
 - A fresh interactive session clears the viewport at startup: the new session renders from
   the top of the screen and the previous run's transcript stays in scrollback.
 - While a prompt runs or tool activity is on screen, the footer spinner, the status row and a running
@@ -720,7 +727,7 @@ Windows). The AI's tools can't read any of these, moved or not. **Sign-ins from 
 
 If you skip `/login`, Casper opens sign-in on your first request and picks that provider's
 default model (OpenRouter: `deepseek/deepseek-v4.1-flash`); with model servers you added, it opens
-`/model` on them instead and you pick. `/model` picks another; Casper never replaces a model you chose. Type keys or codes only in the private login prompt, never in chat.
+`/model` on them instead and you pick. `/model` picks another; Casper never replaces a model you chose: [failover](CONFIGURATION.md#failover) only carries a task that hit a limit on to another model, says so, and goes back for your next request. Type keys or codes only in the private login prompt, never in chat.
 Your provider's plans and charges still apply.
 
 `/logout` lists the sign-ins `/login` saved (provider and kind, never the key), and

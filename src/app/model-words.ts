@@ -27,6 +27,16 @@ export function severalModelsMessage(words: string, models: ReadonlyArray<{ prov
   return `${JSON.stringify(words)} names several models: ${models.map((model) => `${model.provider}/${model.id}`).join(", ")}. Type /model <provider/id>. Model unchanged.`;
 }
 
+/** What /model failover shows: your list in order, and what happens at a limit with it (src/runtime/failover.ts). */
+export function failoverText(models: readonly string[]): string {
+  const free = "After a free OpenRouter model, the newest free OpenRouter models that call tools follow.";
+  if (!models.length) return `[model] Failover: none listed. When a task's model hits a limit, the task stops there. ${free}\n`
+    + "[model] To go on with another model instead: /model failover <provider/id> … (in order, saved for every conversation).\n";
+  return `[model] Failover, in order:\n${models.map((model, index) => `  ${index + 1}. ${terminalText(model)}`).join("\n")}\n`
+    + `[model] When a task's model hits a limit, the task goes on with the first of these that is signed in and can take the conversation. ${free}\n`
+    + "[model] Saved for every conversation; /model failover clear removes the list.\n";
+}
+
 // "change model to X", "change the model to X", "set model to X", "switch model to X", "switch to X", "change to X",
 // "use X", "use model X", "use the X model": the whole line, nothing before or after but please and a full stop.
 const REQUEST = /^(?:please\s+)?(?:(?:change|switch|set)\s+(?:the\s+|my\s+)?model\s+to|(?:switch|change)\s+to(?:\s+the)?(?:\s+model)?|use(?:\s+the)?(?:\s+model)?)\s+(.+?)(?:\s+model)?(?:\s+(?:please|now|instead))?\s*[.!]?$/i;

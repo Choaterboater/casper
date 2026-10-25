@@ -14,6 +14,8 @@ export interface ModelFacts {
   contextWindow?: number;
   /** When the provider listed the model, in milliseconds since 1970. */
   created?: number;
+  /** When the provider stops serving it (a model it is retiring), in milliseconds since 1970. */
+  expires?: number;
   /** Whether it can call tools (Casper's work needs them). */
   tools: boolean;
   /** Artificial Analysis' Intelligence, Coding and Agentic Indexes (higher is better); none for a model it hasn't rated. */
