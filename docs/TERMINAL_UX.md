@@ -582,8 +582,11 @@ live rows, popups or pickers, or a duplicated prompt box (`bun test tests/termin
   Index from OpenRouter's list, named once under the header (higher is smarter; `—` means not rated, never a low
   score), and the line under the list adds the model's coding and agentic indexes, its Design Arena coding rank
   and the day OpenRouter added it. A router such as `openrouter/auto` costs what the model it picks costs, so its
-  price reads `varies`, not `free`. A narrow terminal drops the score column first, then the tags, then the
-  price. It opens on the providers on the
+  price reads `varies`, not `free`. Each OpenRouter row also shows 🔒 when at least one host keeps nothing of a
+  request (OpenRouter's zero-data-retention list) and ⚠ when every host may keep your prompts; most free models
+  are ⚠. The marks only show what the hosts do: Casper doesn't change where a request goes, and OpenRouter may
+  still pick a host that keeps prompts. The line under the list names the hosts that keep nothing. A narrow
+  terminal drops the score column first, then the tags, then the price; the 🔒/⚠ mark stays. It opens on the providers on the
   left (`All models`, then each provider): Up/Down there picks whose models show, and Enter, Tab or
   Right moves to the list (Tab goes back). Typing searches from either side. `/model <part of a
   name>` opens it already searched, on the list, so Enter picks at once. The left list's last row,

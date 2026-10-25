@@ -6,7 +6,7 @@ import { mkdtemp, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { forgetModelFacts, modelFacts, type ModelFacts } from "../src/runtime/model-facts";
-import { forgetOpenRouterModels, openRouterModelFacts, OPENROUTER_MODELS_URL, startOpenRouterModels, type OpenRouterModel } from "../src/runtime/openrouter-models";
+import { forgetOpenRouterModels, openRouterModelFacts, OPENROUTER_MODELS_URL, OPENROUTER_ZDR_URL, startOpenRouterModels, type OpenRouterModel } from "../src/runtime/openrouter-models";
 import { ModelBrowser, MODEL_SORTS, type ModelBrowserCatalog, type ModelSort } from "../src/runtime/pi-model-browser";
 import { pickerMemory, pickPiModel } from "../src/runtime/pi-model-picker";
 import type { RuntimePickerView } from "../src/runtime/types";
@@ -260,7 +260,8 @@ test("the score and the day added come from the same read of OpenRouter's list a
   };
   const lifetime = new AbortController(); lifetimes.push(lifetime);
   await startOpenRouterModels(catalog, lifetime.signal, { env: {}, fetch, freshMs: 0 }).ready;
-  expect(urls).toEqual([OPENROUTER_MODELS_URL]);
+  // The model list, and beside it the zero-data-retention list (a different question): no other request.
+  expect(urls).toEqual([OPENROUTER_MODELS_URL, OPENROUTER_ZDR_URL]);
   expect(modelFacts("openrouter", "vendor-d/new-model")).toMatchObject({ intelligence: 55.1, created: 1_792_778_188_000 });
   // The engine's own catalog, as /model reads it, with no second request and no facts passed in.
   const picker = new ModelBrowser({ tui: fakeTui(), catalog: { ...fakeCatalog([]), getAvailableSnapshot: () => catalog.getAvailableSnapshot() },
@@ -272,6 +273,6 @@ test("the score and the day added come from the same read of OpenRouter's list a
     expect(row(picker, "openrouter/vendor-d/new-model")).toMatch(/AA 55 · +131k ctx/);
     expect(row(picker, "openrouter/vendor-d/older")).toMatch(/ — · /);
     expect(details(picker)).toContain("AA 55.1 (coding 57) · Design Arena coding #7 · added 2026-10-23");
-    expect(urls).toHaveLength(1);
+    expect(urls).toHaveLength(2);
   } finally { picker.dispose(); }
 });

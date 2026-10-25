@@ -22,6 +22,9 @@ export interface ModelFacts {
   agentic?: number;
   /** Its place on Design Arena's coding board (1 is first). */
   codingRank?: number;
+  /** The hosts that keep nothing of a request (OpenRouter's zero-data-retention list): none means every host may keep
+   * prompts; unknown (left out) when that list wasn't read. OpenRouter may still send a request to another host. */
+  privateHosts?: string[];
 }
 
 const known = new Map<string, ReadonlyMap<string, ModelFacts>>();

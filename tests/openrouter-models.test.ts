@@ -5,7 +5,7 @@ import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import {
-  applyLatestOpenRouterModels, forgetOpenRouterModels, mergeOpenRouterModels, openRouterChatModel, OPENROUTER_MODELS_URL,
+  applyLatestOpenRouterModels, forgetOpenRouterModels, mergeOpenRouterModels, openRouterChatModel, OPENROUTER_MODELS_URL, OPENROUTER_ZDR_URL,
   startOpenRouterModels, type OpenRouterModel,
 } from "../src/runtime/openrouter-models";
 import { pickerCatalog } from "../src/runtime/pi-model-picker";
@@ -88,10 +88,11 @@ async function engine(options: { signedIn?: boolean } = {}) {
   return { dir, catalog };
 }
 
-/** OpenRouter's model list as the fake host serves it, and the addresses asked for. */
+/** OpenRouter's model list as the fake host serves it (and its zero-data-retention list), and the addresses asked for. */
 function host(models: OpenRouterModel[] = live) {
   const state = { urls: [] as string[], answer: (): Response => Response.json({ data: models }) };
-  return { state, fetch: async (url: string) => { state.urls.push(url); return state.answer(); } };
+  const zeroRetention = () => Response.json({ data: [{ model_id: "vendor-a/known-model", provider_name: "Hoster One" }] });
+  return { state, fetch: async (url: string) => { state.urls.push(url); return url === OPENROUTER_ZDR_URL ? zeroRetention() : state.answer(); } };
 }
 
 function session() {
@@ -133,7 +134,7 @@ test("signed in to OpenRouter: a model released today is in the catalog at once,
   const { state, fetch } = host();
   const models = startOpenRouterModels(catalog, session().signal, { env: {}, fetch, freshMs: 0 });
   await models.ready;
-  expect(state.urls).toEqual([OPENROUTER_MODELS_URL]);
+  expect(state.urls).toEqual([OPENROUTER_MODELS_URL, OPENROUTER_ZDR_URL]);
   expect(catalog.getModel("openrouter", "vendor-d/new-model")).toMatchObject({ provider: "openrouter", api: "openai-completions", contextWindow: 262_144, cost: { input: 0.2, output: 0.8 } });
   expect(catalog.getModel("openrouter", "vendor-a/known-model")).toMatchObject({ api: "anthropic-messages", baseUrl: "https://openrouter.ai/api", contextWindow: 400_000, maxTokens: 64_000, cost: { input: 2.5, tiers: known.cost.tiers } });
   expect(catalog.getModel("openrouter", "vendor-b/older-model")).toBeDefined();
@@ -152,7 +153,9 @@ test("signed in to OpenRouter: a model released today is in the catalog at once,
   await models.refresh();
   state.answer = () => Response.json({ unexpected: true });
   await models.refresh();
-  expect(state.urls).toHaveLength(4);
+  // The zero-data-retention list is read at most every 30 minutes: four reads of the model list, one of it.
+  expect(state.urls.filter((url) => url === OPENROUTER_MODELS_URL)).toHaveLength(4);
+  expect(state.urls.filter((url) => url === OPENROUTER_ZDR_URL)).toHaveLength(1);
   expect(catalog.getModel("openrouter", "vendor-d/new-model")).toBeDefined();
   expect(catalog.getModel("openrouter", "vendor-b/listed-later")).toBeDefined();
   expect(catalog.getModel("openrouter", "vendor-a/known-model")?.contextWindow).toBe(400_000);
@@ -163,9 +166,12 @@ test("OpenRouter's model list is read without your key or Casper's name: a plain
   const sent: Array<{ url: string; init?: RequestInit }> = [];
   const fetch = async (url: string, init?: RequestInit) => { sent.push({ url, init }); return Response.json({ data: live }); };
   await startOpenRouterModels(catalog, session().signal, { env: {}, fetch }).ready;
-  expect(sent.map((request) => [request.url, request.init?.method ?? "GET"])).toEqual([["https://openrouter.ai/api/v1/models", "GET"]]);
-  expect([...new Headers(sent[0]!.init?.headers).keys()]).toEqual(["accept"]);
-  expect(sent[0]!.init?.body).toBeUndefined();
+  expect(sent.map((request) => [request.url, request.init?.method ?? "GET"])).toEqual([["https://openrouter.ai/api/v1/models", "GET"],
+    ["https://openrouter.ai/api/v1/endpoints/zdr", "GET"]]);
+  for (const request of sent) {
+    expect([...new Headers(request.init?.headers).keys()]).toEqual(["accept"]);
+    expect(request.init?.body).toBeUndefined();
+  }
   expect(catalog.getModel("openrouter", "vendor-d/new-model")).toBeDefined();
 });
 
@@ -194,7 +200,7 @@ test("a helper's catalog takes the list the main session read without reading it
   const helper = await engine();
   applyLatestOpenRouterModels(helper.catalog);
   expect(helper.catalog.getModel("openrouter", "vendor-d/new-model")).toBeDefined();
-  expect(state.urls).toHaveLength(1);
+  expect(state.urls).toEqual([OPENROUTER_MODELS_URL, OPENROUTER_ZDR_URL]);
 
   const other = await engine();
   other.catalog.registerProvider("openrouter", { models: [{ ...older, id: "vendor-x/own-list" }] as never });

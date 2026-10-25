@@ -20,16 +20,20 @@ import type { AnyModel } from "@earendil-works/pi-ai";
 import { forgetModelFacts, setModelFacts, type ModelFacts } from "./model-facts";
 
 export const OPENROUTER_MODELS_URL = "https://openrouter.ai/api/v1/models";
+/** OpenRouter's public list of the hosts that keep nothing of a request (zero data retention), one entry per host. */
+export const OPENROUTER_ZDR_URL = "https://openrouter.ai/api/v1/endpoints/zdr";
 const OPENROUTER_API = "https://openrouter.ai/api/v1";
 /** The request settings most OpenRouter models have in the engine's list: a model it doesn't list yet gets them. */
 const OPENROUTER_COMPAT = { thinkingFormat: "openrouter", supportsStrictMode: true, sendSessionAffinityHeaders: true, supportsDeveloperRole: false } as const;
 
-export const openRouterModelDefaults: { fetch: (url: string, init?: RequestInit) => Promise<Response>; everyMs: number; freshMs: number; timeoutMs: number } = {
+export const openRouterModelDefaults: { fetch: (url: string, init?: RequestInit) => Promise<Response>; everyMs: number; freshMs: number; zeroRetentionFreshMs: number; timeoutMs: number } = {
   fetch: (url, init) => fetch(url, init),
   /** How often a signed-in session reads the list again. */
   everyMs: 5 * 60_000,
   /** OpenRouter's CDN keeps the list two minutes: reading it sooner gets the same list. */
   freshMs: 2 * 60_000,
+  /** The zero-data-retention list changes seldom and isn't cached by OpenRouter's CDN: read at most this often. */
+  zeroRetentionFreshMs: 30 * 60_000,
   timeoutMs: 10_000,
 };
 
@@ -63,6 +67,24 @@ export function parseOpenRouterModels(body: unknown): OpenRouterModel[] {
     && typeof (entry as { id?: unknown }).id === "string" && /^[\x21-\x7e]+$/.test((entry as { id: string }).id));
   if (!models.length) throw new Error("OpenRouter's model list is empty.");
   return models;
+}
+
+/** Each model's hosts in OpenRouter's zero-data-retention list, once each, in plain text (a host's name is shown on
+ * screen). Throws when the answer names none, so no model is ever marked from an empty or broken list. */
+export function parseZeroRetentionHosts(body: unknown): Map<string, string[]> {
+  const data = typeof body === "object" && body !== null ? (body as { data?: unknown }).data : undefined;
+  if (!Array.isArray(data)) throw new Error("OpenRouter's zero-data-retention list is not in the expected form.");
+  const hosts = new Map<string, string[]>();
+  for (const entry of data) {
+    const { model_id: id, provider_name: name } = (typeof entry === "object" && entry !== null ? entry : {}) as { model_id?: unknown; provider_name?: unknown };
+    if (typeof id !== "string" || !/^[\x21-\x7e]+$/.test(id) || typeof name !== "string") continue;
+    const host = name.replace(/[\u0000-\u001f\u007f-\u009f]/g, "").trim().slice(0, 40);
+    if (!host) continue;
+    const named = hosts.get(id) ?? [];
+    if (!named.includes(host)) hosts.set(id, [...named, host]);
+  }
+  if (!hosts.size) throw new Error("OpenRouter's zero-data-retention list is empty.");
+  return hosts;
 }
 
 /** Per million tokens, as the catalog has prices. A router's "-1" (the price of whichever model it picks) is none. */
@@ -202,9 +224,15 @@ export function applyOpenRouterModels(catalog: Catalog, live: readonly OpenRoute
 /** The newest list this process read (a helper takes it), what in it Casper uses, and when. */
 let latest: { at: number; models: OpenRouterModel[]; signature: string } | undefined;
 let reading: Promise<OpenRouterModel[]> | undefined;
+/** The newest zero-data-retention list this process read: each model's hosts that keep nothing. */
+let latestZeroRetention: { at: number; hosts: Map<string, string[]>; signature: string } | undefined;
+let readingZeroRetention: Promise<void> | undefined;
 
-/** Tests only: forget the list this process read, and what it said about its models. */
-export function forgetOpenRouterModels(): void { latest = undefined; reading = undefined; forgetModelFacts("openrouter"); }
+/** Tests only: forget the lists this process read, and what they said about OpenRouter's models. */
+export function forgetOpenRouterModels(): void {
+  latest = undefined; reading = undefined; latestZeroRetention = undefined; readingZeroRetention = undefined;
+  forgetModelFacts("openrouter");
+}
 
 /** What Casper takes from the list (the catalog's fields, and the facts /model shows): a read with the same signature is
  * the same list (nothing to lay on again). */
@@ -213,34 +241,63 @@ const signatureOf = (models: readonly OpenRouterModel[]) => JSON.stringify(model
   model.architecture?.input_modalities, model.architecture?.output_modalities, model.supported_parameters,
   model.top_provider?.context_length, model.top_provider?.max_completion_tokens, model.expiration_date, openRouterModelFacts(model)]));
 
+/** What is known about OpenRouter's models (src/runtime/model-facts.ts), from the newest reads of both lists: a model the
+ * zero-data-retention list doesn't name has no such host; before that list was read, nobody knows. */
+function publishFacts(): void {
+  if (!latest) return;
+  const hosts = latestZeroRetention?.hosts;
+  setModelFacts("openrouter", new Map(latest.models.map((model) => [model.id,
+    { ...openRouterModelFacts(model), ...hosts ? { privateHosts: hosts.get(model.id) ?? [] } : {} }])));
+}
+
+/** A plain request for one of OpenRouter's public lists: no key, no app name. */
+async function readPublic(seams: { fetch: typeof openRouterModelDefaults.fetch }, url: string, signal: AbortSignal): Promise<unknown> {
+  const response = await seams.fetch(url, {
+    headers: { accept: "application/json" }, redirect: "error",
+    signal: AbortSignal.any([signal, AbortSignal.timeout(openRouterModelDefaults.timeoutMs)]),
+  });
+  if (!response.ok) throw new Error(`OpenRouter answered HTTP ${response.status}.`);
+  return response.json();
+}
+
 /** Reads OpenRouter's list, or returns the one read under `freshMs` ago. Throws when it can't be read. A new list also
  * replaces what is known about OpenRouter's models (src/runtime/model-facts.ts): the same read, no second request. */
 function readList(seams: { fetch: typeof openRouterModelDefaults.fetch; freshMs: number }, signal: AbortSignal): Promise<OpenRouterModel[]> {
   if (latest && Date.now() - latest.at < seams.freshMs) return Promise.resolve(latest.models);
   reading ??= (async () => {
     try {
-      // A plain request: no key, no app name (the list is public).
-      const response = await seams.fetch(OPENROUTER_MODELS_URL, {
-        headers: { accept: "application/json" }, redirect: "error",
-        signal: AbortSignal.any([signal, AbortSignal.timeout(openRouterModelDefaults.timeoutMs)]),
-      });
-      if (!response.ok) throw new Error(`OpenRouter's model list answered HTTP ${response.status}.`);
-      const models = parseOpenRouterModels(await response.json());
+      const models = parseOpenRouterModels(await readPublic(seams, OPENROUTER_MODELS_URL, signal));
       const signature = signatureOf(models);
       const same = latest?.signature === signature;
       latest = { at: Date.now(), models: same ? latest!.models : models, signature };
-      if (!same) setModelFacts("openrouter", new Map(models.map((model) => [model.id, openRouterModelFacts(model)])));
+      if (!same) publishFacts();
       return latest.models;
     } finally { reading = undefined; }
   })();
   return reading;
 }
 
+/** Reads the zero-data-retention list unless it is under `zeroRetentionFreshMs` old. Display only: what it says marks
+ * models in /model and never changes where a request goes. Throws when it can't be read; the last list read stays. */
+function readZeroRetention(seams: { fetch: typeof openRouterModelDefaults.fetch; zeroRetentionFreshMs: number }, signal: AbortSignal): Promise<void> {
+  if (latestZeroRetention && Date.now() - latestZeroRetention.at < seams.zeroRetentionFreshMs) return Promise.resolve();
+  readingZeroRetention ??= (async () => {
+    try {
+      const hosts = parseZeroRetentionHosts(await readPublic(seams, OPENROUTER_ZDR_URL, signal));
+      const signature = JSON.stringify([...hosts].sort(([a], [b]) => a.localeCompare(b)));
+      const same = latestZeroRetention?.signature === signature;
+      latestZeroRetention = { at: Date.now(), hosts: same ? latestZeroRetention!.hosts : hosts, signature };
+      if (!same) publishFacts();
+    } finally { readingZeroRetention = undefined; }
+  })();
+  return readingZeroRetention;
+}
+
 export interface OpenRouterModels {
-  /** Settles once the session's first read has ended, laid on or not. Never rejects. */
+  /** Settles once the session's first read of the model list has ended, laid on or not. Never rejects. */
   ready: Promise<void>;
   /** Reads the list again (unless it is under two minutes old) and lays it over the engine's list as it is now, as
-   * /model does when it opens. Never rejects. */
+   * /model does when it opens, with the zero-data-retention list when that is due. Never rejects. */
   refresh(signal?: AbortSignal): Promise<void>;
 }
 
@@ -249,21 +306,27 @@ export interface OpenRouterModelOptions {
   fetch?: typeof openRouterModelDefaults.fetch;
   everyMs?: number;
   freshMs?: number;
+  zeroRetentionFreshMs?: number;
 }
 
-/** The main session's reads of OpenRouter's list, from now until `lifetime` ends. Each read is skipped without an
+/** The main session's reads of OpenRouter's lists, from now until `lifetime` ends. Each read is skipped without an
  * OpenRouter sign-in, offline (CASPER_OFFLINE=1, or the engine's PI_OFFLINE), and once the session ended. */
 export function startOpenRouterModels(catalog: Catalog & Pick<ModelRuntime, "hasConfiguredAuth">, lifetime: AbortSignal,
   options: OpenRouterModelOptions = {}): OpenRouterModels {
   const env = options.env ?? process.env;
-  const seams = { fetch: options.fetch ?? openRouterModelDefaults.fetch, freshMs: options.freshMs ?? openRouterModelDefaults.freshMs };
+  const seams = { fetch: options.fetch ?? openRouterModelDefaults.fetch, freshMs: options.freshMs ?? openRouterModelDefaults.freshMs,
+    zeroRetentionFreshMs: options.zeroRetentionFreshMs ?? openRouterModelDefaults.zeroRetentionFreshMs };
   const update = async (signal: AbortSignal, again: boolean): Promise<void> => {
     try {
       if (lifetime.aborted || env.CASPER_OFFLINE === "1" || env.PI_OFFLINE !== undefined || !catalog.hasConfiguredAuth("openrouter")) return;
+      const listing = readList(seams, signal);
+      // Beside the model list, never ahead of it: a start that waits for a model doesn't wait for this.
+      const privacy = readZeroRetention(seams, signal).catch(() => undefined);
       // A read that fails keeps what is listed; /model still lays the last list over the engine's newest.
-      const models = await readList(seams, signal).catch(() => again ? latest?.models : undefined);
-      if (!models || lifetime.aborted) return;
-      if (again || laid.get(catalog)?.from !== models) applyOpenRouterModels(catalog, models);
+      const models = await listing.catch(() => again ? latest?.models : undefined);
+      if (models && !lifetime.aborted && (again || laid.get(catalog)?.from !== models)) applyOpenRouterModels(catalog, models);
+      // /model reloads its rows after this: the marks it shows are from this read too.
+      if (again) await privacy;
     } catch { /* the models listed stay */ }
   };
   const ready = update(lifetime, false);

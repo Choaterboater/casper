@@ -109,9 +109,12 @@ export type ModelSort = typeof MODEL_SORTS[number];
 /** What the header says after "sorted:". */
 const SORT_NAMES: Record<ModelSort, string> = { usual: "", free: "free first", cheapest: "cheapest", newest: "newest", score: "AA score", context: "largest context" };
 const SCORE_LEGEND = "AA: Artificial Analysis Intelligence Index · higher is smarter · — not rated";
+/** What the 🔒 and ⚠ marks mean. Display only: nothing restricts a request to those hosts, so 🔒 promises no more. */
+const PRIVACY_LEGEND = "🔒 a host keeps nothing (OpenRouter may pick another) · ⚠ every host may keep your prompts";
 
-/** Which columns a row has room for: a narrow list drops the score first, then the tags, then the price. */
-type Columns = { score: boolean; price: boolean; tags: boolean };
+/** Which columns a row has room for: a narrow list drops the score first, then the tags, then the price. The privacy mark
+ * (two cells) stays. */
+type Columns = { privacy: boolean; score: boolean; price: boolean; tags: boolean };
 
 export interface ModelBrowserOptions {
   tui: TUI;
@@ -468,7 +471,7 @@ export class ModelBrowser {
     // when rows show a score, what it is: named once, here.
     const reasons = [...this.noticeLines(width), ...this.localProblems.flatMap((line) => wrapTextWithAnsi(line, Math.max(10, width - 2)))
       .map((line) => tint(`  ${line}`, "warning", this.options.color))].slice(0, Math.max(1, Math.floor(height / 3)));
-    const notes = [...reasons, ...columns.score ? [this.muted(`  ${SCORE_LEGEND}`)] : []];
+    const notes = [...reasons, ...columns.privacy ? [this.muted(`  ${PRIVACY_LEGEND}`)] : [], ...columns.score ? [this.muted(`  ${SCORE_LEGEND}`)] : []];
     const lines = [header + this.statusSuffix(), ...notes.length ? notes : [""]];
     const searchLines = this.number ? [this.muted(`Number: ${this.number}`)] : this.searchInput.render(width);
     lines.push(...searchLines, "");
@@ -493,6 +496,7 @@ export class ModelBrowser {
    * so another provider's list looks as it did. */
   private columns(width: number): Columns {
     return {
+      privacy: this.filteredModels.some((item) => this.factsOf(item)?.privateHosts !== undefined),
       score: width >= SCORE_MIN_WIDTH && this.filteredModels.some((item) => this.factsOf(item)?.intelligence !== undefined),
       price: width >= 44,
       tags: width >= 72,
@@ -503,6 +507,12 @@ export class ModelBrowser {
   private scoreText(item: Item): string {
     const score = this.factsOf(item)?.intelligence;
     return (score === undefined ? "—" : `AA ${String(Math.round(score)).padStart(2)}`).padStart(SCORE_WIDTH);
+  }
+
+  /** Two cells: "🔒" when a host keeps nothing of a request, "⚠" when every host may keep prompts, blank when unknown. */
+  private privacyMark(item: Item): string {
+    const hosts = this.factsOf(item)?.privateHosts;
+    return hosts === undefined ? "  " : hosts.length ? "🔒" : "⚠ ";
   }
 
   private metaText(item: Item, columns: Columns): string {
@@ -522,11 +532,12 @@ export class ModelBrowser {
       priceSegment && columns.price ? priceSegment : "",
       tagsSegment && columns.tags ? tagsSegment : "",
     ].filter(segment => segment.trim() !== "");
-    if (!segments.length) return "";
-    const composed = segments.map(segment => this.muted(segment)).join(this.muted(" · "));
+    const mark = columns.privacy ? `${this.privacyMark(item)} ` : "";
+    if (!segments.length && !mark) return "";
+    const composed = this.muted(mark) + segments.map(segment => this.muted(segment)).join(this.muted(" · "));
     // Rows missing tags (or price) pad with trailing spaces so every row's columns land at the
     // same offsets as fully-tagged rows instead of shifting toward the right edge.
-    const classWidth = (columns.score ? SCORE_WIDTH + 3 : 0)
+    const classWidth = (columns.privacy ? 3 : 0) + (columns.score ? SCORE_WIDTH + 3 : 0)
       + (columns.tags ? CTX_WIDTH + PRICE_WIDTH + TAGS_WIDTH + 6 : columns.price ? CTX_WIDTH + PRICE_WIDTH + 3 : CTX_WIDTH);
     return composed + " ".repeat(Math.max(0, classWidth - visibleWidth(composed)));
   }
@@ -580,13 +591,18 @@ export class ModelBrowser {
     return "  " + parts.join(this.muted(" · "));
   }
 
-  /** The highlighted model's scores and the day its provider listed it: "AA 55.1 (coding 57, agentic 28.7)", "Design
-   * Arena coding #7", "added 2026-09-01". A model Artificial Analysis hasn't rated says so, rather than showing no score. */
+  /** The highlighted model's hosts that keep nothing ("🔒 zero retention on …", or "⚠ no host promises zero retention"),
+   * scores and the day its provider listed it: "AA 55.1 (coding 57, agentic 28.7)", "Design Arena coding #7", "added
+   * 2026-09-01". A model Artificial Analysis hasn't rated says so, rather than showing no score. */
   private factsText(facts: ModelFacts): string[] {
     const more = [facts.coding === undefined ? "" : `coding ${fmtScore(facts.coding)}`, facts.agentic === undefined ? "" : `agentic ${fmtScore(facts.agentic)}`]
       .filter(Boolean).join(", ");
     const aa = facts.intelligence !== undefined ? `AA ${fmtScore(facts.intelligence)}${more ? ` (${more})` : ""}` : more ? `AA ${more}` : "AA not rated";
-    return [aa, ...facts.codingRank === undefined ? [] : [`Design Arena coding #${facts.codingRank}`],
+    const hosts = facts.privateHosts?.map((host) => terminalText(host));
+    const privacy = hosts === undefined ? [] : hosts.length
+      ? [`🔒 zero retention on ${hosts.slice(0, 3).join(", ")}${hosts.length > 3 ? ` +${hosts.length - 3} more` : ""}`]
+      : ["⚠ no host promises zero retention"];
+    return [...privacy, aa, ...facts.codingRank === undefined ? [] : [`Design Arena coding #${facts.codingRank}`],
       ...facts.created === undefined ? [] : [`added ${new Date(facts.created).toISOString().slice(0, 10)}`]];
   }
 
