@@ -162,6 +162,9 @@
             <li>Known secrets (device passwords, keys, SNMP communities and similar) are swapped for
             <code>&lt;secret hidden&gt;</code> before the AI sees them. This is best effort. It knows
             common formats only, and it will miss some.</li>
+            <li>In <code>/model</code>, OpenRouter's models show <b>🔒</b> when at least one host keeps
+            nothing of a request (zero data retention) and <b>⚠</b> when every host may keep your prompts.
+            Most free models are ⚠. Casper only shows this; it doesn't change where requests go.</li>
             <li>Model requests Casper sends to OpenRouter carry a fixed app name (Casper), so usage is filed
             under Casper's app. No prompt, file or user data is in those headers. Turn
             off <b>Send Casper's name to OpenRouter</b> in <code>/settings</code>, or set
