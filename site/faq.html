@@ -86,6 +86,9 @@
           provider's default model (for OpenRouter, <code>deepseek/deepseek-v4.1-flash</code>).
           <code>/model</code> picks another one. Casper never replaces a model you chose. Type keys or
           codes only in the private login prompt, never in the chat.</p>
+          <p>With OpenRouter, <code>/model</code> lists a model the day OpenRouter adds it: Casper reads
+          OpenRouter's public model list (your key is not sent) as a session starts, every 5 minutes and
+          when <code>/model</code> opens.</p>
           <p>A model on your own computer works too: start Ollama, LM Studio, llama.cpp, vLLM, SGLang or an
           MLX server (MLX LM / vllm-mlx) and its models show in <code>/model</code>, with no sign-in and no file to edit.
           Automatic local discovery checks five loopback ports: 11434, 1234, 8080, 8000 and 30000.
@@ -155,7 +158,7 @@
             <li>Known secrets (device passwords, keys, SNMP communities and similar) are swapped for
             <code>&lt;secret hidden&gt;</code> before the AI sees them. This is best effort. It knows
             common formats only, and it will miss some.</li>
-            <li>Requests Casper sends to OpenRouter carry a fixed app name (Casper), so usage is filed
+            <li>Model requests Casper sends to OpenRouter carry a fixed app name (Casper), so usage is filed
             under Casper's app. No prompt, file or user data is in those headers. Turn
             off <b>Send Casper's name to OpenRouter</b> in <code>/settings</code>, or set
             <code>CASPER_TELEMETRY=0</code>.</li>

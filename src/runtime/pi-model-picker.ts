@@ -17,11 +17,48 @@ export interface PickerServers {
   notice?: readonly string[];
 }
 
+/** The catalog as the picker sees it. Provider/id/name values must be control-character safe, and so are refresh
+ * errors. Its refresh reads OpenRouter's own list after the provider catalogs (src/runtime/openrouter-models.ts), so
+ * the rows the browser reloads have both. */
+export function pickerCatalog(catalog: ModelRuntime, refreshLocal?: (signal?: AbortSignal) => Promise<string[]>,
+  refreshOpenRouter?: (signal?: AbortSignal) => Promise<void>): ModelRuntime {
+  return new Proxy(catalog, {
+    get(target, key) {
+      if (key === "getError") return () => {
+        const error = target.getError();
+        return error === undefined ? undefined : terminalText(error);
+      };
+      if (key === "refreshLocal") return refreshLocal && (async (options?: { signal?: AbortSignal }) =>
+        (await refreshLocal(options?.signal)).map((line) => terminalText(line).replace(/\s+/g, " ")));
+      if (key === "refresh") return async (options: Parameters<ModelRuntime["refresh"]>[0]) => {
+        try {
+          // The browser shows freshness status and keeps cached rows on failure, so live
+          // catalog refresh (new provider models) is safe here, unlike startup paths. No
+          // allowNetwork override: Pi's default fetches unless PI_OFFLINE is set.
+          const result = await target.refresh(options);
+          await refreshOpenRouter?.(options?.signal).catch(() => undefined);
+          return { ...result, errors: new Map([...result.errors].map(([provider, error]) =>
+            [terminalText(provider), new Error(terminalText(errorText(error)))])) };
+        } catch (error) {
+          throw new Error(terminalText(errorText(error)));
+        }
+      };
+      if (key === "getAvailableSnapshot") return () => target.getAvailableSnapshot()
+        .filter((model) => [model.provider, model.id].every((value) => terminalText(value) === value && !/[\r\n\t]/.test(value)))
+        .map((model) => ({ ...model, name: terminalText(model.name).replace(/\s+/g, " ") }));
+      const value = Reflect.get(target, key);
+      return typeof value === "function" ? value.bind(target) : value;
+    },
+  });
+}
+
 export async function pickPiModel(view: RuntimePickerView, catalog: ModelRuntime, current: AgentSession["model"],
   defaultModel: { provider: string; id: string } | undefined, query: string | undefined, signal?: AbortSignal, sessionOnly = false,
   /** Looks for the local model servers again (src/runtime/local-models.ts), next to the catalog refresh; resolves
    * with why the ones Casper was told about aren't there. */
-  refreshLocal?: (signal?: AbortSignal) => Promise<string[]>, servers?: PickerServers): Promise<PickerResult | undefined> {
+  refreshLocal?: (signal?: AbortSignal) => Promise<string[]>, servers?: PickerServers,
+  /** Reads OpenRouter's own model list again, after the catalog refresh (src/runtime/openrouter-models.ts). */
+  refreshOpenRouter?: (signal?: AbortSignal) => Promise<void>): Promise<PickerResult | undefined> {
   signal?.throwIfAborted();
   const previousBindings = getKeybindings();
   setKeybindings(new KeybindingsManager({ ...TUI_KEYBINDINGS,
@@ -44,35 +81,7 @@ export async function pickPiModel(view: RuntimePickerView, catalog: ModelRuntime
     removeListener(); // Detach now, not after more keys in the same chunk.
     resolve(pick);
   };
-  // The catalog is sanitized before the browser renders it: provider/id/name values must be
-  // control-character safe, and so are refresh errors.
-  const catalogView = new Proxy(catalog, {
-    get(target, key) {
-      if (key === "getError") return () => {
-        const error = target.getError();
-        return error === undefined ? undefined : terminalText(error);
-      };
-      if (key === "refreshLocal") return refreshLocal && (async (options?: { signal?: AbortSignal }) =>
-        (await refreshLocal(options?.signal)).map((line) => terminalText(line).replace(/\s+/g, " ")));
-      if (key === "refresh") return async (options: Parameters<ModelRuntime["refresh"]>[0]) => {
-        try {
-          // The browser shows freshness status and keeps cached rows on failure, so live
-          // catalog refresh (new provider models) is safe here, unlike startup paths. No
-          // allowNetwork override: Pi's default fetches unless PI_OFFLINE is set.
-          const result = await target.refresh(options);
-          return { ...result, errors: new Map([...result.errors].map(([provider, error]) =>
-            [terminalText(provider), new Error(terminalText(errorText(error)))])) };
-        } catch (error) {
-          throw new Error(terminalText(errorText(error)));
-        }
-      };
-      if (key === "getAvailableSnapshot") return () => target.getAvailableSnapshot()
-        .filter((model) => [model.provider, model.id].every((value) => terminalText(value) === value && !/[\r\n\t]/.test(value)))
-        .map((model) => ({ ...model, name: terminalText(model.name).replace(/\s+/g, " ") }));
-      const value = Reflect.get(target, key);
-      return typeof value === "function" ? value.bind(target) : value;
-    },
-  });
+  const catalogView = pickerCatalog(catalog, refreshLocal, refreshOpenRouter);
   try {
     picker = new ModelBrowser({
       tui: view.tui,

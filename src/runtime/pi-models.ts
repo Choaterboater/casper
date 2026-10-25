@@ -10,6 +10,7 @@ import type { RuntimeLoginIO, RuntimeModelInfo, RuntimeModelSelection, RuntimeMo
 import { pickPiModel } from "./pi-model-picker";
 import { anyModelMatches } from "./pi-model-browser";
 import { openRouterRequestHeaders } from "./openrouter-attribution";
+import type { OpenRouterModels } from "./openrouter-models";
 import { compactionKeepFor, compactionReserveFor, DEFAULT_COMPACT_AT, fixedRequestTokens, OWN_PART, readCompactAt, type CompactAt, SMALL_WINDOW, smallWindowWarning, windowTooSmall } from "./small-window";
 import { lockBusy } from "../platform/files";
 import { cantUseTools, isLocalProvider, lastLocalLook, LOCAL_SERVERS, localKindHere, localModelDefaults, noToolsLine, onThisComputer, savedLocalServers, SERVER_SIDE_TIP, servedWindowWarning, wantsServerTip, type LocalDiscovery, type LocalProblem } from "./local-models";
@@ -364,6 +365,19 @@ export class PiModels {
     this.localSettled = local.settled;
     this.localReady = local.ready.then((found) => { this.localProblems = [...found.problems]; this.noteProblems(found); }, () => undefined);
   }
+  /** OpenRouter's own model list (src/runtime/openrouter-models.ts, the main session's reads): /model reads it again
+   * when it opens, and a model only it may have waits for it. */
+  private openRouter?: OpenRouterModels;
+  useOpenRouterModels(live: OpenRouterModels): void { this.openRouter = live; }
+  /** Waits for the session's first read of OpenRouter's list only when `missing` says a model the caller needs is not
+   * in the catalog yet; with `again`, a model still missing after it sends Casper reading the list once more. */
+  private async openRouterWhen(missing: () => boolean, options: { again?: boolean; signal?: AbortSignal } = {}): Promise<void> {
+    if (!this.openRouter || !missing()) return;
+    await this.openRouter.ready;
+    if (!options.again || !missing()) return;
+    options.signal?.throwIfAborted();
+    await this.openRouter.refresh(options.signal);
+  }
   private noteProblems(found: LocalDiscovery): void {
     // A server no look is about any more (one you forgot) has no problem to tell.
     if (found.looked) for (const provider of [...this.problemFor.keys()]) if (!found.looked.includes(provider)) this.problemFor.delete(provider);
@@ -489,10 +503,12 @@ export class PiModels {
     const saved = this.defaultReference(preferences);
     // The model this start needs may be a found server's, still being probed: only then does the start wait for it.
     const wanted = recorded ? { provider: recorded.provider, id: recorded.modelId } : saved ?? fallback;
-    // Only a model on a server Casper looks for is waited for, and only that server: a missing cloud model never waits.
+    // Only a model on a server Casper looks for is waited for, and only that server: a missing cloud model never waits,
+    // except an OpenRouter one, for the session's first read of OpenRouter's own list (a model released after pi.dev's copy).
     const role = !recorded && readOnly?.modelRole && this.getRoles()[readOnly.modelRole] ? readOnly.modelRole : undefined;
     await this.localWhen(() => role ? this.unresolved(`@${role}`) : Boolean(wanted && isLocalProvider(wanted.provider) && !this.catalog.getModel(wanted.provider, wanted.id)),
       role ? { here: true } : { provider: wanted?.provider });
+    if (!role && wanted?.provider === "openrouter") await this.openRouterWhen(() => !this.catalog.getModel(wanted.provider, wanted.id));
     const usable = (reference: ModelReference) => Boolean(this.catalog.getModel(reference.provider, reference.id)) && this.catalog.hasConfiguredAuth(reference.provider);
     const startDefault = fallback && (!saved || !usable(saved)) ? fallback : saved;
     if (startDefault === fallback && fallback && isLocalProvider(fallback.provider))
@@ -670,6 +686,8 @@ export class PiModels {
         // Look again for a local server's model, or loose words; not for another provider's id (a cloud typo).
         const local = PiModels.localProvider(query);
         await this.localWhen(() => this.unresolved(query), { provider: local, again: Boolean(local) || !query.includes("/"), signal });
+        // An OpenRouter id the catalog doesn't have may be one OpenRouter listed since its last read.
+        if (/^openrouter\//i.test(query.trim())) await this.openRouterWhen(() => this.unresolved(query), { again: true, signal });
         signal.throwIfAborted();
         const here = local ? localKindHere(local) : undefined;
         if (here && !this.catalog.getModels(local!).length) {
@@ -722,7 +740,7 @@ export class PiModels {
             this.localRefresh && (async (refreshSignal) => {
               const { problems } = await this.localRefresh!(refreshSignal);
               return [...problems.map((problem) => problem.text), ...problems.some(wantsServerTip) ? [SERVER_SIDE_TIP] : []];
-            }), servers));
+            }), servers, this.openRouter && ((refreshSignal) => this.openRouter!.refresh(refreshSignal))));
           signal.throwIfAborted();
           if (!picked) return { status: this.status(session), selected: false, savedDefault: false };
           if ("action" in picked) {
