@@ -68,6 +68,8 @@ test("AGENTS and both guidance sizes forbid narrowing configured checks and dire
   for (const clause of ["Never change the configured check", ".casper/project.yaml", "quick-test scripts", "narrow or speed it up", "targeted `bun test` commands directly"]) expect(text).toContain(clause);
   for (const prompt of [DEFAULT_SYSTEM_PROMPT_APPEND, LEAN_SYSTEM_PROMPT_APPEND]) {
     expect(prompt).toMatch(/Never narrow.*configured checks/);
-    expect(prompt).toContain("targeted bun test");
+    expect(prompt).toMatch(/targeted tests?\b/);
+    // The product prompt goes to every project (Python, Go, a network lab): no test runner's own commands or flags.
+    expect(prompt).not.toMatch(/\bbun test\b|--rerun-each/);
   }
 });
