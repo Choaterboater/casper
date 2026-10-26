@@ -696,7 +696,7 @@ start whose model only OpenRouter's list has waits for the first read, and `/mod
 reads the list again before saying it doesn't know the id. If the list can't be read, the models
 already listed stay. `CASPER_OFFLINE=1` stops it, like the catalog downloads. The same read says
 when OpenRouter added each model and gives its Artificial Analysis scores and Design Arena coding
-rank, which `/model` shows and sorts by (Ctrl+O; see [Model and effort](TERMINAL_UX.md#model-and-effort)).
+rank, which `/model` shows, and orders by in the rows under `openrouter` (see [Model and effort](TERMINAL_UX.md#model-and-effort)).
 Beside it, at most every 30 minutes, Casper reads OpenRouter's public zero-data-retention list
 (`https://openrouter.ai/api/v1/endpoints/zdr`, the same plain request): `/model` marks a model 🔒
 when at least one host keeps nothing of a request and ⚠ when every host may keep your prompts. The

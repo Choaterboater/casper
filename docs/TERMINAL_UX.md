@@ -574,15 +574,17 @@ live rows, popups or pickers, or a duplicated prompt box (`bun test tests/termin
 
 - `/model`: Casper's full-screen model browser. Typing searches the models; each row shows the
   context size, price and `reasoning`/`vision` tags, in the usual order the current model first and your default
-  next, and the line under the list sums up the highlighted one. **Ctrl+O changes the order**, from either side:
-  free first (free models newest first, then paid ones cheapest first), cheapest, newest, AA score, largest
-  context, then the usual order again. The header says which (`openrouter (425) · sorted: free first`), a model
-  with nothing to sort by (no price, date or score) goes last, ties keep the usual order, and the order stays for
-  every `/model` until you quit Casper. OpenRouter's rows also show `AA 55`, the Artificial Analysis Intelligence
+  next, and the line under the list sums up the highlighted one. In one provider's list the rows leave out its
+  name, which the header says (the line under the list keeps the full id). **Under `openrouter` the left list has
+  four more rows**: `free` (only its free models, newest first), `cheapest`, `newest` and `smartest` (by AA score).
+  Down onto one shows OpenRouter's models that way, and the header says which (`openrouter · free, newest first
+  (20)`). A model with nothing to order by (no price, date or score) goes last, ties keep the usual order, and a row
+  shows only when OpenRouter's list has something to order it by. The next `/model` opens on the row you left it on,
+  until you quit Casper; words you give `/model` search every model. OpenRouter's rows also show `AA 55`, the Artificial Analysis Intelligence
   Index from OpenRouter's list, named once under the header (higher is smarter; `—` means not rated, never a low
   score), and the line under the list adds the model's coding and agentic indexes, its Design Arena coding rank
   and the day OpenRouter added it. A router such as `openrouter/auto` costs what the model it picks costs, so its
-  price reads `varies`, not `free`. Each OpenRouter row also shows 🔒 when at least one host keeps nothing of a
+  price reads `varies`, not `free`. A model the engine's catalog lists that OpenRouter's own list doesn't have (a picture maker or a classifier) shows no price and isn't counted as free. Each OpenRouter row also shows 🔒 when at least one host keeps nothing of a
   request (OpenRouter's zero-data-retention list) and ⚠ when every host may keep your prompts; most free models
   are ⚠. The marks only show what the hosts do: Casper doesn't change where a request goes, and OpenRouter may
   still pick a host that keeps prompts. The line under the list names the hosts that keep nothing. A narrow

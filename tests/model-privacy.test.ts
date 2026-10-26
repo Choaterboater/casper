@@ -152,12 +152,13 @@ const facts: Record<string, ModelFacts> = {
 test("each row shows 🔒 when a host keeps nothing and ⚠ when every host may keep prompts; the legend says once that OpenRouter may pick another host", () => {
   const picker = browser(models, facts);
   try {
-    expect(row(picker, "openrouter/vendor-p/private-model")).toMatch(/ 🔒 +128k ctx/);
-    expect(row(picker, "openrouter/vendor-k/keeps-prompts")).toMatch(/ ⚠ +128k ctx/);
-    expect(row(picker, "openrouter/vendor-u/unknown")).not.toMatch(/🔒|⚠/);
+    // OpenRouter's own list: its rows read without "openrouter/", which the header says.
+    expect(row(picker, "vendor-p/private-model")).toMatch(/ 🔒 +128k ctx/);
+    expect(row(picker, "vendor-k/keeps-prompts")).toMatch(/ ⚠ +128k ctx/);
+    expect(row(picker, "vendor-u/unknown")).not.toMatch(/🔒|⚠/);
     // The marks take the same two cells, so the columns after them stay in line.
     const ctxAt = (line: string) => visibleWidth(line.slice(0, line.indexOf("128k ctx")));
-    expect(new Set([row(picker, "openrouter/vendor-p/private-model"), row(picker, "openrouter/vendor-k/keeps-prompts"), row(picker, "openrouter/vendor-u/unknown")].map(ctxAt)).size).toBe(1);
+    expect(new Set([row(picker, "vendor-p/private-model"), row(picker, "vendor-k/keeps-prompts"), row(picker, "vendor-u/unknown")].map(ctxAt)).size).toBe(1);
     const shown = text(picker);
     expect(shown.match(/OpenRouter may pick another/g)).toHaveLength(1);
     expect(shown).toContain("🔒 a host keeps nothing (OpenRouter may pick another) · ⚠ every host may keep your prompts");
