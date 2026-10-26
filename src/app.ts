@@ -842,13 +842,28 @@ export class CasperApp {
     // only to give up, so it says so at once (no change list, no undo), as for any folder too big to list.
     const broad = broadFolder(root, this.homeDir());
     if (broad) { this.snapshotFailure = `${NOT_A_PROJECT} (${broad === "home" ? "your home folder" : "the top of a drive"})`; return undefined; }
-    try { return await snapshotTree(root, signal, { include: [...this.snapshotBase?.keys() ?? [], ...edited] }); }
+    const include = [...this.snapshotBase?.keys() ?? [], ...edited];
+    // A folder over the limit only with its pictures, videos and archives is listed without them from then on, so its
+    // code keeps a change list and undo (src/task/changes.ts; the receipt says they are not tracked).
+    const withoutMedia = this.untrackedMedia.has(root);
+    try { return await snapshotTree(root, signal, { include, ...(withoutMedia ? { media: false } : {}) }); }
     catch (error) {
+      let failure = error;
+      if (!withoutMedia && error instanceof RangeError && !signal?.aborted) {
+        try {
+          const snapshot = await snapshotTree(root, signal, { include, media: false });
+          this.untrackedMedia.add(root);
+          return snapshot;
+        } catch (again) { failure = again; }
+      }
       // Kept for the receipt: "Changes unknown: not a project folder (over 20,000 files)".
-      if (!signal?.aborted) this.snapshotFailure = snapshotFailureReason(error);
+      if (!signal?.aborted) this.snapshotFailure = snapshotFailureReason(failure);
       return undefined;
     }
   }
+
+  /** Folders listed without their pictures, videos and archives: with them they are over the file limit. */
+  readonly untrackedMedia = new Set<string>();
 
   /** The versions of .casper/project.yaml this session may read again (see src/app/project-file.ts). */
   trustedProjectFiles = new Set<string>();

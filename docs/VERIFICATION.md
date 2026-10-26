@@ -370,6 +370,11 @@ by the name your ssh config gives them (`nas (192.0.2.31)`), so work meant for o
 this folder, and checked there where you would see it (its page in the browser tool, or its API) before the AI
 calls it done or moves on; otherwise it says it is not checked. `/clear` and `/resume` forget them.
 
+A folder over 20,000 files only because of its pictures, videos, audio and archives (a project that saves photo
+copies, say) is compared without them: the receipt lists the changes to everything else and says `– Pictures, videos
+and archives here are not tracked: with them this folder is over 20,000 files`. It still has no undo, since the undo
+copy counts every file ([UNDO.md](UNDO.md)).
+
 In a folder too big to compare, the receipt says `– Changes unknown: not a project folder (over 20,000 files)` and
 lists the files Casper's edit and write tools changed. When the ones inside the folder all sit in one project, that
 project's checks run and Casper says `The work is in ~/Documents/sample-tools.`, as above; not when the tools changed 32
@@ -1375,7 +1380,9 @@ a file listed at the start of the task stays listed while it exists, so adding i
 does not make it look removed (an ignored file a shell command changed is not listed). A nested repository or
 submodule is walked, and so is a folder git lists nothing for (one an enclosing repository
 ignores). Outside git, Casper walks the folder. Either way dependency trees, virtual environments
-and caches are left out, and the limit is 20,000 files.
+and caches are left out, and the limit is 20,000 files. Over it, Casper lists the folder again without its pictures,
+videos, audio and archives (`.jpg`, `.png`, `.mp4`, `.zip` and the like) and, when that fits, keeps listing that folder
+so for the rest of the session; a change among those files is then not a change on the receipt.
 
 **Stopping.** Timeouts and cancellation stop the check's whole process group on Linux and macOS.
 Windows stops the check's child processes it can trace; that has not been tested on a real

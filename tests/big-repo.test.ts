@@ -2,7 +2,7 @@ import { afterEach, expect, test } from "bun:test";
 import { lstat, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { diffSnapshots, snapshotTree } from "../src/task/changes";
+import { diffSnapshots, mediaLeftOut, snapshotTree } from "../src/task/changes";
 import { ChangeBaseline } from "../src/verify/proof";
 import { removeTempDir } from "./support/temp-dir";
 
@@ -84,4 +84,45 @@ test("the proof copy links .venv like node_modules instead of copying it, and te
     expect(proof).toMatchObject({ status: "proven" });
   } finally { await baseline.dispose(); }
   expect((await lstat(path.join(root, ".venv"))).isDirectory()).toBe(true);
+});
+
+async function pictures(root: string, folder: string, count: number): Promise<void> {
+  await mkdir(path.join(root, folder), { recursive: true });
+  await Promise.all(Array.from({ length: count }, (_, index) => writeFile(path.join(root, folder, `p${index}.${["jpg", "png", "mp4"][index % 3]}`), "x")));
+}
+
+test("pictures, videos and archives can be left out of a snapshot, so a folder full of them still lists its code", async () => {
+  // A real project saved tens of thousands of photo copies next to its code: over the limit, every receipt said
+  // "Changes unknown: not a project folder", and nothing could be undone.
+  const root = await tree({ "src/app.py": "a\n", "data/cards.json": "[]\n", "logo.svg": "<svg/>\n" });
+  await pictures(root, "data/photos", 150);
+  await mkdir(path.join(root, "data/exports"), { recursive: true });
+  await writeFile(path.join(root, "data/exports/week.zip"), "z");
+  await expect(snapshotTree(root, undefined, { fileLimit: 100 })).rejects.toThrow("Workspace exceeds 100 files");
+  const before = await snapshotTree(root, undefined, { fileLimit: 100, media: false });
+  expect([...before.keys()].sort()).toEqual(["data/cards.json", "logo.svg", "src/app.py"]);
+  expect(mediaLeftOut(before)).toBe(true);
+  expect(mediaLeftOut(await snapshotTree(root))).toBe(false);
+  await writeFile(path.join(root, "src/app.py"), "b\n");
+  await writeFile(path.join(root, "data/photos/p0.jpg"), "changed");
+  await pictures(root, "data/photos/new", 3);
+  expect(diffSnapshots(before, await snapshotTree(root, undefined, { fileLimit: 100, media: false }))).toEqual({ added: [], modified: ["src/app.py"], removed: [] });
+});
+
+test("a task whose first snapshot listed the pictures and whose last left them out compares only the rest", async () => {
+  const root = await tree({ "src/app.py": "a\n" });
+  await pictures(root, "photos", 30);
+  const before = await snapshotTree(root);
+  expect(before.size).toBe(31);
+  await writeFile(path.join(root, "src/app.py"), "b\n");
+  // Neither the pictures it listed before nor any it can't see now read as removed or added.
+  expect(diffSnapshots(before, await snapshotTree(root, undefined, { media: false }))).toEqual({ added: [], modified: ["src/app.py"], removed: [] });
+});
+
+test("in a git repository whose tracked pictures put it over the limit, leaving them out lists the rest", async () => {
+  const root = await tree({ "src/app.py": "a\n" });
+  await pictures(root, "assets", 150);
+  git(root, "init", "-q"); git(root, "add", "-A"); git(root, "commit", "-qm", "init");
+  await expect(snapshotTree(root, undefined, { fileLimit: 100 })).rejects.toThrow("Workspace exceeds 100 files");
+  expect([...(await snapshotTree(root, undefined, { fileLimit: 100, media: false })).keys()]).toEqual(["src/app.py"]);
 });

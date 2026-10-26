@@ -129,7 +129,9 @@ When undo can't be offered at all, the receipt says why on one line:
 ```
 
 A task in a folder too big to compare (over 20,000 files, nested repositories included), or one that makes it
-that big, has no undo and no `/diff`; its receipt says "Changes unknown: not a project folder" instead.
+that big, has no undo and no `/diff`; its receipt says "Changes unknown: not a project folder" instead. A folder over
+the limit only because of its pictures, videos and archives gets a change list without them, but still no undo: the
+undo copy counts every file.
 
 Casper checks each file again just before putting it back, so a file you saved while Casper asked is left as
 you saved it. An editor that saves in the same instant can still lose that save.

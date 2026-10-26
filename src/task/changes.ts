@@ -59,6 +59,13 @@ const VANISHED: Record<string, true> = { ENOENT: true, ENOTDIR: true };
 export const HASH_LIMIT = 8 * 1024 * 1024;
 /** A tree larger than this reports "unknown" rather than making the user wait. */
 export const SNAPSHOT_FILE_LIMIT = 20_000;
+/** Pictures, video, audio and archives: a folder too big to list with them is listed without them (`media: false`). */
+const MEDIA_FILE = /\.(?:jpe?g|png|gif|webp|heic|heif|avif|bmp|tiff?|mp4|m4v|mov|webm|mkv|avi|mp3|m4a|wav|flac|ogg|zip|gz|tgz|7z|rar)$/i;
+const MEDIA_LEFT_OUT = Symbol("media left out");
+/** A snapshot taken with `media: false`: a comparison with it leaves those files out on both sides. */
+export function mediaLeftOut(snapshot: ReadonlyMap<string, string>): boolean {
+  return (snapshot as { [MEDIA_LEFT_OUT]?: true })[MEDIA_LEFT_OUT] === true;
+}
 const CHUNK = 64 * 1024;
 /** Open handles per directory batch; one read buffer each. */
 const CONCURRENCY = 16;
@@ -76,8 +83,9 @@ export interface TreeChanges {
  * `size:<bytes>:<mtime>`, unreadable ones by `error:<code>`. A trailing `:x` marks a file anyone can run
  * (POSIX only; Windows has no such bit, so a mode change there is never a change). Throws when aborted or when the tree
  * exceeds the file limit (SNAPSHOT_FILE_LIMIT). */
-export async function snapshotTree(root: string, signal?: AbortSignal, options: { fileLimit?: number; git?: boolean; include?: Iterable<string> } = {}): Promise<Map<string, string>> {
+export async function snapshotTree(root: string, signal?: AbortSignal, options: { fileLimit?: number; git?: boolean; include?: Iterable<string>; media?: boolean } = {}): Promise<Map<string, string>> {
   const limit = options.fileLimit ?? SNAPSHOT_FILE_LIMIT;
+  const kept = (relative: string) => options.media !== false || !MEDIA_FILE.test(relative);
   const digests = new Map<string, string>();
   const chunks = Array.from({ length: CONCURRENCY }, () => Buffer.allocUnsafe(CHUNK));
   const digestAll = async (files: string[]) => {
@@ -89,7 +97,8 @@ export async function snapshotTree(root: string, signal?: AbortSignal, options: 
       results.forEach((digest, index) => { if (digest !== undefined) digests.set(batch[index]!, digest); });
     }
   };
-  const listed = options.git === false ? undefined : await gitListed(root, signal);
+  const gitFiles = options.git === false ? undefined : await gitListed(root, signal);
+  const listed = gitFiles?.filter(kept);
   const pending = listed ? [] : [""];
   if (listed) {
     if (listed.length > limit) throw new RangeError(`Workspace exceeds ${limit} files`);
@@ -111,7 +120,7 @@ export async function snapshotTree(root: string, signal?: AbortSignal, options: 
     for (const entry of entries) {
       const next = relative ? `${relative}/${entry.name}` : entry.name;
       if (entry.isDirectory()) { if (!await skipped(root, next, entry.name)) pending.push(next); }
-      else if (entry.isFile() || entry.isSymbolicLink()) files.push(next);
+      else if ((entry.isFile() || entry.isSymbolicLink()) && kept(next)) files.push(next);
     }
     await digestAll(files);
   }
@@ -119,11 +128,12 @@ export async function snapshotTree(root: string, signal?: AbortSignal, options: 
   // `include` names files to list even when git ignores them: those listed before a task (a file the task added to
   // .gitignore is not removed) and those the task's own tools wrote (an ignored file the AI wrote is a change).
   for (const relative of new Set([PROJECT_FILE, ...listed ? options.include ?? [] : []])) {
-    if (digests.has(relative) || !relative || path.isAbsolute(relative) || relative.split(/[\\/]/).includes("..")) continue;
+    if (digests.has(relative) || !relative || !kept(relative) || path.isAbsolute(relative) || relative.split(/[\\/]/).includes("..")) continue;
     signal?.throwIfAborted();
     const digest = await digestEntry(path.join(root, relative), chunks[0]!);
     if (digest !== undefined) digests.set(relative, digest);
   }
+  if (options.media === false) Object.defineProperty(digests, MEDIA_LEFT_OUT, { value: true });
   return digests;
 }
 
@@ -177,10 +187,13 @@ export function diffSnapshots(before: Map<string, string>, after: Map<string, st
   const added: string[] = [];
   const modified: string[] = [];
   const removed: string[] = [];
+  // One side left the pictures out (the folder went over the limit with them): they are no change on either side.
+  const leftOut = mediaLeftOut(before) || mediaLeftOut(after);
   for (const [relative, digest] of after) {
+    if (leftOut && MEDIA_FILE.test(relative)) continue;
     if (!before.has(relative)) added.push(relative);
     else if (before.get(relative) !== digest) modified.push(relative);
   }
-  for (const relative of before.keys()) if (!after.has(relative)) removed.push(relative);
+  for (const relative of before.keys()) if (!after.has(relative) && !(leftOut && MEDIA_FILE.test(relative))) removed.push(relative);
   return { added: added.sort(), modified: modified.sort(), removed: removed.sort() };
 }
