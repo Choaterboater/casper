@@ -3,7 +3,7 @@ import { mkdtemp } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { checkEvent } from "../src/app/json-events";
-import { formatReceipt } from "../src/task/result";
+import { formatReceipt, taskOutcome } from "../src/task/result";
 import { checkEnded, runCommandCheck, testTimedOut } from "../src/verify/command";
 import { repairClass, type VerificationResult } from "../src/verify/evidence";
 import { CHECK_LIMIT_MS, checkCommand } from "./support/check-command";
@@ -107,4 +107,28 @@ test("a receipt whose only failures are unfinished checks says the change was no
   expect(unfinished.match(/timed out/g)).toHaveLength(1);
   expect(unfinished).not.toContain("verification.timeoutMs");
   expect(receipt([timedOut, failed]).split("\n")[0]).toBe("✗ Failed — test timed out, lint failed");
+});
+
+test("a check that passed but left something running is incomplete, not failed: it runs again, it is never repaired", () => {
+  // A real session's tests passed, but something they started kept the output open: the receipt said "✗ Failed — test
+  // failed" and offered "/verify repair test", and the person typed "try again".
+  const open = "Owned process cleanup is unconfirmed: output pipes remained open after command exit";
+  expect(checkEnded(0, open)).toBe("cleanup");
+  // A command that failed on its own is still a failure, whatever it left behind.
+  expect(checkEnded(1, open)).toBeUndefined();
+  const left: VerificationResult = { name: "test", status: "fail", command: "python3 -m pytest", cwd: "/p", exitCode: 0, signal: null,
+    stdout: "265 passed", stderr: "", truncated: false, durationMs: 100_000, reason: open, ended: "cleanup", repair: "never" };
+  expect(checkEvent(left, "casper")).toMatchObject({ ended: "cleanup" });
+  const verification = { status: "incomplete" as const, repairAttempts: 0, rounds: [[left]], results: [left] };
+  const task = { execution: "completed" as const, changedPaths: ["a.py"], verification };
+  expect(taskOutcome(verification, task)).toBe("incomplete");
+  const text = formatReceipt(task, { surface: "interactive" });
+  expect(text.split("\n")[0]).toBe("– Incomplete — test passed, but something it started was still running when it ended; /verify test runs it again");
+  expect(text).not.toContain("repair");
+  expect(text).not.toContain("✗");
+  // Said once, on the verdict.
+  expect(text.match(/still running/g)).toHaveLength(1);
+  const failedToo: VerificationResult = { ...left, name: "lint", exitCode: 1, reason: undefined, ended: undefined, repair: undefined };
+  const both = formatReceipt({ ...task, verification: { status: "fail", repairAttempts: 0, rounds: [[left, failedToo]], results: [left, failedToo] } });
+  expect(both.split("\n")[0]).toBe("✗ Failed — test passed but left something running, lint failed");
 });

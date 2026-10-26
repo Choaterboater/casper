@@ -27,7 +27,7 @@ export interface CheckEvent {
   reused: boolean;
   /** Present only when the check did not finish as a test run: "timeout", "no_start" or "blocked" (the shell
    * sandbox refused something it tried; `reason` says what). */
-  ended?: "timeout" | "no_start" | "blocked";
+  ended?: "timeout" | "no_start" | "blocked" | "cleanup";
   /** Named checks only: "report" (a diff, never a pass or a fail) or "lab" (the user's own lab devices). */
   kind?: "report" | "lab";
   /** A few plain words shown beside the result, e.g. "dry run not guaranteed". */

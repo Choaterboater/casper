@@ -37,8 +37,9 @@ export interface VerificationResult {
   reused?: boolean;
   /** Set only when the command did not finish as a test run: it timed out, or it could not start
    * (spawn error, bad folder, or the shell's 126/127), or the shell sandbox blocked it (it wanted to write or
-   * reach something it may not). Such a failure is not the code failing. */
-  ended?: "timeout" | "no_start" | "blocked";
+   * reach something it may not), or it passed but something it started was still running when it ended
+   * (`cleanup`: Casper could not confirm it stopped). Such a failure is not the code failing. */
+  ended?: "timeout" | "no_start" | "blocked" | "cleanup";
   /** Named checks only. Absent: an ordinary pass/fail check. "report": a diff shown for reading, never a pass
    * or a fail. "lab": a check on the user's own lab devices, run only when the user starts it. */
   kind?: "report" | "lab";

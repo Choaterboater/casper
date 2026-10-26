@@ -43,7 +43,9 @@ multiplexer started by a test. Such a check prints `EPERM`, `Operation not permi
 `This check failed because Casper's sandbox blocked something, not because of a bug in your code. Run it
 yourself with !<command> or allow checks outside the sandbox`, and it starts no repair and edits no test.
 When the only checks that did not pass never ran (blocked like this, timed out, or could not start), the
-task ends incomplete (exit 2), not failed (exit 1): exit 1 means a check ran against your code and failed.
+task ends incomplete (exit 2), not failed (exit 1): exit 1 means a check ran against your code and failed. So
+does a check that passed but left something running (a server or browser its tests started kept its output open):
+it never counts as a pass, it is not repaired, and `/verify <check>` runs it again.
 In a session Casper then asks `Run this project's checks outside the sandbox?` with `1 No · 2 Yes, this once ·
 3 Yes, for this session · 4 Yes, always for this project`; Enter is No. "This once" runs only the blocked
 checks again outside the sandbox. "Always" is kept privately in `~/.casper` (never in the repo), is listed
@@ -245,7 +247,7 @@ A one-shot run exits:
 |---|---|
 | 0 | Done. A pass that later went stale, checks that passed without proving the change, or changes nobody verified, still exit 0 and the receipt says why. |
 | 1 | A check failed, checking was stopped, or the model run failed. |
-| 2 | Incomplete: a check never ran to the end (the sandbox blocked it, it timed out or could not start), a selected check was skipped (it has no command), a smoke check could not run, `--max-turns` stopped the run, Casper stopped commands to another machine, or checking was asked for and no check exists. |
+| 2 | Incomplete: a check never ran to the end (the sandbox blocked it, it timed out or could not start) or passed but left something running, a selected check was skipped (it has no command), a smoke check could not run, `--max-turns` stopped the run, Casper stopped commands to another machine, or checking was asked for and no check exists. |
 | 3 | Only with `--require-verification` (which implies `--verify`): the change was not verified. From v0.2.17 that includes checks that passed without a proof (`– Checks passed — not proven`). |
 | 130 / 143 | Cancelled (Ctrl-C) / terminated (SIGTERM). |
 
@@ -316,6 +318,7 @@ The full form's line 1 is the verdict, one of:
 ✓ Checks passed — no files changed
 ✗ Failed — test failed
 ✗ Not checked — test timed out after 10m, so the change was not tested; /verify test runs it again
+– Incomplete — test passed, but something it started was still running when it ended; /verify test runs it again
 – Incomplete — stopped after 3 turns (--max-turns); changes so far are kept; send another request to go on
 – Not verified — the tests pass without the change too
 ✗ Stopped — cancelled; changes already made are kept
@@ -339,6 +342,7 @@ The lines below the verdict give the evidence:
 ✓ test passed earlier in this task, reused (npm run test, 1.3s)
 ✗ test failed (exit 1) — log above; /verify repair test to fix
 ✗ test timed out after 10m — it did not finish, so it was not checked; /verify test to run it again (a session offers more time)
+– test passed, but something it started was still running when it ended (cleanup unconfirmed); /verify test runs it again
 ✗ lint could not start (exit 127) — check verify.lint in .casper/project.yaml
 ✗ test could not start — go isn't installed on this computer; install it, then /verify test
 – Not verified — test ran via bash only (npm test: passed). Run /verify test to record a check.
