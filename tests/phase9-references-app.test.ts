@@ -11,6 +11,7 @@ import { discoverReferenceConfiguration } from "../src/references/config";
 import { SkillRegistry } from "../src/skills/registry";
 import type { AgentRuntime, RuntimeSessionInfo, RuntimeStartOptions, RuntimeTool } from "../src/runtime/types";
 import { cleanEnv } from "./support/env";
+import { childTestLimit, finished } from "./support/limits";
 import { removeTempDir } from "./support/temp-dir";
 
 const cleanup: Array<() => Promise<unknown>> = [];
@@ -180,17 +181,14 @@ test("named-session rebinding reloads source metadata and revokes the old captur
   expect((await captured[1]!.execute({ query: "routing" })).isError).not.toBe(true);
 });
 
+/** The real CLI under the guard for a real child (tests/support/limits.ts): killed after CHILD_KILL_MS, and started once
+ * more when a first start printed nothing at all, which busy Windows runners do now and then. Its tests get
+ * childTestLimit(), so a hang fails on this guard with what the CLI printed. */
 async function cli(project: string, home: string, prompt: string) {
-  const child = Bun.spawn([process.execPath, path.join(import.meta.dir, "../src/cli.ts"), prompt], {
+  return finished(() => Bun.spawn([process.execPath, path.join(import.meta.dir, "../src/cli.ts"), prompt], {
     cwd: project, env: cleanEnv({ HOME: home, CASPER_PROFILE: "default", CASPER_AGENT_DIR: path.join(home, ".pi/agent"), PI_CODING_AGENT_DIR: path.join(home, ".pi/agent"), CASPER_OFFLINE: "1", PI_TELEMETRY: "0" }),
     stdout: "pipe", stderr: "pipe",
-  });
-  // A hang guard: a slow Windows CI runner passed 10 s on a run that takes 4-8 s on a normal one.
-  const timer = setTimeout(() => child.kill("SIGKILL"), 50_000);
-  try {
-    const [stdout, stderr, exit] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
-    return { stdout, stderr, exit };
-  } finally { clearTimeout(timer); child.kill(); }
+  }));
 }
 
 test("real CLI local reference search works without model configuration or credentials", async () => {
@@ -199,7 +197,7 @@ test("real CLI local reference search works without model configuration or crede
   expect({ exit: result.exit, stderr: result.stderr }).toEqual({ exit: 0, stderr: "" });
   expect(result.stdout).toContain('"file":"README.md","line":2');
   expect(result.stdout).not.toContain("UNREQUESTED_REFERENCE_BODY");
-});
+}, childTestLimit());
 
 test("reference CLI and model output escape terminal controls without altering excerpts", async () => {
   const { home, project, reference } = await fixture();
@@ -216,7 +214,7 @@ test("reference CLI and model output escape terminal controls without altering e
   await app.runOnce("Find the configured routing example", project);
   expect(unsafe(runtime.result)).toEqual([]);
   expect(JSON.parse(runtime.result).matches[0].excerpt).toBe(excerpt);
-});
+}, childTestLimit());
 
 test("pinned Pi receives only requested excerpts with provenance from the real read-only tool", async () => {
   const { home, project } = await fixture();
@@ -252,4 +250,4 @@ test("pinned Pi receives only requested excerpts with provenance from the real r
   expect(JSON.stringify(payloads[1]?.messages)).toContain("Current repository");
   expect(JSON.stringify(payloads[1]?.messages)).toContain("sha256");
   expect(JSON.stringify(payloads)).not.toContain("UNREQUESTED_REFERENCE_BODY");
-}, 60_000);
+}, childTestLimit());

@@ -8,7 +8,7 @@ import { classifyPath, fileToolGate, gitInternalsCommand, hooksPathTargets, othe
 import { POSIX } from "./support/platform";
 import { removeTempDir } from "./support/temp-dir";
 import { cleanEnv } from "./support/env";
-import { run } from "./support/run";
+import { childTestLimit, finished } from "./support/limits";
 
 let root: string; let home: string; let project: string; let context: { root: string; home: string; agentDir: string };
 beforeAll(async () => {
@@ -40,12 +40,14 @@ test("a ~/ path is the home folder: Pi's read opens the file there, and Casper's
   const file = path.join(root, "outside", "RELEASE.md");
   await writeFile(file, "release notes\n");
   const typed = "~/../outside/RELEASE.md";
-  const result = await run([process.execPath, path.join(import.meta.dir, "fixtures/tilde-read.ts"), project, typed], {
-    env: cleanEnv({ HOME: home }), timeoutMs: 30_000,
-  });
-  expect(result.status).toBe(0);
+  // A Bun child with Pi's runtime: under the guard for a real child (tests/support/limits.ts), started once more if a first
+  // start prints nothing at all, as busy Windows runners do now and then.
+  const result = await finished(() => Bun.spawn([process.execPath, path.join(import.meta.dir, "fixtures/tilde-read.ts"), project, typed], {
+    env: cleanEnv({ HOME: home }), stdout: "pipe", stderr: "pipe",
+  }));
+  expect(result.exit, result.stderr).toBe(0);
   expect(JSON.parse(result.stdout)).toEqual({ resolved: file, text: expect.stringContaining("release notes") });
-});
+}, childTestLimit());
 
 test("private places are refused by name for every file tool, reads and writes", () => {
   expect(PRIVATE_PATHS).toEqual(expect.arrayContaining([".ssh", ".aws", ".casper/agent/auth.json", ".casper/mcp-consent.key", ".pi/agent/auth.json", ".config/gcloud"]));

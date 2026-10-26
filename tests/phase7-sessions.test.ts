@@ -4,6 +4,7 @@ import { access, chmod, mkdir, mkdtemp, readFile, readdir, realpath, rename, rm,
 import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
+import { mkdirSync, mkdtempSync } from "node:fs";
 import { CasperApp } from "../src/app";
 import { loadConfiguration, SAFE_DEFAULT_POLICY } from "../src/config/load";
 import { loadProjectContext } from "../src/project/context";
@@ -22,6 +23,7 @@ import { SkillRegistry } from "../src/skills/registry";
 import { GitWorktreeManager } from "../src/workspace/worktree";
 import { posixOnly } from "./support/platform";
 import { cleanEnv } from "./support/env";
+import { childTestLimit, finished } from "./support/limits";
 import { removeTempDir } from "./support/temp-dir";
 
 const execFileAsync = promisify(execFile);
@@ -640,33 +642,23 @@ describe("Phase 7 sessions and worktrees", () => {
   test("the pinned Pi adapter clones, names, resumes, and persists context through its session runtime", async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), "casper-phase7-pi-"));
     cleanup.push(() => removeTempDir(root));
-    const main = path.join(root, "main");
-    const branch = path.join(root, "branch");
-    const agentDir = path.join(root, "agent");
-    await Promise.all([mkdir(main), mkdir(branch), mkdir(agentDir)]);
-    const proc = Bun.spawn([
-      process.execPath,
-      path.join(import.meta.dir, "fixtures/pi-session-branch.ts"),
-      main,
-      branch,
-    ], {
-      cwd: main,
-      env: cleanEnv({
-        HOME: root,
-        PI_CODING_AGENT_DIR: agentDir,
-        PI_OFFLINE: "1",
-        PI_TELEMETRY: "0",
-        NO_COLOR: "1",
-      }),
-      stdout: "pipe",
-      stderr: "pipe",
+    // A Bun child with Pi's runtime, under the guard for a real child (tests/support/limits.ts): a first start that
+    // printed nothing is started once more. Each start gets its own folders, since the one stopped may have made
+    // sessions already.
+    let main = "", branch = "";
+    const { stdout, stderr, exit } = await finished(() => {
+      const home = mkdtempSync(path.join(root, "start-"));
+      [main, branch] = [path.join(home, "main"), path.join(home, "branch")];
+      const agentDir = path.join(home, "agent");
+      for (const dir of [main, branch, agentDir]) mkdirSync(dir);
+      return Bun.spawn([process.execPath, path.join(import.meta.dir, "fixtures/pi-session-branch.ts"), main, branch], {
+        cwd: main,
+        env: cleanEnv({ HOME: home, PI_CODING_AGENT_DIR: agentDir, PI_OFFLINE: "1", PI_TELEMETRY: "0", NO_COLOR: "1" }),
+        stdout: "pipe",
+        stderr: "pipe",
+      });
     });
-    const [stdout, stderr, exitCode] = await Promise.all([
-      new Response(proc.stdout).text(),
-      new Response(proc.stderr).text(),
-      proc.exited,
-    ]);
-    expect(exitCode, stderr).toBe(0);
+    expect(exit, stderr).toBe(0);
     const result = JSON.parse(stdout.trim()) as {
       main: RuntimeSessionInfo;
       branch: RuntimeSessionInfo;
@@ -682,5 +674,5 @@ describe("Phase 7 sessions and worktrees", () => {
     expect(result.customMessages).toContain("BRANCH_CONTEXT");
     expect(result.switched.sessionFile).toBe(result.main.sessionFile);
     expect(result.switched.cwd).toBe(main);
-  });
+  }, childTestLimit());
 });

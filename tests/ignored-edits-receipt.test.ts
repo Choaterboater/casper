@@ -3,6 +3,7 @@ import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { runOk } from "./support/run";
 import { afterTool, cleanUpAfterEach, fixture, shellCheckTest } from "./support/scripting";
+import { childTestLimit } from "./support/limits";
 
 cleanUpAfterEach();
 
@@ -25,7 +26,7 @@ shellCheckTest("a file the AI writes that git ignores is still a change: listed 
   expect(receipt.changed).toEqual(["dist/feature.js"]);
   expect(receipt.outcome).not.toBe("unchanged");
   expect(receipt.checks.map((check: { name: string }) => check.name)).toEqual(["test"]);
-}, 60_000);
+}, childTestLimit());
 
 shellCheckTest("adding a file to .gitignore does not list it as changed when its bytes did not change", async () => {
   const f = await fixture((_request, payload) => afterTool(payload) ? { text: "Done." }
@@ -37,4 +38,4 @@ shellCheckTest("adding a file to .gitignore does not list it as changed when its
   const result = await f.run(["--json", "--verify", "Ignore my notes"]);
   const receipt = JSON.parse(result.stdout.trim().split("\n").at(-1)!);
   expect(receipt.changed).toEqual([".gitignore"]);
-}, 60_000);
+}, childTestLimit());

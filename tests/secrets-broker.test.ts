@@ -6,6 +6,7 @@ import { CapabilityBroker, type ConfirmCapability } from "../src/capabilities/br
 import type { MCPServerDefinition } from "../src/mcp/config";
 import { MCPManager } from "../src/mcp/manager";
 import type { RuntimeTool } from "../src/runtime/types";
+import { CHILD_KILL_MS, childTestLimit } from "./support/limits";
 import { removeTempDir } from "./support/temp-dir";
 
 const network = path.join(import.meta.dir, "fixtures/mcp-network-server.ts");
@@ -16,12 +17,19 @@ function server(name: string, env: Record<string, string>): MCPServerDefinition 
   return { name, source: "/home/u/.casper/mcp.json", scope: "user", cwd: process.cwd(), disabled: false,
     transport: { type: "stdio", command: process.execPath, args: [network], env } };
 }
-async function connected(definition: MCPServerDefinition, confirm?: ConfirmCapability) {
-  const mcp = new MCPManager({ servers: [definition], diagnostics: [] }, { timeoutMs: 5000 });
+/** The fixture server, started and ready. Its start has the guard for a real child (tests/support/limits.ts): a busy
+ * Windows runner can take seconds to start a Bun child. A server that never got ready fails here with its own error
+ * and output, not later as an unknown capability. */
+async function ready(definition: MCPServerDefinition) {
+  const mcp = new MCPManager({ servers: [definition], diagnostics: [] }, { connectTimeoutMs: CHILD_KILL_MS, callTimeoutMs: 5000 });
   cleanup.push(() => mcp.close());
   await mcp.connect(definition.name);
-  const broker = new CapabilityBroker(mcp, confirm);
-  return { mcp, broker };
+  expect(mcp.status()[0]).toMatchObject({ name: definition.name, state: "ready" });
+  return mcp;
+}
+async function connected(definition: MCPServerDefinition, confirm?: ConfirmCapability) {
+  const mcp = await ready(definition);
+  return { mcp, broker: new CapabilityBroker(mcp, confirm) };
 }
 async function callTool(tools: RuntimeTool[], name: string, args: Record<string, unknown>) {
   const tool = tools.find((entry) => entry.name === name)!;
@@ -40,7 +48,7 @@ test("an MCP result reaches the model with device secrets hidden, a count, and t
   expect(result.summary).toContain("4 secrets hidden before the AI saw this");
   expect(result.nextCursor).toMatchObject({ value: "c1" });
   expect(answer.text).toContain("list_key");
-});
+}, childTestLimit());
 
 test("a secret under a key like psk is hidden; hpe-networking-mcp's hpe_mcp_secret_ tokens pass through", async () => {
   const { broker } = await connected(server("lab", { FIXTURE_MODE: "config" }));
@@ -49,7 +57,7 @@ test("a secret under a key like psk is hidden; hpe-networking-mcp's hpe_mcp_secr
   expect(text).not.toContain("FixturePsk-77");
   expect(text).toContain("hpe_mcp_secret_0123456789abcdef0123456789abcdef");
   expect(result.secretsHidden).toBe(1);
-});
+}, childTestLimit());
 
 test("a change that still has <secret hidden> in it is refused before anyone is asked, and nothing is sent", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "casper-secret-gate-"));
@@ -61,7 +69,7 @@ test("a change that still has <secret hidden> in it is refused before anyone is 
     .rejects.toThrow("Not executed (this change still has <secret hidden> in it). Casper hid that secret from the AI, so the AI can't send it back.");
   expect(asked).toBe(0);
   expect(await readFile(calls, "utf8").catch(() => "")).not.toContain("set_config");
-});
+}, childTestLimit());
 
 test("docs tools of a recognised hpe-networking-mcp server are always offered, after the routers", async () => {
   const { broker } = await connected(server("hpe", { FIXTURE_MODE: "hpe-docs", HPE_MCP_TOOLSETS: "central,rag" }));
@@ -72,23 +80,20 @@ test("docs tools of a recognised hpe-networking-mcp server are always offered, a
   const names = tools.map((tool) => tool.description.match(/mcp:hpe:(\w+)/)?.[1]).filter(Boolean);
   expect(names.slice(0, 6)).toEqual(["find_tool", "invoke_read_tool", "invoke_tool", "lookup_api", "search_docs", "ask_docs"]);
   expect(tools.length).toBeLessThanOrEqual(8);
-});
+}, childTestLimit());
 
 test("the same docs tool names on a server Casper did not recognise get no special place", async () => {
   const { broker } = await connected(server("other", { FIXTURE_MODE: "hpe-docs" }));
   const tools = await broker.prepare("configure vlan 20 on uplink");
   expect(tools.some((tool) => tool.description.includes("lookup_api"))).toBe(false);
   expect(tools.some((tool) => tool.description.startsWith("[docs"))).toBe(false);
-});
+}, childTestLimit());
 
 test("an MCP result hides Casper's own secret values and saved logins, from any server", async () => {
   const provider = "sk-or-v1-0123456789abcdef0123456789abcdef";
   const mist = "mist-token-ABCDEF0123456789";
   const definition = server("fs", { FIXTURE_MODE: "config", FIXTURE_ENV_DUMP: "1", HPE_MCP_A: provider, HPE_MCP_B: mist });
-  const mcp = new MCPManager({ servers: [definition], diagnostics: [] }, { timeoutMs: 5000 });
-  cleanup.push(() => mcp.close());
-  await mcp.connect("fs");
-  const broker = new CapabilityBroker(mcp, undefined, { secretValues: () => [provider, mist] });
+  const broker = new CapabilityBroker(await ready(definition), undefined, { secretValues: () => [provider, mist] });
   const result = await broker.invoke("mcp:fs:get_env", {});
   const text = JSON.stringify(result);
   expect(text).not.toContain(provider);
@@ -97,4 +102,4 @@ test("an MCP result hides Casper's own secret values and saved logins, from any 
   // Paging is untouched: an exact value is the only thing this pass hides.
   const config = await broker.invoke("mcp:fs:get_running_config", {});
   expect(JSON.stringify(config)).toContain("c1");
-});
+}, childTestLimit());

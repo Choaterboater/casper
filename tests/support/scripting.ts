@@ -4,6 +4,7 @@ import { appendFile, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { isolatedEnvironment } from "../../src/platform/environment";
+import { finished } from "./limits";
 
 /**
  * The scripted loopback provider and project helpers shared by the scripting.*.integration test files. They are
@@ -61,14 +62,13 @@ export async function fixture(script: (request: number, payload: Payload) => Ste
   const settings = path.join(home, ".casper/settings.json");
   await writeFile(settings, JSON.stringify({ defaultProvider: "fixture", defaultModel: "first", retry: { enabled: false } }));
   const env = { ...isolatedEnvironment(home), CASPER_OFFLINE: "1" };
+  /** One CLI run, under the guard for a real child (./limits.ts): killed after CHILD_KILL_MS, and started once more when a
+   * first start printed nothing at all, which busy Windows runners do now and then. A test's limit is childTestLimit(n)
+   * for its n runs. */
   async function run(args: string[], cwd = project, extra: Record<string, string> = {}, input?: string) {
-    const child = Bun.spawn([process.execPath, cli, ...args], { cwd, env: { ...env, ...extra }, stdin: input === undefined ? "ignore" : new Blob([input]), stdout: "pipe", stderr: "pipe" });
-    // A hang guard only: under a loaded parallel run one CLI run can take well over 20 s.
-    const timer = setTimeout(() => child.kill(), 60_000);
-    try {
-      const [stdout, stderr, exit] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
-      return { stdout, stderr, exit };
-    } finally { clearTimeout(timer); }
+    const { stdout, stderr, exit } = await finished(() => Bun.spawn([process.execPath, cli, ...args], { cwd, env: { ...env, ...extra },
+      stdin: input === undefined ? "ignore" : new Blob([input]), stdout: "pipe", stderr: "pipe" }));
+    return { stdout, stderr, exit };
   }
   return { root, home, project, settings, payloads, run };
 }
