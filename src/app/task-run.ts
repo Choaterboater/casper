@@ -8,6 +8,7 @@ import { finishTaskCleanup } from "./cleanup";
 import { finishAppSmoke } from "./try-it";
 import type { CasperApp } from "../app";
 import os from "node:os";
+import { wrapTextWithAnsi } from "@earendil-works/pi-tui";
 import { riskyBaseline, riskyLinesIn } from "../network/risky-receipt";
 import path from "node:path";
 import { realpathSync } from "node:fs";
@@ -27,7 +28,7 @@ import { diffSnapshots, tooManyFiles, type TreeChanges } from "../task/changes";
 import { headMoved, taskHead } from "../task/git-movement";
 import type { CheckName, VerificationReport } from "../verify/evidence";
 import { VerifierRegistry } from "../verify/registry";
-import { PLAN_ANSWER, PLAN_ANSWER_HINT, PLAN_CHANGE_HINT, PLAN_CHANGE_QUESTION, PLAN_QUESTION, planChoices } from "./safe-choices";
+import { PLAN_ANSWER, PLAN_ANSWER_HINT, PLAN_ANSWERS, PLAN_CHANGE_HINT, PLAN_CHANGE_QUESTION, PLAN_QUESTION, planAnswerHint, planChoices } from "./safe-choices";
 import { DEFAULT_SPEND_LIMITS, SpendGuard, requestSpendLimit } from "../task/spend";
 import { VerificationTask } from "../verify/task";
 import { evidenceForModel } from "../verify/model-output";
@@ -45,6 +46,7 @@ import { buildNextRow, type NextItem } from "../tui/next-row";
 import { findFlow, formatFlowPrompt, loadFlowCatalog, type Flow, type FlowRule } from "../flows/catalog";
 import { suggestBeforeWork } from "../flows/suggest";
 import { extractPlan, formatPlanBlock, formatPlanChangePrompt, formatPlanQuestionPrompt, isSpecPlan, openQuestions, planDetailsText, planMarkdown, planScreenRows, type ParsedPlan } from "../flows/plan";
+import { planChanges } from "../flows/plan-changes";
 import { planQuestions, readPlan, savePlan, updatePlan, wantsSpec, type SavedPlan } from "../flows/plan-store";
 import { PlanBuild } from "../flows/plan-build";
 import { PROJECT_YAML, saveProjectCommand } from "../project/config-write";
@@ -740,15 +742,34 @@ export async function runPlanTurn(app: CasperApp, session: RuntimeSession, reque
     return "stop";
   }
   const rich = app.terminal.rich;
+  const screenOptions = () => ({
+    framed: rich && app.terminal.color,
+    accent: (text: string) => tint(text, "accent", app.terminal.color),
+    // These plan details are explicitly faint, even when a theme's muted colour is default.
+    dim: (text: string) => paint(text, "2", app.terminal.color),
+    more: rich ? "Ctrl+T details · Ctrl+G edit" : planDetailsText(plan) ? "choose 4 to see the details" : undefined,
+  });
   const showPlan = () => {
     app.events.ensureLineBreak();
-    app.terminal.writeTrusted({ render: width => planScreenRows(plan, width, {
-      framed: rich && app.terminal.color,
-      accent: text => tint(text, "accent", app.terminal.color),
-      // These plan details are explicitly faint, even when a theme's muted colour is default.
-      dim: text => paint(text, "2", app.terminal.color),
-      more: rich ? "Ctrl+T details · Ctrl+G edit" : planDetailsText(plan) ? "choose 4 to see the details" : undefined,
-    }), invalidate() {} });
+    app.terminal.writeTrusted({ render: width => planScreenRows(plan, width, screenOptions()), invalidate() {} });
+    const body = planDetailsText(plan);
+    app.events.showOnExpand({ title: "Plan: details", body: body ?? "No build details listed.", diff: false });
+  };
+  // A plan that fits on the screen is shown again whole. A longer one was 356 rows printed again after every answer:
+  // it shows what changed instead, and where the whole plan is, and nothing when nothing changed.
+  const fits = () => {
+    const rows = app.terminal.rows;
+    return !rows || planScreenRows(plan, app.terminal.columns ?? 80, screenOptions()).length < rows;
+  };
+  const showAgain = (before: ParsedPlan | undefined, label = "Plan rewritten") => {
+    if (fits()) { showPlan(); return; }
+    if (!before) return;
+    const { added, removed, rows } = planChanges(before, plan);
+    const where = `the whole plan: .casper/plans/${terminalText(path.basename(saved!.file))}${rich ? " (Ctrl+G opens it)" : ""}`;
+    const counts = added || removed ? `${added} ${added === 1 ? "line" : "lines"} added, ${removed} removed` : "nothing changed";
+    app.events.ensureLineBreak();
+    app.output.write(`${label}: ${counts} · ${where}\n`);
+    app.terminal.writeRows(width => rows.flatMap(row => wrapTextWithAnsi(row, Math.max(10, width - 4)).map((part, index) => index ? `    ${part}` : part)));
     const body = planDetailsText(plan);
     app.events.showOnExpand({ title: "Plan: details", body: body ?? "No build details listed.", diff: false });
   };
@@ -756,7 +777,7 @@ export async function runPlanTurn(app: CasperApp, session: RuntimeSession, reque
   let answer: string | undefined;
   for (;;) {
     const questions = openQuestions(plan);
-    const choices = planChoices(questions[0], !rich && Boolean(planDetailsText(plan)));
+    const choices = planChoices(questions, !rich && Boolean(planDetailsText(plan)));
     app.events.ensureLineBreak();
     answer = await app.terminal.pickPlan(PLAN_QUESTION, choices, signal);
     if (app.closing || signal?.aborted) return "stop";
@@ -766,35 +787,53 @@ export async function runPlanTurn(app: CasperApp, session: RuntimeSession, reque
         const current = await readPlan(root, saved!.file);
         if (!current.plan.steps.length && !isSpecPlan(current.plan)) { app.output.write("[plan] Saved plan needs numbered Steps or spec sections. Edit it before building.\n"); continue; }
         if (planMarkdown(current.plan) !== planMarkdown(plan)) {
+          const before = plan;
           plan = current.plan; saved = current;
           app.output.write("[plan] The Markdown changed; review it before choosing Build again.\n");
-          showPlan(); continue;
+          showAgain(before, "Plan changed"); continue;
         }
       } catch { app.output.write("[plan] Could not read the saved plan; nothing was built.\n"); return "stop"; }
     }
     if (answer === "Edit Markdown") {
+      const before = plan;
       try {
         await app.terminal.editPlan(saved!.file);
         const edited = await readPlan(root, saved!.file);
         if (!edited.plan.steps.length && !isSpecPlan(edited.plan)) app.output.write("[plan] The edited file needs numbered Steps or spec sections; keeping the previous plan.\n");
         else { saved = edited; plan = edited.plan; }
       } catch (error) { app.output.write(`[plan] ${lineText(error instanceof Error ? error.message : "Editor failed")}\n`); }
-      showPlan();
+      showAgain(plan === before ? undefined : before, "Plan edited");
       continue;
     }
-    if (answer !== "Change the plan" && answer !== PLAN_ANSWER) break;
-    // An answer goes back as a change naming the question it answers; Esc there returns to the plan, not a stop.
-    const answering = answer === PLAN_ANSWER;
-    const typed = await app.terminal.askLine(answering ? questions[0]! : PLAN_CHANGE_QUESTION, answering ? PLAN_ANSWER_HINT : PLAN_CHANGE_HINT, signal);
-    if (app.closing || signal?.aborted) return "stop";
-    if (typed === undefined && answering) { showPlan(); continue; }
-    if (typed === undefined) { app.output.write("[plan] Stopped without building.\n"); return "stop"; }
-    const change = answering && typed.trim() ? `Answer to the open question "${questions[0]}": ${typed.trim()}` : typed;
-    // A question about the plan ("why step 3?") is answered in words and the same choices come back; the plan stays.
-    if (!answering && /[?？]\s*$/.test(change)) {
-      if (!await answerAboutPlan(change.trim())) return "stop";
-      continue;
+    if (answer !== "Change the plan" && answer !== PLAN_ANSWER && answer !== PLAN_ANSWERS) break;
+    let change: string;
+    const answering = answer !== "Change the plan";
+    if (answering) {
+      // Every open question in turn, then one rewrite with all the answers. Esc at any of them returns to the plan with
+      // nothing sent; an empty answer leaves that question open.
+      const answers: Array<[string, string]> = [];
+      let back = false;
+      for (const [index, question] of questions.entries()) {
+        const typed = await app.terminal.askLine(question, questions.length === 1 ? PLAN_ANSWER_HINT : planAnswerHint(index + 1, questions.length), signal);
+        if (app.closing || signal?.aborted) return "stop";
+        if (typed === undefined) { back = true; break; }
+        if (typed.trim()) answers.push([question, typed.trim()]);
+      }
+      if (back || !answers.length) { showAgain(undefined); continue; }
+      change = questions.length === 1 ? `Answer to the open question "${answers[0]![0]}": ${answers[0]![1]}`
+        : `Answers to the open questions:\n${answers.map(([question, typed]) => `- "${question}": ${typed}`).join("\n")}`;
+    } else {
+      const typed = await app.terminal.askLine(PLAN_CHANGE_QUESTION, PLAN_CHANGE_HINT, signal);
+      if (app.closing || signal?.aborted) return "stop";
+      if (typed === undefined) { app.output.write("[plan] Stopped without building.\n"); return "stop"; }
+      change = typed;
+      // A question about the plan ("why step 3?") is answered in words and the same choices come back; the plan stays.
+      if (/[?？]\s*$/.test(change)) {
+        if (!await answerAboutPlan(change.trim())) return "stop";
+        continue;
+      }
     }
+    const before = plan;
     if (change.trim()) {
       questionRound = true;
       const rewritten = await writePlan(`${flowPrompt}\n\n${formatPlanChangePrompt(plan, change)}`);
@@ -802,7 +841,7 @@ export async function runPlanTurn(app: CasperApp, session: RuntimeSession, reque
       plan = rewritten;
       if (!await keep()) return "stop";
     }
-    showPlan();
+    showAgain(plan === before ? undefined : before);
   }
   if (answer !== "Build" || app.closing || signal?.aborted) { app.output.write("[plan] Stopped without building.\n"); return "stop"; }
   const counts = `${plan.steps.length} ${plan.steps.length === 1 ? "step" : "steps"}, ${plan.tests.length} ${plan.tests.length === 1 ? "case" : "cases"}`;

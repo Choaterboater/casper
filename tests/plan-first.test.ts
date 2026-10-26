@@ -876,6 +876,69 @@ test("a plan's open question is a choice: 2 asks it, the answer revises the plan
   } finally { await f.close(); }
 }, 60_000);
 
+test("several open questions are asked one after another and the plan is rewritten once with every answer; empty leaves one open, Esc goes back", async () => {
+  const asking = `${PLAN}\nOpen questions:\n- Where are the limits kept?\n- Should a blocked call wait or fail?\n- Who can change the limits?\n`;
+  const f = await fixture(true, { answer: asking, rewrites: [PLAN] });
+  try {
+    f.input.write(`/plan ${REQUEST}\r`);
+    await f.screen.until(waiting("Build this plan?"));
+    expect(f.screen.output).toMatch(/2\. Answer the questions +type each of the 3 answers; the model rewrites the plan once/);
+    // Esc at the second question: back to the plan's choices, nothing sent.
+    f.input.write("2");
+    await f.screen.until(waiting("Question 1 of 3"));
+    f.input.write("in config.yaml\r");
+    await f.screen.until(waiting("Question 2 of 3"));
+    let from = f.screen.output.length;
+    f.input.write("\x1b");
+    await f.screen.until(output => waiting("Build this plan?")(output.slice(from)));
+    expect(f.prompts).toHaveLength(1);
+    // All three, the second left empty: one rewrite with the two answers.
+    f.input.write("2");
+    await f.screen.until(output => waiting("Question 1 of 3")(output.slice(from)));
+    f.input.write("in config.yaml\r");
+    await f.screen.until(output => waiting("Question 2 of 3")(output.slice(from)));
+    f.input.write("\r");
+    await f.screen.until(output => waiting("Question 3 of 3")(output.slice(from)));
+    from = f.screen.output.length;
+    f.input.write("only admins\r");
+    await f.screen.until(output => waiting("Build this plan?")(output.slice(from)));
+    expect(f.prompts).toHaveLength(2);
+    expect(f.prompts[1]).toContain('Answers to the open questions:\n- "Where are the limits kept?": in config.yaml\n- "Who can change the limits?": only admins');
+    expect(f.prompts[1]).not.toContain('"Should a blocked call wait or fail?":');
+    expect(f.screen.output.slice(from)).toContain("3. Change the plan");
+    f.input.write("\r");
+    await f.screen.until(idleAfter("[plan] Stopped without building."));
+  } finally { await f.close(); }
+}, 60_000);
+
+test("a rewrite of a plan longer than the screen shows what changed and where the whole plan is, not every step again", async () => {
+  const steps = Array.from({ length: 60 }, (_, index) => `${index + 1}. Build part ${index + 1} of the tracker`);
+  const long = `Steps:\n${steps.join("\n")}\n\nTests:\n- the tracker opens\n`;
+  const revised = `Steps:\n${[...steps.slice(0, 29), "30. Build part 30 with a date column", ...steps.slice(30), "61. Export every tab to Excel"].join("\n")}\n\nTests:\n- the tracker opens\n`;
+  const f = await fixture(true, { answer: long, rewrites: [revised] });
+  try {
+    f.input.write(`/plan ${REQUEST}\r`);
+    await f.screen.until(waiting("Build this plan?"));
+    expect(f.screen.output).toContain("Build part 1 of the tracker");
+    f.input.write("3");
+    await f.screen.until(waiting("What should change?"));
+    const from = f.screen.output.length;
+    f.input.write("add dates and the Excel export\r");
+    await f.screen.until(output => waiting("Build this plan?")(output.slice(from)));
+    const shown = f.screen.output.slice(from);
+    expect(shown).toMatch(/Plan rewritten: 2 lines added, 1 removed · the whole plan:\s+\.casper\/plans\/[\w.-]+\.md/);
+    expect(shown).toContain("Steps");
+    expect(shown).toContain("+ 30. Build part 30 with a date column");
+    expect(shown).toContain("- 30. Build part 30 of the tracker");
+    expect(shown).toContain("+ 61. Export every tab to Excel");
+    // A step that only moved down a number is not a change, and the rest is not printed again.
+    expect(shown).not.toContain("Build part 31 of the tracker");
+    expect(shown).not.toContain("Build part 1 of the tracker");
+    f.input.write("\r");
+    await f.screen.until(idleAfter("[plan] Stopped without building."));
+  } finally { await f.close(); }
+}, 60_000);
+
 test("a question at Change the plan is answered and the same plan's choices come back, with no rewrite", async () => {
   const f = await fixture();
   try {

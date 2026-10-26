@@ -500,7 +500,9 @@ on return Casper rereads it and shows the plan again. This is separate from choi
 Both terminals ask "Build this plan?": `1 Stop · 2 Build · 3 Change the plan`. Enter chooses Stop, never Build.
 A plan with an open question puts it second, `2 Answer the question` with the question beside it: it opens one
 line for the answer (Esc goes back to the plan), and the model rewrites the plan with it. Build and Change the
-plan move to 3 and 4.
+plan move to 3 and 4. A plan with several open questions offers `2 Answer the questions`: each is asked in turn
+(`Question 2 of 3`; an empty answer leaves that one open, Esc goes back to the plan with nothing sent), and the
+model rewrites the plan once with every answer, not once per question.
 
 Choice 3 opens one empty line: type what to change in plain words, such as "drop steps 1 and 4" or "also test X".
 A line ending in `?` ("why step 3?") is a question: the model answers it in words under the same planning gate,
@@ -508,7 +510,10 @@ the plan stays as it is, and the same choices come back. While planning, besides
 the AI may read GitHub (pull requests, one pull request, CI; not a rerun), make MCP calls Casper labels as reads
 (a call that would ask, such as a change, waits for Build) and send read-only explorer and reviewer helpers to
 research; builders wait for Build.
-The model rewrites the whole plan under the same planning gate and shows it again with the same choices. You
+The model rewrites the whole plan under the same planning gate and shows it again with the same choices. A plan
+longer than the screen is not printed again: Casper shows what changed, section by section (`+` a line added,
+`-` one removed; a step that only moved number is not a change), and where the whole plan is
+(`Plan rewritten: 2 lines added, 1 removed · the whole plan: .casper/plans/….md`, which Ctrl+G opens). You
 can ask for another change; only an explicit Build starts work. Empty Enter returns to the choices without
 calling the model; Esc stops without building. Choice 3 is not a raw multi-line plan editor. On the plain
 terminal, `4 Show the details` is offered when there are details; it lists them and asks again. A run that

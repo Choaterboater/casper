@@ -274,6 +274,7 @@ export class InteractiveTerminal {
   get questionsShown(): number { return this.plainQuestions; }
   get questionOpen(): boolean { return this.confirmation !== undefined; }
   get columns(): number | undefined { return this.output.columns; }
+  get rows(): number | undefined { return this.output.rows; }
 
   /** Constant, already-styled lines laid out per width, such as the startup wordmark. Never for model or tool output. */
   writeTrusted(block: Component): void {

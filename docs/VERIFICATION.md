@@ -609,7 +609,9 @@ On both terminals, `3 Change the plan` opens one line for plain words such as "a
 rewrites the plan and shows it again with `1 Stop · 2 Build · 3 Change the plan`; Enter stops without building. Choice 3
 is not a raw plan editor. Ctrl+T shows Details; Ctrl+G opens the saved Markdown using `VISUAL` or `EDITOR`,
 rereads it on return and shows it again. Plans are gitignored at `.casper/plans/date-slug.md`; `/plan` alone
-lists recent plans to reopen. A plan with an open question adds `2 Answer the question` before Build. The rich
+lists recent plans to reopen. A plan with an open question adds `2 Answer the question` before Build; several
+add `2 Answer the questions`, asked in turn and answered in one rewrite. A plan longer than the screen is not
+printed again after a rewrite: Casper shows the lines added and removed and where the saved plan is. The rich
 plan's accent frame is as wide as the window, with dim paths; plain
 terminals and `NO_COLOR` show no frame.
 
