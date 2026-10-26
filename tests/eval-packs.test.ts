@@ -7,6 +7,7 @@ import type { AgentRuntime, RuntimeEvent, RuntimeEventListener, RuntimeStartOpti
 import { BENCHMARK_PACKS, EVAL_TASKS, packTasks } from "../evals/tasks";
 import { removeTempDir } from "./support/temp-dir";
 import { candidateTypecheck } from "./support/eval-typecheck";
+import { childTestLimit } from "./support/limits";
 
 const repoRoot = path.resolve(import.meta.dir, "..");
 const cleanup: Array<() => Promise<unknown>> = [];
@@ -182,7 +183,7 @@ test("a task that needs TypeScript gets a working `bun run typecheck` in the can
     const run = await candidateTypecheck(workdir, home, repoRoot);
     expect({ task: task.id, exit: run.exitCode, output: run.output }).toMatchObject({ task: task.id, exit: 0 });
   }
-});
+}, childTestLimit());
 
 test("a prepared task with linked tools can still be graded offline; only the candidate gets the tools", async () => {
   const task = benchmark.find((entry) => entry.tools?.includes("typescript"))!;

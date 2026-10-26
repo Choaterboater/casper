@@ -2,6 +2,7 @@ import { expect, test } from "bun:test";
 import { readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { cleanUpAfterEach, fixture, type Step } from "./support/scripting";
+import { childTestLimit } from "./support/limits";
 
 /**
  * Failover through the real CLI and engine: a scripted provider fails one model as providers do (a 429, a usage limit, a
@@ -36,7 +37,7 @@ test("a rate limit, after Pi's own try, moves this task to the next model you li
   const next = await f.run(["--json", "--continue", "And again."]);
   expect(next.exit).toBe(0);
   expect(models(f)).toEqual(["first"]);
-}, 60_000);
+}, childTestLimit(2));
 
 test("a usage limit, or a model that can't run, switches at once, without Pi's tries on the same model", async () => {
   for (const failure of [fail(429, "Rate limit exceeded: free-models-per-day. Add credits to unlock more requests per day"), fail(402, "Insufficient credits"),
@@ -48,7 +49,7 @@ test("a usage limit, or a model that can't run, switches at once, without Pi's t
     expect(run.exit).toBe(0);
     expect(run.stderr).toMatch(/Switched to fixture\/second because fixture\/first (?:hit its usage limit|can't run right now)\./);
   }
-}, 90_000);
+}, childTestLimit(3));
 
 test.each([[401, "Unauthorized: invalid api key"], [403, "Forbidden: this key can't use the model"], [400, "Bad Request: unsupported parameter"]] as const)(
   "a %i (%s) never moves the conversation to another model", async (status, error) => {
@@ -58,7 +59,7 @@ test.each([[401, "Unauthorized: invalid api key"], [403, "Forbidden: this key ca
     expect(models(f)).toEqual(["first"]);
     expect(run.exit).not.toBe(0);
     expect(run.stderr).not.toContain("Switched to");
-  }, 60_000);
+  }, childTestLimit());
 
 test("with no list, from a model that isn't a free OpenRouter one, nothing switches, and one line says how to list models", async () => {
   const f = await fixture(() => RATE);
@@ -68,7 +69,7 @@ test("with no list, from a model that isn't a free OpenRouter one, nothing switc
   expect(run.exit).not.toBe(0);
   expect(run.stderr).not.toContain("Switched to");
   expect(run.stderr).toContain("fixture/first hit its rate limit, and there's no model to switch to. To switch when that happens, list models: /model failover <provider/id> …");
-}, 60_000);
+}, childTestLimit());
 
 /** A fixture with a "small" model (a 64k window, where the fixture's others have 128k) and a scripted summary. Once
  * `limited`, the first model answers with a rate limit. */
@@ -114,7 +115,7 @@ test("a model with a smaller window gets the conversation compacted to fit first
   expect(run.exit).toBe(0);
   expect(run.stdout).toContain("ANSWER_FROM_SMALL");
   expect(run.stderr).toContain("Switched to fixture/small because fixture/first hit its rate limit; compacted the conversation to fit its window.");
-}, 120_000);
+}, childTestLimit(4));
 
 test("a model whose window can't take the conversation, even compacted, is passed over; with none left, one line says so", async () => {
   const { f, state } = await smallWindow();
@@ -136,7 +137,7 @@ test("a model whose window can't take the conversation, even compacted, is passe
   expect(stuck.exit).not.toBe(0);
   expect(stuck.stderr).not.toContain("Switched to");
   expect(stuck.stderr).toContain("fixture/first hit its rate limit, and this conversation is too long for the models to switch to, even compacted. /compact shortens it once fixture/first is back.");
-}, 120_000);
+}, childTestLimit(3));
 
 test("/model failover sets your list from models Casper knows, shows it in order and clears it", async () => {
   const f = await fixture(() => ({ text: "unused" }));
@@ -153,4 +154,4 @@ test("/model failover sets your list from models Casper knows, shows it in order
   expect(cleared.stdout).toContain("[model] Failover: none listed. When a task's model hits a limit, the task stops there.");
   expect(JSON.parse(await readFile(f.settings, "utf8"))).not.toHaveProperty("modelFailover");
   expect(f.payloads).toEqual([]);
-}, 120_000);
+}, childTestLimit(4));

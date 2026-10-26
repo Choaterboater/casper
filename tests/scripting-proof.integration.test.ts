@@ -3,6 +3,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { isolatedEnvironment } from "../src/platform/environment";
 import { cleanUpAfterEach, fixture, fixProject, lastUser, afterTool, REVIEW, reviewOn, PROOF_REPAIR, weaklyTestedProject, asked, TICKED, shellCheckTest, isAcceptance } from "./support/scripting";
+import { childTestLimit } from "./support/limits";
 
 cleanUpAfterEach();
 
@@ -43,7 +44,7 @@ shellCheckTest("an unproven fix gets one round to add a test that fails without 
   });
   expect(receipt.text).toContain("✓ Proven: test fails without this change (exit 1) and passes with it");
   expect(result.stderr).toContain("✓ Verified · test passed · changed sum.js · after 1 repair\n");
-}, 60_000);
+}, childTestLimit());
 
 shellCheckTest("a fix no test proves is not verified: the receipt says why, and --require-verification exits 3", async () => {
   const f = await fixture((_request, payload) => lastUser(payload).includes(REVIEW) ? TICKED
@@ -78,7 +79,7 @@ shellCheckTest("a feature worded like a test task is still reviewed and proven; 
   // Only a doc changed, so no unscoped check ran (the receipt says so); the docs edit was not proven, so the outcome is not verified.
   expect({ checksPassed: docsReceipt.checksPassed, exit: documented.exit }).toEqual({ checksPassed: false, exit: 0 });
   expect(docs.payloads.some((payload) => lastUser(payload).includes(REVIEW))).toBe(false);
-}, 180_000);
+}, childTestLimit(2));
 
 shellCheckTest("the review round runs even after a fully ticked first checklist, and the receipt keeps the review's", async () => {
   const f = await fixture((_request, payload) => lastUser(payload).includes(REVIEW) ? TICKED
@@ -97,7 +98,7 @@ shellCheckTest("the review round runs even after a fully ticked first checklist,
   const receipt = JSON.parse(result.stdout.trim().split("\n").at(-1)!);
   expect({ outcome: receipt.outcome, review: receipt.review, proof: receipt.proof?.status })
     .toEqual({ outcome: "verified", review: { done: ["sum.js is fixed — tests/check.sh"], open: [] }, proof: "proven" });
-}, 60_000);
+}, childTestLimit());
 
 shellCheckTest("the review round is off by default (and with verification.review: false); the change is still proven", async () => {
   const f = await fixture((_request, payload) => lastUser(payload).includes(REVIEW) ? TICKED
@@ -120,7 +121,7 @@ shellCheckTest("the review round is off by default (and with verification.review
   await writeFile(path.join(user.home, ".casper/config.yaml"), "verification:\n  review: false\n");
   expect((await user.run(["--json", "--verify", "Fix sum.js"])).exit).toBe(0);
   expect(user.payloads.some((payload) => lastUser(payload).includes(REVIEW))).toBe(false);
-}, 180_000);
+}, childTestLimit(2));
 
 shellCheckTest("a change that rewrites what the test command runs is not verified, and gets no acceptance pass", async () => {
   // The command stays `sh run-tests.sh`; the change rewrites run-tests.sh itself so it passes without testing anything.

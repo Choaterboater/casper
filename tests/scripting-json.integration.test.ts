@@ -4,6 +4,7 @@ import path from "node:path";
 import { notesServer } from "./support/notes-server";
 import { sandboxAvailable } from "./support/platform";
 import { cleanUpAfterEach, fixture, events, fixProject, lastUser, REVIEW, reviewOn, shellCheckTest } from "./support/scripting";
+import { childTestLimit } from "./support/limits";
 import { processGone } from "./support/wait";
 
 cleanUpAfterEach();
@@ -69,7 +70,7 @@ shellCheckTest("--json streams v1 JSON Lines on stdout: session, text, tools, Ca
       changedWhilePlanning: null, pageNotes: null,
       verdict: "✓ Verified — the checks pass, and the tests fail without the change", text: "<receipt text>" },
   ]);
-}, 90_000);
+}, childTestLimit());
 
 test("--json exit codes match the receipt: failed 1, not verified 3, usage 64 with nothing on stdout", async () => {
   const failing = await fixture(() => ({ text: "sum.js looks broken." }));
@@ -95,7 +96,7 @@ test("--json exit codes match the receipt: failed 1, not verified 3, usage 64 wi
   const usage = await unchecked.run(["--json"]);
   expect({ exit: usage.exit, stdout: usage.stdout }).toEqual({ exit: 64, stdout: "" });
   expect(usage.stderr).toContain("--json needs a prompt");
-}, 240_000);
+}, childTestLimit(4));
 
 test("an ignored PI_CODING_AGENT_DIR is a [config] warning on the app's output: stdout when plain, stderr (never JSON stdout) with --json", async () => {
   const f = await fixture();
@@ -108,7 +109,7 @@ test("an ignored PI_CODING_AGENT_DIR is a [config] warning on the app's output: 
   expect(json.exit).toBe(0);
   expect(json.stderr).toContain(`${warning}\n`);
   for (const line of json.stdout.trim().split("\n")) expect(() => JSON.parse(line)).not.toThrow();
-}, 90_000);
+}, childTestLimit(2));
 
 test("--json ends with an error event when Casper stops before a receipt", async () => {
   const f = await fixture();
@@ -117,7 +118,7 @@ test("--json ends with an error event when Casper stops before a receipt", async
   const lines = result.stdout.trim().split("\n").map((line) => JSON.parse(line));
   expect(lines.map((line) => line.type)).toEqual(["error"]);
   expect(lines[0].message).toContain("No model matches \"fixture/nope\". Run casper /model to list models.");
-}, 60_000);
+}, childTestLimit());
 
 shellCheckTest("--json tells a check the model asked for (casper_check) from one Casper ran", async () => {
   const f = await fixture((request) => request === 0 ? { tools: [{ name: "write", args: { path: "sum.js", content: "fixed\n" } }] }
@@ -128,7 +129,7 @@ shellCheckTest("--json tells a check the model asked for (casper_check) from one
   const checks = events(result.stdout, "").filter((event) => event.type === "check");
   // Without a declared scope Casper cannot prove the model's pass is still fresh, so its final run repeats it.
   expect(checks.map((check) => [check.recordedBy, check.status, check.reused])).toEqual([["casper_check", "pass", false], ["casper", "pass", false]]);
-}, 60_000);
+}, childTestLimit());
 
 test("--json --verify: the model records a smoke check, edits, and Casper replays it: pass with a failing baseline, no service left running", async () => {
   const check = { action: "check", name: "create note", service: "api", request: { method: "POST", path: "/notes", body: { title: "a" } }, expect: { status: 201, json: { title: "a" } } };
@@ -178,4 +179,4 @@ test("--json --verify: the model records a smoke check, edits, and Casper replay
     // be gone, with a deadline. One that was never stopped is still there at the deadline.
     for (const pid of pids) expect(await processGone(pid)).toBe(true);
   }
-}, 60_000);
+}, childTestLimit());

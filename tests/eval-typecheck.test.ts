@@ -4,6 +4,7 @@ import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { candidateTypecheck } from "./support/eval-typecheck";
+import { childTestLimit } from "./support/limits";
 import { removeTempDir } from "./support/temp-dir";
 import { waitUntil } from "./support/wait";
 
@@ -45,4 +46,4 @@ test("a candidate typecheck leaves the parent responsive and exits before worksp
     await checked.catch(() => {});
     await removeTempDir(root);
   }
-});
+}, childTestLimit());

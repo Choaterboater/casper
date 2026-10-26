@@ -23,7 +23,7 @@ test("--model and --effort choose this run's model and effort without touching t
   const plain = await f.run(["Answer without tools"]);
   expect(plain.exit).toBe(0);
   expect(f.payloads[2]!.model).toBe("first");
-}, 60_000);
+}, childTestLimit(3));
 
 test("--effort goes with a model whose name has a colon (an Ollama tag such as qwen3.5:9b), and the name alone still routes", async () => {
   const f = await fixture();
@@ -49,7 +49,7 @@ test("casper - takes the one-shot prompt from stdin, keeping it out of the proce
   expect(empty.exit).toBe(64);
   expect(empty.stderr).toContain("No prompt on stdin");
   expect(f.payloads).toHaveLength(1);
-}, 60_000);
+}, childTestLimit(2));
 
 test("every --effort level runs on every model, mapped to the nearest level it supports", async () => {
   const f = await fixture();
@@ -61,7 +61,7 @@ test("every --effort level runs on every model, mapped to the nearest level it s
   expect(suffix.exit).toBe(0);
   // medium runs as high, a model without reasoning runs without it, xhigh runs as max.
   expect(f.payloads.map((payload) => [payload.model, payload.reasoning_effort])).toEqual([["sparse", "high"], ["first", undefined], ["sparse", "max"]]);
-}, 60_000);
+}, childTestLimit(3));
 
 test("an unknown --model or effort word is a usage error before any model request", async () => {
   const f = await fixture();
@@ -76,7 +76,7 @@ test("an unknown --model or effort word is a usage error before any model reques
     expect(result.stderr).toContain(message);
   }
   expect(f.payloads).toEqual([]);
-}, 60_000);
+}, childTestLimit(4));
 
 test("a --model whose provider has no credentials fails (exit 1) with the sign-in hint", async () => {
   const f = await fixture();
@@ -101,7 +101,7 @@ test("--cd opens the given folder as the workspace; a missing folder is a usage 
     expect(result.stderr).toContain("--cd: not a folder");
   }
   expect(f.payloads).toEqual([]);
-}, 30_000);
+}, childTestLimit(3));
 
 test("--json --continue reports the conversation it continued: the same session id", async () => {
   const f = await fixture();
@@ -111,7 +111,7 @@ test("--json --continue reports the conversation it continued: the same session 
   expect({ first: first.exit, second: second.exit }).toEqual({ first: 0, second: 0 });
   expect(session(second.stdout)).toBe(session(first.stdout));
   expect(userText(f.payloads.at(-1)!)).toContain("remember ALPHA");
-}, 60_000);
+}, childTestLimit(2));
 
 test("--continue picks up the latest conversation and --resume the one whose ID starts with a prefix", async () => {
   const f = await fixture();
@@ -160,7 +160,7 @@ test("--continue picks up the latest conversation and --resume the one whose ID 
     expect(result.stderr).toContain(message);
   }
   expect(f.payloads.length).toBe(requests);
-}, 120_000);
+}, childTestLimit(11));
 
 test("/continue opens this folder's newest conversation as --continue does, for a one-shot run only, and saves no empty one", async () => {
   const f = await fixture();
@@ -191,4 +191,4 @@ test("--max-turns stops a model that keeps working, runs no checks and exits 2",
   expect(result.stdout).toContain("– Incomplete — stopped after 2 turns (--max-turns); changes so far are kept; casper --continue to go on");
   expect(result.stdout).toContain("✓ changed turn-0.txt, turn-1.txt");
   expect(result.stdout).not.toContain("Casper checking");
-}, 60_000);
+}, childTestLimit());

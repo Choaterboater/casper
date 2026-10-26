@@ -2,6 +2,7 @@ import { expect } from "bun:test";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { afterTool, cleanUpAfterEach, fixture, lastUser, PROOF_REPAIR, shellCheckTest } from "./support/scripting";
+import { childTestLimit } from "./support/limits";
 
 cleanUpAfterEach();
 
@@ -19,4 +20,4 @@ shellCheckTest("a .casper/project.yaml the AI rewrites mid-task does not change 
   expect(receipt.checks.map((check: { command: string }) => check.command)).toEqual(["grep -q fixed sum.js"]);
   expect(receipt.changed).toEqual(["sum.js"]);
   expect(await readFile(path.join(f.project, ".casper/project.yaml"), "utf8")).toBe('verify:\n  test: "grep -q fixed sum.js"\nrepair:\n  maxAttempts: 1\n');
-}, 60_000);
+}, childTestLimit());
