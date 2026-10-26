@@ -52,6 +52,10 @@ From the prompt to the receipt, in `src/app/task-run.ts` (`runModelTask`) unless
    transcript stays intact; branch-local custom entries persist mask decisions and compaction epochs.
    Each checkpoint changes the prefix once, then subsequent requests reuse identical earlier messages.
    `/settings` **Hide old tool output** stops new masks from the next step, without restoring old ones.
+   The same seam puts a short note before each line the person typed during work (answer it or act on it, then carry
+   on with the task unless it says to stop), since a model reads the newest user message as its new task
+   (`src/runtime/steered-lines.ts`). A branch-local custom entry remembers each such line, so every later request
+   sends the same bytes; the transcript, the waiting rows and the saved conversation keep the person's words.
    The same `read`, `grep`, `find` or `ls` call with no other tool call in between gets a note on the 3rd try
    and is skipped from the 5th, with the earlier result handed back (`src/runtime/loop-guard.ts`).
    A write or edit that adds a placeholder comment where code was (`// ... existing code ...`, `# ... rest unchanged`)

@@ -66,6 +66,38 @@ test("a line steered in while the model works reaches it at its next step; with 
   expect(JSON.stringify(payloads[0]!.messages)).not.toContain("too early");
 }, 90_000);
 
+test("a line typed during work reaches the AI with a note to carry on with its task; the screen and the saved conversation keep the person's words", async () => {
+  const { STEERED_NOTE } = await import("../src/runtime/steered-lines");
+  const { result, payloads } = await run(count => count === 1 ? listCall() : answer(`DONE ${count}`), `
+    const waiting = [];
+    let steered;
+    session.subscribe(event => {
+      if (event.type === "waiting") waiting.push(event.lines);
+      if (event.type === "tool_start" && steered === undefined) steered = session.steer("HOW_MANY_CARDS?");
+    });
+    await session.prompt("List the files");
+    await steered;
+    await session.prompt("Next task");
+    const saved = await Bun.file(session.getSessionInfo().sessionFile).text();
+    console.log(JSON.stringify({ waiting, saved }));`);
+  const typed = (payload: (typeof payloads)[number]) => payload.messages.filter(message => JSON.stringify(message).includes("HOW_MANY_CARDS?"));
+  expect(payloads.length).toBe(3);
+  expect(typed(payloads[0]!)).toEqual([]);
+  const [line] = typed(payloads[1]!);
+  const text = JSON.stringify(line);
+  expect(text.indexOf(JSON.stringify(STEERED_NOTE).slice(1, -1))).toBeGreaterThan(-1);
+  expect(text.indexOf(JSON.stringify(STEERED_NOTE).slice(1, -1))).toBeLessThan(text.indexOf("HOW_MANY_CARDS?"));
+  expect(JSON.stringify(payloads[1]!.messages).split(STEERED_NOTE.slice(0, 20)).length).toBe(2);
+  // The next task's request carries the same bytes for that line, so the provider's cache still matches.
+  expect(typed(payloads[2]!)).toEqual([line]);
+  for (const request of ["List the files", "Next task"])
+    expect(payloads[2]!.messages.filter(message => JSON.stringify(message).includes(request)).every(message => !JSON.stringify(message).includes(STEERED_NOTE.slice(0, 20)))).toBe(true);
+  expect((result.waiting as string[][]).flat()).toContain("HOW_MANY_CARDS?");
+  expect(JSON.stringify(result.waiting)).not.toContain(STEERED_NOTE.slice(0, 20));
+  expect(result.saved as string).toContain("HOW_MANY_CARDS?");
+  expect(result.saved as string).not.toContain(STEERED_NOTE.slice(0, 20));
+}, 90_000);
+
 const bashCall = (command: string) => sse(chunk({ role: "assistant", tool_calls: [{ index: 0, id: "call_0", type: "function", function: { name: "bash", arguments: JSON.stringify({ command }) } }] }, null) + chunk({}, "tool_calls"));
 
 test.skipIf(process.platform === "win32")("a line steered in while a slow command runs reaches the model at once: the command moves to the background and keeps running", async () => {

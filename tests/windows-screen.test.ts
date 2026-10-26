@@ -7,6 +7,7 @@ import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { isolatedEnvironment } from "../src/platform/environment";
+import { STEERED_NOTE } from "../src/runtime/steered-lines";
 import { ConptySession } from "./support/conpty";
 import { CHILD_KILL_MS, childTestLimit } from "./support/limits";
 import { removeTempDir } from "./support/temp-dir";
@@ -24,12 +25,13 @@ afterEach(async () => { for (const close of cleanup.splice(0).reverse()) await c
 type Terminal = "windows-terminal" | "old-console";
 interface Started { s: ConptySession; home: string; project: string; release: () => void; requests: string[]; conversations: string[] }
 
-/** The user's request in a model call: Casper wraps it, so take what follows "User request:". */
+/** The user's request in a model call: Casper wraps it, so take what follows "User request:". A line typed during work
+ * comes after Casper's note to carry on with the task (src/runtime/steered-lines.ts): the line is what follows it. */
 function requestText(body: { messages: { role: string; content: unknown }[] }): string {
   const user = body.messages.filter((message) => message.role === "user").at(-1);
   const content = typeof user?.content === "string" ? user.content
     : Array.isArray(user?.content) ? user.content.map((part: { text?: string }) => part.text ?? "").join("") : "";
-  return content.split("User request:\n").at(-1)!.trim();
+  return content.split("User request:\n").at(-1)!.split(STEERED_NOTE).at(-1)!.trim();
 }
 
 /** A fake OpenAI-style model: "make hello" writes hello.txt, "run mkdir" asks to run `mkdir made`, "slow …" waits
