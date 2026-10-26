@@ -96,6 +96,8 @@ export interface ProjectContext {
   compactAt?: LoadedConfiguration["compactAt"];
   /** `slow_commands: off` in the user's config: a command without its own timeout is stopped at the limit. Unset: on. */
   slowCommands?: boolean;
+  /** `keep_going: off` in the user's config: the AI stopping with work open waits for the person. Unset: on. */
+  keepGoing?: boolean;
   /** `stalled_commands: off` in the user's config: a command with no output and no CPU is left to its limit. Unset: on. */
   stalledCommands?: boolean;
   /** `mcp_autoconnect: off` in the user's config: their own MCP servers wait for /mcp connect. Unset: on. */
@@ -225,6 +227,7 @@ export async function loadProjectContext(
     ...(configuration.leanGuidance !== undefined ? { leanGuidance: configuration.leanGuidance } : {}),
     ...(configuration.compactAt !== undefined ? { compactAt: configuration.compactAt } : {}),
     ...(configuration.slowCommands !== undefined ? { slowCommands: configuration.slowCommands } : {}),
+    ...(configuration.keepGoing !== undefined ? { keepGoing: configuration.keepGoing } : {}),
     ...(configuration.stalledCommands !== undefined ? { stalledCommands: configuration.stalledCommands } : {}),
     ...(configuration.mcpAutoconnect !== undefined ? { mcpAutoconnect: configuration.mcpAutoconnect } : {}),
     ...(configuration.lspAutostart !== undefined ? { lspAutostart: configuration.lspAutostart } : {}),

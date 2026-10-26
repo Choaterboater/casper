@@ -36,6 +36,7 @@ import { ChangeBaseline, changesCode, isTestPath, proofRepairPrompt, type Change
 import { independentAcceptance } from "../verify/acceptance";
 import { definitionChangedReason, definitionChanges, testDefinition } from "../verify/test-definition";
 import { parseChecklist, parseReview, requirementsReviewPrompt, ROUND_MAX_TURNS, type RequirementsReview } from "../task/review";
+import { KEEP_GOING_ROUNDS, keepGoingNeed, keepGoingPrompt, openPlanNote } from "../task/keep-going";
 import { extractChecklist, formatChecklistPrompt, normalizeCases } from "../task/checklist";
 import { isOutside } from "../platform/inside";
 import { ProcessCleanupError } from "../platform/processes";
@@ -233,12 +234,14 @@ export async function runModelTask(app: CasperApp, prompt: string, options: { fl
   if (app.closing || app.commandAbort?.signal.aborted) return;
   // The model plans and lists cases; the user can request a rewrite before choosing Build.
   let planBlock = "";
+  let planFile: string | undefined;
   let changedWhilePlanning: string[] | undefined;
   let changedNotByModel: string[] | undefined;
   if (planFirst) {
     const planned = await runPlanTurn(app, session, prompt, checklist, workspaceRoot, options.savedPlan);
     if (planned === "stop" || app.closing || app.commandAbort?.signal.aborted) return;
     changedWhilePlanning = planned.changed;
+    planFile = planned.file;
     checklist = planned.plan.tests.length ? planned.plan.tests : undefined;
     // The whole plan, the details the screen kept one key away included.
     planBlock = `${formatPlanBlock(planned.plan)}\n\nUse plan_step to keep this accepted checklist current: active before each step, done after it, or not-done with the reason. These reports are not verification evidence.`;
@@ -297,6 +300,8 @@ export async function runModelTask(app: CasperApp, prompt: string, options: { fl
         ...app.pendingPictures.takeUnseen(),
         memoryContext,
         skillContext,
+        // The accepted plan's steps the last build left open: for this task only (src/task/keep-going.ts).
+        takeOpenPlan(app),
         formatTaskPrompt(prompt, classification, context.model, { verificationMode, proveChange: proving, typed, machines: machineNames(app.machines, app.sessionHomeDir),
           reviewFollows: context.verification.review === true, afterContext: Boolean(memoryContext || skillContext) }),
         planBlock,
@@ -308,6 +313,7 @@ export async function runModelTask(app: CasperApp, prompt: string, options: { fl
         options.guide ?? "",
       ].filter(Boolean).join("\n\n"), app.commandAbort?.signal, { request: prompt, maxTurns: app.maxTurns, ...(images.length ? { images } : {}) });
       await retryModelFailure(app, session, prompt);
+      await keepGoing(app, session, prompt);
     } finally {
       // Pictures still being made are finished before the work is looked at, also when the turn failed.
       await settlePictures(app);
@@ -577,6 +583,8 @@ export async function runModelTask(app: CasperApp, prompt: string, options: { fl
     rememberMachines(app, observations.remoteChanges);
     if (app.cleanupReports.length) app.lastTaskResult.cleanup = [...app.cleanupReports];
     app.lastFinishedTask = app.lastTaskResult;
+    const openSteps = (app.lastTaskResult.planSteps ?? []).flatMap((step, index) => step.status === "done" ? [] : [{ step: index + 1, ...step }]);
+    app.openPlan = planFile && openSteps.length ? { file: `.casper/plans/${path.basename(planFile)}`, steps: openSteps } : undefined;
     // The receipt is next: the steps fold and the Working box goes, even for a tool that ended late.
     app.events.reset();
     if (!app.closing) {
@@ -648,7 +656,7 @@ export async function runModelTask(app: CasperApp, prompt: string, options: { fl
 /** Plan, or rewrite a plan from a plain-word change, under the same planning gate. Both terminals always
  * ask Stop / Build / Change the plan; a run that cannot ask stops after showing everything. */
 export async function runPlanTurn(app: CasperApp, session: RuntimeSession, request: string, cases: readonly string[] | undefined, root: string, reopened?: SavedPlan):
-  Promise<{ plan: ParsedPlan; changed?: string[] } | "stop"> {
+  Promise<{ plan: ParsedPlan; changed?: string[]; file?: string } | "stop"> {
   const signal = app.commandAbort?.signal;
   const flow = await loadFlow(app, "plan-first");
   if (!flow) { app.output.write("[plan] The plan-first flow could not be loaded; nothing was built.\n"); return "stop"; }
@@ -848,7 +856,7 @@ export async function runPlanTurn(app: CasperApp, session: RuntimeSession, reque
   if (answer !== "Build" || app.closing || signal?.aborted) { app.output.write("[plan] Stopped without building.\n"); return "stop"; }
   const counts = `${plan.steps.length} ${plan.steps.length === 1 ? "step" : "steps"}, ${plan.tests.length} ${plan.tests.length === 1 ? "case" : "cases"}`;
   app.output.write(`Building the plan (${counts}).\n`);
-  return { plan, ...(changed.size ? { changed: [...changed].sort() } : {}) };
+  return { plan, ...(saved ? { file: saved.file } : {}), ...(changed.size ? { changed: [...changed].sort() } : {}) };
 }
 
 /** verification.checklist: one separate model call lists the cases the request states and the task prompt asks
@@ -1052,6 +1060,39 @@ export async function showPagesAllowed(app: CasperApp): Promise<boolean> {
 /** A round after the task turn (review, proof repair) with its own ROUND_MAX_TURNS budget. A --max-turns
  * at or below it wins and stays the task's stop (taskTurnLimit, exit 2). The round's own budget ending it
  * is not the task's stop: Casper goes on with the checks and the proof. True when that budget ended it. */
+/** The note about the last build's open plan steps, once: the task after the build hears it, later ones don't. */
+function takeOpenPlan(app: CasperApp): string {
+  const open = app.openPlan;
+  app.openPlan = undefined;
+  return open ? openPlanNote(open.file, open.steps) ?? "" : "";
+}
+
+/** Keep going (src/task/keep-going.ts, decision 39): in a session, the AI stopped with work it says is not done, or after
+ * saying what it does next, and asked the person nothing. Casper sends it on, at most KEEP_GOING_ROUNDS times, and not
+ * again once a round leaves as much open as before. A stop, a failure, a turn or spend limit, a tool run after the AI's
+ * last words, or keep_going: off ends it. The round is the task's own turn: the same gates, approvals and budget. */
+async function keepGoing(app: CasperApp, session: RuntimeSession, request: string): Promise<void> {
+  if (!app.interactive || app.projectContext?.keepGoing === false) return;
+  let before = Number.POSITIVE_INFINITY;
+  for (let round = 1; round <= KEEP_GOING_ROUNDS; round++) {
+    if (app.closing || app.commandAbort?.signal.aborted || app.taskRuntimeCancelled || app.taskRuntimeFailed
+      || app.taskTurnLimit !== undefined || app.taskSpendStop !== undefined || app.toolAfterAnswer) return;
+    const need = keepGoingNeed(app.lastAnswer);
+    if (!need) return;
+    // Plan steps the AI never reported go with the open items; a step it marked not done gave its reason.
+    const steps = (app.planBuild?.steps ?? []).flatMap((step, index) => step.status === "pending" || step.status === "active" ? [{ step: index + 1, title: step.title }] : []);
+    const open = need.items.length + steps.length;
+    if (open >= before) return;
+    before = open;
+    const why = need.items.length ? `${need.items.length} ${need.items.length === 1 ? "item" : "items"} still open, so the AI` : "the AI said what it does next, so it";
+    app.events.ensureLineBreak();
+    app.output.write(`↻ keep going ${round}/${KEEP_GOING_ROUNDS}: ${why} carries on (Esc stops it)\n`);
+    app.lastAnswer = "";
+    await session.prompt(keepGoingPrompt(need, steps), app.commandAbort?.signal, { request, maxTurns: app.maxTurns });
+    await retryModelFailure(app, session, request);
+  }
+}
+
 export async function promptRound(app: CasperApp, session: RuntimeSession, text: string, request: string, images?: RuntimeImage[]): Promise<boolean> {
   const roundBudget = app.maxTurns === undefined || ROUND_MAX_TURNS < app.maxTurns;
   try { await session.prompt(text, app.commandAbort?.signal, { request, maxTurns: roundBudget ? ROUND_MAX_TURNS : app.maxTurns, ...(images?.length ? { images } : {}) }); }

@@ -58,10 +58,11 @@ function fakeRuntime(project: () => string, replies: Reply[]): AgentRuntime {
 }
 
 /** A session on the plain terminal: `send` types a line and returns what Casper printed until it is back at the prompt. */
-async function session(replies: Reply[]) {
+async function session(replies: Reply[], config?: string) {
   const root = await mkdtemp(path.join(os.tmpdir(), "casper-ending-")); roots.push(root);
   const home = path.join(root, "home"), project = path.join(root, "project");
   await mkdir(home, { recursive: true }); await mkdir(project, { recursive: true });
+  if (config) { await mkdir(path.join(home, ".casper"), { recursive: true }); await writeFile(path.join(home, ".casper", "config.yaml"), config); }
   await writeFile(path.join(project, "notes.py"), "print('one')\n");
   const input = new PassThrough();
   let output = "";
@@ -124,8 +125,9 @@ test("an answer that changes nothing ends the held work with that work's own rec
   } finally { await s.close(); }
 }, 60_000);
 
-test("a reply that says what it does next and stops: the paused line, not a receipt", async () => {
-  const s = await session([{ files: { "compose.yaml": "services: {}\n" }, text: "The service is not set up yet. Next I'll write its unit file, then start it." }]);
+test("a reply that says what it does next and stops, with keep_going off: the paused line, not a receipt", async () => {
+  // keep_going on (the default) says go once for the person instead (tests/keep-going-app.test.ts).
+  const s = await session([{ files: { "compose.yaml": "services: {}\n" }, text: "The service is not set up yet. Next I'll write its unit file, then start it." }], "keep_going: off\n");
   try {
     const out = await s.send("set up the app in compose");
     expect(out).toContain("Paused — the AI said what it does next; say go, or tell it what to change · /receipt 1 shows the 1 file changed so far\n");

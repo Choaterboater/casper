@@ -84,8 +84,8 @@ async function fixture(tty = true, setup: { planWrites?: boolean; planCode?: boo
           }
           else {
             setup.toolsSeen?.push(tools.map(tool => tool.name));
-            if (setup.reportSteps) {
-              const tool = tools.find(tool => tool.name === "plan_step")!;
+            const tool = tools.find(tool => tool.name === "plan_step");
+            if (setup.reportSteps && tool) {
               await tool.execute({ step: 1, status: "done" });
               await tool.execute({ step: 2, status: "active" });
               await Bun.sleep(80); // Give the real renderer a frame during this model/tool round-trip.
@@ -591,6 +591,25 @@ test("a plan whose words say the build serves pages on this machine brings the s
       expect({ answer, offered: toolsSeen.at(-1)?.includes("service") }).toEqual({ answer, offered });
     } finally { await f.close(); }
   }
+}, 90_000);
+
+test("the task after a build hears which accepted steps are still open and where the plan is; the one after that doesn't", async () => {
+  const f = await fixture(true, { reportSteps: true });
+  try {
+    f.input.write("/plan Add a Limiter and call it from app.py\r");
+    await f.screen.until(waiting("Build this plan?"));
+    f.input.write("2");
+    await f.screen.until(idleAfter("Built."));
+    const built = f.prompts.length;
+    f.input.write("finish the rest\r");
+    await f.screen.until(() => f.prompts.length === built + 1);
+    await f.screen.until(idleAfter("Built."));
+    expect(f.prompts[built]).toMatch(/Open from the plan built earlier in this conversation \(\.casper\/plans\/[\w.-]+\.md\): 2\. Call it from app\.py \(not done: Needs an API decision\)\. They are part of the work when the person asks to finish it\./);
+    f.input.write("and add a docstring\r");
+    await f.screen.until(() => f.prompts.length === built + 2);
+    await f.screen.until(idleAfter("Built."));
+    expect(f.prompts[built + 1]).not.toContain("Open from the plan");
+  } finally { await f.close(); }
 }, 90_000);
 
 test("clear requests go directly to a plan; saves Markdown and keeps incomplete progress honest", async () => {
