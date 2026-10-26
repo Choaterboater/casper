@@ -5,7 +5,7 @@ import path from "node:path";
 import { CORE_PACK, NETWORK_PACK } from "../evals/packs";
 import type { ServiceSpec } from "../src/services/config";
 import { ServiceManager } from "../src/services/manager";
-import { serviceRequested, serviceTool } from "../src/services/tool";
+import { reachesLocalServer, serviceRequested, serviceTool } from "../src/services/tool";
 import { reapMarker } from "./support/reap";
 import { removeTempDir } from "./support/temp-dir";
 
@@ -145,6 +145,19 @@ test("the tool is offered for declared or live services and server vocabulary, n
   expect(serviceRequested("fix the parser", { declared: false, live: true })).toBe(true);
   for (const text of ["start the dev server", "the HTTP server hangs", "our web-server crashes", "open localhost:3000", "add an endpoint", "curl it"]) {
     expect({ text, offered: serviceRequested(text, { declared: false, live: false }) }).toEqual({ text, offered: true });
+  }
+  // The plan the person accepted counts too: its words say what the build runs ("serves the pages at http://localhost:8000").
+  expect(serviceRequested("make my card tracker", { declared: false, live: false }, "The app serves the pages at http://localhost:8000.")).toBe(true);
+  expect(serviceRequested("make my card tracker", { declared: false, live: false }, "Read the export and write a spreadsheet.")).toBe(false);
+});
+
+test("the AI's shell reaching a server on this machine, or starting a common dev server, is seen; other commands are not", () => {
+  for (const command of ["curl -s http://127.0.0.1:8000/api/status", "sleep 2; curl localhost:3000/health", "python3 -m http.server 8000",
+    "npm run dev", "bun run dev -- --port 4000", "uvicorn app:app --reload", "flask run", "python manage.py runserver", "wget -qO- http://[::1]:8080/"]) {
+    expect({ command, seen: reachesLocalServer(command) }).toEqual({ command, seen: true });
+  }
+  for (const command of ["ls -la", "python3 -m pytest", "git status", "npm test", "bun run build", "curl -s https://example.com/api", "cat docs/localhosting.md"]) {
+    expect({ command, seen: reachesLocalServer(command) }).toEqual({ command, seen: false });
   }
 });
 

@@ -107,6 +107,8 @@ export async function runModelTask(app: CasperApp, prompt: string, options: { fl
   const previous = app.observations.spent();
   app.spentBefore = { tokens: app.spentBefore.tokens + previous.tokens, cost: app.spentBefore.cost + previous.cost };
   app.observations = new TaskObservations();
+  // The AI's shell reached a server on this machine in an earlier task: the service tool joins from this one and stays.
+  if (app.serverSeen) { app.offeredTools.add("service"); app.serverSeen = false; }
   app.lastAnswer = "";
   // A limit said in the request ("keep it under $2") is this task's pause, whatever the config says.
   const said = requestSpendLimit(prompt);
@@ -241,7 +243,7 @@ export async function runModelTask(app: CasperApp, prompt: string, options: { fl
     // The whole plan, the details the screen kept one key away included.
     planBlock = `${formatPlanBlock(planned.plan)}\n\nUse plan_step to keep this accepted checklist current: active before each step, done after it, or not-done with the reason. These reports are not verification evidence.`;
     app.planBuild = new PlanBuild(planned.plan, line => app.events.setPlanProgress(line));
-    await prepareCapabilities(app, prompt);
+    await prepareCapabilities(app, prompt, { plan: planBlock });
   }
   // A code change in auto mode is reviewed and proven: the tests must fail without it. Only requests
   // that are clearly not behavior changes are exempt; the keyword intent is too coarse to decide more

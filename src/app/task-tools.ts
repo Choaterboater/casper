@@ -38,7 +38,7 @@ import { pictureToolFor } from "./pictures";
 import { sameRuntimeInputs } from "../services/try-it";
 import { runtimeChanges } from "../services/detect";
 
-export async function prepareCapabilities(app: CasperApp, task: string): Promise<void> {
+export async function prepareCapabilities(app: CasperApp, task: string, options: { plan?: string } = {}): Promise<void> {
   app.browserInstalled ??= browserDefaults.installed().catch(() => false);
   // Builders are offered (or not) for the whole task; the tool is made once per task.
   if (!app.delegateToolForTask) app.buildersOff = await buildersOff(app);
@@ -51,6 +51,7 @@ export async function prepareCapabilities(app: CasperApp, task: string): Promise
     browserReady: app.browser?.status().state === "ready", browserInstalled: await app.browserInstalled, browser: () => browserSession(app),
     browserSignal: app.commandAbort?.signal, browserOff: app.projectContext?.browser === false, diagramOff: app.projectContext?.diagrams === false,
     services: { declared: Object.keys(app.projectContext?.services ?? {}).length > 0, live: (app.services?.live({ detected: false }) ?? false) || Boolean(app.backgroundCommands?.list().length) },
+    ...(options.plan ? { plan: options.plan } : {}),
     serviceTool: () => taskServiceTool(app),
     githubOff: app.projectContext?.github === false,
     githubTool: () => githubTool({

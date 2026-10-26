@@ -151,10 +151,19 @@ repair prompt that follows it includes the crash.
 The model's `edit` and `write` calls mark the services whose scope covers the file
 stale. A `bash` call marks every running service stale.
 
-The tool is offered only when the project declares services, a service is running, or
-the task mentions a dev, HTTP or web server, `localhost`, an endpoint or `curl`. In other
-tasks it is left out, so it costs no prompt tokens. Services the model starts belong to
-the session like declared ones, and `/services` lists and controls them too.
+The tool is offered when the project declares services, a service is running, the
+task mentions a dev, HTTP or web server, `localhost`, an endpoint or `curl`, or the plan you
+accepted for the task does. It also joins from the next task once the AI's own shell
+command reached a server on this machine (`localhost`, `127.0.0.1`, `[::1]`) or started a
+common dev server (`python3 -m http.server`, `npm run dev`, `uvicorn`, `flask run`, …), and
+then stays, like any tool offered in the conversation, until `/clear`. That way an app the AI
+builds runs under Casper: it stays up across turns and restarts after edits, instead of
+stopping when the shell call ends. It joins at the next task, not mid-task, because a tool
+list that changes during a task throws away the provider's prompt cache. In other tasks it
+is left out, so it costs no prompt tokens. An ad-hoc start asks first exactly as the AI's shell
+does (the same git guard, private places and question when no sandbox runs). Services the
+model starts belong to the session like declared ones, and `/services` lists and controls them
+too.
 
 ## Dev servers for page checks
 

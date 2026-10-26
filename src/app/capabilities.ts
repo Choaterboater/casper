@@ -57,6 +57,8 @@ export interface TaskCapabilitySource {
   githubTool?: () => RuntimeTool;
   /** Whether the project declares services and whether one is starting or ready. */
   services: { declared: boolean; live: boolean };
+  /** The plan the person accepted for this task: its words count toward the service tool too. */
+  plan?: string;
   /** Builds the service tool (its manager is created on first use); called only when it is included. */
   serviceTool: () => RuntimeTool;
   /** casper_mcp_add: the AI adds an MCP server after the person's yes. Offered from the first task that names MCP. */
@@ -94,7 +96,7 @@ export function picturesRequested(task: string): boolean {
 export async function assembleTaskTools(task: string, source: TaskCapabilitySource): Promise<RuntimeTool[]> {
   const kept = (name: string) => source.offered?.has(name) ?? false;
   const browser = !source.browserOff && (source.browserInstalled || browserRequested(task, source.browserReady) || kept("browser"));
-  const service = serviceRequested(task, source.services) || kept("service");
+  const service = serviceRequested(task, source.services, source.plan) || kept("service");
   const github = !source.githubOff && source.githubTool !== undefined && (githubRequested(task) || kept("github"));
   const picture = source.picture !== undefined && (picturesRequested(task) || kept("make_picture"));
   const diagram = !source.diagramOff && (diagramRequested(task) || kept("visualize"));

@@ -41,7 +41,7 @@ function plainScreen(columns = 120) {
 
 /** The fake model: on a plan turn it tries an edit and two shell commands through Casper's gate, then answers
  * with PLAN; otherwise it writes a file. */
-async function fixture(tty = true, setup: { planWrites?: boolean; planCode?: boolean; answer?: string; rewrites?: string[]; rewriteFails?: boolean; rewriteWrites?: boolean; planFails?: boolean; homeConfig?: string; empty?: boolean; reportSteps?: boolean; columns?: number } = {}) {
+async function fixture(tty = true, setup: { planWrites?: boolean; planCode?: boolean; answer?: string; rewrites?: string[]; rewriteFails?: boolean; rewriteWrites?: boolean; planFails?: boolean; homeConfig?: string; empty?: boolean; reportSteps?: boolean; columns?: number; toolsSeen?: string[][] } = {}) {
   const root = await mkdtemp(path.join(os.tmpdir(), "casper-plan-first-"));
   const home = path.join(root, "home"); const project = path.join(root, "project");
   await mkdir(home, { recursive: true }); await mkdir(path.join(project, ".casper"), { recursive: true });
@@ -83,6 +83,7 @@ async function fixture(tty = true, setup: { planWrites?: boolean; planCode?: boo
             if (setup.planFails || (setup.rewriteFails && planCalls > 1)) { emit({ type: "assistant_response_end", stopReason: "error", errorMessage: "provider went away" }); return; }
           }
           else {
+            setup.toolsSeen?.push(tools.map(tool => tool.name));
             if (setup.reportSteps) {
               const tool = tools.find(tool => tool.name === "plan_step")!;
               await tool.execute({ step: 1, status: "done" });
@@ -573,6 +574,24 @@ test("a plan turn the model fails part way shows what it wrote before the failur
     expect(f.prompts).toHaveLength(1);
   } finally { await f.close(); }
 }, 60_000);
+
+test("a plan whose words say the build serves pages on this machine brings the service tool to the build; a plan that doesn't, doesn't", async () => {
+  for (const [answer, offered] of [
+    [`${PLAN}\nWhat you'll see: the card list page at http://localhost:8000, sortable by any column.\n`, true],
+    [PLAN, false],
+  ] as const) {
+    const toolsSeen: string[][] = [];
+    const f = await fixture(true, { answer, toolsSeen });
+    try {
+      // The request names no server: only the accepted plan does.
+      f.input.write("/plan make my card tracker\r");
+      await f.screen.until(waiting("Build this plan?"));
+      f.input.write("2");
+      await f.screen.until(idleAfter("Built."));
+      expect({ answer, offered: toolsSeen.at(-1)?.includes("service") }).toEqual({ answer, offered });
+    } finally { await f.close(); }
+  }
+}, 90_000);
 
 test("clear requests go directly to a plan; saves Markdown and keeps incomplete progress honest", async () => {
   const f = await fixture(true, { reportSteps: true });
