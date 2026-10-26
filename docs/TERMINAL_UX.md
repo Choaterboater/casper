@@ -910,7 +910,10 @@ only. See [platform support](PLATFORM_SUPPORT.md) for host-validation limits.
 - Words at the start of a request (`think hard:`, `quick:`, `big model:`, `fast model:`,
   `plan first:`) and `ultrathink` anywhere in it set that task only; see
   [Words you can use](#words-you-can-use).
-- Anything else you type during work goes to the AI. While the model is working it reads the
+- Anything else you type during work goes to the AI, as part of the task it is doing: it reads the line after a short
+  note to answer it or act on it, then carry on with the task unless the line says to stop or change it. A quick
+  question mid-build no longer ends the build. Only the model sees the note; the line shows, waits and is saved as you
+  typed it. While the model is working it reads the
   line when its current step ends (`↳ sent to Casper · it reads this when its current step ends`),
   which can be a while for a long step (a step that only waits ends at once, as below); while Casper runs checks or writes
   the receipt, the line is queued and runs as the next request (`↳ queued · runs when this task

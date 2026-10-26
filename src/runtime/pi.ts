@@ -59,6 +59,7 @@ import { ProcessCleanupError } from "../platform/processes";
 import { cacheRetentionFor, type PromptCacheSetting } from "./cache";
 import { LoopGuard } from "./loop-guard";
 import { ToolHistory, TOOL_HISTORY_ENTRY } from "./tool-history";
+import { SteeredLines, STEERED_LINE_ENTRY, steeredAt } from "./steered-lines";
 import { ELISION_NOTE, elisionTexts, newElisions } from "./elision";
 import { addsSecret } from "../secrets/files";
 import { ToolArgumentRepair } from "./tool-repair";
@@ -133,6 +134,8 @@ class PiRuntimeSession implements RuntimeSession {
   private readonly unsent: string[] = [];
   /** Pictures steered in with a line, by its text: Pi's queue gives back only the text, and the lines ↑ leaves keep theirs. */
   private readonly steeredPictures = new Map<string, Array<{ type: "image"; data: string; mimeType: string }>>();
+  /** Lines typed during work: the model reads each after a note to carry on with its task (steered-lines.ts). */
+  private readonly steeredLines = new SteeredLines();
   private progressChars = 0;
   private progressReported = 0;
   /** The end of the current reasoning block's text and the headline last sent from it (status row only). */
@@ -402,6 +405,7 @@ class PiRuntimeSession implements RuntimeSession {
     const session = this.runtime.session;
     const failover = this.failovers.get(session);
     failover?.startTask();
+    this.steeredLines.cleared();
     const cancel = () => { void session.abort().catch(() => {}); };
     const agent = session.agent;
     const stream = agent.streamFunction;
@@ -424,12 +428,17 @@ class PiRuntimeSession implements RuntimeSession {
     agent.streamFunction = (model, context, streamOptions) => {
       promptSignal.throwIfAborted();
       const history = new ToolHistory();
+      const typed = new Set<number>();
       // Only custom records on this branch count: rewind, resume and forks cannot share mutable masks.
-      for (const entry of session.sessionManager.getBranch())
-        if (entry.type === "custom" && entry.customType === TOOL_HISTORY_ENTRY) history.restore(entry.data);
+      for (const entry of session.sessionManager.getBranch()) {
+        if (entry.type !== "custom") continue;
+        if (entry.customType === TOOL_HISTORY_ENTRY) history.restore(entry.data);
+        else if (entry.customType === STEERED_LINE_ENTRY) { const at = steeredAt(entry.data); if (at !== undefined) typed.add(at); }
+      }
       const projected = history.project(context.messages, this.hideToolOutput?.() !== false, { contextWindow: model.contextWindow });
       if (projected.checkpoint) session.sessionManager.appendCustomEntry(TOOL_HISTORY_ENTRY, projected.checkpoint);
-      return stream(model, { ...context, messages: projected.messages }, {
+      const messages = this.steeredLines.project(projected.messages, typed, at => session.sessionManager.appendCustomEntry(STEERED_LINE_ENTRY, { at }));
+      return stream(model, { ...context, messages }, {
         ...streamOptions,
         // Conversation requests follow cache: (auto by default); a request that already chose (none) keeps its choice.
         cacheRetention: streamOptions?.cacheRetention ?? cacheRetentionFor(this.cache, model),
@@ -463,6 +472,7 @@ class PiRuntimeSession implements RuntimeSession {
       // A line steered in after the model's last step is not lost: it comes back through takeUnsent.
       if (session.pendingMessageCount) { const left = session.clearQueue(); this.unsent.push(...left.steering, ...left.followUp); }
       this.steeredPictures.clear();
+      this.steeredLines.cleared();
       agent.streamFunction = stream;
       if (maxTurns !== undefined) agent.finishTurn = previousFinish;
       promptSignal.removeEventListener("abort", cancel);
@@ -478,6 +488,7 @@ class PiRuntimeSession implements RuntimeSession {
     if (this.readOnly || !this.promptActive || !session.isStreaming) return false;
     const pictures = images?.length ? images.map(({ data, mimeType }) => ({ type: "image" as const, data, mimeType })) : undefined;
     if (pictures) this.steeredPictures.set(text, pictures);
+    this.steeredLines.sent(text);
     await session.steer(text, pictures);
     return true;
   }
@@ -486,12 +497,13 @@ class PiRuntimeSession implements RuntimeSession {
     const session = this.runtime.session;
     if (!session.pendingMessageCount) return [];
     const queued = session.clearQueue();
+    this.steeredLines.cleared();
     const lines = [...queued.steering, ...queued.followUp];
     if (!newest) { for (const line of lines) this.steeredPictures.delete(line); return lines; }
     const taken = lines.pop()!;
     this.steeredPictures.delete(taken);
     // Pi's queue takes nothing out but everything: the rest go back in, in order, with their pictures.
-    for (const line of queued.steering.filter((_, i) => i < lines.length)) void session.steer(line, this.steeredPictures.get(line));
+    for (const line of queued.steering.filter((_, i) => i < lines.length)) { this.steeredLines.sent(line); void session.steer(line, this.steeredPictures.get(line)); }
     for (const line of lines.slice(queued.steering.length)) void session.followUp(line);
     return [taken];
   }
@@ -500,6 +512,7 @@ class PiRuntimeSession implements RuntimeSession {
     const left = this.unsent.splice(0);
     if (!this.promptActive) {
       const queued = this.runtime.session.clearQueue();
+      this.steeredLines.cleared();
       left.push(...queued.steering, ...queued.followUp);
     }
     return left;
