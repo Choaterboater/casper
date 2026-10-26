@@ -86,6 +86,48 @@ test("a task in a folder of over 20,000 files says why changes are unknown and n
   } finally { await app.close(); }
 }, 180_000);
 
+test("a project over 20,000 files because of its pictures lists its code without them: a change list, and a note that the pictures are not tracked", async () => {
+  // A real project saved tens of thousands of photo copies beside its code; every receipt after that said "Changes
+  // unknown: not a project folder" and "Casper could not record the workspace before the change".
+  const root = await mkdtemp(path.join(os.tmpdir(), "casper-huge-")); dirs.push(root);
+  const home = path.join(root, "home"); const project = path.join(root, "tracker");
+  await mkdir(home, { recursive: true }); await mkdir(project, { recursive: true });
+  await writeFile(path.join(project, "app.py"), "print('v1')\n");
+  for (let batch = 0; batch < 21; batch++) {
+    const folder = path.join(project, "data", "photos", `batch-${batch}`);
+    await mkdir(folder, { recursive: true });
+    await Promise.all(Array.from({ length: 1000 }, (_, index) => writeFile(path.join(folder, `${index}.jpg`), "")));
+  }
+  const runtime: AgentRuntime = {
+    async start(options): Promise<RuntimeSession> {
+      return { getStatus: () => ({ provider: "fixture", model: "demo", auth: "configured" }), getState: () => ({ cwd: project, isStreaming: false }),
+        subscribe: () => () => {}, abort: async () => {}, setTools: () => {},
+        prompt: async () => {
+          await writeFile(path.join(project, "app.py"), "print('v2')\n");
+          await options.afterFileEdit?.(path.join(project, "app.py"), new AbortController().signal);
+          await writeFile(path.join(project, "data", "photos", "batch-0", "new.jpg"), "");
+        } };
+    },
+    async dispose() {},
+  };
+  let output = "";
+  const app = new CasperApp({ runtimeFactory: () => runtime, sessionHomeDir: home, output: { write: (text: string) => { output += text; } },
+    loadProjectContext: (info) => loadProjectContext(info, { homeDir: home }),
+    loadSkillRegistry: (context: ProjectContext) => SkillRegistry.discover({ projectRoot: context.info.root, homeDir: home }),
+    loadMCPConfiguration: async () => ({ servers: [], diagnostics: [] }),
+    loadLSPConfiguration: async () => ({ servers: [], diagnostics: [] }),
+    loadReferenceConfiguration: async () => ({ sources: [], diagnostics: [] }) });
+  try {
+    await app.runOnce("print v2 in app.py", project);
+    expect(output).toContain("changed app.py");
+    // Undo keeps its own copy, which still counts every file: no undo for such a folder, as before.
+    expect(output).toContain("– Undo not available: this folder has more than 20,000 files");
+    expect(output).toContain("– Pictures, videos and archives here are not tracked: with them this folder is over 20,000 files");
+    expect(output).not.toContain("Changes unknown");
+    expect(output).not.toContain("new.jpg");
+  } finally { await app.close(); }
+}, 180_000);
+
 /** ~/Documents with a repository whose photos hold `before` thousand files. The task edits the site and adds `added`
  * thousand photos; another program saves notes.txt while it runs. Returns the output, /diff 1 and /undo 1. */
 async function nestedRepoTask(before: number, added: number) {

@@ -10,6 +10,7 @@ import type { ServiceState } from "../services/manager";
 import type { SmokeReport } from "../services/smoke";
 import type { AppSmokeReport } from "../services/try-it";
 import { formatPageReport, pageFailureSummary } from "../services/page-report";
+import { SNAPSHOT_FILE_LIMIT } from "./changes";
 import { TESTS_WITHOUT_COMMAND, type AutoCheckSkip, type VerificationMode } from "../verify/mode";
 import type { ChangeProof } from "../verify/proof";
 import type { AcceptanceResult } from "../verify/acceptance";
@@ -93,6 +94,8 @@ export interface TaskResult {
   /** Why Casper could not compare the folder ("not a project folder (over 20,000 files)"), and
    * the files Casper's own edit and write tools changed meanwhile, relative to the folder when inside it. */
   snapshotFailure?: { reason: string; edited: string[] };
+  /** The folder is listed without its pictures, videos and archives: with them it is over the file limit. */
+  mediaLeftOut?: true;
   observedChecks?: ObservedCheck[];
   /** The verification mode this task ran under. */
   verificationMode?: VerificationMode;
@@ -476,6 +479,7 @@ interface SessionNote { key: string; short: string }
 
 const sandboxOffLine = (reason: string) => `– Shell commands and checks were not sandboxed (${reason})`;
 const changesUnknownLine = (reason: string) => `– Changes unknown: ${reason}`;
+const MEDIA_LEFT_OUT_LINE = `– Pictures, videos and archives here are not tracked: with them this folder is over ${SNAPSHOT_FILE_LIMIT.toLocaleString("en-US")} files`;
 
 /** This task's session notes, by the receipt line that says each one. */
 function sessionNotes(task: TaskResult): Map<string, SessionNote> {
@@ -485,6 +489,7 @@ function sessionNotes(task: TaskResult): Map<string, SessionNote> {
     const reason = safe(task.snapshotFailure.reason);
     notes.set(changesUnknownLine(reason), { key: `changes:${reason}`, short: `changes unknown (${reason.replace(/\s*\(.*$/, "")})` });
   }
+  if (task.mediaLeftOut) notes.set(MEDIA_LEFT_OUT_LINE, { key: "media-left-out", short: "pictures not tracked" });
   if (task.sandbox && !task.sandbox.held) {
     const reason = safe(task.sandbox.reason);
     notes.set(sandboxOffLine(reason), { key: `sandbox:${reason}`, short: "not sandboxed" });
@@ -722,6 +727,8 @@ function receiptParts(task: TaskResult, options: ReceiptOptions, onScreen = fals
   // Something to do: a warning, said before the notes.
   if (task.secretInCommand) add("open", `⚠ ${SECRET_IN_COMMAND}`);
   if (task.secretInFiles?.length) add("open", `– ${secretInFilesText(task.secretInFiles, safe)}`);
+  // The change list leaves pictures, videos and archives out of a folder that is over the limit with them.
+  if (task.mediaLeftOut) add("notes", MEDIA_LEFT_OUT_LINE);
   // Only the exception is said: a task whose shell commands and checks ran with your own permissions.
   if (task.sandbox && !task.sandbox.held) add("notes", sandboxOffLine(safe(task.sandbox.reason)));
   else if (task.sandbox && labRan(report)) add("notes", `– Lab checks ran outside the sandbox (${LAB_OUTSIDE_WHY})`);
