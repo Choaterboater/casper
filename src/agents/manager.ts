@@ -11,6 +11,9 @@ export const SUBAGENT_LIMITS = Object.freeze({
   maxConcurrent: 2,
   maxDelegationsPerTask: 4,
   timeoutMs: 180_000,
+  /** A reviewer reads whole files and then judges them: with 3 minutes, four of a real session's eight reviewers ended
+   * with nothing to hand back. An explorer's lookups keep the 3 minutes. */
+  reviewerTimeoutMs: 300_000,
   cleanupGraceMs: 1000,
   maxTurns: 12,
   maxToolCalls: 48,
@@ -119,8 +122,10 @@ export interface SubagentResult {
 export interface SubagentManagerOptions {
   /** Must return a fresh, independently owned runtime for every child. */
   runtimeFactory: () => AgentRuntime | Promise<AgentRuntime>;
-  /** Embedders/tests may tighten deadlines, never relax the shipped upper bounds. */
+  /** Embedders/tests may tighten deadlines, never relax the shipped upper bounds. A reviewer's follows this one unless
+   * `reviewerTimeoutMs` is set. */
   timeoutMs?: number;
+  reviewerTimeoutMs?: number;
   cleanupGraceMs?: number;
   /** Hides device secrets in what a child reads, as in the main session (the app passes its scrubber). */
   scrubToolOutput?: RuntimeStartOptions["scrubToolOutput"];
@@ -253,8 +258,10 @@ function validateRole(value: unknown): SubagentRole {
 }
 
 /** Every helper kind (explorer, reviewer, security review, builder) gets one tool-free turn to report when a limit
- * stops its work: its turns, its tool calls, or its deadline less this reserve (at most a quarter of the deadline). */
-export const REPORT_RESERVE_MS = 30_000;
+ * stops its work: its turns, its tool calls, or its deadline less this reserve (at most a quarter of the deadline).
+ * A minute, not 30 seconds: a strong model's report on what it read can take longer than that, and the wrap-up only
+ * comes once the step it is on ends. */
+export const REPORT_RESERVE_MS = 60_000;
 
 /** A deadline as the child is told it: whole minutes, or seconds. */
 function duration(ms: number): string {
@@ -354,16 +361,18 @@ export class SubagentManager {
   private closed = false;
   private closeWork?: Promise<void>;
   private readonly timeoutMs: number;
+  private readonly reviewerTimeoutMs: number;
   private readonly cleanupGraceMs: number;
   private readonly reviewTimeoutMs: number;
   private readonly builderTimeoutMs: number;
 
   constructor(private readonly options: SubagentManagerOptions) {
     this.timeoutMs = options.timeoutMs ?? SUBAGENT_LIMITS.timeoutMs;
+    this.reviewerTimeoutMs = options.reviewerTimeoutMs ?? options.timeoutMs ?? SUBAGENT_LIMITS.reviewerTimeoutMs;
     this.cleanupGraceMs = options.cleanupGraceMs ?? SUBAGENT_LIMITS.cleanupGraceMs;
     this.reviewTimeoutMs = options.reviewTimeoutMs ?? SECURITY_REVIEW_LIMITS.timeoutMs;
     this.builderTimeoutMs = options.builderTimeoutMs ?? BUILDER_LIMITS.timeoutMs;
-    for (const [value, max] of [[this.timeoutMs, SUBAGENT_LIMITS.timeoutMs], [this.cleanupGraceMs, SUBAGENT_LIMITS.cleanupGraceMs],
+    for (const [value, max] of [[this.timeoutMs, SUBAGENT_LIMITS.timeoutMs], [this.reviewerTimeoutMs, SUBAGENT_LIMITS.reviewerTimeoutMs], [this.cleanupGraceMs, SUBAGENT_LIMITS.cleanupGraceMs],
       [this.reviewTimeoutMs, SECURITY_REVIEW_LIMITS.timeoutMs], [this.builderTimeoutMs, BUILDER_LIMITS.timeoutMs]] as const) {
       if (!Number.isInteger(value) || value < 1 || value > max) throw new Error("Invalid subagent deadline");
     }
@@ -548,11 +557,12 @@ export class SubagentManager {
     options.context = input.context === undefined ? undefined : requireString(input.context, "context", input.contextBytes ?? SUBAGENT_LIMITS.contextBytes);
     requireString(options.projectContext, "projectContext", SUBAGENT_LIMITS.projectContextBytes);
     requireString(options.cwd, "cwd", 4096);
+    const timeoutMs = options.role === "reviewer" ? this.reviewerTimeoutMs : this.timeoutMs;
     return this.runChild({
-      role: options.role, goal: options.goal, cwd: options.cwd, prompt: prompt(options, this.timeoutMs), signal: options.signal,
+      role: options.role, goal: options.goal, cwd: options.cwd, prompt: prompt(options, timeoutMs), signal: options.signal,
       systemPromptAppend: `You are Casper ${options.role}, a bounded read-only subagent. Be concise.\n\n${options.projectContext}`,
       modelRole: options.role === "explorer" ? "fast" : "review",
-      maxTurns: SUBAGENT_LIMITS.maxTurns, maxToolCalls: SUBAGENT_LIMITS.maxToolCalls, timeoutMs: this.timeoutMs,
+      maxTurns: SUBAGENT_LIMITS.maxTurns, maxToolCalls: SUBAGENT_LIMITS.maxToolCalls, timeoutMs,
       responseBytes: SUBAGENT_LIMITS.responseBytes, totalTextBytes: SUBAGENT_LIMITS.totalTextBytes,
       reportTurn: options.reportTurn ?? true, scrubToolOutput: this.options.scrubToolOutput,
     });

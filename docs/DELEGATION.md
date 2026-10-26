@@ -51,7 +51,7 @@ not proof that the code works.
 | --- | --- |
 | Helpers running at once | 2 |
 | Helpers per request you send | 4 |
-| Time per helper | 180 seconds |
+| Time per helper | 180 seconds for an explorer, 300 for a reviewer |
 | Model turns per helper | 12 |
 | Tool calls per helper | 48 |
 | Goal / context size | 4 KiB / 8 KiB |
@@ -61,8 +61,8 @@ not proof that the code works.
   toward the 4. It can be sent again later.
 - A helper that hits its time limit (status `timed_out`) never gave its report, so
   it does not count toward the 4 either, at most twice per request.
-- When a helper uses up its turns or tool calls, or is 30 seconds from its time
-  limit, it is told to stop and gets one last turn with no tools to report what
+- When a helper uses up its turns or tool calls, or is a minute from its time
+  limit (45 seconds for an explorer: a quarter of its 3 minutes), it is told to stop and gets one last turn with no tools to report what
   it found so far, marked partial, if the step it is on finishes in time.
 - The main AI then gets that report with status `limited` and a reason such as
   `partial: stopped at its 12-turn limit`, not an empty result. A helper that

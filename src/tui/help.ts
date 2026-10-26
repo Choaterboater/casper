@@ -307,7 +307,7 @@ Helpers from /delegate get read/grep/find/ls only; no edit/write/bash/MCP/LSP an
 Builders are off by default; /settings → Helpers that build turns them on. Once enabled, the AI starts independent builders together (up to 3; "split this up" asks for them, "by yourself" stops them). Casper reviews substantial landed parts before the receipt.
 A builder edits and runs commands only in its own copy (a Git worktree), in the same sandbox; a command that needs your OK asks in your box ("Builder 2 wants to run: ..."), or is listed as not run where Casper can't ask. No MCP, no helpers.
 An AI-started builder's change lands in your folder when it ends, uncommitted (/undo takes it back with the task); one that touches a file changed meanwhile stays in its copy for /crew. See docs/CREWS.md.
-Limits: 2 at once, 4 per request; 180 seconds/12 turns/48 tool calls each.
+Limits: 2 at once, 4 per request; 180 seconds (a reviewer 300)/12 turns/48 tool calls each.
 Children use Casper roles (explorer→fast, reviewer→review) or the startup default.
 Their reports are advice; read-only tools are not an OS sandbox.
 Learning uses the startup default; source text may reach the configured provider. No secret scrubbing.

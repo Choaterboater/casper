@@ -4,7 +4,7 @@ import os from "node:os";
 import { PassThrough } from "node:stream";
 import path from "node:path";
 import { CasperApp, type CasperAppOptions } from "../src/app";
-import { formatSubagentReport, SubagentManager, SUBAGENT_LIMITS } from "../src/agents/manager";
+import { formatSubagentReport, REPORT_RESERVE_MS, SubagentManager, SUBAGENT_LIMITS } from "../src/agents/manager";
 import { loadProjectContext } from "../src/project/context";
 import { SkillRegistry } from "../src/skills/registry";
 import { TaskObservations } from "../src/task/observations";
@@ -472,7 +472,37 @@ describe("Phase 8 bounded subagents", () => {
     const child = new ChildRuntime();
     await manager(() => child).run({ ...task, role: "reviewer" });
     expect(child.options?.reportTurn).toBe(true);
-    expect(child.prompts[0]).toContain(`${SUBAGENT_LIMITS.timeoutMs / 60_000} minutes, then one tool-free turn to report`);
+    expect(child.prompts[0]).toContain(`${SUBAGENT_LIMITS.reviewerTimeoutMs / 60_000} minutes, then one tool-free turn to report`);
+  });
+
+  test("a reviewer gets 5 minutes, an explorer 3, and either reports in its last minute; a tighter manager deadline binds both", async () => {
+    // A real session's reviewers read whole files for 3 minutes and four of eight ended with nothing to hand back.
+    expect(SUBAGENT_LIMITS.reviewerTimeoutMs).toBe(300_000);
+    expect(SUBAGENT_LIMITS.timeoutMs).toBe(180_000);
+    expect(REPORT_RESERVE_MS).toBe(60_000);
+    for (const [role, said] of [["reviewer", "5 minutes"], ["explorer", "3 minutes"]] as const) {
+      const child = new ChildRuntime();
+      await manager(() => child).run({ ...task, role });
+      expect({ role, told: child.prompts[0]!.includes(`${said}, then one tool-free turn to report`) }).toEqual({ role, told: true });
+    }
+    const tight = new ChildRuntime();
+    await manager(() => tight, 90_000).run({ ...task, role: "reviewer" });
+    expect(tight.prompts[0]).toContain("90 seconds, then one tool-free turn to report");
+  });
+
+  test("a reviewer still working past an explorer's deadline is not stopped there", async () => {
+    const slow = () => new ChildRuntime(async (emit) => {
+      await Bun.sleep(250);
+      emit({ type: "assistant_response_start" });
+      emit({ type: "assistant_text_delta", delta: "One finding: src/app.ts:3 never closes the file." });
+      emit({ type: "assistant_response_end", stopReason: "stop" });
+    });
+    const instance = new SubagentManager({ runtimeFactory: slow, timeoutMs: 100, reviewerTimeoutMs: 2_000, cleanupGraceMs: 20 });
+    cleanup.push(() => instance.close());
+    const reviewed = await instance.run({ ...task, role: "reviewer" });
+    expect(reviewed.status).toBe("completed");
+    expect(reviewed.response).toBe("One finding: src/app.ts:3 never closes the file.");
+    expect((await instance.run({ ...task, role: "explorer" })).status).toBe("timed_out");
   });
 
   test("only the final response is returned; streamed Unicode and terminal controls are bounded", async () => {
