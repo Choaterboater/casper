@@ -14,11 +14,22 @@ when releasing. Existing historical notes below stay as written; feature tests c
 reference docs, not a per-PR release-note or roadmap entry. Release-prep checks verify the version and
 installer targets (`tests/release-install.test.ts`, `tests/release-targets.test.ts`).
 
-Casper distributes an unsigned **v0.3.3 preview**, not a stable release. The installers
-download from `https://github.com/Choaterboater/casper/releases/download/v0.3.3`,
+Casper distributes an unsigned **v0.3.4 preview**, not a stable release. The installers
+download from `https://github.com/Choaterboater/casper/releases/download/v0.3.4`,
 because GitHub's `latest/download` link skips preview releases. The first published
 preview was **v0.1.0**. A published release is never changed; every fix ships under a
 new version.
+
+## v0.3.4: rows for OpenRouter's free, cheapest, newest and smartest models in /model
+
+### Changed
+
+- Under `openrouter`, `/model`'s left list has rows for its free, cheapest, newest and smartest models, instead of Ctrl+O.
+- In one provider's own list in `/model`, the rows leave out the provider's name, so long names fit.
+
+### Fixed
+
+- Picture makers and classifiers that OpenRouter's own list doesn't have no longer read as free in `/model`.
 
 ## v0.3.3: failover when a model hits its limit, and a model list that stays current
 
