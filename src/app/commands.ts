@@ -154,6 +154,8 @@ export interface CommandHost {
   readonly offeredTools: Set<string>;
   /** The AI's shell reached a server on this machine: the service tool joins the next task. */
   serverSeen: boolean;
+  /** The last build's open plan steps, for the next task; a new conversation never hears them. */
+  openPlan?: unknown;
   /** A new conversation: its first task picks the direct MCP tools afresh. */
   resetToolPicks(): void;
   memoryWork?: Promise<void>;
@@ -444,6 +446,7 @@ export async function runSlashCommand(host: CommandHost, prompt: string): Promis
       await host.stopDebugger(); host.debugSession = undefined;
       host.offeredTools.clear();
       host.serverSeen = false;
+      host.openPlan = undefined;
       host.resetToolPicks();
       // A password typed for ssh belongs to the conversation it was typed in.
       forgetSshSecrets();

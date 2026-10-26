@@ -569,3 +569,20 @@ test("Reasoning headline: on by default, off persists, on resumes, and a project
   await writeFile(projectFile, "reasoning_headline: on\n");
   await expect(loadConfiguration({ projectRoot: project, homeDir: home })).rejects.toThrow("reasoning_headline is a user setting");
 });
+
+test("Keep going row: on by default, a pick writes keep_going: false; it loads from your own config, never a project file", async () => {
+  const { home, project, config, projectFile } = await folders();
+  const label = "Keep going";
+  expect(await valueOf(home, project, label)).toBe("on");
+  const host = fakeHost(home, project, [label, "Turn it off", "Done"]);
+  await runSettings(host);
+  expect(host.asked[1]).toContain("Casper sends it on itself, twice at most in a task");
+  expect(await readFile(config, "utf8")).toBe("keep_going: false\n");
+  expect((await host.context())!.keepGoing).toBe(false);
+  expect(await valueOf(home, project, label)).toBe("off");
+  const load = () => loadConfiguration({ projectRoot: project, homeDir: home });
+  await writeFile(config, "keep_going: on\n");
+  expect((await load()).keepGoing).toBe(true);
+  await writeFile(projectFile, "keep_going: off\n");
+  await expect(load()).rejects.toThrow("keep_going is a user setting");
+});

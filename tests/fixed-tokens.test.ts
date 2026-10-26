@@ -137,6 +137,8 @@ test("check advice is said once: in casper_check, not again in every task's text
   expect(preamble).toContain("If you ran tests yourself, say in one line what ran and the result. Don't claim a check passed that didn't run.");
   expect(preamble).toContain("Count a requirement as done only when a test you can name asserts it");
   expect(preamble).toContain("Do not list the covered ones");
+  // Decision 39: open items are only what needs the person or is blocked; the rest the AI does itself.
+  expect(preamble).toContain("Do the rest yourself; end with only those still not done because they need the person or are blocked");
 });
 
 test("full and lean guidance use native/plain reads rather than interpreter scripts for tiny reads", () => {

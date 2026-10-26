@@ -241,6 +241,8 @@ export class CasperApp {
   readonly offeredTools = new Set<string>();
   /** The AI's shell reached a server on this machine this task: the service tool joins the next one. */
   serverSeen = false;
+  /** The accepted plan's steps the last build left open, and its saved file: told to the next task only. */
+  openPlan?: { file: string; steps: Array<{ step: number } & import("./flows/plan-build").PlanStepReport> };
   readonly terminal: InteractiveTerminal;
   interactive = false;
   /** beforeChanges gate state for the current task; a recorded ask attempt satisfies it. */

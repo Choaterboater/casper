@@ -151,6 +151,9 @@ export interface LoadedConfiguration {
   compactAt?: string | number;
   /** `slow_commands: off` in your own config: a command run without its own timeout is stopped at the limit instead of moving to the background. Unset: on. */
   slowCommands?: boolean;
+  /** `keep_going: off` in your own config: the AI stopping with work open, or after saying what it does next, waits for you
+   * instead of Casper sending it on (docs/adr/0002/39-keep-going.md). Unset: on. */
+  keepGoing?: boolean;
   /** `stalled_commands: off` in your own config: a command with no output and no CPU for 45 s is not ended early. Unset: on. */
   stalledCommands?: boolean;
   /** `mcp_autoconnect: off` in your own config: your own MCP servers wait for /mcp connect, with writes off and the change box. Unset: on. */
@@ -315,7 +318,7 @@ const POLICY_KEYS = {
 } as const;
 const ISOLATE_KEYS = ["parallelAgents", "riskyRefactor", "experimentalBranch"];
 const TOP_LEVEL_KEYS = new Set(["profile", "project", "languages", "frameworks", "packageManager", "commands", "architecture",
-  "conventions", "verify", "verification", "repair", "skills", "visualize", "policy", "services", "smoke", "pages", "lab", "suggestions", "updates", "sideQuestions", "localModels", "modelServers", "cache", "display", "theme", "showPages", "spend", "sandbox", "shell", "web", "reader", "delegate", "browser", "templates", "packs", "github", "telemetry", "tools", "ssh_login", "other_logins", "network_updates", "ai_pages", "open_pages", "pictures", "browser_clicks", "routine_commands", "hide_tool_output", "reasoning_headline", "lean_guidance", "compact_at", "slow_commands", "stalled_commands", "mcp_autoconnect", "lsp_autostart", "notifications", ...Object.keys(POLICY_KEYS)]);
+  "conventions", "verify", "verification", "repair", "skills", "visualize", "policy", "services", "smoke", "pages", "lab", "suggestions", "updates", "sideQuestions", "localModels", "modelServers", "cache", "display", "theme", "showPages", "spend", "sandbox", "shell", "web", "reader", "delegate", "browser", "templates", "packs", "github", "telemetry", "tools", "ssh_login", "other_logins", "network_updates", "ai_pages", "open_pages", "pictures", "browser_clicks", "routine_commands", "hide_tool_output", "reasoning_headline", "lean_guidance", "compact_at", "slow_commands", "keep_going", "stalled_commands", "mcp_autoconnect", "lsp_autostart", "notifications", ...Object.keys(POLICY_KEYS)]);
 
 /** Typos used to fall back silently to the defaults; the loader names them instead. */
 function unknownKeys(document: Mapping, label: string): string[] {
@@ -995,6 +998,9 @@ export async function loadConfiguration(
   let compactAt: string | number | undefined;
   if (projectDocument.slow_commands !== undefined) throw new Error("slow_commands is a user setting (~/.casper/config.yaml); a project cannot keep commands running in the background");
   let slowCommands: boolean | undefined;
+  // How far the AI goes on by itself is the person's choice, not a repository's.
+  if (projectDocument.keep_going !== undefined) throw new Error("keep_going is a user setting (~/.casper/config.yaml); a project cannot change whether Casper sends the AI on");
+  let keepGoing: boolean | undefined;
   if (projectDocument.stalled_commands !== undefined) throw new Error("stalled_commands is a user setting (~/.casper/config.yaml); a project cannot change which commands Casper ends");
   let stalledCommands: boolean | undefined;
   // Whether your own MCP and language servers start by themselves is yours too.
@@ -1033,6 +1039,7 @@ export async function loadConfiguration(
       compactAt = document.compact_at as string | number;
     }
     slowCommands = onOffLayer(document.slow_commands, label, "slow_commands") ?? slowCommands;
+    keepGoing = onOffLayer(document.keep_going, label, "keep_going") ?? keepGoing;
     stalledCommands = onOffLayer(document.stalled_commands, label, "stalled_commands") ?? stalledCommands;
     mcpAutoconnect = onOffLayer(document.mcp_autoconnect, label, "mcp_autoconnect") ?? mcpAutoconnect;
     lspAutostart = onOffLayer(document.lsp_autostart, label, "lsp_autostart") ?? lspAutostart;
@@ -1091,6 +1098,7 @@ export async function loadConfiguration(
     ...(leanGuidance !== undefined ? { leanGuidance } : {}),
     ...(compactAt !== undefined ? { compactAt } : {}),
     ...(slowCommands !== undefined ? { slowCommands } : {}),
+    ...(keepGoing !== undefined ? { keepGoing } : {}),
     ...(stalledCommands !== undefined ? { stalledCommands } : {}),
     ...(mcpAutoconnect !== undefined ? { mcpAutoconnect } : {}),
     ...(lspAutostart !== undefined ? { lspAutostart } : {}),

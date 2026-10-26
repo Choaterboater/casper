@@ -412,6 +412,15 @@ line instead of the card and its numbered keys, which could pass for the options
 Paused — the AI said what it does next; say go, or tell it what to change
 ```
 
+With **Keep going** on (the default; [decision 39](adr/0002/39-keep-going.md)), a session doesn't stop there when the
+AI asked you nothing. When its last message lists work still open (`Still not done: …`) or says what it does next,
+Casper sends it on itself, with the open items and the accepted plan's steps it never reported, and says so:
+`↻ keep going 1/2: 2 items still open, so the AI carries on (Esc stops it)`. The AI is told to do what it can and
+leave only what needs you. That is two rounds a task at most, and none after a round that leaves as much open as
+before; then the line or the card follows. The task after a plan build hears the plan's steps still open and where
+the saved plan is. `keep_going: off` (`/settings` → Keep going) waits for you instead; one-shot runs and `--json`
+never keep going by themselves.
+
 The part after `·` comes only when the task changed something. The receipt is saved as always, so `/receipt`, `/undo`
 and `/diff` work. The card that ends the work adds `– Also changed before your answer: 2 files (/receipt 12)`; when
 your answer needs no change, the card is the one held back. A failure, a stop, work that did not finish, a secret

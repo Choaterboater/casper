@@ -136,6 +136,16 @@ still go through the service tool. Every one is stopped, with whatever it starte
 It is on. Turn it off with `/settings` (it writes `slow_commands: false`) and a slow command is
 stopped at 2 minutes. A project file can't set it.
 
+### Keep going
+
+When the AI stops with work it says is not done (`Still not done: …`), or says what it does next and
+stops, and asks you nothing, Casper sends it on itself with what is still open:
+`↻ keep going 1/2: 2 items still open, so the AI carries on (Esc stops it)`. That is two rounds a task at most, and none
+after a round that leaves as much open as before. A round is the task's own turn, so every approval box,
+the sandbox and the spend pause apply as usual. Only in a session: one-shot runs and `--json` don't.
+It is on. Turn it off with `/settings` (it writes `keep_going: false`) and the AI waits for you to say
+go. A project file can't set it. See [decision 39](adr/0002/39-keep-going.md).
+
 ### Stalled commands
 
 A shell command the AI runs without its own time limit that prints nothing new for 45 seconds while
