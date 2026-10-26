@@ -14,11 +14,32 @@ when releasing. Existing historical notes below stay as written; feature tests c
 reference docs, not a per-PR release-note or roadmap entry. Release-prep checks verify the version and
 installer targets (`tests/release-install.test.ts`, `tests/release-targets.test.ts`).
 
-Casper distributes an unsigned **v0.3.4 preview**, not a stable release. The installers
-download from `https://github.com/Choaterboater/casper/releases/download/v0.3.4`,
+Casper distributes an unsigned **v0.3.5 preview**, not a stable release. The installers
+download from `https://github.com/Choaterboater/casper/releases/download/v0.3.5`,
 because GitHub's `latest/download` link skips preview releases. The first published
 preview was **v0.1.0**. A published release is never changed; every fix ships under a
 new version.
+
+## v0.3.5: work that keeps going until it is done, plan questions asked at once, and apps that stay running
+
+### Added
+
+- When the AI stops with work open and asked you nothing, Casper sends it on, twice at most; `keep_going: off` turns this off.
+- The task after a plan build is told which accepted steps are still open and where the saved plan is.
+
+### Changed
+
+- A line you type during a task no longer ends it: the AI answers it, then carries on with the task.
+- A plan with several open questions asks them one after another and rewrites the plan once with every answer.
+- A plan longer than the screen shows what a rewrite changed and where the saved plan is, not the whole plan again.
+- The AI gets Casper's service tool once your plan or its own command uses a local server, so the app it builds stays up.
+- A reviewer helper gets 5 minutes instead of 3, and every helper gets a minute to report what it found.
+
+### Fixed
+
+- A check whose tests passed but left something running is incomplete and runs again with `/verify`, not a failure to repair.
+- A project over 20,000 files only because of its pictures keeps its change list, and the receipt says the pictures aren't tracked.
+- Every project's AI instructions no longer name Casper's own `bun test` commands.
 
 ## v0.3.4: rows for OpenRouter's free, cheapest, newest and smartest models in /model
 

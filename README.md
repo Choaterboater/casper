@@ -36,20 +36,20 @@ Casper itself is free and open source. A task spends money only with your own mo
 macOS / Linux:
 
 ```sh
-curl -fsSL https://github.com/Choaterboater/casper/releases/download/v0.3.4/install.sh | sh
+curl -fsSL https://github.com/Choaterboater/casper/releases/download/v0.3.5/install.sh | sh
 ```
 
 Windows (x64 or ARM64), in PowerShell:
 
 ```powershell
-[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; irm https://github.com/Choaterboater/casper/releases/download/v0.3.4/install.ps1 | iex
+[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; irm https://github.com/Choaterboater/casper/releases/download/v0.3.5/install.ps1 | iex
 ```
 
 No admin rights, Bun or source checkout needed. The installer checks the file's SHA-256 (with
 `gh` signed in, also where it was built; for releases signed with the
 [release key](docs/RELEASE.md#the-release-key), none yet, the signature too) and keeps your old install
-if anything is wrong. These commands pin **v0.3.4**; after that,
-`casper update` gets the newest preview. `install.sh` takes `--dir <path>`, `--version 0.3.4`,
+if anything is wrong. These commands pin **v0.3.5**; after that,
+`casper update` gets the newest preview. `install.sh` takes `--dir <path>`, `--version 0.3.5`,
 `--sha256 <hex>` and `--force`. [Installer details](docs/RELEASE.md#installer-contract).
 
 Use the one-line command above rather than downloading a program in your browser: the installer
@@ -83,7 +83,7 @@ From the shell:
 ```sh
 casper "Explain this project"  # start a session with this first request
 casper --no-verify   # no Casper-run checks this run
-casper --version     # casper 0.3.4 (/absolute/path/of/the/binary/or/cli.ts)
+casper --version     # casper 0.3.5 (/absolute/path/of/the/binary/or/cli.ts)
 casper doctor        # check Casper's own setup and fix what it can (no model)
 ```
 
@@ -210,6 +210,8 @@ Ctrl+D on an empty prompt exits. [Keys and commands](docs/TERMINAL_UX.md#quick-r
 | Contributing | [How Casper is built](docs/ARCHITECTURE.md) · [Working on Casper](docs/DEVELOPING.md) |
 
 ## What's new
+
+v0.3.5: when the AI stops with work it can still do and asks you nothing, Casper sends it on (`keep_going: off` waits for you); a line you type during a task no longer ends it; a plan asks all its open questions at once and shows only what a rewrite changed; an app the AI builds stays running under Casper; reviewers get 5 minutes; and a check whose tests passed but left something running reads incomplete, not failed. See [release notes](docs/RELEASE.md).
 
 v0.3.4: under `openrouter`, `/model`'s left list has rows for its free (newest first), cheapest, newest and smartest models, instead of Ctrl+O; a provider's own list leaves its name off the rows so long names fit; and picture makers and classifiers OpenRouter's own list doesn't have no longer read as free. See [release notes](docs/RELEASE.md).
 

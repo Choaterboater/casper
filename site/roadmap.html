@@ -78,6 +78,7 @@
           </li>
           <li><a href="#released">Released</a>
             <ul>
+              <li><a href="#v0305">v0.3.5: keeps going</a></li>
               <li><a href="#v0304">v0.3.4: OpenRouter rows</a></li>
               <li><a href="#v0303">v0.3.3: model failover</a></li>
               <li><a href="#v0302">v0.3.2: lines during a task</a></li>
@@ -129,7 +130,7 @@
         <h2 id="next-h">Next release</h2>
         <aside class="callout soon">
           <strong class="callout-title">Built, not released</strong>
-          <p>Nothing on the main branch is waiting: everything built so far is in v0.3.4. New work shows here before the next preview.</p>
+          <p>Nothing on the main branch is waiting: everything built so far is in v0.3.5. New work shows here before the next preview.</p>
         </aside>
       </section>
 
@@ -371,10 +372,26 @@
         and on the <a href="https://github.com/Choaterboater/casper/releases">Releases page</a>.</p>
         <div class="stack">
 
+        <details class="card release" id="v0305" aria-labelledby="v0305-h" open>
+          <summary class="release-heading">
+            <h3 id="v0305-h">v0.3.5 · Work that keeps going until it is done, plan questions asked at once, and apps that stay running</h3>
+            <span class="badge ok">current preview</span>
+          </summary>
+          <ul>
+            <li><strong>Keeps going.</strong> When the AI stops with work it says is not done, or says what it does next, and asks you nothing, Casper sends it on with what is still open, twice at most (<code>↻ keep going 1/2</code>; Esc stops it). <code>keep_going: off</code> or <code>/settings</code> waits for you instead.</li>
+            <li><strong>Open plan steps.</strong> The task after a plan build hears which accepted steps are still open and where the saved plan is, so "finish it" has the list.</li>
+            <li><strong>Lines that don't end the work.</strong> A line you type during a task is answered or acted on, then the AI carries on with the task.</li>
+            <li><strong>Questions at once.</strong> A plan with several open questions asks them one after another and is rewritten once; a plan longer than the screen shows what a rewrite changed and where the saved plan is.</li>
+            <li><strong>Apps that stay up.</strong> When your plan or the AI's own command uses a server on this machine, the AI gets Casper's service tool, so the app it builds stays running and restarts after edits.</li>
+            <li><strong>More time for reviewers.</strong> A reviewer helper gets 5 minutes, and every helper a minute to report what it found.</li>
+            <li><strong>Fixes.</strong> A check whose tests passed but left something running is incomplete, and <code>/verify</code> runs it again; a project over 20,000 files only because of its pictures keeps its change list; the AI's instructions no longer name Casper's own <code>bun test</code> commands.</li>
+          </ul>
+        </details>
+
         <details class="card release" id="v0304" aria-labelledby="v0304-h" open>
           <summary class="release-heading">
             <h3 id="v0304-h">v0.3.4 · Rows for OpenRouter's free, cheapest, newest and smartest models in /model</h3>
-            <span class="badge ok">current preview</span>
+            <span class="badge">previous preview</span>
           </summary>
           <ul>
             <li><strong>OpenRouter rows.</strong> Under <code>openrouter</code>, <code>/model</code>'s left list has <code>free</code> (only its free models, newest first), <code>cheapest</code>, <code>newest</code> and <code>smartest</code>: Down onto one shows OpenRouter's models that way. They replace <kbd>Ctrl+O</kbd>, and <code>/model</code> opens on the row you left it on.</li>
@@ -386,7 +403,7 @@
         <details class="card release" id="v0303" aria-labelledby="v0303-h" open>
           <summary class="release-heading">
             <h3 id="v0303-h">v0.3.3 · Failover when a model hits its limit, and a model list that stays current</h3>
-            <span class="badge">previous preview</span>
+            <span class="badge">released</span>
           </summary>
           <ul>
             <li><strong>Failover.</strong> <code>/model failover</code> lists the models a task goes on with when its model hits a rate or usage limit. The conversation is compacted first when it doesn't fit the new model's window, one line says what switched, and your next request goes back to your model.</li>
@@ -399,7 +416,7 @@
           </ul>
         </details>
 
-        <details class="card release" id="v0302" aria-labelledby="v0302-h" open>
+        <details class="card release" id="v0302" aria-labelledby="v0302-h">
           <summary class="release-heading">
             <h3 id="v0302-h">v0.3.2 · Lines you type during a task, skills you add in chat, and pages that need a browser</h3>
             <span class="badge">released</span>
@@ -1353,7 +1370,7 @@
   <footer class="site-footer">
     <div class="container footer-inner">
       <div>
-        <p><strong>Casper 0.3.4</strong> · early preview, unsigned</p>
+        <p><strong>Casper 0.3.5</strong> · early preview, unsigned</p>
         <p><a href="https://github.com/Choaterboater/casper/blob/main/LICENSE">MIT licence</a> · © 2026 Choaterboater</p>
         <p>Built on the <a href="https://github.com/earendil-works/pi">Pi SDK</a>. Other parts keep their own licences (<a href="https://github.com/Choaterboater/casper/blob/main/THIRD_PARTY_NOTICES.txt">notices</a>).</p>
       </div>
