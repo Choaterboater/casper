@@ -155,7 +155,8 @@ test.skipIf(process.platform === "win32")("a missed reparented worker cannot kee
     timeoutMs: 10_000, sandbox: false, onCleanupFailure: () => { unconfirmed++; } });
   try {
     await f.ready();
-    expect(await pending).toMatchObject({ status: "fail", reason: "Owned process cleanup is unconfirmed: output pipes remained open after command exit" });
+    // The command itself passed (exit 0): what it left running makes it unfinished, never a pass and never a failure.
+    expect(await pending).toMatchObject({ status: "fail", exitCode: 0, ended: "cleanup", reason: "Owned process cleanup is unconfirmed: output pipes remained open after command exit" });
     expect(unconfirmed).toBe(1);
   } finally { hidden.mockRestore(); await pending; }
 }, 20_000);

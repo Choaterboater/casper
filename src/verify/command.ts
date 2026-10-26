@@ -140,6 +140,9 @@ const CMD_NOT_FOUND = /^\s*'[^'\r\n]+' is not recognized as an internal or exter
  * that failed and then printed that text is a failure). */
 export function checkEnded(exitCode: number | null, reason?: string, stderr = "", platform: NodeJS.Platform = process.platform, stdout = ""): VerificationResult["ended"] {
   if (reason?.startsWith("Timed out")) return "timeout";
+  // The command passed, but something it started was still running when it ended: unfinished, never a pass
+  // (decision 17) and never the code failing. A command that failed on its own stays a failure.
+  if (exitCode === 0 && reason?.startsWith("Owned process cleanup is unconfirmed")) return "cleanup";
   if (reason?.startsWith("Could not execute") || exitCode === 126 || exitCode === 127) return "no_start";
   if (platform === "win32" && (exitCode === 9009 || (exitCode === 1 && !stdout.trim() && CMD_NOT_FOUND.test(stderr)))) return "no_start";
   return undefined;

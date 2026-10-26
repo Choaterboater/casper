@@ -840,12 +840,21 @@ function withVerdict(task: TaskResult, body: string[], options: ReceiptOptions, 
     ? "passed" : taskOutcome(report, task);
   const changed = Boolean(task.changedPaths?.length || task.changedDuringChecks?.length || (!task.changedPaths && task.possibleMutations));
   const failedChecks = (report?.results ?? []).filter((result) => result.status === "fail" && result.kind !== "report")
-    .map((result) => `${result.name} ${result.ended === "timeout" ? "timed out" : result.ended === "no_start" ? "could not start" : result.ended === "blocked" ? "was blocked by the sandbox" : "failed"}`);
+    .map((result) => `${result.name} ${result.ended === "timeout" ? "timed out" : result.ended === "no_start" ? "could not start" : result.ended === "blocked" ? "was blocked by the sandbox"
+      : result.ended === "cleanup" ? "passed but left something running" : "failed"}`);
   // Only unfinished checks: the change was not tested, which is not the same as the code being wrong.
   const onlyUnfinished = failedChecks.length > 0 && report!.results.every((result) => result.status !== "fail" || result.kind === "report" || result.ended);
   const notChecked = (): string[] => {
     // A timeout is said once here, with its limit and how to run it again; its own check line is left out.
     const failing = report!.results.filter((result) => result.status === "fail" && result.kind !== "report");
+    // Checks that passed but left something running: the code was tested, so the line says that, and runs them again.
+    if (failing.every((result) => result.ended === "cleanup")) {
+      const names = failing.map((result) => result.name);
+      const again = names.map((name) => options.surface === "one-shot" ? `casper "/verify ${name}"` : `/verify ${name}`);
+      const detail = `${names.join(", ")} passed, but something ${names.length === 1 ? "it" : "they"} started was still running when ${names.length === 1 ? "it" : "they"} ended`;
+      return [head(`– Incomplete — ${detail}; ${again.join(", ")} runs ${names.length === 1 ? "it" : "them"} again`, "Incomplete", { detail, actions: again }),
+        ...body.filter((line) => !names.some((name) => line.startsWith(`– ${name} passed, but`)))];
+    }
     const timedOut = failing.filter((result) => result.ended === "timeout");
     const what = failing.map((result, index) => {
       const limit = result.ended === "timeout" ? /^Timed out after (\d+)ms$/.exec(result.reason ?? "") : null;
@@ -1080,6 +1089,11 @@ function checkLine(result: VerificationResult, safe: (text: string) => string, s
     const after = timeout ? `after ${duration(Number(timeout[1]))}` : undefined;
     return say(`✗ ${name} timed out${after ? ` ${after}` : ""} — it did not finish, so it was not checked; ${slash(`/verify ${name}`)} to run it again (a session offers more time)`,
       "timed out", after, slash(`/verify ${name}`));
+  }
+  // It passed, but something it started was still running when it ended: not the code failing, so no repair offer.
+  if (result.ended === "cleanup") {
+    return say(`– ${name} passed, but something it started was still running when it ended (cleanup unconfirmed); ${slash(`/verify ${name}`)} runs it again`,
+      "left something running", "cleanup unconfirmed", slash(`/verify ${name}`));
   }
   // The sandbox refused something the check tried: the same words the AI sees, so it does not retry it.
   if (result.ended === "blocked") {

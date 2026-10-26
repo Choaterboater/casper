@@ -297,8 +297,9 @@ export async function verifyAndRepair(options: VerificationOptions): Promise<Ver
     const smokeFailures = smoke?.checks.filter((check) => check.status === "fail") ?? [];
     const pageFailures = pages?.status === "fail" ? pages.pages.filter((page) => page.status === "fail") : [];
     const hostFailures = smokeFailures.length + pageFailures.length;
-    // Unfinished checks (timed out, could not start) are not repaired unless the user says so.
-    const unfinished = failures.filter((result) => result.ended && result.ended !== "blocked" && result.kind !== "lab");
+    // Unfinished checks (timed out, could not start) are not repaired unless the user says so. One that passed but left
+    // something running is neither asked about nor repaired: more time or a fix can't change it; /verify runs it again.
+    const unfinished = failures.filter((result) => result.ended && result.ended !== "blocked" && result.ended !== "cleanup" && result.kind !== "lab");
     // Lab checks touch the user's devices: repaired only when the user says so, asked once.
     const labFailures = failures.filter((result) => result.kind === "lab");
     let repairable = failures.filter((result) => repairClass(result) === "repairable");
