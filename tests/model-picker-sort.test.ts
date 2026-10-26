@@ -1,13 +1,13 @@
 import { afterEach, expect, test } from "bun:test";
 import type { Api, Model } from "@earendil-works/pi-ai";
 import { ModelRuntime } from "@earendil-works/pi-coding-agent";
-import { getKeybindings, KeybindingsManager, setKeybindings, TUI_KEYBINDINGS, visibleWidth, type TUI } from "@earendil-works/pi-tui";
+import { visibleWidth, type TUI } from "@earendil-works/pi-tui";
 import { mkdtemp, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { forgetModelFacts, modelFacts, type ModelFacts } from "../src/runtime/model-facts";
+import { forgetModelFacts, modelFacts, setModelFacts, type ModelFacts } from "../src/runtime/model-facts";
 import { forgetOpenRouterModels, openRouterModelFacts, OPENROUTER_MODELS_URL, OPENROUTER_ZDR_URL, startOpenRouterModels, type OpenRouterModel } from "../src/runtime/openrouter-models";
-import { ModelBrowser, MODEL_SORTS, type ModelBrowserCatalog, type ModelSort } from "../src/runtime/pi-model-browser";
+import { ModelBrowser, MODEL_VIEWS, type ModelBrowserCatalog, type ModelView } from "../src/runtime/pi-model-browser";
 import { pickerMemory, pickPiModel } from "../src/runtime/pi-model-picker";
 import type { RuntimePickerView } from "../src/runtime/types";
 import { removeTempDir } from "./support/temp-dir";
@@ -18,11 +18,12 @@ afterEach(async () => {
   for (const lifetime of lifetimes.splice(0)) lifetime.abort();
   forgetOpenRouterModels();
   forgetModelFacts();
-  pickerMemory.sort = "usual";
+  pickerMemory.view = undefined;
   await Promise.all(dirs.splice(0).map((dir) => removeTempDir(dir)));
 });
 
 const CTRL_O = "\x0f";
+const [UP, DOWN, ESC, BACKSPACE] = ["\x1b[A", "\x1b[B", "\x1b", "\x7f"];
 const day = (date: string) => Date.parse(`${date}T00:00:00Z`);
 
 function fakeModel(provider: string, id: string, overrides: Partial<Model<Api>> = {}): Model<Api> {
@@ -57,21 +58,16 @@ const facts: Record<string, ModelFacts> = {
 };
 const lookup = (provider: string, id: string) => facts[`${provider}/${id}`];
 
-const ORDERS: Record<ModelSort, string[]> = {
-  usual: ["anthropic/claude-x", "claude-subscription/claude-x", "ollama/qwen-local", "openrouter/vendor-z/old-free:free", "openrouter/vendor-e/router",
-    "openrouter/vendor-d/pricey", "openrouter/vendor-c/cheap", "openrouter/vendor-b/new-free:free"],
-  // Free ones newest first (one with no date after them), then the paid ones cheapest first; a plan and a router have no
-  // price to sort by.
-  free: ["openrouter/vendor-b/new-free:free", "openrouter/vendor-z/old-free:free", "ollama/qwen-local", "openrouter/vendor-c/cheap", "anthropic/claude-x",
-    "openrouter/vendor-d/pricey", "claude-subscription/claude-x", "openrouter/vendor-e/router"],
-  cheapest: ["ollama/qwen-local", "openrouter/vendor-z/old-free:free", "openrouter/vendor-b/new-free:free", "openrouter/vendor-c/cheap", "anthropic/claude-x",
-    "openrouter/vendor-d/pricey", "claude-subscription/claude-x", "openrouter/vendor-e/router"],
-  newest: ["openrouter/vendor-b/new-free:free", "openrouter/vendor-d/pricey", "openrouter/vendor-c/cheap", "openrouter/vendor-z/old-free:free", "openrouter/vendor-e/router",
-    "anthropic/claude-x", "claude-subscription/claude-x", "ollama/qwen-local"],
-  score: ["openrouter/vendor-d/pricey", "openrouter/vendor-c/cheap", "openrouter/vendor-z/old-free:free", "anthropic/claude-x", "claude-subscription/claude-x",
-    "ollama/qwen-local", "openrouter/vendor-e/router", "openrouter/vendor-b/new-free:free"],
-  context: ["openrouter/vendor-e/router", "openrouter/vendor-d/pricey", "openrouter/vendor-c/cheap", "anthropic/claude-x", "claude-subscription/claude-x",
-    "openrouter/vendor-b/new-free:free", "openrouter/vendor-z/old-free:free", "ollama/qwen-local"],
+/** OpenRouter's models in each of its rows in the left list, top to bottom; "usual" is the openrouter row's own order. */
+const ORDERS: Record<ModelView | "usual", string[]> = {
+  usual: ["vendor-z/old-free:free", "vendor-e/router", "vendor-d/pricey", "vendor-c/cheap", "vendor-b/new-free:free"],
+  // Only the free ones, newest first.
+  free: ["vendor-b/new-free:free", "vendor-z/old-free:free"],
+  // Free ones cost nothing (a tie keeps the usual order); a router has no price of its own, so it goes last.
+  cheapest: ["vendor-z/old-free:free", "vendor-b/new-free:free", "vendor-c/cheap", "vendor-d/pricey", "vendor-e/router"],
+  newest: ["vendor-b/new-free:free", "vendor-d/pricey", "vendor-c/cheap", "vendor-z/old-free:free", "vendor-e/router"],
+  // Not rated goes last, in the usual order: never read as a low score.
+  smartest: ["vendor-d/pricey", "vendor-c/cheap", "vendor-z/old-free:free", "vendor-e/router", "vendor-b/new-free:free"],
 };
 
 function fakeCatalog(list: readonly Model<Api>[]): ModelBrowserCatalog {
@@ -79,20 +75,14 @@ function fakeCatalog(list: readonly Model<Api>[]): ModelBrowserCatalog {
 }
 const fakeTui = () => ({ requestRender() {}, terminal: { rows: 24, columns: 200 } }) as unknown as TUI;
 
-/** Runs `body` with /model's keys as pickPiModel registers them. */
-function withPickerKeys(body: () => void | Promise<void>) {
-  const previous = getKeybindings();
-  setKeybindings(new KeybindingsManager({ ...TUI_KEYBINDINGS, "casper.models.sort": { defaultKeys: "ctrl+o", description: "Change the order of the models" } }));
-  return Promise.resolve().then(body).finally(() => setKeybindings(previous));
-}
-
-function browser(options: { sort?: ModelSort; onSort?: (sort: ModelSort) => void; query?: string; list?: readonly Model<Api>[] } = {}) {
+function browser(options: { view?: ModelView; onView?: (view: ModelView | undefined) => void; query?: string; list?: readonly Model<Api>[];
+  facts?: (provider: string, id: string) => ModelFacts | undefined } = {}) {
   return new ModelBrowser({ tui: fakeTui(), catalog: fakeCatalog(options.list ?? models), color: false, sessionOnly: false, onSelect() {}, onCancel() {},
-    facts: lookup, ...options.sort ? { sort: options.sort } : {}, ...options.onSort ? { onSort: options.onSort } : {},
+    facts: options.facts ?? lookup, ...options.view ? { view: options.view } : {}, ...options.onView ? { onView: options.onView } : {},
     ...options.query ? { initialQuery: options.query } : {} });
 }
 const text = (picker: ModelBrowser, width = 200) => picker.render(width).join("\n");
-/** The right side's rows, top to bottom, as provider/id. */
+/** The right side's rows, top to bottom, as they read: provider/id in All models, id in one provider's list. */
 const rows = (picker: ModelBrowser, width = 200) => text(picker, width).split("\n")
   .map((line) => (line.split(" │ ")[1] ?? "").match(/^\s*(?:❯\s+)?\d+\.\s+(\S+)/)?.[1]).filter((label): label is string => Boolean(label));
 /** The right side of the list row for `label`. */
@@ -102,55 +92,139 @@ const firstRow = (picker: ModelBrowser, width: number) => text(picker, width).sp
   .find((line) => /^\s*(?:❯\s+)?1\.\s/.test(line)) ?? "";
 /** The line under the list: the highlighted model's details. */
 const details = (picker: ModelBrowser, width = 200) => picker.render(width).at(-3)!;
+/** The right side's first line: what the list is. */
+const header = (picker: ModelBrowser) => text(picker).split("\n")[1]!.split(" │ ")[1]!;
+/** The left list, top to bottom, as it reads ("openrouter 5", "free 2"), without the cursor. */
+const sidebar = (picker: ModelBrowser) => picker.render(200).slice(1, -4).map((line) => line.split(" │ ")[0]!.replace(/^❯ /, "").trim().replace(/\s+/g, " "))
+  .filter((line) => line && line !== "Models");
 
-test("Ctrl+O steps through the orders from either side; the header names the order, and a model with nothing to sort by goes last", async () => {
-  await withPickerKeys(() => {
-    const told: ModelSort[] = [];
-    const picker = browser({ onSort: (sort) => told.push(sort) });
-    try {
-      expect(rows(picker)).toEqual(ORDERS.usual);
-      expect(text(picker)).not.toContain("sorted:");
-      // The providers have the keys when it opens; the list's side takes the key too.
-      expect(text(picker)).toContain("Tab models · type to search · Ctrl+O sort");
-      const names: Record<ModelSort, string> = { usual: "", free: "free first", cheapest: "cheapest", newest: "newest", score: "AA score", context: "largest context" };
-      for (const sort of MODEL_SORTS.slice(1)) {
-        picker.handleInput(CTRL_O);
-        expect(rows(picker)).toEqual(ORDERS[sort]);
-        expect(text(picker)).toContain(`All models (8) · sorted: ${names[sort]}`);
-        if (sort === "cheapest") {
-          picker.handleInput("\t");
-          expect(text(picker)).toContain("Tab providers · Ctrl+S this session only · Ctrl+O sort");
-        }
-      }
-      picker.handleInput(CTRL_O);
-      expect(rows(picker)).toEqual(ORDERS.usual);
-      expect(text(picker)).not.toContain("sorted:");
-      expect(told).toEqual([...MODEL_SORTS.slice(1), "usual"]);
-    } finally { picker.dispose(); }
-  });
+test("under openrouter the left list has free, cheapest, newest and smartest: Down onto one shows OpenRouter's models that way, and the header says so", () => {
+  const picker = browser();
+  try {
+    expect(sidebar(picker)).toEqual(["All models 8", "Anthropic API 1", "Claude Code plan 1", "ollama 1", "openrouter 5", "free 2", "cheapest", "newest", "smartest"]);
+    // Set in under openrouter: they order its models, they are no provider of their own.
+    expect(text(picker).split("\n").map((line) => line.split(" │ ")[0]!).find((left) => left.trim().startsWith("free"))).toMatch(/^ {4}free +2$/);
+    for (let i = 0; i < 4; i++) picker.handleInput(DOWN);
+    expect(header(picker)).toStartWith("openrouter (5)");
+    expect(rows(picker)).toEqual(ORDERS.usual);
+    // The list's second row is marked; a row under openrouter starts again at its top.
+    picker.handleInput("\t"); picker.handleInput(DOWN); picker.handleInput("\t");
+    expect(details(picker)).toContain("openrouter/vendor-e/router");
+    const titles: Record<ModelView, string> = { free: "openrouter · free, newest first (2)", cheapest: "openrouter · cheapest first (5)",
+      newest: "openrouter · newest first (5)", smartest: "openrouter · smartest first (5)" };
+    for (const view of MODEL_VIEWS) {
+      picker.handleInput(DOWN);
+      expect([view, rows(picker)]).toEqual([view, ORDERS[view]]);
+      expect(header(picker)).toStartWith(titles[view]);
+      expect(text(picker)).toMatch(new RegExp(`❯ {3}${view}\\b`));
+      expect(details(picker)).toContain(`openrouter/${ORDERS[view][0]}`);
+    }
+    for (let i = 0; i < 4; i++) picker.handleInput(UP);
+    expect(header(picker)).toStartWith("openrouter (5)");
+    expect(rows(picker)).toEqual(ORDERS.usual);
+    expect(text(picker)).toContain("Tab models · type to search\n");
+    // No key to learn: Ctrl+O orders nothing now and types nothing (a key typed on the left goes to the search, so the
+    // list side has the keys), and no hint names it.
+    picker.handleInput(CTRL_O);
+    expect(rows(picker)).toEqual(ORDERS.usual);
+    expect(text(picker)).toContain("Tab providers · Ctrl+S this session only\n");
+    expect(text(picker)).not.toContain("Ctrl+O");
+    expect(text(picker)).not.toContain("sorted:");
+  } finally { picker.dispose(); }
 });
 
-test("each order starts at its top row, and search words keep the order among the models they match", async () => {
-  await withPickerKeys(() => {
-    // With no order chosen the best match comes first; with one, the matches follow it.
-    const relevance = browser({ query: "vendor-c" });
-    const newest = browser({ sort: "newest", query: "vendor-c" });
-    const listed = browser({ sort: "newest" });
-    try {
-      expect(rows(relevance)).toEqual(["openrouter/vendor-c/cheap", "openrouter/vendor-d/pricey"]);
-      expect(rows(newest)).toEqual(["openrouter/vendor-d/pricey", "openrouter/vendor-c/cheap"]);
-      listed.handleInput("\t");
-      listed.handleInput("\x1b[B");
-      expect(text(listed)).toContain("❯ 2. openrouter/vendor-d/pricey");
-      listed.handleInput(CTRL_O); // newest → AA score: the highlight goes back to the top.
-      expect(text(listed)).toContain("❯ 1. openrouter/vendor-d/pricey");
-      expect(rows(listed)).toEqual(ORDERS.score);
-    } finally { relevance.dispose(); newest.dispose(); listed.dispose(); }
-  });
+test("a row shows only when OpenRouter's list has something to order by, and only OpenRouter gets them", () => {
+  // OpenRouter's list not read yet (offline): the engine's own prices still tell free and cheap apart; dates and scores
+  // come only from OpenRouter's list. A router the engine prices at 0 counts as free until that list says otherwise.
+  const unread = browser({ facts: () => undefined });
+  const others = browser({ list: models.filter((model) => model.provider !== "openrouter") });
+  try {
+    expect(sidebar(unread)).toEqual(["All models 8", "Anthropic API 1", "Claude Code plan 1", "ollama 1", "openrouter 5", "free 3", "cheapest"]);
+    expect(sidebar(others)).toEqual(["All models 3", "Anthropic API 1", "Claude Code plan 1", "ollama 1"]);
+  } finally { unread.dispose(); others.dispose(); }
+});
+
+test("once OpenRouter's list is read, a model the engine lists that it doesn't (a picture maker priced 0) is not free and has no price", () => {
+  const picture = fakeModel("openrouter", "vendor-i/picture-maker", { contextWindow: 0, input: ["text", "image"] });
+  const picker = browser({ list: [...models, picture] });
+  try {
+    expect(sidebar(picker)).toContain("free 2");
+    expect(row(picker, "openrouter/vendor-i/picture-maker")).not.toContain("free");
+    picker.handleInput("\t");
+    for (let i = 0; i < 4; i++) picker.handleInput(DOWN);
+    expect(details(picker)).toContain("openrouter/vendor-i/picture-maker");
+    expect(details(picker)).not.toContain("free");
+    picker.handleInput("\t");
+    for (let i = 0; i < 6; i++) picker.handleInput(DOWN); // All models → … → openrouter → free → cheapest
+    expect(header(picker)).toStartWith("openrouter · cheapest first (6)");
+    // No price to order by: last, with the router, in the usual order.
+    expect(rows(picker)).toEqual([...ORDERS.cheapest.slice(0, 4), "vendor-i/picture-maker", "vendor-e/router"]);
+    picker.handleInput(UP);
+    expect(rows(picker)).toEqual(ORDERS.free);
+  } finally { picker.dispose(); }
+});
+
+test("words typed on a row search its models, in its order; words given with /model search every model", () => {
+  const picker = browser({ view: "free" });
+  try {
+    expect(header(picker)).toStartWith("openrouter · free, newest first (2)");
+    for (const key of "old") picker.handleInput(key);
+    expect(rows(picker)).toEqual(["vendor-z/old-free:free"]);
+    expect(header(picker)).toStartWith("openrouter · free, newest first (1)");
+    for (let i = 0; i < 3; i++) picker.handleInput(BACKSPACE);
+    expect(rows(picker)).toEqual(ORDERS.free);
+  } finally { picker.dispose(); }
+  const asked = browser({ view: "free", query: "vendor-c" });
+  try {
+    expect(header(asked)).toStartWith("All models (8)");
+    expect(rows(asked)).toEqual(["openrouter/vendor-c/cheap", "openrouter/vendor-d/pricey"]);
+  } finally { asked.dispose(); }
+});
+
+test("/model opens on the row under openrouter you left it on, until Casper quits; leaving it on another row forgets it", async () => {
+  // As Casper has them after reading OpenRouter's list.
+  setModelFacts("openrouter", new Map(Object.entries(facts).map(([key, value]) => [key.slice("openrouter/".length), value])));
+  const shown: ModelBrowser[] = [];
+  const tui = { addInputListener: () => () => {}, requestRender() {}, setFocus() {}, terminal: { rows: 24, columns: 160 } };
+  const view = { tui, color: false, show(component: ModelBrowser) { shown.push(component); }, onEOF() {} } as unknown as RuntimePickerView;
+  const catalog = fakeCatalog(models) as unknown as ModelRuntime;
+  /** Opens /model, presses `keys`, then Esc; what it showed when it opened. */
+  const open = async (keys: string[], query?: string) => {
+    const pick = pickPiModel(view, catalog, undefined, undefined, query);
+    const picker = shown.at(-1)!;
+    const opened = picker.render(160).join("\n");
+    for (const key of keys) picker.handleInput(key);
+    picker.handleInput(ESC);
+    expect(await pick).toBeUndefined();
+    return opened;
+  };
+  expect(await open([DOWN, DOWN, DOWN, DOWN, DOWN])).toContain("All models (8)");
+  expect(pickerMemory.view).toBe("free");
+  const again = await open([UP]);
+  expect(again).toContain("openrouter · free, newest first (2)");
+  expect(again).toMatch(/❯ {3}free/);
+  expect(pickerMemory.view).toBeUndefined();
+  expect(await open([])).toContain("All models (8)");
+  // Words to search for look through every model, whatever row was left.
+  pickerMemory.view = "free";
+  const asked = await open([], "vendor-c");
+  expect(asked).toContain("All models (8)");
+  expect(asked).toContain("openrouter/vendor-c/cheap");
+});
+
+test("one provider's own list leaves its name off the rows, since the header says it; the line under the list keeps the full id", () => {
+  const picker = browser();
+  try {
+    expect(rows(picker)).toContain("openrouter/vendor-c/cheap");
+    for (let i = 0; i < 3; i++) picker.handleInput(DOWN); // All models → Anthropic API → Claude Code plan → ollama
+    expect(header(picker)).toStartWith("ollama (1)");
+    expect(rows(picker)).toEqual(["qwen-local"]);
+    expect(details(picker)).toContain("ollama/qwen-local");
+  } finally { picker.dispose(); }
 });
 
 test("each row shows the AA score, — for a model it hasn't rated (never a number), and the source is named once under the header", () => {
-  const picker = browser({ sort: "score" });
+  const picker = browser();
   try {
     expect(row(picker, "openrouter/vendor-d/pricey")).toMatch(/AA 55 · +1m ctx/);
     expect(row(picker, "openrouter/vendor-c/cheap")).toMatch(/AA 30 · +262k ctx/);
@@ -173,9 +247,9 @@ test("each row shows the AA score, — for a model it hasn't rated (never a numb
 });
 
 test("the line under the list adds the highlighted model's coding and agentic indexes, Design Arena coding rank and the day OpenRouter added it", () => {
-  const scored = browser({ sort: "score" });
-  const unrated = browser({ sort: "newest" });
-  const router = browser({ sort: "context" });
+  const scored = browser({ view: "smartest" });
+  const unrated = browser({ view: "newest" });
+  const router = browser({ query: "vendor-e" });
   try {
     expect(details(scored)).toBe("  vendor-d/pricey · openrouter/vendor-d/pricey · 1m ctx · 4k out · $3/15 per M · AA 55.1 (coding 57, agentic 28.7) · "
       + "Design Arena coding #7 · added 2026-09-01 · reasoning · vision");
@@ -188,37 +262,21 @@ test("the line under the list adds the highlighted model's coding and agentic in
 });
 
 test("a narrow terminal drops the score column first, then the tags, then the price; every line fits", () => {
-  const picker = browser({ sort: "score" });
+  const picker = browser({ view: "smartest" });
   try {
     // 120 columns: the list gets 95.
-    expect(row(picker, "openrouter/vendor-d/pricey", 120)).toMatch(/AA 55 · +1m ctx · +\$3\/15 · reasoning · vision/);
+    expect(row(picker, "vendor-d/pricey", 120)).toMatch(/AA 55 · +1m ctx · +\$3\/15 · reasoning · vision/);
     expect(text(picker, 120)).toContain("AA: Artificial Analysis");
     // 100 columns: the list gets 75, so the score goes; the tags stay.
-    expect(firstRow(picker, 100)).toMatch(/openrouter\/vendor-d\/.*1m ctx · +\$3\/15 · reasoning · vision/);
+    expect(firstRow(picker, 100)).toMatch(/vendor-d\/pricey.*1m ctx · +\$3\/15 · reasoning · vision/);
     expect(firstRow(picker, 100)).not.toContain("AA");
     expect(text(picker, 100)).not.toContain("Artificial Analysis");
-    expect(firstRow(picker, 70)).toMatch(/openrouter\/vendor-d.*1m ctx · +\$3\/15\s*$/);
+    expect(firstRow(picker, 70)).toMatch(/vendor-d.*1m ctx · +\$3\/15\s*$/);
     expect(firstRow(picker, 70)).not.toContain("AA");
     for (const width of [40, 60, 80, 100, 120, 160, 200]) {
       for (const line of picker.render(width)) expect(visibleWidth(line)).toBeLessThanOrEqual(width);
     }
   } finally { picker.dispose(); }
-});
-
-test("the order stays between /model opens until Casper quits", async () => {
-  const shown: ModelBrowser[] = [];
-  const tui = { addInputListener: () => () => {}, requestRender() {}, setFocus() {}, terminal: { rows: 24, columns: 160 } };
-  const view = { tui, color: false, show(component: ModelBrowser) { shown.push(component); }, onEOF() {} } as unknown as RuntimePickerView;
-  const catalog = fakeCatalog(models) as unknown as ModelRuntime;
-  const first = pickPiModel(view, catalog, undefined, undefined, undefined);
-  shown[0]!.handleInput(CTRL_O);
-  shown[0]!.handleInput("\x1b");
-  expect(await first).toBeUndefined();
-  expect(pickerMemory.sort).toBe("free");
-  const second = pickPiModel(view, catalog, undefined, undefined, undefined);
-  expect(shown[1]!.render(160).join("\n")).toContain("sorted: free first");
-  shown[1]!.handleInput("\x1b");
-  expect(await second).toBeUndefined();
 });
 
 /** One model as OpenRouter's list has it (prices in US dollars per token, as text). */
@@ -265,13 +323,13 @@ test("the score and the day added come from the same read of OpenRouter's list a
   expect(modelFacts("openrouter", "vendor-d/new-model")).toMatchObject({ intelligence: 55.1, created: 1_792_778_188_000 });
   // The engine's own catalog, as /model reads it, with no second request and no facts passed in.
   const picker = new ModelBrowser({ tui: fakeTui(), catalog: { ...fakeCatalog([]), getAvailableSnapshot: () => catalog.getAvailableSnapshot() },
-    color: false, sessionOnly: false, onSelect() {}, onCancel() {}, initialScope: "openrouter", sort: "newest" });
+    color: false, sessionOnly: false, onSelect() {}, onCancel() {}, view: "newest" });
   try {
     const order = rows(picker);
-    expect(order.indexOf("openrouter/vendor-d/new-model")).toBe(0);
-    expect(order.indexOf("openrouter/vendor-d/older")).toBe(1);
-    expect(row(picker, "openrouter/vendor-d/new-model")).toMatch(/AA 55 · +131k ctx/);
-    expect(row(picker, "openrouter/vendor-d/older")).toMatch(/ — · /);
+    expect(order.indexOf("vendor-d/new-model")).toBe(0);
+    expect(order.indexOf("vendor-d/older")).toBe(1);
+    expect(row(picker, "vendor-d/new-model")).toMatch(/AA 55 · +131k ctx/);
+    expect(row(picker, "vendor-d/older")).toMatch(/ — · /);
     expect(details(picker)).toContain("AA 55.1 (coding 57) · Design Arena coding #7 · added 2026-10-23");
     expect(urls).toHaveLength(2);
   } finally { picker.dispose(); }

@@ -103,11 +103,14 @@ function fmtPrice(n: number): string {
 /** 55.12 → "55.1", 57 → "57". */
 const fmtScore = (n: number) => String(Number(n.toFixed(1)));
 
-/** The orders Ctrl+O steps through, in turn. A model with nothing to sort by goes last; ties keep the usual order. */
-export const MODEL_SORTS = ["usual", "free", "cheapest", "newest", "score", "context"] as const;
-export type ModelSort = typeof MODEL_SORTS[number];
-/** What the header says after "sorted:". */
-const SORT_NAMES: Record<ModelSort, string> = { usual: "", free: "free first", cheapest: "cheapest", newest: "newest", score: "AA score", context: "largest context" };
+/** The rows under openrouter in the left list: its models, only the free ones (newest first) or in another order.
+ * OpenRouter's own list is where the prices, dates and scores come from (src/runtime/model-facts.ts). A model with
+ * nothing to order by goes last; ties keep the usual order. */
+export const MODEL_VIEWS = ["free", "cheapest", "newest", "smartest"] as const;
+export type ModelView = typeof MODEL_VIEWS[number];
+const VIEW_PROVIDER = "openrouter";
+/** What the header says after the provider's name. */
+const VIEW_TITLES: Record<ModelView, string> = { free: "free, newest first", cheapest: "cheapest first", newest: "newest first", smartest: "smartest first" };
 const SCORE_LEGEND = "AA: Artificial Analysis Intelligence Index · higher is smarter · — not rated";
 /** What the 🔒 and ⚠ marks mean. Display only: nothing restricts a request to those hosts, so 🔒 promises no more. */
 const PRIVACY_LEGEND = "🔒 a host keeps nothing (OpenRouter may pick another) · ⚠ every host may keep your prompts";
@@ -140,9 +143,10 @@ export interface ModelBrowserOptions {
   onForgetServer?(name: string): void;
   /** What adding or forgetting a server just said, at the top of the right side until a key is pressed. */
   notice?: readonly string[];
-  /** The order the list opens in (Ctrl+O steps through them), and what to call when it changes. */
-  sort?: ModelSort;
-  onSort?(sort: ModelSort): void;
+  /** The row under openrouter to open on (the one /model was last left on), unless search words or a server just added
+   * are given; and what to call when the left list moves to another row. */
+  view?: ModelView;
+  onView?(view: ModelView | undefined): void;
   /** What is known about a model beyond the catalog (src/runtime/model-facts.ts); tests pass their own. */
   facts?(provider: string, id: string): ModelFacts | undefined;
 }
@@ -151,12 +155,12 @@ declare module "@earendil-works/pi-tui" {
   interface Keybindings {
     /** Forget one of your model servers (Ctrl+X on its row in /model). */
     "casper.models.forget": true;
-    /** The next order for /model's list (Ctrl+O). */
-    "casper.models.sort": true;
   }
 }
 
-type SidebarEntry = { label: string; provider?: string; count: number; kind: "all" | "provider" | "add"; saved?: { address: string; problem?: string } };
+/** A row of the left list. A row under openrouter (`view`) shows no count unless it lists fewer models (free). */
+type SidebarEntry = { label: string; provider?: string; view?: ModelView; count: number; kind: "all" | "provider" | "view" | "add";
+  saved?: { address: string; problem?: string } };
 const ADD_ROW = "+ Add server";
 
 /** "ollama-192-0-2-11" in 14 columns: the start and the end, which tells two servers of one kind apart. */
@@ -170,7 +174,8 @@ function middleCut(text: string, width: number): string {
 /** Casper's full-screen model browser in the spirit of omp's picker: a provider sidebar on the
  * left (where it opens, unless search words were given; Up/Down pick whose models show), a
  * search-backed model list on the right with score/context/price/capability columns, and a summary +
- * hint footer. Tab, Enter or Right moves to the list; Ctrl+O changes its order from either side. No kind filters.
+ * hint footer. Tab, Enter or Right moves to the list. The rows under openrouter show its models free, cheapest,
+ * newest or smartest first. No kind filters.
  * Keys flow through `getKeybindings()`; unbound keys edit the search input from either side. */
 export class ModelBrowser {
   private readonly searchInput = new Input();
@@ -185,7 +190,10 @@ export class ModelBrowser {
   private scope: string | undefined; // undefined = all providers
   private sidebarIndex = 0;
   private focus: "sidebar" | "main";
-  private sort: ModelSort;
+  /** The row under openrouter the list shows, if any. */
+  private view: ModelView | undefined;
+  /** Whether OpenRouter's own list was read: then a model it doesn't list has no price of its own (the engine's 0). */
+  private openRouterRead = false;
   private readonly facts: (provider: string, id: string) => ModelFacts | undefined;
   private errorMessage?: string;
   private refreshStatusMessage = "Refreshing model catalogs…";
@@ -199,7 +207,6 @@ export class ModelBrowser {
   constructor(private readonly options: ModelBrowserOptions) {
     this.current = options.current;
     this.defaultModel = options.defaultModel;
-    this.sort = options.sort ?? "usual";
     this.facts = options.facts ?? modelFacts;
     // Words to search for (or a server just added) mean a model is wanted: Enter picks at once. Otherwise "where
     // from" comes first.
@@ -214,6 +221,9 @@ export class ModelBrowser {
       this.scope = options.initialScope; this.syncSidebar(); this.applyScope();
       // A server just added that has no models yet: its row, which says what to do on that computer.
       if (!this.filteredModels.length) this.focus = "sidebar";
+    } else if (options.view && !options.initialQuery) {
+      const index = this.sidebarEntries().findIndex((entry) => entry.view === options.view);
+      if (index >= 0) { this.sidebarIndex = index; this.scope = VIEW_PROVIDER; this.view = options.view; this.applyScope(); }
     }
     const query = options.initialQuery;
     if (query) {
@@ -269,9 +279,9 @@ export class ModelBrowser {
       const entry = this.sidebarEntries()[this.sidebarIndex];
       if (entry?.kind === "add") return this.muted(choiceHint(1, "add a model server"));
       // Keep the shared primary hint first; server shortcuts precede the search hint.
-      return this.muted(choiceHint(1, "Tab models", ...(entry?.saved && this.options.onForgetServer ? ["Ctrl+X forgets this server"] : []), "type to search", "Ctrl+O sort"));
+      return this.muted(choiceHint(1, "Tab models", ...(entry?.saved && this.options.onForgetServer ? ["Ctrl+X forgets this server"] : []), "type to search"));
     }
-    return this.muted(choiceHint(this.filteredModels.length, "Tab providers", this.options.sessionOnly ? "this session only" : "Ctrl+S this session only", "Ctrl+O sort"));
+    return this.muted(choiceHint(this.filteredModels.length, "Tab providers", this.options.sessionOnly ? "this session only" : "Ctrl+S this session only"));
   }
 
   private statusSuffix(): string {
@@ -283,6 +293,7 @@ export class ModelBrowser {
   private loadModelsFromSnapshot(): void {
     this.allModels = this.sortModels(this.options.catalog.getAvailableSnapshot()
       .map(model => ({ model, provider: model.provider, id: model.id })));
+    this.openRouterRead = this.allModels.some((item) => item.provider === VIEW_PROVIDER && this.factsOf(item) !== undefined);
     this.applyScope();
   }
 
@@ -302,13 +313,15 @@ export class ModelBrowser {
       if (providerOrder !== 0) return providerOrder;
       return b.id.localeCompare(a.id, undefined, { numeric: true });
     });
-    return this.ordered(sorted);
+    return sorted;
   }
 
-  /** The rows in the chosen order (Ctrl+O); rows that tie keep the order they came in (the usual one, or the search's). */
+  /** The rows in the order of the row under openrouter the list shows; rows that tie keep the order they came in (the
+   * usual one, or the search's). */
   private ordered(items: readonly Item[]): Item[] {
-    if (this.sort === "usual") return [...items];
-    const keys = new Map(items.map((item, index) => [item, [...this.sortKey(item), index] as const]));
+    const view = this.view;
+    if (!view) return [...items];
+    const keys = new Map(items.map((item, index) => [item, [...this.sortKey(item, view), index] as const]));
     return [...items].sort((a, b) => {
       const [aGroup, aValue, aIndex] = keys.get(a)!;
       const [bGroup, bValue, bIndex] = keys.get(b)!;
@@ -316,22 +329,14 @@ export class ModelBrowser {
     });
   }
 
-  /** Where the chosen order puts a row: by group, then by value, both ascending. A row with nothing to sort by is in a
-   * later group, so it goes last. */
-  private sortKey(item: Item): [group: number, value: number] {
+  /** Where a row under openrouter puts a model: by group, then by value, both ascending. A model with nothing to order
+   * by is in a later group, so it goes last. The free row lists only free models, newest first. */
+  private sortKey(item: Item, view: ModelView): [group: number, value: number] {
     const facts = this.factsOf(item);
-    switch (this.sort) {
-      case "free": {
-        // Free models newest first (one with no date after them), then paid ones cheapest first.
-        const price = this.priceOf(item);
-        if (price === 0) return facts?.created === undefined ? [1, 0] : [0, -facts.created];
-        return price === undefined ? [3, 0] : [2, price];
-      }
+    switch (view) {
       case "cheapest": { const price = this.priceOf(item); return price === undefined ? [1, 0] : [0, price]; }
-      case "newest": return facts?.created === undefined ? [1, 0] : [0, -facts.created];
-      case "score": return facts?.intelligence === undefined ? [1, 0] : [0, -facts.intelligence];
-      case "context": return item.model.contextWindow > 0 ? [0, -item.model.contextWindow] : [1, 0];
-      default: return [0, 0];
+      case "smartest": return facts?.intelligence === undefined ? [1, 0] : [0, -facts.intelligence];
+      default: return facts?.created === undefined ? [1, 0] : [0, -facts.created];
     }
   }
 
@@ -343,17 +348,10 @@ export class ModelBrowser {
     if (item.provider === "claude-subscription") return undefined;
     const facts = this.factsOf(item);
     if (facts) return facts.free ? 0 : facts.price ? facts.price.input + facts.price.output : undefined;
+    // A picture maker or a classifier the engine lists at 0 that OpenRouter's own list doesn't have: no per-token price.
+    if (item.provider === VIEW_PROVIDER && this.openRouterRead) return undefined;
     const cost = item.model.cost;
     return cost ? (cost.input || 0) + (cost.output || 0) : undefined;
-  }
-
-  /** Steps to the next order: the list starts again at its top row. */
-  private nextSort(): void {
-    this.sort = MODEL_SORTS[(MODEL_SORTS.indexOf(this.sort) + 1) % MODEL_SORTS.length]!;
-    this.options.onSort?.(this.sort);
-    this.loadModelsFromSnapshot();
-    this.filterModels(this.searchInput.getValue());
-    this.selectedIndex = 0;
   }
 
   private sidebarEntries(): SidebarEntry[] {
@@ -364,11 +362,21 @@ export class ModelBrowser {
     for (const name of servers.keys()) if (!counts.has(name)) counts.set(name, 0);
     const providers = [...counts.keys()].sort((a, b) => a.localeCompare(b));
     return [{ label: "All models", provider: undefined, count: this.allModels.length, kind: "all" },
-      ...providers.map((provider): SidebarEntry => {
+      ...providers.flatMap((provider): SidebarEntry[] => {
         const saved = servers.get(provider);
-        return { label: providerLabel(provider), provider, count: counts.get(provider)!, kind: "provider", ...saved ? { saved: { address: saved.address, ...saved.problem ? { problem: saved.problem } : {} } } : {} };
+        return [{ label: providerLabel(provider), provider, count: counts.get(provider)!, kind: "provider", ...saved ? { saved: { address: saved.address, ...saved.problem ? { problem: saved.problem } : {} } } : {} },
+          ...provider === VIEW_PROVIDER ? this.viewEntries() : []];
       }),
       ...this.options.onAddServer ? [{ label: ADD_ROW, count: -1, kind: "add" as const }] : []];
+  }
+
+  /** The rows under openrouter: each only when its models have something to order it by. */
+  private viewEntries(): SidebarEntry[] {
+    const listed = this.allModels.filter((item) => item.provider === VIEW_PROVIDER);
+    const free = listed.filter((item) => this.priceOf(item) === 0).length;
+    const has: Record<ModelView, boolean> = { free: free > 0, cheapest: listed.some((item) => this.priceOf(item) !== undefined),
+      newest: listed.some((item) => this.factsOf(item)?.created !== undefined), smartest: listed.some((item) => this.factsOf(item)?.intelligence !== undefined) };
+    return MODEL_VIEWS.filter((view) => has[view]).map((view) => ({ label: `  ${view}`, provider: VIEW_PROVIDER, view, count: view === "free" ? free : -1, kind: "view" }));
   }
 
   private sidebarWidth(width: number): number {
@@ -379,15 +387,17 @@ export class ModelBrowser {
     return Math.min(Math.max(14, labelWidth + 6), Math.max(16, cap));
   }
 
-  /** Keep the provider cursor on the provider in scope after the rows change (a refresh adds or drops one); a
-   * provider that is gone puts it back on "All models". */
+  /** Keep the provider cursor on the row in scope after the rows change (a refresh adds or drops one); a row under
+   * openrouter that is gone puts it on openrouter's own, and a provider that is gone back on "All models". */
   private syncSidebar(): void {
     const entries = this.sidebarEntries();
     // The add row keeps its place: what it shows doesn't depend on the providers.
     if (entries[this.sidebarIndex]?.kind === "add") { this.sidebarIndex = entries.length - 1; return; }
-    const index = entries.findIndex(entry => entry.kind !== "add" && entry.provider === this.scope);
+    const at = (view: ModelView | undefined) => entries.findIndex(entry => entry.kind !== "add" && entry.provider === this.scope && entry.view === view);
+    let index = at(this.view);
+    if (index < 0 && this.view) { this.view = undefined; index = at(undefined); }
     if (index >= 0) this.sidebarIndex = index;
-    else { this.scope = undefined; this.sidebarIndex = 0; }
+    else { this.scope = undefined; this.view = undefined; this.sidebarIndex = 0; }
   }
 
   private sidebarLines(height: number, width: number): string[] {
@@ -400,18 +410,26 @@ export class ModelBrowser {
       const entry = entries[i]!;
       const cursor = pickerCursor(this.focus === "sidebar" && this.sidebarIndex === i, this.options.color);
       if (entry.kind === "add") { lines.push(`${cursor}${this.accent(middleCut(entry.label, width - 2))}`); continue; }
-      // One of yours that didn't answer is "off"; one that answered with no models yet is 0.
-      const count = entry.saved?.problem && !entry.count ? "off" : String(entry.count);
+      // One of yours that didn't answer is "off"; one that answered with no models yet is 0. A row under openrouter
+      // that lists them all has no count.
+      const count = entry.count < 0 ? "" : entry.saved?.problem && !entry.count ? "off" : String(entry.count);
       const label = middleCut(entry.label, width - 3 - count.length);
-      const active = entry.kind !== "all" && this.scope === entry.provider ? this.accent(label) : label;
+      const shown = entry.kind !== "all" && this.scope === entry.provider && this.view === entry.view;
+      const active = shown ? this.accent(label) : label;
       lines.push(`${cursor}${active}${this.muted(count.padStart(width - visibleWidth(label) - 2))}`);
     }
     return lines;
   }
 
-  private applyScope(): void {
+  /** The models the left list's row stands for, in the usual order: all of them, one provider's, or OpenRouter's free
+   * ones. */
+  private inScope(): Item[] {
     const active = this.scope === undefined ? this.allModels : this.allModels.filter(item => item.provider === this.scope);
-    this.filteredModels = active;
+    return this.view === "free" ? active.filter((item) => this.priceOf(item) === 0) : active;
+  }
+
+  private applyScope(): void {
+    this.filteredModels = this.ordered(this.inScope());
     this.selectedIndex = Math.min(this.selectedIndex, Math.max(0, this.filteredModels.length - 1));
   }
 
@@ -420,7 +438,7 @@ export class ModelBrowser {
       this.applyScope();
       return;
     }
-    const active = this.scope === undefined ? this.allModels : this.allModels.filter(item => item.provider === this.scope);
+    const active = this.inScope();
     const filtered = this.ordered(fuzzyFilter(active, query, item => searchText({ provider: item.provider, id: item.id, name: item.model.name }, this.defaultModel)));
     const normalized = query.trim().toLowerCase();
     if (normalized && "default".startsWith(normalized)) {
@@ -462,10 +480,9 @@ export class ModelBrowser {
   private mainLines(width: number, height: number): string[] {
     const info = this.infoLines(width, height);
     if (info) return info;
-    const header = (this.scope === undefined
+    const header = this.scope === undefined
       ? this.accent("All models") + this.muted(` (${this.allModels.length})`)
-      : this.accent(terminalText(this.scope)) + this.muted(` (${this.filteredModels.length})`))
-      + (this.sort === "usual" ? "" : this.muted(` · sorted: ${SORT_NAMES[this.sort]}`));
+      : this.accent(terminalText(this.scope)) + this.muted(`${this.view ? ` · ${VIEW_TITLES[this.view]}` : ""} (${this.filteredModels.length})`);
     const columns = this.columns(width);
     // Why a server Casper was told about isn't listed: each reason wrapped to the pane, at most a third of it. Then,
     // when rows show a score, what it is: named once, here.
@@ -547,6 +564,8 @@ export class ModelBrowser {
     // A router (openrouter/auto) costs what the model it picks costs: never "free".
     const facts = this.factsOf(model);
     if (facts && !facts.free && !facts.price) return "varies";
+    // Not on OpenRouter's own list once it is read: no price to show, rather than the engine's 0 as "free".
+    if (!facts && model.provider === VIEW_PROVIDER && this.openRouterRead) return "";
     const cost = model.cost;
     if (!cost) return "";
     if (!cost.input && !cost.output) return "free";
@@ -557,7 +576,8 @@ export class ModelBrowser {
     const meta = this.metaText(item, columns);
     const metaWidth = meta ? visibleWidth(meta) + 1 : 0;
     const leftWidth = Math.max(8, width - metaWidth);
-    const label = `${sameRef(this.current, item) ? "✓ " : ""}${item.provider}/${item.id}${sameRef(this.defaultModel, item) ? " · default" : ""}`;
+    // In one provider's list the header names it, so the rows leave it out; the line under the list keeps the full id.
+    const label = `${sameRef(this.current, item) ? "✓ " : ""}${this.scope === undefined ? `${item.provider}/` : ""}${item.id}${sameRef(this.defaultModel, item) ? " · default" : ""}`;
     const room = Math.max(1, leftWidth - 2 - visibleWidth(choiceNumber(index, this.filteredModels.length)));
     const left = pickerOptionLines([{ label: stripVTControlCharacters(truncateToWidth(label, room, "…")) }], 0,
       selected && this.focus === "main", leftWidth, this.options.color, { count: this.filteredModels.length, offset: index })[0]!;
@@ -614,12 +634,6 @@ export class ModelBrowser {
       this.options.tui.requestRender();
       return;
     }
-    if (kb.matches(keyData, "casper.models.sort")) {
-      this.number = "";
-      this.nextSort();
-      this.options.tui.requestRender();
-      return;
-    }
     if (this.focus === "sidebar") {
       const entries = this.sidebarEntries();
       if (kb.matches(keyData, "tui.select.up") || kb.matches(keyData, "tui.select.down")) {
@@ -630,6 +644,8 @@ export class ModelBrowser {
           // The add row is no provider: the list behind it stays as it was.
           if (entry.kind !== "add") {
             this.scope = entry.provider;
+            this.view = entry.view;
+            this.options.onView?.(entry.view);
             // A new provider starts at its first model (the current one, when it is there).
             this.selectedIndex = 0;
             this.filterModels(this.searchInput.getValue());
