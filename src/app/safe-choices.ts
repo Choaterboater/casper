@@ -34,13 +34,20 @@ export const PLAN_CHOICES = [
 ] as const satisfies readonly Choice[];
 
 /** A plan with an open question offers to answer it, second after Stop; the question is in the plan above and is
- * asked again where the answer is typed. */
+ * asked again where the answer is typed. A plan with several asks them one after another, then rewrites once. */
 export const PLAN_ANSWER = "Answer the question";
-export function planChoices(question: string | undefined, details: boolean): Choice[] {
+export const PLAN_ANSWERS = "Answer the questions";
+export function planChoices(questions: readonly string[], details: boolean): Choice[] {
   const base: Choice[] = [...(details ? PLAN_CHOICES_DETAILS : PLAN_CHOICES)].map((choice) => ({ ...choice }));
-  return question ? [base[0]!, { label: PLAN_ANSWER, description: "type the answer; the model rewrites the plan" }, ...base.slice(1)] : base;
+  if (!questions.length) return base;
+  const answer = questions.length === 1 ? { label: PLAN_ANSWER, description: "type the answer; the model rewrites the plan" }
+    : { label: PLAN_ANSWERS, description: `type each of the ${questions.length} answers; the model rewrites the plan once` };
+  return [base[0]!, answer, ...base.slice(1)];
 }
 export const PLAN_ANSWER_HINT = "Type your answer · Enter sends · Esc goes back to the plan";
+/** One of several open questions: an empty answer leaves that one open. */
+export const planAnswerHint = (index: number, total: number) =>
+  `Question ${index} of ${total} · Type your answer · Enter sends; empty leaves it open · Esc goes back to the plan`;
 
 export const PLAN_CHANGE_QUESTION = "What should change?";
 export const PLAN_CHANGE_HINT = 'Type a change ("drop step 2") or ask ("why step 3?") · Enter sends · Esc stops without building';

@@ -237,6 +237,11 @@ describe("the plan", () => {
     expect(body).toContain("investigate only a specific unresolved question");
   });
 
+  test("a plan's open questions are only genuine unknowns; the model looks up the rest", async () => {
+    const { bundledFlows, findFlow } = await import("../src/flows/catalog");
+    expect(findFlow(bundledFlows(), "plan-first")!.body).toContain("Open questions: only genuine unknowns as questions ending in ?; omit when none; look up the rest");
+  });
+
   test("the build prompt carries the request, the numbered steps and one test per case", () => {
     const prompt = formatBuildPrompt("Reject empty hostnames", { steps: ["Add the test", "Change the parser"], tests: ["empty host is an error"] });
     expect(prompt).toContain("Reject empty hostnames");
