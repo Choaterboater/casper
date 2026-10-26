@@ -8,7 +8,7 @@ import { CasperApp } from "../src/app";
 import { loadProjectContext } from "../src/project/context";
 import { asksBeforeShell, ShellSandbox } from "../src/sandbox/manager";
 import { SkillRegistry } from "../src/skills/registry";
-import type { AgentRuntime, RuntimeSession, RuntimeStartOptions, RuntimeTool } from "../src/runtime/types";
+import type { AgentRuntime, RuntimeEvent, RuntimeEventListener, RuntimeSession, RuntimeStartOptions, RuntimeTool } from "../src/runtime/types";
 import { COMMANDS } from "../src/tui/commands";
 import { FULL_HELP_TEXT } from "../src/tui/help";
 import { reapMarker } from "./support/reap";
@@ -32,11 +32,15 @@ class ScriptedRuntime implements AgentRuntime {
   options?: RuntimeStartOptions;
   tools: RuntimeTool[] = [];
   action: (signal?: AbortSignal) => Promise<void> = async () => {};
+  private listener?: RuntimeEventListener;
   constructor(private readonly sessionFile: string) {}
+  /** What the AI's runtime reports during a task, such as a shell command it ran. */
+  emit(event: RuntimeEvent): void { this.listener?.(event); }
   async start(options: RuntimeStartOptions): Promise<RuntimeSession> {
     this.starts++; this.options = options; this.tools = options.tools ?? [];
     const info = () => ({ cwd: options.cwd, sessionId: "fixture", sessionFile: this.sessionFile });
-    return { prompt: async (_text, signal) => this.action(signal), setTools: tools => { this.tools = tools; }, abort: async () => {}, subscribe: () => () => {},
+    return { prompt: async (_text, signal) => this.action(signal), setTools: tools => { this.tools = tools; }, abort: async () => {},
+      subscribe: listener => { this.listener = listener; return () => { this.listener = undefined; }; },
       getState: () => ({ cwd: options.cwd, isStreaming: false }), clearConversation: async () => {}, getSessionInfo: info,
       resumeConversation: async (id: string) => { this.resumed.push(id); },
       forkSession: async () => info(), switchSession: async () => info() };
@@ -292,4 +296,26 @@ test("the service tool is offered for declared services; elsewhere only for serv
   await gone(pid);
   await f.app.runOnce("fix the parser once more");
   expect(seen).toEqual([false, true, true, false]);
+}, 30_000);
+
+test("a server the AI reached with its own shell brings the service tool from the next task, until /clear", async () => {
+  const f = await fixture({}, { declare: false });
+  const seen: boolean[] = [];
+  let command: string | undefined;
+  f.runtime.action = async () => {
+    seen.push(offered(f.runtime));
+    if (command) f.runtime.emit({ type: "tool_end", toolName: "bash", input: { command }, isError: false });
+    command = undefined;
+  };
+  await f.app.start(f.project);
+  command = "ls -la";
+  await f.app.runOnce("fix the parser");
+  // The task's words name no server, but the AI's own command reached one: the tool joins the next task (a tool list
+  // that changes mid-task would throw away the provider's prompt cache), and stays like any offered tool.
+  command = "sleep 1; curl -s http://127.0.0.1:8000/api/status";
+  await f.app.runOnce("why doesn't the list sort");
+  await f.app.runOnce("make every header sortable");
+  await f.app.runOnce("/clear");
+  await f.app.runOnce("fix the parser again");
+  expect(seen).toEqual([false, false, true, false]);
 }, 30_000);

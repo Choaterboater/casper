@@ -7,9 +7,21 @@ import type { BackgroundCommands } from "../runtime/background-commands";
 import { gitGuardReason } from "../runtime/git-guard";
 import { gitInternalsCommand, privatePathCommand } from "../platform/project-paths";
 
-/** Server vocabulary in the task, declared services or a live one pull in the service tool; elsewhere it costs no prompt tokens. */
-export function serviceRequested(task: string, services: { declared: boolean; live: boolean }): boolean {
-  return services.declared || services.live || /\b(?:dev|http|web)[ -]?servers?\b|\blocalhost\b|\bendpoints?\b|\bcurl\b/i.test(task);
+const SERVER_WORDS = /\b(?:dev|http|web)[ -]?servers?\b|\blocalhost\b|\bendpoints?\b|\bcurl\b/i;
+
+/** Server vocabulary in the task (or in the plan the person accepted for it), declared services or a live one pull in
+ * the service tool; elsewhere it costs no prompt tokens. */
+export function serviceRequested(task: string, services: { declared: boolean; live: boolean }, plan?: string): boolean {
+  return services.declared || services.live || SERVER_WORDS.test(task) || (plan !== undefined && SERVER_WORDS.test(plan));
+}
+
+const LOCAL_SERVER = /\blocalhost\b|\b127\.0\.0\.1\b|\b0\.0\.0\.0\b|\[::1\]|\bhttp\.server\b|\b(?:uvicorn|gunicorn|runserver|nodemon)\b|\bflask\s+run\b|\b(?:npm|pnpm|yarn|bun)\s+(?:run\s+)?(?:dev|serve|start)\b/i;
+
+/** The AI's own shell command reached a server on this machine or started a common dev server. The service tool then
+ * joins the next task (src/app.ts), so a server the AI runs stays up across turns and restarts after edits, instead of
+ * dying with its shell call or living in a tmux server a later task may not touch. */
+export function reachesLocalServer(command: string): boolean {
+  return LOCAL_SERVER.test(command);
 }
 
 const LOOPBACK = new Set(["localhost", "127.0.0.1", "[::1]"]);

@@ -11,6 +11,7 @@ import type { LabSettings } from "./network/spec";
 import { modelPreference } from "./tui/model-preference";
 import { BrowserSession } from "./browser/session";
 import { ServiceManager } from "./services/manager";
+import { reachesLocalServer } from "./services/tool";
 import type { BackgroundCommands } from "./runtime/background-commands";
 import { SmokeChecks } from "./services/smoke";
 import { pageOpener, type DevServerNotice, type PageOpener } from "./services/page-checks";
@@ -238,6 +239,8 @@ export class CasperApp {
   runtimeTools: RuntimeTool[] = [];
   /** Tools offered in this conversation. They stay offered, so the provider's prompt cache holds. */
   readonly offeredTools = new Set<string>();
+  /** The AI's shell reached a server on this machine this task: the service tool joins the next one. */
+  serverSeen = false;
   readonly terminal: InteractiveTerminal;
   interactive = false;
   /** beforeChanges gate state for the current task; a recorded ask attempt satisfies it. */
@@ -576,6 +579,9 @@ export class CasperApp {
         if (["bash", "powershell", "edit", "write"].includes(event.toolName)) this.browser?.invalidate();
         // A shell command's files are unknown, so it marks every running service stale.
         if (event.toolName === "bash" || event.toolName === "powershell") { this.services?.markEdited(); if (this.taskEdits) this.taskEdits.shell = true; }
+        // A server it reached or started: the service tool joins the next task, never this one (a tool list that
+        // changes mid-task throws away the provider's prompt cache).
+        if ((event.toolName === "bash" || event.toolName === "powershell") && typeof event.input?.command === "string" && reachesLocalServer(event.input.command)) this.serverSeen = true;
         // Successful native writes invalidate in afterFileEdit, before LSP awaits.
         // Failed writes may be partial; invalidate without claiming a completed edit.
         if (event.isError && ["edit", "write"].includes(event.toolName) && typeof event.input?.path === "string") {
