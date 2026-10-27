@@ -78,6 +78,7 @@
           </li>
           <li><a href="#released">Released</a>
             <ul>
+              <li><a href="#v0306">v0.3.6: /look without the slash</a></li>
               <li><a href="#v0305">v0.3.5: keeps going</a></li>
               <li><a href="#v0304">v0.3.4: OpenRouter rows</a></li>
               <li><a href="#v0303">v0.3.3: model failover</a></li>
@@ -130,7 +131,7 @@
         <h2 id="next-h">Next release</h2>
         <aside class="callout soon">
           <strong class="callout-title">Built, not released</strong>
-          <p>Nothing on the main branch is waiting: everything built so far is in v0.3.5. New work shows here before the next preview.</p>
+          <p>Nothing on the main branch is waiting: everything built so far is in v0.3.6. New work shows here before the next preview.</p>
         </aside>
       </section>
 
@@ -372,10 +373,24 @@
         and on the <a href="https://github.com/Choaterboater/casper/releases">Releases page</a>.</p>
         <div class="stack">
 
+        <details class="card release" id="v0306" aria-labelledby="v0306-h" open>
+          <summary class="release-heading">
+            <h3 id="v0306-h">v0.3.6 · /look without the slash, one key to fix what a look found, and browser checks that last the conversation</h3>
+            <span class="badge ok">current preview</span>
+          </summary>
+          <ul>
+            <li><strong>Look without the slash.</strong> In a session, <code>look adapt</code>, <code>look clairfy</code> (one letter off) or <code>look layout and type</code> runs as <code>/look</code> and says so first; words after it go with the request.</li>
+            <li><strong>The same page.</strong> A <code>/look</code> with no page looks again at the page the last one used; <code>/clear</code> forgets it.</li>
+            <li><strong>Fix all of it.</strong> After a critique or audit, <code>1</code> on the row under it (<code>Next: 1 Fix all of it</code>) or <code>/look fix</code> fixes everything it found in one task, once its questions are answered.</li>
+            <li><strong>Wide screens.</strong> The AI's browser opens pages up to 3840 × 2160, and <code>/look adapt</code> also checks the width you use.</li>
+            <li><strong>Checks across tasks.</strong> A browser check recorded in one task replays in a later one, and counts there only once it runs.</li>
+            <li><strong>Screenshots on Windows.</strong> The AI's browser screenshots reach it on Windows instead of failing, so <code>/look</code> sees the page there too.</li>
+          </ul>
+        </details>
         <details class="card release" id="v0305" aria-labelledby="v0305-h" open>
           <summary class="release-heading">
             <h3 id="v0305-h">v0.3.5 · Work that keeps going until it is done, plan questions asked at once, and apps that stay running</h3>
-            <span class="badge ok">current preview</span>
+            <span class="badge">previous preview</span>
           </summary>
           <ul>
             <li><strong>Keeps going.</strong> When the AI stops with work it says is not done, or says what it does next, and asks you nothing, Casper sends it on with what is still open, twice at most (<code>↻ keep going 1/2</code>; Esc stops it). <code>keep_going: off</code> or <code>/settings</code> waits for you instead.</li>
@@ -391,7 +406,7 @@
         <details class="card release" id="v0304" aria-labelledby="v0304-h" open>
           <summary class="release-heading">
             <h3 id="v0304-h">v0.3.4 · Rows for OpenRouter's free, cheapest, newest and smartest models in /model</h3>
-            <span class="badge">previous preview</span>
+            <span class="badge">released</span>
           </summary>
           <ul>
             <li><strong>OpenRouter rows.</strong> Under <code>openrouter</code>, <code>/model</code>'s left list has <code>free</code> (only its free models, newest first), <code>cheapest</code>, <code>newest</code> and <code>smartest</code>: Down onto one shows OpenRouter's models that way. They replace <kbd>Ctrl+O</kbd>, and <code>/model</code> opens on the row you left it on.</li>
@@ -400,7 +415,7 @@
           </ul>
         </details>
 
-        <details class="card release" id="v0303" aria-labelledby="v0303-h" open>
+        <details class="card release" id="v0303" aria-labelledby="v0303-h">
           <summary class="release-heading">
             <h3 id="v0303-h">v0.3.3 · Failover when a model hits its limit, and a model list that stays current</h3>
             <span class="badge">released</span>
@@ -1370,7 +1385,7 @@
   <footer class="site-footer">
     <div class="container footer-inner">
       <div>
-        <p><strong>Casper 0.3.5</strong> · early preview, unsigned</p>
+        <p><strong>Casper 0.3.6</strong> · early preview, unsigned</p>
         <p><a href="https://github.com/Choaterboater/casper/blob/main/LICENSE">MIT licence</a> · © 2026 Choaterboater</p>
         <p>Built on the <a href="https://github.com/earendil-works/pi">Pi SDK</a>. Other parts keep their own licences (<a href="https://github.com/Choaterboater/casper/blob/main/THIRD_PARTY_NOTICES.txt">notices</a>).</p>
       </div>

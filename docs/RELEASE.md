@@ -14,11 +14,29 @@ when releasing. Existing historical notes below stay as written; feature tests c
 reference docs, not a per-PR release-note or roadmap entry. Release-prep checks verify the version and
 installer targets (`tests/release-install.test.ts`, `tests/release-targets.test.ts`).
 
-Casper distributes an unsigned **v0.3.5 preview**, not a stable release. The installers
-download from `https://github.com/Choaterboater/casper/releases/download/v0.3.5`,
+Casper distributes an unsigned **v0.3.6 preview**, not a stable release. The installers
+download from `https://github.com/Choaterboater/casper/releases/download/v0.3.6`,
 because GitHub's `latest/download` link skips preview releases. The first published
 preview was **v0.1.0**. A published release is never changed; every fix ships under a
 new version.
+
+## v0.3.6: /look without the slash, one key to fix what a look found, and browser checks that last the conversation
+
+### Added
+
+- In a session, `look adapt` or `look layout and type` runs as `/look`, and a name one letter off still works.
+- After a `/look` report, `1` on the row under it, or `/look fix`, fixes everything it found in one task.
+
+### Changed
+
+- A `/look` with no page looks again at the page the last `/look` in the conversation used.
+- The AI's browser can open a page up to 3840 by 2160, and `/look adapt` also checks the width you use.
+- A critique asks at most 3 questions, last, and only where an answer would change a fix.
+
+### Fixed
+
+- A browser check recorded in one task can be replayed in a later one instead of failing as an unknown check.
+- On Windows, the AI's browser screenshots reach the model instead of failing, so `/look` sees the page there too.
 
 ## v0.3.5: work that keeps going until it is done, plan questions asked at once, and apps that stay running
 
