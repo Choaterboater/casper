@@ -171,6 +171,14 @@ export function outcomeNote(event: ToolEnd): string | undefined {
   if (event.toolName === "casper_check") {
     try { if (JSON.parse(text).status === "skip") return "skipped"; } catch { /* Not a check result. */ }
   }
+  // A helper that stopped at its limit and handed back findings: partial, in plain words (its reason says which limit).
+  if (event.toolName === "delegate" && !event.isError) {
+    try {
+      const parsed = JSON.parse(text) as { data?: { partial?: unknown; reason?: unknown }; partial?: unknown; reason?: unknown };
+      const result = parsed.data ?? parsed;
+      if (result.partial === true) return typeof result.reason === "string" && result.reason.startsWith("partial") ? result.reason.slice(0, 120) : "partial";
+    } catch { /* Not a helper's result. */ }
+  }
   return shellAnswer(event, text);
 }
 

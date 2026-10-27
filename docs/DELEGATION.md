@@ -64,8 +64,10 @@ not proof that the code works.
 - When a helper uses up its turns or tool calls, or is a minute from its time
   limit (45 seconds for an explorer: a quarter of its 3 minutes), it is told to stop and gets one last turn with no tools to report what
   it found so far, marked partial, if the step it is on finishes in time.
-- The main AI then gets that report with status `limited` and a reason such as
-  `partial: stopped at its 12-turn limit`, not an empty result. A helper that
+- The main AI then gets that report with status `limited`, `partial: true` and a reason such as
+  `partial: stopped at its 12-turn limit` (its summary starts `Partial result:`), not an empty result
+  and not a failure: the step shows as a grey note, `delegate — partial: stopped at its 12-turn limit`,
+  not a red box. One that wrote nothing still counts as failed. A helper that
   wrote nothing, or was still on a step at its time limit (status `timed_out`),
   still hands back its last words or which files it looked at. `casper learn` keeps its whole
   limit instead, since it saves nothing from a partial run.

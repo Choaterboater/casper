@@ -404,9 +404,11 @@ describe("Phase 8 bounded subagents", () => {
     });
     const tool = manager(() => child).createTool(() => task);
     const result = await tool.execute({ role: "explorer", goal: "Audit the budget code" });
-    // Still flagged (it is not a whole answer), with the reason and the findings first in the result.
-    expect(result.isError).toBe(true);
-    expect(result.text).toContain('"status":"limited","reason":"partial: stopped at its 12-turn limit"');
+    // Not a failure (it handed back findings the parent can use), but plainly partial: the status, the reason and
+    // partial: true come first, then the findings.
+    expect(result.isError).toBeUndefined();
+    expect(result.text).toContain('"isError":false,"partial":true,"status":"limited","reason":"partial: stopped at its 12-turn limit"');
+    expect(JSON.parse(result.text).summary).toBe("Partial result: stopped at its 12-turn limit; the helper's findings so far are below, not a whole answer.");
     expect(result.text).toContain("manager.ts:9");
   });
 
@@ -423,6 +425,14 @@ describe("Phase 8 bounded subagents", () => {
     expect(result.status).toBe("limited");
     expect(result.reason).toBe("partial: stopped at its 48-tool-call limit");
     expect(result.response).toBe("Partial: no report was written before the limit. It looked at: src/app.ts, maxTurns.");
+    // Through the tool, a helper that wrote nothing is still a failure: there is nothing to use.
+    const tool = await manager(() => new ChildRuntime(async (emit) => {
+      emit({ type: "assistant_response_start" });
+      emit({ type: "assistant_response_end", stopReason: "toolUse" });
+      emit({ type: "assistant_response_end", stopReason: "limit", errorMessage: "Stopped at its 48-tool-call limit" });
+    })).createTool(() => task).execute({ role: "explorer", goal: "Audit the budget code" });
+    expect(tool.isError).toBe(true);
+    expect(tool.text).not.toContain('"partial":true');
   });
 
   test("near its deadline a helper is told to wrap up and reports instead of timing out", async () => {
@@ -572,8 +582,17 @@ describe("Phase 8 bounded subagents", () => {
       });
       const tool = manager(() => child).createTool(() => task);
       const reply = await tool.execute({ role: "reviewer", goal: "inspect" });
-      expect(reply.isError).toBe(true);
-      expect(JSON.parse(reply.text).isError).toBe(true);
+      const parsed = JSON.parse(reply.text);
+      if (stopReason === "length" || stopReason === "limit") {
+        // Cut off with words written: partial, never "completed", and not a failure box either.
+        expect(reply.isError).toBeUndefined();
+        expect(parsed).toMatchObject({ isError: false, data: { isError: false, partial: true, status: "limited" } });
+        expect(parsed.summary).toStartWith("Partial result: incomplete; the helper's findings so far are below");
+      } else {
+        expect(reply.isError).toBe(true);
+        expect(parsed.isError).toBe(true);
+        expect(parsed.data?.partial).toBeUndefined();
+      }
     }
     expect((await manager(() => new ChildRuntime(async () => {})).run(task)).status).toBe("failed");
     const child = new ChildRuntime();

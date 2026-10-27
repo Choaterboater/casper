@@ -56,6 +56,21 @@ export const BUILDER_LIMITS = Object.freeze({
 });
 
 export type SubagentRole = "explorer" | "reviewer" | "builder";
+const NOTHING_WRITTEN = "Partial: no report was written before the limit.";
+
+/** A helper stopped at a limit that still handed back its own findings: partial, not a failure. The parent reads
+ * status "limited" and partial: true; the screen shows a grey note, not a red box. One that wrote nothing failed. */
+export function partialResult(result: { status: SubagentStatus; response: string }): boolean {
+  return result.status === "limited" && result.response.trim() !== "" && !result.response.startsWith(NOTHING_WRITTEN);
+}
+
+/** A helper's result for the parent, bounded. A partial one says so first, where "Complete result." would otherwise be. */
+function helperResult(value: Record<string, unknown>, partial: boolean, reason: string | undefined) {
+  const bounded = boundCapabilityResult(value);
+  if (partial) bounded.summary = `Partial result: ${(reason ?? "stopped at a limit").replace(/^partial: /, "")}; the helper's findings so far are below, not a whole answer.${bounded.summary === "Complete result." ? "" : ` ${bounded.summary}`}`;
+  return bounded;
+}
+
 export type SubagentStatus = "completed" | "failed" | "cancelled" | "timed_out" | "limited";
 
 export interface SubagentRunOptions {
@@ -456,11 +471,12 @@ export class SubagentManager {
           catch (error) { dispatched--; throw error; }
           onUsage?.(result.usage, result.known, { role, goal });
           if (result.status === "timed_out" && refunded < SUBAGENT_LIMITS.maxConcurrent) { refunded++; dispatched--; }
-          const isError = result.status !== "completed";
+          const partial = partialResult(result);
+          const isError = result.status !== "completed" && !partial;
           // The caller already has the goal. Put outcome first so even a byte-
           // bounded preview retains it instead of spending its budget echoing input.
           const { goal: _goal, status, reason, usage: _usage, known: _known, turns: _turns, providerReason: _provider, ...report } = result;
-          return { text: JSON.stringify(boundCapabilityResult({ isError, status, reason, ...report })), ...(isError ? { isError: true } : {}) };
+          return { text: JSON.stringify(helperResult({ isError, ...(partial ? { partial } : {}), status, reason, ...report }, partial, reason)), ...(isError ? { isError: true } : {}) };
         } catch (error) {
           // run() throws only before it creates a child runtime: no model call was made.
           onUsage?.(zeroUsage());
@@ -492,9 +508,11 @@ export class SubagentManager {
     // Reviewed only when the reviewer ended `completed`: a timeout, a failure or a cutoff leaves the part not reviewed.
     if (result.status === "completed") builders.parts.markReviewed(n, result.response, part.version);
     else builders.parts.reviewFailed(n, result.status, part.version);
-    const isError = result.status !== "completed";
+    // A partial review is still not a review of the part (above), but its findings are the reviewer's own: no red box.
+    const partial = partialResult(result);
+    const isError = result.status !== "completed" && !partial;
     const { goal: _goal, status, reason, usage: _usage, known: _known, turns: _turns, providerReason: _provider, ...report } = result;
-    return { text: JSON.stringify(boundCapabilityResult({ isError, status, reason, part: n, ...report })), ...(isError ? { isError: true } : {}) };
+    return { text: JSON.stringify(helperResult({ isError, ...(partial ? { partial } : {}), status, reason, part: n, ...report }, partial, reason)), ...(isError ? { isError: true } : {}) };
   }
 
   /** Builders started from the delegate tool and not yet done (copy made, working, or being applied). */
@@ -656,7 +674,7 @@ export class SubagentManager {
       options.timeoutMs - reserve);
     /** What the child looked at (paths and patterns), for a run that ends with no report at all. */
     const lookedAt: string[] = [];
-    const nothingWritten = () => `Partial: no report was written before the limit.${lookedAt.length ? ` It looked at: ${lookedAt.join(", ")}.` : ""}`;
+    const nothingWritten = () => `${NOTHING_WRITTEN}${lookedAt.length ? ` It looked at: ${lookedAt.join(", ")}.` : ""}`;
     /** A model response has started and not yet ended. A limit notice from the runtime is an end
      * with no start: it closes no response and carries no usage. */
     let streaming = false;
