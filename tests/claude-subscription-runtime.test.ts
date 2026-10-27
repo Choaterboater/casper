@@ -99,7 +99,7 @@ test("fresh Casper sessions and isolated readers can select the subscription pro
   } finally { await removeTempDir(root); }
 }, 120_000);
 
-test("subscription proposals retain Casper's native tools, approvals, private-path guard, shell sandbox, compaction and persistence", async () => {
+test("subscription proposals retain Casper's native tools, approvals, private-path guard, shell sandbox, compaction and persistence; a call with broken JSON is refused and the task goes on", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "casper-claude-tools-"));
   try {
     const home = path.join(root, "home"), cwd = path.join(root, "project");
@@ -115,8 +115,10 @@ test("subscription proposals retain Casper's native tools, approvals, private-pa
     expect({ exit, stderr }).toEqual({ exit: 0, stderr: "" });
     const result = JSON.parse(stdout);
     expect(result.ends.map((end: { toolName: string; isError: boolean }) => [end.toolName, end.isError])).toEqual([
-      ["read", false], ["read", true], ["write", true], ["write", false], ["bash", true],
+      ["read", true], ["read", false], ["read", true], ["write", true], ["write", false], ["bash", true],
     ]);
+    // The call whose JSON was wrong ran nothing; the model was told why and the task went on to the end.
+    expect(result.saved).toContain("Not run: its arguments weren't valid JSON (Expected ':' before value in object property definition)");
     expect(result.approvals).toBe(1); expect(result.wraps).toBe(0);
     expect(await readFile(path.join(cwd, "marker.txt"), "utf8")).toBe("native write\n");
     expect(result.saved).toContain("native read evidence");

@@ -23,6 +23,15 @@ const TEXT_FIELD_TOOLS = new Set(["read", "write", "edit"]);
 
 export interface RepairedArguments { args: unknown; fixes: string[] }
 
+/** The one field of a tool call whose arguments a transport couldn't read (src/runtime/claude-subscription.ts): the
+ * call is refused here, before the tool's own hook, Pi's check or the tool, and the model is told why. */
+export const INVALID_ARGUMENTS = "__casper_invalid_arguments";
+
+/** A tool call's arguments that say only why they couldn't be read; the call does not run. */
+export function invalidArguments(reason: string): Record<string, string> {
+  return { [INVALID_ARGUMENTS]: reason };
+}
+
 function isObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -168,6 +177,7 @@ export class ToolArgumentRepair {
    * with a text field that is not text throws, which Pi returns to the model as the call's error, before it runs. */
   hook<T>(name: string, schema: unknown, own?: (args: unknown) => T): (args: unknown) => T {
     return (args) => {
+      if (isObject(args) && typeof args[INVALID_ARGUMENTS] === "string") { this.pending.delete(name); throw new Error(`Not run: ${args[INVALID_ARGUMENTS]}`); }
       const { args: repaired, fixes } = repairToolArguments(schema, own ? own(args) : args);
       const refusal = textFieldRefusal(name, schema, repaired);
       if (refusal) { this.pending.delete(name); throw new Error(refusal); }

@@ -5,9 +5,11 @@ import type { AccountInfo, Options, Query, SDKUserMessage } from "@anthropic-ai/
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { CallToolRequestSchema, ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
 import { calculateCost, createAssistantMessageEventStream, type Api, type AssistantMessage, type Model, type SimpleStreamOptions, type Tool, type TranscriptContext } from "@earendil-works/pi-ai";
+import { parseJsonWithRepair } from "@earendil-works/pi-ai/utils/json-parse";
 import { getCurrentSystemPrompt, getCurrentTools } from "@earendil-works/pi-ai/utils/transcript";
 import type { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { returnClaudeFiles } from "../platform/home-owner";
+import { invalidArguments } from "./tool-repair";
 
 export const CLAUDE_SUBSCRIPTION = "claude-subscription";
 const PREFIX = "mcp__casper__";
@@ -136,6 +138,8 @@ export function streamClaudeSubscription(model: Model<Api>, context: TranscriptC
       stream.push({ type: "start", partial: message });
       const blocks = new Map<number, number>();
       const json = new Map<number, string>();
+      /** Blocks whose arguments are streaming: the streamed pieces are the whole arguments, never added to a starting input. */
+      const streamed = new Set<number>();
       let completed = false;
       for await (const event of query) {
         options?.signal?.throwIfAborted();
@@ -178,7 +182,7 @@ export function streamClaudeSubscription(model: Model<Api>, context: TranscriptC
             const name = block.name.startsWith(PREFIX) ? block.name.slice(PREFIX.length) : block.name;
             if (!names.has(name)) throw new Error(`Claude proposed an undeclared tool: ${block.name}`);
             message.content.push({ type: "toolCall", id: block.id, name, arguments: {} }); blocks.set(raw.index, index);
-            json.set(raw.index, Object.keys(block.input as object).length ? JSON.stringify(block.input) : "");
+            json.set(raw.index, Object.keys(block.input as object).length ? JSON.stringify(block.input) : ""); streamed.delete(raw.index);
             stream.push({ type: "toolcall_start", contentIndex: index, partial: message });
           } else throw new Error(`Unsupported Claude content block: ${block.type}`);
         } else if (raw.type === "content_block_delta") {
@@ -190,7 +194,7 @@ export function streamClaudeSubscription(model: Model<Api>, context: TranscriptC
             block.thinking += delta.thinking; stream.push({ type: "thinking_delta", contentIndex: index, delta: delta.thinking, partial: message });
           } else if (delta.type === "signature_delta" && block.type === "thinking") block.thinkingSignature = (block.thinkingSignature ?? "") + delta.signature;
           else if (delta.type === "input_json_delta" && block.type === "toolCall") {
-            json.set(raw.index, (json.get(raw.index) ?? "") + delta.partial_json);
+            json.set(raw.index, (streamed.has(raw.index) ? json.get(raw.index) ?? "" : "") + delta.partial_json); streamed.add(raw.index);
             stream.push({ type: "toolcall_delta", contentIndex: index, delta: delta.partial_json, partial: message });
           }
         } else if (raw.type === "content_block_stop") {
@@ -199,9 +203,7 @@ export function streamClaudeSubscription(model: Model<Api>, context: TranscriptC
           if (block.type === "text") stream.push({ type: "text_end", contentIndex: index, content: block.text, partial: message });
           else if (block.type === "thinking") stream.push({ type: "thinking_end", contentIndex: index, content: block.thinking, partial: message });
           else {
-            const args: unknown = JSON.parse(json.get(raw.index) || "{}");
-            if (!args || typeof args !== "object" || Array.isArray(args)) throw new Error("Claude tool arguments must be a JSON object.");
-            block.arguments = args as typeof block.arguments;
+            block.arguments = toolArguments(json.get(raw.index) || "{}") as typeof block.arguments;
             stream.push({ type: "toolcall_end", contentIndex: index, toolCall: block, partial: message });
           }
           blocks.delete(raw.index);
@@ -232,6 +234,21 @@ export function streamClaudeSubscription(model: Model<Api>, context: TranscriptC
     }
   })();
   return stream;
+}
+
+/** A tool call's arguments from Claude's streamed JSON. String escapes it got wrong (a raw line break or tab, a regex's
+ * `\d`) are mended as Pi mends them for its other providers. Anything still unreadable, or not one object, is never
+ * guessed at or partly read: the call comes back marked so it doesn't run, and the model is told to send it again,
+ * instead of the whole task stopping (src/runtime/tool-repair.ts). */
+function toolArguments(text: string): unknown {
+  let args: unknown;
+  try { args = parseJsonWithRepair(text); }
+  catch (error) {
+    const detail = (error instanceof Error ? error.message : String(error)).replace(/^JSON Parse error: /, "");
+    return invalidArguments(`its arguments weren't valid JSON (${detail}); send it again with its arguments as one JSON object, and inside strings escape quotes, backslashes and line breaks`);
+  }
+  return args && typeof args === "object" && !Array.isArray(args) ? args
+    : invalidArguments("its arguments were not one JSON object; send it again with its arguments as one JSON object");
 }
 
 /** Registered before model selection for both main sessions and isolated children. */

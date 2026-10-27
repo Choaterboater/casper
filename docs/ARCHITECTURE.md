@@ -68,6 +68,10 @@ From the prompt to the receipt, in `src/app/task-run.ts` (`runModelTask`) unless
    The other way round is refused: Pi's check would turn a number, true or false, or null into text, so a `read`,
    `write` or `edit` whose path, content or edit text is not text does not run, and its result names each field
    (`path must be a string, not the number 33`) for the model to send again as text.
+   With the Claude subscription, a call whose JSON Claude wrote wrong (a raw line break or a regex's `\d` in a
+   string) is mended as Pi mends it for its other providers. One still unreadable, or not one object, is never
+   guessed at: it does not run, its result says why and asks for it again, and the task goes on instead of stopping
+   (`src/runtime/claude-subscription.ts`).
 6. Casper snapshots again and plans the checks from what changed (`planAutoChecks` in `src/verify/mode.ts`), plus smoke and page checks.
 7. `runVerification` (`src/app/verification.ts`) runs them in the sandbox, with up to three repair turns by default (`repair.maxAttempts`)
    (`src/verify/repair-loop.ts`). A round that changed no files and left the same failure ends the repairs
