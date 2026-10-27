@@ -152,6 +152,8 @@ export interface CommandHost {
   runtimeTools: RuntimeTool[];
   /** Tools offered in this conversation; they stay offered until /clear or /resume. */
   readonly offeredTools: Set<string>;
+  /** The page the last /look looked at; a new conversation starts without one. */
+  lookPage?: unknown;
   /** The AI's shell reached a server on this machine: the service tool joins the next task. */
   serverSeen: boolean;
   /** The last build's open plan steps, for the next task; a new conversation never hears them. */
@@ -445,6 +447,7 @@ export async function runSlashCommand(host: CommandHost, prompt: string): Promis
       await host.services?.close(); host.services = undefined;
       await host.stopDebugger(); host.debugSession = undefined;
       host.offeredTools.clear();
+      host.lookPage = undefined;
       host.serverSeen = false;
       host.openPlan = undefined;
       host.resetToolPicks();
