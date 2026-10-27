@@ -5,7 +5,8 @@ import path from "node:path";
 import { CasperApp } from "../src/app";
 import { DEFAULT_SYSTEM_PROMPT_APPEND, LEAN_SYSTEM_PROMPT_APPEND } from "../src/app/prompt";
 import { browserDefaults } from "../src/browser/discovery";
-import { findLookCommand, findLookPage, formatLookPrompt, LOOK_COMMANDS, lookList, lookRequest, MAX_LOOK_BODY_BYTES, parseLookArgs, type LookPage } from "../src/look/commands";
+import { findLookCommand, findLookPage, formatLookPrompt, LOOK_COMMANDS, lookList, lookRequest, lookWords, MAX_LOOK_BODY_BYTES, parseLookArgs, type LookPage } from "../src/look/commands";
+import { handlePrompt } from "../src/app/command-loop";
 import { loadProjectContext } from "../src/project/context";
 import type { AgentRuntime, RuntimeEventListener, RuntimeSession, RuntimeStartOptions } from "../src/runtime/types";
 import { SkillRegistry } from "../src/skills/registry";
@@ -74,6 +75,10 @@ test("parsing: a command, a page or link after it, a number from the list, other
   expect(parseLookArgs("color")).toEqual({ command: findLookCommand("colour")! });
   expect(parseLookArgs("typeset")).toEqual({ command: findLookCommand("type")! });
   expect(parseLookArgs("vercel")).toEqual({ command: findLookCommand("guidelines")! });
+  // One letter off a longer name is that command: a swap, a missing or an extra letter. A short name must be exact.
+  expect(parseLookArgs("clairfy")).toEqual({ command: findLookCommand("clarify")! });
+  expect(parseLookArgs("layot /settings")).toEqual({ command: findLookCommand("layout")!, target: "/settings" });
+  expect("problem" in parseLookArgs("tpye")).toBe(true);
   const unknown = parseLookArgs("bogus");
   expect("problem" in unknown && unknown.problem).toStartWith("[look] There is no /look bogus. Usage: /look <command> [page or url]");
   expect("problem" in unknown && unknown.problem).toContain(" 1. critique");
@@ -81,6 +86,25 @@ test("parsing: a command, a page or link after it, a number from the list, other
   expect("problem" in parseLookArgs("audit /a /b")).toBe(true);
   // The list is numbered, one command a line.
   expect(lookList().split("\n").slice(1).map((line) => line.trim().split(/\s+/).slice(0, 2).join(" "))).toEqual(NAMES.map((name, i) => `${i + 1}. ${name}`));
+});
+
+test("a /look command typed without its slash: the command words, a page, the person's own words, and lines that aren't one", () => {
+  const command = (name: string) => findLookCommand(name)!;
+  expect(lookWords("look adapt")).toEqual({ commands: [command("adapt")] });
+  expect(lookWords("  Look clairfy ")).toEqual({ commands: [command("clarify")] });
+  expect(lookWords("look layout and type")).toEqual({ commands: [command("layout"), command("type")] });
+  expect(lookWords("look layout, type")).toEqual({ commands: [command("layout"), command("type")] });
+  expect(lookWords("look polish next")).toEqual({ commands: [command("polish")], words: "next" });
+  expect(lookWords("look polish /settings")).toEqual({ commands: [command("polish")], target: "/settings" });
+  expect(lookWords("look adapt http://127.0.0.1:8000/ on my wide screen"))
+    .toEqual({ commands: [command("adapt")], target: "http://127.0.0.1:8000/", words: "on my wide screen" });
+  // Command words only lead the line: once the person's own words start, "type" is just a word.
+  expect(lookWords("look adapt the type size")).toEqual({ commands: [command("adapt")], words: "the type size" });
+  expect(lookWords("look")).toEqual({ list: true });
+  for (const line of ["look at the logs", "looks good", "lookup the user", "look into the crash", "look tpye", "please look adapt",
+    "look adapt\nand polish", "look critique and polish"]) expect({ line, read: lookWords(line) }).toEqual({ line, read: undefined });
+  // Words that were pasted are never read as a command.
+  expect(lookWords("look adapt", ["look adapt"])).toBeUndefined();
 });
 
 test("the command table, the alias spellings and /help all know /look", () => {
@@ -144,7 +168,7 @@ class Runtime implements AgentRuntime {
         prompts.push(text);
         for (const listener of listeners) { listener({ type: "assistant_text_delta", delta: "ok" }); listener({ type: "message_end" }); }
       },
-      setTools() {}, async abort() {},
+      setTools() {}, async abort() {}, async clearConversation() {},
       subscribe(listener) { listeners.add(listener); return () => listeners.delete(listener); },
       getState: () => ({ cwd: options.cwd, isStreaming: false }),
     };
@@ -172,7 +196,9 @@ async function app(options: { installed?: boolean; config?: string } = {}) {
     loadReferenceConfiguration: async () => ({ sources: [], diagnostics: [] }),
   });
   cleanup.push(() => casper.close());
-  return { run: (line: string) => casper.runOnce(line, project), runtime, output: () => output };
+  // A line the person typed at the prompt, as a session reads it (runOnce is a one-shot run's request).
+  const typed = async (line: string) => { if (!casper.projectContext) await casper.start(project); return handlePrompt(casper, line, { pasted: [] }); };
+  return { run: (line: string) => casper.runOnce(line, project), typed, runtime, output: () => output };
 }
 
 test("in the app: /look sends only the chosen command's file; with no page, no browser or a wrong word it says so and sends nothing", async () => {
@@ -207,6 +233,54 @@ test("in the app: /look sends only the chosen command's file; with no page, no b
   await off.run("/look audit http://127.0.0.1:5173/");
   expect(off.output()).toContain("[look] The AI's browser is off");
   expect(off.runtime.prompts).toHaveLength(0);
+});
+
+test("in a session, a /look command typed without its slash runs as /look on the page the last /look looked at; other lines go to the AI", async () => {
+  const casper = await app();
+  await casper.run("/look critique http://127.0.0.1:5173/");
+  await casper.typed("look adapt");
+  expect(casper.output()).toContain("[look] Read as /look adapt\n");
+  expect(casper.output()).toContain("[look] adapt: http://127.0.0.1:5173/ (the page your last /look looked at)");
+  expect(casper.runtime.prompts[1]).toContain(findLookCommand("adapt")!.body.trim());
+  // Two commands at once: both files, one request.
+  await casper.typed("look layout and type");
+  expect(casper.output()).toContain("[look] Read as /look layout and /look type\n");
+  for (const name of ["layout", "type"]) expect(casper.runtime.prompts[2]).toContain(findLookCommand(name)!.body.trim());
+  expect(casper.runtime.prompts[2]).toContain("in the browser (`/look layout`, `/look type`)");
+  // The person's own words go with it.
+  await casper.typed("look polish next");
+  expect(casper.output()).toContain("[look] Read as /look polish, with your words: next\n");
+  expect(casper.runtime.prompts[3]).toContain(findLookCommand("polish")!.body.trim());
+  expect(casper.runtime.prompts[3]).toContain("The person's own words with it: next");
+  // A line that starts with "look" but names no /look command is an ordinary request; so is a one-shot run's.
+  await casper.typed("look at the logs");
+  await casper.run("look adapt");
+  for (const index of [4, 5]) expect(casper.runtime.prompts[index]).not.toContain("--- Look");
+  // Bare "look" lists the commands, as /look does, and sends nothing.
+  await casper.typed("look");
+  expect(casper.output().split(" 1. critique").length).toBe(2);
+  expect(casper.runtime.prompts).toHaveLength(6);
+});
+
+test("with no page to look at, a /look command typed without its slash still reaches the AI as the person's words", async () => {
+  const casper = await app();
+  await casper.typed("look adapt");
+  expect(casper.output()).toContain("[look] No page to look at here, so the AI gets your words as they are.\n");
+  expect(casper.runtime.prompts).toHaveLength(1);
+  expect(casper.runtime.prompts[0]).not.toContain("--- Look");
+  expect(casper.runtime.prompts[0]).toContain("look adapt");
+  // /clear forgets the page the last /look looked at.
+  await casper.run("/look critique http://127.0.0.1:5173/");
+  await casper.run("/clear");
+  await casper.typed("look adapt");
+  expect(casper.runtime.prompts[2]).not.toContain("--- Look");
+  // With the browser off, the line goes to the AI as well, and says why.
+  const off = await app({ config: "browser: off\n" });
+  await off.typed("look adapt http://127.0.0.1:5173/");
+  expect(off.output()).toContain("[look] The AI's browser is off (/settings, Browser tool), so /look can't open the page. The AI gets your words as they are.\n");
+  expect(off.runtime.prompts).toHaveLength(1);
+  expect(off.runtime.prompts[0]).toContain("look adapt http://127.0.0.1:5173/");
+  expect(off.runtime.prompts[0]).not.toContain("--- Look");
 });
 
 test("the notices credit impeccable for the /look text and say what was changed", async () => {

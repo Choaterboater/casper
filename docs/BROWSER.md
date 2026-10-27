@@ -140,7 +140,9 @@ entries) taken before and after; when none of these changed, `changes` is left o
 | `clarify` | Wording only |
 
 - **Which page.** A link you give (`/look audit http://127.0.0.1:5173/`) is used as it is. Otherwise
-  Casper finds the page the same way as the [page checks](VERIFICATION.md) after a change: the
+  a `/look` with no page looks again at the page the last `/look` in this conversation looked at
+  (`[look] adapt: http://127.0.0.1:8000/ (the page your last /look looked at)`; `/clear` forgets it);
+  the first time, Casper finds the page the same way as the [page checks](VERIFICATION.md) after a change: the
   dev server from `services.web` or `package.json` (the AI starts it with `serve`), or the
   project's `index.html` (served with `script: "files"`). A path (`/look adapt /settings`) picks
   the page on it. With none, Casper says so and runs nothing: `There is no page here to look at`.
@@ -153,6 +155,14 @@ entries) taken before and after; when none of these changed, `changes` is left o
   them and take fresh screenshots; Casper's own end-of-task replay and page checks run as after
   any change. `critique`, `audit` and `guidelines` are told to change no files; the receipt shows
   any that did.
+- **Typed without the slash.** In a session, a line that starts with `look` and a command runs as
+  that `/look` and says so first: `look adapt` (`[look] Read as /look adapt`), `look clairfy` (one
+  letter off a name of five letters or more), `look layout and type` (both in one request),
+  `look polish /settings` (a page or link) and `look polish the table header` (your words go with
+  the request). `look` alone is the list. `look at the logs`, `look critique and adapt` (a report
+  and a fix don't mix), a line with a pasted picture and a one-shot run's request are ordinary
+  requests. When `/look` can't run (no page, no browser, the browser tool off), Casper says so in
+  one line and the AI gets your words as they are.
 - `/look` waits for a running task, like `/plan`.
 - The instructions are adapted and trimmed from
   [pbakaus/impeccable](https://github.com/pbakaus/impeccable)'s command references (Apache-2.0,

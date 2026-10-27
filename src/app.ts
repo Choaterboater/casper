@@ -239,6 +239,8 @@ export class CasperApp {
   runtimeTools: RuntimeTool[] = [];
   /** Tools offered in this conversation. They stay offered, so the provider's prompt cache holds. */
   readonly offeredTools = new Set<string>();
+  /** The page the last /look looked at in this conversation: a later /look with no page looks there again. */
+  lookPage?: import("./look/commands").LookPage;
   /** The AI's shell reached a server on this machine this task: the service tool joins the next one. */
   serverSeen = false;
   /** The accepted plan's steps the last build left open, and its saved file: told to the next task only. */

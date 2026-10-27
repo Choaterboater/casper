@@ -216,6 +216,7 @@ Local commands:
   /look polish|layout|type          Fix in order (broken, states, layout, looks, cleanup), the spacing, or the type; ends with fresh screenshots
   /look colour|quieter              Colours through the theme only, with contrast in light and dark; or calm a loud page
   /look adapt|harden|clarify        390, 768, 1280 and your own width (up to 3840) with 44px targets; long text, empty, loading and error states; wording only
+  look <command> [and <command>]    In a session, the same without the slash (look clairfy too), on the page the last /look used
   /pages [list]                     Pages the AI made for this project (comparisons, mock-ups, dashboards), with their local links
   /pages open <name>                Show one in your browser (also with opening off)
   /pages remove <name>              Delete one; its open tab says (removed)

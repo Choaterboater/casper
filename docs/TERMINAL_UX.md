@@ -78,7 +78,7 @@ over the network, and `/references add` downloads files after asking you.
 | `/mcp` | MCP servers: set up Casper's network server (`/mcp setup network`) and its logins (`/mcp login`), add a server over ssh (`/mcp setup ssh`), connect, writes on or off, allow, forget, docs ([MCP.md](MCP.md)). `/mcp` is one line per server; on a normal terminal an arrow-key picker under it connects, disconnects, forgets or shows details, and `/mcp detail [name]` prints the full status |
 | `/lsp` | Language servers ([LSP.md](LSP.md)) |
 | `/browser` | A disposable browser; screenshots ([BROWSER.md](BROWSER.md)) |
-| `/look [command] [page or url]` | Review or polish a page in the real browser: `critique`, `audit` and `guidelines` report, `polish`, `layout`, `type`, `colour`, `quieter`, `adapt`, `harden` and `clarify` fix and look again; alone, the numbered list (uses a model; [BROWSER.md](BROWSER.md#look-review-and-polish-a-page)) |
+| `/look [command] [page or url]` | Review or polish a page in the real browser: `critique`, `audit` and `guidelines` report, `polish`, `layout`, `type`, `colour`, `quieter`, `adapt`, `harden` and `clarify` fix and look again; alone, the numbered list. In a session, `look adapt` or `look layout and type` without the slash runs the same, on the page the last `/look` looked at (uses a model; [BROWSER.md](BROWSER.md#look-review-and-polish-a-page)) |
 | `/services` | Dev servers the project declares ([SERVICES.md](SERVICES.md)) |
 | `/preview` | Your web app on a phone on the same Wi-Fi; a public link only after a yes ([SERVICES.md](SERVICES.md#preview-on-your-phone)) |
 | `/tasks [stop <n>\|all]` | What runs in the background; stop one |

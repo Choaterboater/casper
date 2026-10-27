@@ -32,7 +32,8 @@ import { checkSignIn, ensureRuntime } from "./runtime-start";
 import { handledHere, modelChangeRequest, namesModel } from "./model-words";
 import { reloadProject } from "./project-file";
 import { pagesCommand } from "./pages";
-import { lookCommand } from "./look";
+import { lookCommand, lookTyped } from "./look";
+import { lookWords } from "../look/commands";
 import { rewind } from "./rewind";
 import { readPlan, recentPlans } from "../flows/plan-store";
 
@@ -185,6 +186,11 @@ export async function handlePrompt(app: CasperApp, prompt: string, typed?: { pas
       app.output.write(handledHere(target));
       return report = await handleSlashCommand(app, `/model ${target}`);
     }
+    // "look adapt", typed without the slash: /look adapt (src/look/commands.ts lookWords). Only a line typed here; when
+    // /look can't run, the line goes on to the AI below.
+    const look = typed && !app.pastedImages?.size ? lookWords(prompt, typed.pasted) : undefined;
+    const looked = look ? await lookTyped(app, look) : undefined;
+    if (looked) return report = looked.report;
     const words = typed ? parseRequestWords(prompt, typed.pasted) : undefined;
     return report = await runModelTask(app, words?.text ?? prompt, { ...(words ? { words } : {}), ...(app.planMode ? { planFirst: true } : {}) });
   } catch (error) {
