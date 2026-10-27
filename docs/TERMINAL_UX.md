@@ -959,6 +959,12 @@ Daily commands include `/help`, `/status`, `/project`, `/diff`, `/verify`, `/ski
 | `/resume` | Pick a saved conversation from a numbered list (title · when · messages; 1 stays here); then the last few turns show |
 | `/resume <id>` | Go back to that conversation; the first few characters of its ID are enough |
 | `/continue` | Go back to this folder's most recent other conversation (not the one you are in, nor an empty one `/clear` left); then the last few turns show. With none it says so and nothing changes |
+
+Each start in a folder is a new conversation, as in Claude Code, Codex, Copilot CLI and Pi; only a `/branch`
+experiment's folder reopens its branch's own. When the folder has an earlier conversation, the start offers one row,
+`Next: 1 Continue the Oct 21 conversation (<title> · 12 messages)` with `Anything you type starts a new conversation.`
+under it: a lone `1` on the empty prompt runs `/continue`, anything typed is the new conversation's first request, and
+Enter runs nothing ([decision 42](adr/0002/42-a-plain-start-is-new.md)).
 | `/branch`, `/switch <name>` | Existing named-workspace navigation and its approval policy |
 | `/output [n]` | Full command and output of the last task's n-th most recent tool call (1 = latest; 20 retained per task); out-of-range n is a usage error |
 

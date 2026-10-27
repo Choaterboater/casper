@@ -91,10 +91,11 @@ export async function ensureRuntime(app: CasperApp): Promise<RuntimeSession> {
         privatePaths: projectPrivatePaths(app),
         currentPrivatePaths: () => projectPrivatePaths(app),
       });
-      // An interactive start reopens the conversation its named session holds (/clear, /resume and /branch keep it).
-      // A one-shot run starts its own: only --continue and --resume pick a saved conversation for it.
+      // A plain start begins a new conversation, as Claude Code, Codex, Copilot CLI and Pi do: --continue, --resume,
+      // /continue, /resume and the start's "1 Continue …" row pick an earlier one. A /branch experiment folder still
+      // reopens its branch's conversation. A one-shot run starts its own too.
       if (app.interactive) {
-        const resumeNotice = await (await ensureSessionWorkspace(app)).resumeActive(app.session);
+        const resumeNotice = await (await ensureSessionWorkspace(app)).resumeActive(app.session, { fresh: true });
         if (resumeNotice) app.output.write(`[sessions] ${resumeNotice}\n`);
       }
       await applyRunConversation(app, app.session);

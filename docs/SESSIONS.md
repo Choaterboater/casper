@@ -56,17 +56,28 @@ and removes their tools. It then reads the project context of the new folder,
 and you have to approve connections again. If Casper cannot load the new
 folder's settings, it blocks further commands until it can.
 
-When you start Casper in the main folder, it starts on `main`. When you start it
+When you start Casper in the main folder, it starts on `main` with a new
+conversation, as Claude Code, Codex, Copilot CLI and Pi do; an earlier `/clear`,
+`/resume` or `--continue` doesn't change that. When the folder has an earlier
+conversation, the start offers one row to go back to it:
+
+```text
+Next: 1 Continue the Oct 21 conversation (Fix the login bug · 12 messages)
+  Anything you type starts a new conversation.
+```
+
+A lone `1` on the empty prompt continues it (the conversation `/continue` and
+`--continue` pick); anything you type starts the new one, and Enter runs nothing
+([decision 42](adr/0002/42-a-plain-start-is-new.md)). When you start Casper
 inside an experiment's worktree folder, it resumes that branch's saved
-conversation. A Git worktree you made yourself (`git worktree add`) is a folder
+conversation: that folder is for that branch. A Git worktree you made yourself (`git worktree add`) is a folder
 of its own: it starts on its own `main`, and its saved conversation is kept
 apart from the main folder's. Isolated experiments still start from the main
 folder: `/branch` there says so and names the folder to start Casper in.
 
 A one-shot run (`casper -p "<prompt>"`, `casper --json ...`) starts a new conversation
 unless you give it `--continue` or `--resume`, even in a folder where a session left one
-open. Its `/clear`, `/resume` or `/continue` lasts for that run only and says so: it does not change
-what the next session opens.
+open. Its `/clear`, `/resume` or `/continue` lasts for that run only and says so.
 
 From the command line, `casper --continue` continues the folder's most recent
 conversation, and `casper --resume <id-prefix>` continues the saved one whose ID
