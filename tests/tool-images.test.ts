@@ -79,7 +79,10 @@ test("a model that can't see images gets the tool's text and a note, never the p
 }, 90_000);
 
 /** An RGB PNG of random pixels, which no encoder can shrink much. */
-function noisyPng(width: number, height: number): Buffer {
+function noisyPng(width: number, height: number): Buffer { return rgbPng(width, height, true); }
+/** An RGB PNG of black pixels: tiny in bytes, large in size. */
+function blankPng(width: number, height: number): Buffer { return rgbPng(width, height, false); }
+function rgbPng(width: number, height: number, noisy: boolean): Buffer {
   const chunk = (type: string, data: Buffer) => {
     const body = Buffer.concat([Buffer.from(type), data]);
     const out = Buffer.alloc(body.length + 8);
@@ -89,9 +92,15 @@ function noisyPng(width: number, height: number): Buffer {
   const header = Buffer.alloc(13);
   header.writeUInt32BE(width, 0); header.writeUInt32BE(height, 4); header[8] = 8; header[9] = 2;
   const rows = Buffer.alloc((width * 3 + 1) * height);
-  for (let i = 0; i < rows.length; i++) rows[i] = i % (width * 3 + 1) === 0 ? 0 : Math.floor(Math.random() * 256);
+  if (noisy) for (let i = 0; i < rows.length; i++) rows[i] = i % (width * 3 + 1) === 0 ? 0 : Math.floor(Math.random() * 256);
   return Buffer.concat([Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]), chunk("IHDR", header), chunk("IDAT", deflateSync(rows, { level: 1 })), chunk("IEND", Buffer.alloc(0))]);
 }
+
+test("a 4K screenshot reaches the model at most 2000 px wide, with a note that maps it back to the page", async () => {
+  const wide = await fitPicture(blankPng(3840, 2160).toString("base64"));
+  expect(wide.image?.data.length).toBeGreaterThan(0);
+  expect(wide.note).toBe("[Image: original 3840x2160, displayed at 2000x1125. Multiply coordinates by 1.92 to map to original image.]");
+}, 30_000);
 
 test("a screenshot too big for the provider is shrunk below 4.5 MB of base64 first, as Pi's read tool does", async () => {
   const big = noisyPng(1920, 1080).toString("base64");

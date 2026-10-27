@@ -58,6 +58,8 @@ test("the eleven commands, each with a small file of its own that credits its so
   for (const name of ["colour", "quieter"]) expect(body(name)).toContain("Theme tokens only");
   expect(body("colour")).toContain("for light and for dark");
   for (const line of ["390, 768 and 1280 wide", "44 by 44px", "`no-overlap`"]) expect(body("adapt")).toContain(line);
+  // A person's own wide window (one was about 3040 px): checked at its real size too.
+  expect(body("adapt")).toContain("the person's own width when they name it or their picture shows it (up to 3840)");
   for (const line of ["200-character string", "empty", "loading", "error", "record a check"]) expect(body("harden")).toContain(line);
   expect(body("clarify")).toContain("Wording only");
 });

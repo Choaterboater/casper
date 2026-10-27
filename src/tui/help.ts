@@ -215,7 +215,7 @@ Local commands:
   /look guidelines                  A report only: Vercel's Web Interface Guidelines, one line per finding with the fix (also /look vercel)
   /look polish|layout|type          Fix in order (broken, states, layout, looks, cleanup), the spacing, or the type; ends with fresh screenshots
   /look colour|quieter              Colours through the theme only, with contrast in light and dark; or calm a loud page
-  /look adapt|harden|clarify        390, 768 and 1280 wide with 44px targets; long text, empty, loading and error states; wording only
+  /look adapt|harden|clarify        390, 768, 1280 and your own width (up to 3840) with 44px targets; long text, empty, loading and error states; wording only
   /pages [list]                     Pages the AI made for this project (comparisons, mock-ups, dashboards), with their local links
   /pages open <name>                Show one in your browser (also with opening off)
   /pages remove <name>              Delete one; its open tab says (removed)

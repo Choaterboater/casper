@@ -135,7 +135,7 @@ entries) taken before and after; when none of these changed, `changes` is left o
 | `type` | Sizes, weights, line length and wrapping |
 | `colour` | Theme tokens only, with the contrast worked out for light and dark (`color` works too) |
 | `quieter` | Calms a loud page through theme tokens only |
-| `adapt` | 390, 768 and 1280 wide: overflow, overlap, 44px tap targets |
+| `adapt` | 390, 768 and 1280 wide, and your own width when you name it or your picture shows it (up to 3840): overflow, overlap, 44px tap targets |
 | `harden` | Long text (a 200-character string), empty, loading and error states, a check for each |
 | `clarify` | Wording only |
 
@@ -488,7 +488,8 @@ After a forced SIGKILL of Casper or a power loss, cleanup may not happen.
   cold start, both tries, is outside its deadline, which starts once Chrome is up. A start
   whose Chrome died (rather than ran out of time) gets one more try, and only one; a
   session signed in through `signin` keeps its signed-in profile for these tries.
-- Viewport: 240–1920 × 240–1080; default 1280 × 800.
+- Viewport: 240–3840 × 240–2160 (up to a 4K screen, so a wide window can be checked at its real size); default
+  1280 × 800. The AI gets a screenshot of at most 2000 px either way, with a note that maps it back to the page.
 - Inspection: 8,000 text characters, 40 controls; diagnostics: 30 console and
   30 network entries, 8 KiB server output. Network URL queries/fragments omitted.
 - Tool responses: at most 16 KiB **after terminal escaping**, with explicit

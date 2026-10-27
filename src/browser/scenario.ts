@@ -48,9 +48,13 @@ function string(value: unknown, label: string, limit = 512): string {
   if (Buffer.byteLength(value) > limit || /[\x00-\x1f\x7f]/.test(value)) throw new Error(`Browser ${label} must be one line of text under ${limit} bytes`);
   return value;
 }
+/** Up to a 4K screen: a person's own wide window (one was about 3040 CSS px) must be checkable at its real size. The
+ * model still gets a screenshot of at most 2000 px (src/browser/tools.ts fitPicture), with a note that maps it back. */
+export const MAX_VIEWPORT = { width: 3840, height: 2160 } as const;
 export function viewport(value: unknown): { width: number; height: number } {
   const v = object(value, ["width", "height"], "viewport");
-  if (!Number.isInteger(v.width) || !Number.isInteger(v.height) || Number(v.width) < 240 || Number(v.width) > 1920 || Number(v.height) < 240 || Number(v.height) > 1080) throw new Error("Browser viewport must be 240–1920 wide and 240–1080 high");
+  if (!Number.isInteger(v.width) || !Number.isInteger(v.height) || Number(v.width) < 240 || Number(v.width) > MAX_VIEWPORT.width
+    || Number(v.height) < 240 || Number(v.height) > MAX_VIEWPORT.height) throw new Error(`Browser viewport must be 240–${MAX_VIEWPORT.width} wide and 240–${MAX_VIEWPORT.height} high`);
   return { width: Number(v.width), height: Number(v.height) };
 }
 /** One check may confirm several things on a page (each is a quick read); weak models often list 5–8. */

@@ -76,6 +76,19 @@ test("a check scenario with blank placeholder fields parses; a real stray field 
   expect(() => parseScenario({ name: "", url: "http://localhost:3000", steps: [], assertions: [{ kind: "no-horizontal-overflow" }] })).toThrow("Browser scenario name is missing");
 });
 
+test("a check or the viewport action can use a wide screen up to 4K: 3840 × 2160", () => {
+  // A person's window was about 3040 CSS px wide; the AI asked for it and was refused at 1920.
+  const at = (width: number, height: number) => parseScenario({ name: "Wide", url: "http://localhost:3000", viewport: { width, height },
+    steps: [], assertions: [{ kind: "no-horizontal-overflow" }] }).viewport;
+  expect(at(3040, 1600)).toEqual({ width: 3040, height: 1600 });
+  expect(at(3840, 2160)).toEqual({ width: 3840, height: 2160 });
+  expect(at(240, 240)).toEqual({ width: 240, height: 240 });
+  for (const [width, height] of [[3841, 1080], [1280, 2161], [239, 800], [1280, 239]]) {
+    expect(() => at(width!, height!)).toThrow("Browser viewport must be 240–3840 wide and 240–2160 high");
+  }
+  expect(browserArguments({ action: "viewport", width: 3040, height: 1600 }).args).toEqual({ action: "viewport", width: 3040, height: 1600 });
+});
+
 test("select sets a <select> by an option's value or label, as an action and as a check step", () => {
   expect(BROWSER_ACTION_FIELDS.select).toEqual(["selector", "value", "impact", "reason"]);
   expect(browserArguments({ action: "select", selector: "#size", value: "Large", impact: "local-test", reason: "Pick a size" }).args)
