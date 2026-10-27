@@ -130,3 +130,36 @@ test("code that reads a password from a file, and a secrets path in a volume lin
     expect([command, hideCommandSecrets(command).hidden > 0]).toEqual([command, true]);
   }
 });
+
+test("a negated name in code is not a secret: `secret = !pagination` stays, a value with a leading ! is still hidden", () => {
+  // Lines Casper's own source has (src/secrets/scrub.ts), and code like it: a name, negated.
+  for (const line of [
+    "const secret = !pagination;",
+    "const secret = !pagination && isSecretKeyName(name) ? a : b;",
+    "token = !this.enabled",
+    "const secret = !isValid(x);",
+    "api_key: !secret weather_key",
+    "const hasToken = !!token;",
+    "const hasApiKey = !!apiKey;",
+    "const tokenMissing = !token;",
+    "const needsPassword = !session.user;",
+  ]) {
+    expect(scrubPlainSecrets(line, { env: {} }).text).toBe(line);
+    expect(hideCommandSecrets(line).text).toBe(line);
+  }
+  // A real value that starts with ! stays hidden, dotenv style or not.
+  for (const [line, kept] of [
+    ["PASSWORD=!s3cretValue9", "PASSWORD="],
+    ["DB_PASSWORD=!hunter", "DB_PASSWORD="],
+    ["password = !s3cretValue9", "password = "],
+    ["client_secret = !s3cretValue9", "client_secret = "],
+    ["export API_TOKEN=!s3cretValue9", "export API_TOKEN="],
+    ["password: !@#$wxyz", "password: "],
+    ["**Password:** !hunter", "**Password:** "],
+  ] as const) {
+    const out = scrubPlainSecrets(line, { env: {} }).text;
+    expect(out, line).toContain(SECRET_MARKER);
+    expect(out, line).toStartWith(kept);
+    expect(out, line).not.toMatch(/s3cretValue9|hunter|wxyz/);
+  }
+});

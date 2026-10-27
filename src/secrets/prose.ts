@@ -18,6 +18,9 @@ const NOT_A_VALUE = /^(?:!secret|!env_var|!include|!vault|str|string|int|bool|no
 
 /** A word that looks like a secret, not a plain word: a digit with a letter, a symbol, or a long number. */
 function secretLike(value: string): boolean {
+  // `secret = !pagination;` in code: a negated name is judged as the name, not as a password with a "!" in it.
+  const negated = /^!+([A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*)[.,;:)\]]*$/.exec(value);
+  if (negated) return secretLike(negated[1]!);
   if (value.length < 4 || (value.match(/[A-Za-z0-9]/g)?.length ?? 0) < 3 || /^[<{$%(\["']/.test(value) || /:\/\//.test(value) || /^[/~.]/.test(value)) return false;
   if (NOT_A_VALUE.test(value)) return false;
   return (/\d/.test(value) && /[A-Za-z]/.test(value)) || /[!@#$%^&*+=?~]/.test(value) || /^\d{6,}$/.test(value);
@@ -29,7 +32,7 @@ function anyValue(value: string): boolean {
 }
 
 /** `pw = re.search(r"..._PASSWORD=(.*)", env)` reads the password from a file: a call in code is not the value. */
-const codeCall = (value: string) => /^[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*\(/.test(value);
+const codeCall = (value: string) => /^!*[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*\(/.test(value);
 
 /** A value in a command: 'quoted', "quoted" or one word. The quotes stay; only what is inside is hidden. */
 const QUOTED = String.raw`'[^'\n]+'|"[^"\n]+"|[^\s'"]+`;
