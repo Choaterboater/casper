@@ -2,6 +2,7 @@ import { existsSync, lstatSync, readFileSync, realpathSync } from "node:fs";
 import { lstat, realpath } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { isContextOverflow, type AssistantMessage } from "@earendil-works/pi-ai";
 import { looksLikeRefusedLogin } from "../ssh/auth-failed";
 import { READ_ONLY_STATE_CONFLICT } from "./types";
 import { DEFAULT_COMMAND_LIMIT_SECONDS } from "./background-commands";
@@ -130,6 +131,9 @@ class PiRuntimeSession implements RuntimeSession {
   private promptActive = false;
   /** A response that ended in a provider error, held until Pi says whether it retries. */
   private heldError?: Extract<RuntimeEvent, { type: "assistant_response_end" }>;
+  /** A response refused because the conversation outgrew the model's window. Pi decides after the turn whether to compact
+   * and try again, so the error waits for that: shown only if it doesn't, or if the compacted one still fails. */
+  private overflowError?: Extract<RuntimeEvent, { type: "assistant_response_end" }>;
   /** Steered lines the model never read; see takeUnsent. */
   private readonly unsent: string[] = [];
   /** Pictures steered in with a line, by its text: Pi's queue gives back only the text, and the lines ↑ leaves keep theirs. */
@@ -469,6 +473,9 @@ class PiRuntimeSession implements RuntimeSession {
       });
       throw error;
     } finally {
+      // A window error Pi did not compact and retry for is the outcome after all.
+      const overflow = this.overflowError; this.overflowError = undefined;
+      if (overflow) this.emit(overflow);
       // A line steered in after the model's last step is not lost: it comes back through takeUnsent.
       if (session.pendingMessageCount) { const left = session.clearQueue(); this.unsent.push(...left.steering, ...left.followUp); }
       this.steeredPictures.clear();
@@ -664,10 +671,26 @@ class PiRuntimeSession implements RuntimeSession {
           this.toolTitles.clear();
           this.progressAt.clear();
           const held = this.heldError; this.heldError = undefined;
-          if (held) this.emit(event.willRetry ? { ...held, retrying: true } : held);
+          const overflow = held && !event.willRetry && isContextOverflow({ stopReason: "error", errorMessage: held.errorMessage } as AssistantMessage);
+          if (overflow) this.overflowError = held;
+          else if (held) this.emit(event.willRetry ? { ...held, retrying: true } : held);
           this.emit({ type: "message_end" });
           break;
         }
+        // The window was too small: Pi compacts and tries again by itself, which used to show as an error telling the
+        // person to /compact while the task went on.
+        case "compaction_start":
+          if (event.reason === "overflow" && this.overflowError) {
+            const model = session.model ? `${session.model.provider}/${session.model.id}` : "this model";
+            this.emit({ type: "notice", message: `This conversation got too long for ${model}, so Casper compacted it and is trying again.` });
+          }
+          break;
+        case "compaction_end":
+          if (event.reason === "overflow" && this.overflowError) {
+            const held = this.overflowError; this.overflowError = undefined;
+            if (!event.willRetry || event.aborted || event.errorMessage) this.emit(held);
+          }
+          break;
       }
     });
   }

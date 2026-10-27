@@ -274,6 +274,11 @@ that) and 200,000 tokens (a 1M model never resends near a million tokens on ever
 count of 1,000 or more (`compact_at: 120000`). A change applies from the next model step. Only your own
 config or a profile you chose can set it, never a project file.
 
+A provider can refuse sooner than the model's listed window: on a Claude plan, Claude Haiku 5.5 is listed with a
+1M window but refused long before that. Then Casper compacts at once and tries the step again, and one line says so (`This
+conversation got too long for <model>, so Casper compacted it and is trying again.`). Only when the compacted
+conversation still doesn't fit, or there is nothing older to summarise, does the error ask you to `/compact`.
+
 ### Hide old tool output
 
 On by default. Old reads and successful command output of at least 8,000 characters, and old tool
