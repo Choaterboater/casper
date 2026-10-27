@@ -127,7 +127,7 @@ entries) taken before and after; when none of these changed, `changes` is left o
 
 | Command | What it does |
 | --- | --- |
-| `critique` | Screenshots at 390 and 1280 wide; scores Nielsen's 10 usability heuristics 0 to 4; what works, issues marked P0 to P3, 3 questions. A report: no edits |
+| `critique` | Screenshots at 390 and 1280 wide; scores Nielsen's 10 usability heuristics 0 to 4; what works, issues marked P0 to P3 with the `/look` command that fixes each; last, up to 3 questions, only where an answer would change a fix. A report: no edits |
 | `audit` | `diagnostics`, `inspect`, and checks for no sideways scroll at 390 and no overlap of the header and the content; scores accessibility, performance, theming, responsive and integrity 0 to 4. A report: no edits |
 | `guidelines` | Checks for no sideways scroll at 390 and no overlap at 1280, then goes through Vercel's Web Interface Guidelines (interaction and focus, forms, animation, layout, content, performance, theming, URL state); one line per finding: rule, where, fix (`vercel` works too). A report: no edits |
 | `polish` | Fixes in this order: broken, missing states, hierarchy and responsive, visual, cleanup |
@@ -138,6 +138,7 @@ entries) taken before and after; when none of these changed, `changes` is left o
 | `adapt` | 390, 768 and 1280 wide, and your own width when you name it or your picture shows it (up to 3840): overflow, overlap, 44px tap targets |
 | `harden` | Long text (a 200-character string), empty, loading and error states, a check for each |
 | `clarify` | Wording only |
+| `fix` | After a report: everything it found, in one task, with the commands it named for the issues, on the page it looked at |
 
 - **Which page.** A link you give (`/look audit http://127.0.0.1:5173/`) is used as it is. Otherwise
   a `/look` with no page looks again at the page the last `/look` in this conversation looked at
@@ -155,6 +156,16 @@ entries) taken before and after; when none of these changed, `changes` is left o
   them and take fresh screenshots; Casper's own end-of-task replay and page checks run as after
   any change. `critique`, `audit` and `guidelines` are told to change no files; the receipt shows
   any that did.
+- **Fix all of it.** After a report that names a `/look` command for its issues (`critique` and
+  `audit` do), the row under it offers `Next: 1 Fix all of it (uses tokens)`, with the commands and
+  the page on the line under it. `1`, `/look fix` or `look fix` fixes all of them in one task, most
+  important first, with each command's instructions. Like every row, it never comes under a
+  question, and here not under a closing list of questions either: answer them first (`mainly a
+  desk`), and the row comes under the revised list. A change you type (`drop 3`) gets a revised
+  list the same way. `/look fix` works without the row too, until it has run once, a new report
+  replaces the list, or `/clear` or `/resume` starts over; words after it go with the request
+  (`/look fix but keep the tab name`). With nothing found yet it says so and starts nothing
+  ([decision 40](adr/0002/40-look-fix-all.md)).
 - **Typed without the slash.** In a session, a line that starts with `look` and a command runs as
   that `/look` and says so first: `look adapt` (`[look] Read as /look adapt`), `look clairfy` (one
   letter off a name of five letters or more), `look layout and type` (both in one request),

@@ -22,5 +22,5 @@ Report only: change no files.
    - Does it look made for this product, or like any product's page? Name machine-made signs you
      see: a small label above each heading, 01 / 02 / 03 on things that are not steps, gradient
      text, cards inside cards, purple gradients, emoji as icons, vague slogans.
-   - 3 questions for the user that could change the design.
+   - Last, up to 3 questions for the user, only where an answer would change a fix or its order.
 Keep it short, and say which screenshots you looked at.

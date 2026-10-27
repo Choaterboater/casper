@@ -3,7 +3,7 @@
 
 import type { CasperApp } from "../app";
 import { browserDefaults } from "../browser/discovery";
-import { findLookCommand, findLookPage, formatLookPrompt, LOOK_COMMANDS, LOOK_USAGE, lookList, lookRequest, lookWhere, parseLookArgs, type LookCommand, type LookWords } from "../look/commands";
+import { findLookCommand, findLookPage, formatLookPrompt, LOOK_COMMANDS, LOOK_USAGE, lookList, lookNames, lookRequest, lookWhere, parseLookArgs, type LookCommand, type LookPage, type LookWords } from "../look/commands";
 import { terminalText } from "../tui/format";
 import type { VerificationReport } from "../verify/evidence";
 import { runModelTask } from "./task-run";
@@ -12,6 +12,7 @@ export async function lookCommand(app: CasperApp, args: string): Promise<Verific
   const write = (text: string) => app.output.write(text);
   const parsed = parseLookArgs(args);
   if ("problem" in parsed) { write(`${terminalText(parsed.problem)}\n`); return undefined; }
+  if ("fix" in parsed) return (await lookFix(app, parsed.words))?.report;
   let chosen = "list" in parsed ? undefined : parsed;
   if (!chosen) {
     // No command: the list, as a numbered question where Casper can ask, else as lines to read.
@@ -30,14 +31,26 @@ export async function lookCommand(app: CasperApp, args: string): Promise<Verific
  * any other line does. */
 export async function lookTyped(app: CasperApp, read: LookWords): Promise<{ report?: VerificationReport } | undefined> {
   if ("list" in read) return { report: await lookCommand(app, "") };
-  const names = read.commands.map(({ name }) => `/look ${name}`).join(" and ");
+  const names = "fix" in read ? "/look fix" : read.commands.map(({ name }) => `/look ${name}`).join(" and ");
   app.output.write(`[look] Read as ${names}${read.words ? `, with your words: ${terminalText(read.words)}` : ""}\n`);
-  return runLook(app, read, true);
+  return "fix" in read ? lookFix(app, read.words, true) : runLook(app, read, true);
+}
+
+/** /look fix: the issues the last report found, fixed in one task with the /look commands it named for them, on the
+ * page it looked at (src/app/look-fixes.ts). Picked from the Next row as "Fix all of it", or typed. */
+async function lookFix(app: CasperApp, words: string | undefined, typed = false): Promise<{ report?: VerificationReport } | undefined> {
+  const fixes = app.lookFixes;
+  if (!fixes) {
+    app.output.write(`[look] Nothing to fix yet: /look fix fixes what the last /look report (critique or audit) found, after it.${typed ? " The AI gets your words as they are." : " Nothing was started."}\n`);
+    return undefined;
+  }
+  return runLook(app, { commands: fixes.commands, page: fixes.page, found: true, ...(words ? { words } : {}) }, typed);
 }
 
 /** One /look run: one command, or several typed together, on the page given, else the page the last /look looked at in
- * this conversation, else the one Casper finds. Undefined when it can't run; `typed`: the line goes to the AI instead. */
-async function runLook(app: CasperApp, chosen: { commands: readonly LookCommand[]; target?: string; words?: string }, typed = false): Promise<{ report?: VerificationReport } | undefined> {
+ * this conversation, else the one Casper finds. Undefined when it can't run; `typed`: the line goes to the AI instead.
+ * `found`: /look fix, on the page of the report whose issues it fixes. */
+async function runLook(app: CasperApp, chosen: { commands: readonly LookCommand[]; target?: string; words?: string; page?: LookPage; found?: boolean }, typed = false): Promise<{ report?: VerificationReport } | undefined> {
   const write = (text: string) => app.output.write(text);
   const instead = typed ? " The AI gets your words as they are." : " Nothing was started.";
   const context = app.projectContext;
@@ -51,7 +64,7 @@ async function runLook(app: CasperApp, chosen: { commands: readonly LookCommand[
     return undefined;
   }
   // A follow-up ("look adapt" after "/look critique http://127.0.0.1:8000/") stays on the page already looked at.
-  const remembered = chosen.target ? undefined : app.lookPage;
+  const remembered = chosen.page ?? (chosen.target ? undefined : app.lookPage);
   const page = remembered ?? await findLookPage(app.activeWorkspaceRoot(), {
     frameworks: context?.model.frameworks ?? [], packageManager: context?.model.packageManager ?? null, services: context?.services ?? {},
   }, chosen.target);
@@ -61,6 +74,10 @@ async function runLook(app: CasperApp, chosen: { commands: readonly LookCommand[
   }
   app.lookPage = page;
   const fixes = chosen.commands.some((command) => command.fixes);
-  write(`[look] ${chosen.commands.map(({ name }) => name).join(" and ")}: ${terminalText(lookWhere(page))}${remembered ? " (the page your last /look looked at)" : ""}${fixes ? "" : " (a report; no files change)"}\n`);
-  return { report: await runModelTask(app, lookRequest(chosen.commands, page, chosen.words), { guide: formatLookPrompt(chosen.commands, page) }) };
+  // A new report finds its own issues, and /look fix fixes the ones found once.
+  if (!fixes || chosen.found) app.lookFixes = undefined;
+  write(chosen.found
+    ? `[look] Fixing what the last report found, with ${lookNames(chosen.commands)}: ${terminalText(lookWhere(page))}\n`
+    : `[look] ${chosen.commands.map(({ name }) => name).join(" and ")}: ${terminalText(lookWhere(page))}${remembered ? " (the page your last /look looked at)" : ""}${fixes ? "" : " (a report; no files change)"}\n`);
+  return { report: await runModelTask(app, lookRequest(chosen.commands, page, chosen.words, chosen.found), { guide: formatLookPrompt(chosen.commands, page) }) };
 }

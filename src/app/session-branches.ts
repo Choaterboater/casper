@@ -103,7 +103,7 @@ export async function revokeWorkspaceCapabilities(app: CasperApp): Promise<void>
   app.session?.setTools?.([]);
   app.runtimeTools = [];
   app.offeredTools.clear();
-  app.lookPage = undefined;
+  app.lookPage = undefined; app.lookFixes = undefined;
   app.serverSeen = false;
   app.openPlan = undefined;
   await Promise.all([app.broker?.close(), app.lsp?.close(), app.references?.close(), app.browser?.close(), app.services?.close(), stopDebugger(app)]);

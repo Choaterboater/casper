@@ -77,7 +77,7 @@ export function matchLookCommand(name: string): LookCommand | undefined {
 /** Words that join two commands: "look layout and type", "look layout, type". */
 const JOINS = new Set(["and", "&", "+", "then", ","]);
 
-export type LookWords = { commands: LookCommand[]; target?: string; words?: string } | { list: true };
+export type LookWords = { commands: LookCommand[]; target?: string; words?: string } | { list: true } | { fix: true; words?: string };
 
 /** A /look command the person typed without its slash: "look adapt", "look clairfy", "look layout and type", "look
  * polish /settings". Only a line that starts with "look" and then a /look command word (another spelling, or one letter
@@ -89,6 +89,10 @@ export function lookWords(line: string, pasted: readonly string[] = []): LookWor
   if (pasted.some(Boolean) || /[\r\n]/.test(text) || !/^look(?:\s|$)/i.test(text)) return undefined;
   const tokens = text.slice(4).replace(/,/g, " , ").split(/\s+/).filter(Boolean);
   if (!tokens.length) return { list: true };
+  if (tokens[0]!.toLowerCase() === "fix") {
+    const words = tokens.slice(1).join(" ").replace(/\s+,/g, ",").trim();
+    return { fix: true, ...(words ? { words } : {}) };
+  }
   const commands: LookCommand[] = [];
   let at = 0;
   while (at < tokens.length) {
@@ -105,7 +109,7 @@ export function lookWords(line: string, pasted: readonly string[] = []): LookWor
   return { commands, ...(target ? { target } : {}), ...(words ? { words } : {}) };
 }
 
-export const LOOK_USAGE = "Usage: /look <command> [page or url], for example /look critique or /look adapt /settings";
+export const LOOK_USAGE = "Usage: /look <command> [page or url], for example /look critique or /look adapt /settings; after a report, /look fix fixes what it found";
 
 /** The list /look shows with no command, in the numbered style of Casper's other lists. */
 export function lookList(): string {
@@ -116,12 +120,13 @@ export function lookList(): string {
   ].join("\n");
 }
 
-export type LookArgs = { command: LookCommand; target?: string } | { problem: string } | { list: true };
+export type LookArgs = { fix: true; words?: string } | { command: LookCommand; target?: string } | { problem: string } | { list: true };
 
 /** `/look`, `/look critique`, `/look adapt /settings`, `/look polish http://127.0.0.1:5173/`. A number picks from the list. */
 export function parseLookArgs(args: string): LookArgs {
   const [word, ...rest] = args.trim().split(/\s+/).filter(Boolean);
   if (!word) return { list: true };
+  if (word.toLowerCase() === "fix") return { fix: true, ...(rest.length ? { words: rest.join(" ") } : {}) };
   const command = /^\d+$/.test(word) ? LOOK_COMMANDS[Number(word) - 1] : matchLookCommand(word);
   if (!command) return { problem: `[look] There is no /look ${word}. ${LOOK_USAGE}\n${lookList()}` };
   if (rest.length > 1) return { problem: `[look] Give one page or link after /look ${command.name}. ${LOOK_USAGE}` };
@@ -163,15 +168,37 @@ export function lookWhere(page: LookPage): string {
   return `${page.path} from ${page.file}`;
 }
 
+/** What /look fix fixes: the fixing commands the last report named for its issues, and the page it looked at. */
+export interface LookFixes { readonly commands: readonly LookCommand[]; readonly page: LookPage }
+
+/** The fixing /look commands a report names for its issues ("`/look adapt`"), in the order it first names them. */
+export function lookFixesNamed(answer: string): LookCommand[] {
+  const named: LookCommand[] = [];
+  for (const [, word] of answer.matchAll(/\/look\s+([a-z]+)/gi)) {
+    const command = findLookCommand(word!);
+    if (command?.fixes && !named.includes(command)) named.push(command);
+  }
+  return named;
+}
+
+/** "adapt, polish and clarify". */
+export function lookNames(commands: readonly LookCommand[]): string {
+  const names = commands.map(({ name }) => name);
+  return names.length < 2 ? names.join("") : `${names.slice(0, -1).join(", ")} and ${names.at(-1)}`;
+}
+
 /** The request for the task. It names the browser, so the browser tool is offered; a report-only command reads as a
- * review, a fixing one as a change. Several commands are one request; the person's own words typed with them follow. */
-export function lookRequest(chosen: LookCommand | readonly LookCommand[], page: LookPage, words?: string): string {
+ * review, a fixing one as a change, and /look fix (`found`) as the issues the last report found. Several commands are
+ * one request; the person's own words typed with them follow. */
+export function lookRequest(chosen: LookCommand | readonly LookCommand[], page: LookPage, words?: string, found = false): string {
   const commands = Array.isArray(chosen) ? chosen as readonly LookCommand[] : [chosen as LookCommand];
   const where = page.kind === "url" ? page.url : page.path;
   const named = commands.map(({ name }) => `\`/look ${name}\``).join(", ");
-  const request = commands.some(({ fixes }) => fixes)
-    ? `Update the web page \`${where}\` in the browser (${named}).`
-    : `Review the web page \`${where}\` in the browser (${named}) and report; leave every file as it is.`;
+  const request = found
+    ? `Fix the issues your last look report found, most important first and as the person's replies since changed them, on the web page \`${where}\` in the browser (${named}).`
+    : commands.some(({ fixes }) => fixes)
+      ? `Update the web page \`${where}\` in the browser (${named}).`
+      : `Review the web page \`${where}\` in the browser (${named}) and report; leave every file as it is.`;
   return words ? `${request}\nThe person's own words with it: ${words}` : request;
 }
 

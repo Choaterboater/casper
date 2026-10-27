@@ -241,6 +241,8 @@ export class CasperApp {
   readonly offeredTools = new Set<string>();
   /** The page the last /look looked at in this conversation: a later /look with no page looks there again. */
   lookPage?: import("./look/commands").LookPage;
+  /** The fixes the last /look report named, for /look fix (src/app/look-fixes.ts). */
+  lookFixes?: import("./look/commands").LookFixes;
   /** The AI's shell reached a server on this machine this task: the service tool joins the next one. */
   serverSeen = false;
   /** The accepted plan's steps the last build left open, and its saved file: told to the next task only. */

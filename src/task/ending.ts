@@ -73,6 +73,25 @@ export function taskEnding(answer: string): TaskEnding | undefined {
   return undefined;
 }
 
+/** A sentence in a list item that asks: "…at a desk? That decides…", "…when you add the card?" ("Why?" in quotes doesn't). */
+const ASKS = /\?[*_)"'”’\]]*(?:\s+[A-Z(*_"“]|\s*$)/;
+
+/** The message ends with a list that asks the person things ("1. Do you mostly use this on a phone…?"), so a number
+ * typed next would read as an answer. taskEnding reads only the words above a closing list, as options to choose from;
+ * this reads the list itself. */
+export function closingListAsks(answer: string): boolean {
+  const lines = answer.replace(/\r\n?/g, "\n").split("\n");
+  let asks = false;
+  for (let index = lines.length - 1; index >= 0; index--) {
+    const line = lines[index]!;
+    if (!line.trim()) continue;
+    // An item, or a line that carries one on under it.
+    if (!LIST_ITEM.test(line) && !/^\s+\S/.test(line)) break;
+    if (ASKS.test(line)) asks = true;
+  }
+  return asks;
+}
+
 /** What this task changed, for "so far": its files, or that it changed something else (outside, another machine). */
 export function changedSoFar(task: TaskResult): string | undefined {
   const files = new Set([...task.changedPaths ?? [], ...task.changedDuringChecks ?? []]).size;
