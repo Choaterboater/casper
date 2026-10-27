@@ -165,6 +165,8 @@ export interface CommandHost {
   visualizationWork?: Promise<void>;
   visualizationAbort?: AbortController;
   browser?: BrowserSession;
+  /** Browser checks carried to the next task's browser; a new conversation starts without them. */
+  browserChecks?: unknown;
   services?: ServiceManager;
   debugSession?: DebugSession;
   lastTaskRequest?: string;
@@ -443,7 +445,7 @@ export async function runSlashCommand(host: CommandHost, prompt: string): Promis
           }
         }
       }
-      await host.browser?.close(); host.browser = undefined;
+      await host.browser?.close(); host.browser = undefined; host.browserChecks = undefined;
       // Services belong to the conversation that started them.
       await host.services?.close(); host.services = undefined;
       await host.stopDebugger(); host.debugSession = undefined;

@@ -44,6 +44,9 @@ export interface BrowserSessionOptions {
   checkPictures?: () => boolean;
   /** Browser clicks (browser_clicks, on unless turned off): every action runs without asking. Read at each action. */
   allowActions?: () => boolean;
+  /** Checks an earlier task's browser recorded in this conversation (its carried()): their ids replay here. None is in
+   * this task's report or end replays until it runs here, and that first run records its baseline anew. */
+  carried?: readonly CarriedCheck[];
   /** The session's services: serve then runs in the same slot as Casper's page checks (one owner for the dev server). */
   services?: () => ServiceManager;
   /**
@@ -971,7 +974,15 @@ interface RecordedCheck { scenario: BrowserScenario; check: BrowserCheck; finger
   /** The revision and input fingerprint of the run that recorded it: a withdraw needs both unchanged since then. */
   recordedRevision: number; recordedFingerprint?: string
   /** The app's data files when it was recorded: an end replay starts from them (src/browser/app-data.ts). */
-  data?: AppData }
+  data?: AppData
+  /** Recorded by an earlier task's browser and not run in this one. */
+  carried?: true }
+
+/** A check for the next task's browser (BrowserSessionOptions.carried): what it runs, its last result and its data. */
+export interface CarriedCheck { readonly scenario: BrowserScenario; readonly check: BrowserCheck; readonly data?: AppData }
+
+/** Checks a browser records, and checks it carries on to the next task's. */
+const MAX_CHECKS = 24;
 
 /** How long a first Chrome start may take before one fresh start replaces it, and fresh starts after a crash per session. */
 const FIRST_START_MS = 8_000;
@@ -1030,7 +1041,18 @@ export class BrowserSession {
   private guard?: MetadataGuard;
   /** The running action's deadline, held while a question waits for the person. */
   private deadline?: { hold: () => void; resume: () => void; renew: () => void };
-  constructor(private readonly options: BrowserSessionOptions) {}
+  constructor(private readonly options: BrowserSessionOptions) {
+    // Before any of this task's checks, in their recording order: a replacement must be recorded after what it replaces.
+    for (const { scenario, check, data } of options.carried?.slice(-MAX_CHECKS) ?? [])
+      this.scenarios.set(check.id, { scenario, check: structuredClone(check), revision: -1, recordedRevision: -1, order: ++this.recorded,
+        ranAt: Number.NEGATIVE_INFINITY, carried: true, ...(data ? { data } : {}) });
+  }
+
+  /** The checks for the next task's browser in this conversation (options.carried): the newest MAX_CHECKS. */
+  carried(): CarriedCheck[] {
+    return [...this.scenarios.values()].sort((a, b) => a.order - b.order).slice(-MAX_CHECKS)
+      .map(({ scenario, check, data }) => ({ scenario, check: structuredClone(check), ...(data ? { data } : {}) }));
+  }
 
   assertCleanup(): void { if (this.cleanupError && !this.cleanupError.acknowledged) throw this.cleanupError; }
 
@@ -1480,7 +1502,8 @@ export class BrowserSession {
   /** A recorded check as it stands now: stale once a later edit or command ran, or its declared inputs changed. */
   private async current(entry: RecordedCheck): Promise<BrowserCheck> {
     const check = structuredClone(entry.check);
-    if (entry.revision !== this.revision) { check.freshness = "stale"; check.reason = "Code/tool writes observed after this browser check."; }
+    if (entry.carried) { check.freshness = "stale"; check.reason = "Recorded in an earlier task; replay it to check the page as it is now."; }
+    else if (entry.revision !== this.revision) { check.freshness = "stale"; check.reason = "Code/tool writes observed after this browser check."; }
     else if (entry.fingerprint) {
       const current = await inputState(this.options.projectRoot, entry.scenario);
       if (!current.fingerprint) { check.freshness = "unavailable"; check.reason = current.reason; }
@@ -1505,7 +1528,7 @@ export class BrowserSession {
     try {
       for (const [id, entry] of this.scenarios) {
         if (this.controller.signal.aborted || signal?.aborted || this.work || !this.page || performance.now() > this.replayUntil - 1_000) return;
-        if (entry.ranAt < since || !localURL(entry.scenario.url) || entry.check.status === "incomplete" || entry.check.status === "withdrawn"
+        if (entry.carried || entry.ranAt < since || !localURL(entry.scenario.url) || entry.check.status === "incomplete" || entry.check.status === "withdrawn"
           || ((await this.current(entry)).freshness !== "stale" && !(entry.check.status === "fail" && retryFailures?.has(id)))) continue;
         const kept = { check: entry.check, fingerprint: entry.fingerprint, revision: entry.revision, ranAt: entry.ranAt };
         onReplay?.(entry.check.name, id);
@@ -1548,7 +1571,8 @@ export class BrowserSession {
 
   async report(): Promise<BrowserReport> {
     const checks: BrowserCheck[] = [];
-    for (const entry of this.scenarios.values()) checks.push(await this.current(entry));
+    // Only checks this task ran: an earlier task's result belongs to that task's receipt.
+    for (const entry of this.scenarios.values()) if (!entry.carried) checks.push(await this.current(entry));
     // A withdrawn check stays in the report, named, but never decides the result.
     const counted = checks.filter(check => check.status !== "withdrawn");
     return { status: counted.some(check => check.status === "fail") ? "fail" : !counted.length || counted.some(check => check.status !== "pass" || check.freshness !== "fresh") ? "incomplete" : "pass",
@@ -1560,19 +1584,22 @@ export class BrowserSession {
     if (input.action === "check") {
       const scenario = parseScenario(input.scenario);
       await this.askMetadata(scenario.url, signal);
-      if (this.scenarios.size >= 24) throw new Error("Browser check limit reached (24 per session); replay the ids your checks returned instead of recording new ones");
+      if ([...this.scenarios.values()].filter(entry => !entry.carried).length >= MAX_CHECKS) throw new Error(`Browser check limit reached (${MAX_CHECKS} per session); replay the ids your checks returned instead of recording new ones`);
       id = randomUUID();
       this.scenarios.set(id, { scenario, revision: this.revision, recordedRevision: this.revision, order: ++this.recorded, check: { id, name: scenario.name,
         scenarioSha256: createHash("sha256").update(JSON.stringify(scenario)).digest("hex"), url: scenario.url, viewport: scenario.viewport,
         status: "incomplete", baseline: "incomplete", freshness: "unavailable", scope: scenario.scope, assertions: [] }, ranAt: performance.now() });
     } else {
       id = text(input.id, "id", 64);
-      if (!this.scenarios.has(id)) throw new Error("Unknown browser check id; replay an id a check returned in this session, or record a check first");
+      if (!this.scenarios.has(id)) throw new Error("Unknown browser check id; replay an id a check returned in this conversation, or record a check first");
       if (this.scenarios.get(id)!.check.status === "withdrawn") throw new Error("This check was withdrawn; record a new check instead of replaying it");
       await this.askMetadata(this.scenarios.get(id)!.scenario.url, signal);
     }
     const entry = this.scenarios.get(id)!;
     const { scenario } = entry;
+    // An earlier task's check is this task's once it runs here, and its baseline is this task's: what an earlier task's
+    // run found never stands as the before-edit result of this one.
+    if (entry.carried) { delete entry.carried; entry.check = { ...entry.check, baseline: "incomplete" }; }
     // A check whose recording never finished (no server yet) is recorded by its first finished run.
     const recording = input.action === "check" || entry.check.baseline === "incomplete";
     const check: BrowserCheck = { ...entry.check, status: "incomplete", freshness: "unavailable", assertions: [], reason: undefined, notes: undefined };
@@ -1751,13 +1778,16 @@ export class BrowserSession {
     const id = text(input.id, "id", 64);
     const reason = text(input.reason, "reason", 200);
     const entry = this.scenarios.get(id);
-    if (!entry) throw new Error("Unknown browser check id; withdraw an id a check returned in this session");
+    if (!entry) throw new Error("Unknown browser check id; withdraw an id a check returned in this conversation");
     const status = entry.check.status;
     if (status === "withdrawn") throw new Error("This check is already withdrawn");
     if (status === "pass") throw new Error("Only a failed or unfinished check can be withdrawn; this one passed");
+    if (entry.carried && input.replacedBy === undefined) throw new Error(`This check was recorded in an earlier task: replay it first, ${REPLACE_WAY}`);
     const replacement = input.replacedBy === undefined ? undefined : this.replacement(id, entry, text(input.replacedBy, "replacedBy", 64));
     const withdrawn = replacement ? `${reason} (replaced by ${JSON.stringify(replacement.check.name)}, ${replacement.check.id})` : reason;
     const done = () => {
+      // Withdrawn here, it is named on this task's receipt.
+      delete entry.carried;
       entry.check = { ...entry.check, status: "withdrawn", withdrawn };
       return { id, name: entry.check.name, status: "withdrawn", reason: withdrawn,
         guidance: replacement ? "It no longer decides the result; its replacement does, and the receipt names both."
@@ -1786,6 +1816,7 @@ export class BrowserSession {
     const by = this.scenarios.get(other);
     if (!by || other === id) throw new Error("replacedBy must be the id of another check recorded in this session");
     if (by.order < entry.order) throw new Error("replacedBy must name a check recorded after this one");
+    if (by.carried) throw new Error("replacedBy must name a check run in this task; replay it first");
     const page = (url: string) => { try { return new URL(url).pathname; } catch { return url; } };
     if (page(by.scenario.url) !== page(entry.scenario.url)) throw new Error(`replacedBy must check the same page as this one (${page(entry.scenario.url)}), not ${page(by.scenario.url)}`);
     const was = entry.scenario, is = by.scenario;
