@@ -17,7 +17,7 @@ export const freePort = async () => { const probe = Bun.serve({ hostname: "127.0
 export function browserFixtures() {
   const cleanup: Array<() => Promise<unknown>> = [];
   afterEach(async () => { for (const close of cleanup.splice(0).reverse()) await close(); });
-  async function fixture(options: { executablePath?: string; firstStartMs?: number; actionTimeoutMs?: number; confirm?: (request: unknown, signal: AbortSignal) => Promise<boolean>; navigationTimeoutMs?: number; allowActions?: () => boolean; checkPictures?: () => boolean } = {}) {
+  async function fixture(options: { executablePath?: string; firstStartMs?: number; actionTimeoutMs?: number; confirm?: (request: unknown, signal: AbortSignal) => Promise<boolean>; navigationTimeoutMs?: number; allowActions?: () => boolean; checkPictures?: () => boolean; savePictures?: boolean } = {}) {
     const root = await realpath(await mkdtemp(path.join(os.tmpdir(), "casper-browser-test-")));
     cleanup.push(() => removeTempDir(root));
     const project = path.join(root, "project"), state = path.join(root, "state");
