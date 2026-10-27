@@ -108,3 +108,48 @@ test("your own osv-scanner on PATH was never hash-checked, so the advisory downl
   expect(await tools.recorded("osv-scanner")).toBeUndefined();
   expect(result).toEqual({ ok: false, message: OSV_PATH_SANDBOXED });
 });
+
+/** A run that writes `wrote` (ecosystem → new content) into the advisory folder, then exits with `exitCode`. */
+function osvRun(wrote: Record<string, string>, exitCode: number) {
+  return async (options: { env: Record<string, string> }) => {
+    for (const [name, content] of Object.entries(wrote)) {
+      const dir = path.join(options.env.OSV_SCANNER_LOCAL_DB_CACHE_DIRECTORY!, "osv-scalibr", name);
+      await mkdir(dir, { recursive: true });
+      await writeFile(path.join(dir, "all.zip"), content);
+    }
+    return { exitCode, signal: null, stdout: "{}", stderr: "" };
+  };
+}
+async function withOldData(home: string, ecosystems: string[], when: Date) {
+  for (const name of ecosystems) {
+    const dir = path.join(home, ".casper", "security", "osv-db", "osv-scalibr", name);
+    await mkdir(dir, { recursive: true });
+    await writeFile(path.join(dir, "all.zip"), "old");
+    await utimes(path.join(dir, "all.zip"), when, when);
+  }
+}
+
+test("'downloaded' only when the advisory data changed; data osv-scanner checked and kept says it is current, with its date", async () => {
+  const root = await fixtureRepo("casper-security-osv-");
+  const home = await mkdtemp(path.join(os.tmpdir(), "casper-security-osv-home-"));
+  temps.push(root, home);
+  const old = new Date("2026-09-20T08:00:00Z");
+  await withOldData(home, ["PyPI", "npm"], old);
+  // osv-scanner 2.6.0 compares the file's checksum with the server's and keeps an unchanged file as it is.
+  const unchanged = await updateOsvDb(root, { kind: "pinned", path: "/pinned/osv-scanner" }, { homeDir: home, env: { PATH: "/usr/bin" }, run: osvRun({}, 0), now: () => NOW });
+  expect(unchanged).toEqual({ ok: true, message: "Advisory data for PyPI, npm is already current: osv-scanner checked it and there was nothing new. It was downloaded 2026-09-20 (9 days old)." });
+  // One changed, one kept.
+  const some = await updateOsvDb(root, { kind: "pinned", path: "/pinned/osv-scanner" }, { homeDir: home, env: { PATH: "/usr/bin" }, run: osvRun({ PyPI: "new" }, 1), now: () => NOW });
+  expect(some).toEqual({ ok: true, message: "Advisory data downloaded for PyPI. npm was already current." });
+});
+
+test("a run that found no packages, or failed, never says it downloaded; it says what data is in place and how old", async () => {
+  const root = await fixtureRepo("casper-security-osv-");
+  const home = await mkdtemp(path.join(os.tmpdir(), "casper-security-osv-home-"));
+  temps.push(root, home);
+  await withOldData(home, ["PyPI"], new Date("2026-09-20T08:00:00Z"));
+  const none = await updateOsvDb(root, { kind: "pinned", path: "/pinned/osv-scanner" }, { homeDir: home, env: { PATH: "/usr/bin" }, run: osvRun({}, 128), now: () => NOW });
+  expect(none).toEqual({ ok: true, message: "osv-scanner found no packages it reads here, so nothing was downloaded. Advisory data in place: PyPI, downloaded 2026-09-20 (9 days old)." });
+  const failed = await updateOsvDb(root, { kind: "pinned", path: "/pinned/osv-scanner" }, { homeDir: home, env: { PATH: "/usr/bin" }, run: osvRun({}, 127), now: () => NOW });
+  expect(failed).toEqual({ ok: false, message: "osv-scanner could not download the advisory data. The data in place is from 2026-09-20 (9 days old)." });
+});

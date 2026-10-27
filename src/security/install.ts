@@ -482,17 +482,45 @@ export const OSV_PATH_SANDBOXED = "osv-scanner could not download the advisory d
  * analysis (on unless turned off) runs the go toolchain on the repo's modules. So it reads lock files and runs no repo
  * code. Your own copy on PATH was never checked, so it stays in the sandbox, which has no network.
  */
-export async function updateOsvDb(root: string, tool: { kind: "pinned" | "path"; path: string }, options: InstallOptions & { signal?: AbortSignal }): Promise<{ ok: boolean; message: string }> {
+/** Each ecosystem's advisory file as it is now: its size and time, to tell a download from a file left as it was. */
+async function osvFiles(homeDir: string): Promise<Map<string, string>> {
+  const base = path.join(osvDbDir(homeDir), "osv-scalibr");
+  const files = new Map<string, string>();
+  for (const name of await readdir(base).catch(() => [] as string[])) {
+    const details = await stat(path.join(base, name, "all.zip")).catch(() => undefined);
+    if (details?.isFile()) files.set(name, `${details.size}:${details.mtimeMs}`);
+  }
+  return files;
+}
+
+/** "2026-09-20 (9 days old)", as the report line says it. */
+function dataAge(state: OsvDbState): string {
+  if (!state.present || !state.downloadedAt) return "";
+  const days = state.ageDays === 0 ? "today" : state.ageDays === 1 ? "1 day old" : `${state.ageDays} days old`;
+  return `${state.downloadedAt.toISOString().slice(0, 10)} (${days})`;
+}
+
+export async function updateOsvDb(root: string, tool: { kind: "pinned" | "path"; path: string },
+  options: InstallOptions & { signal?: AbortSignal; now?: () => Date }): Promise<{ ok: boolean; message: string }> {
   const dir = osvDbDir(options.homeDir);
   await mkdir(dir, { recursive: true, mode: 0o700 });
+  const before = await osvFiles(options.homeDir);
   const result = await (options.run ?? (tool.kind === "pinned" ? runInstallStep : runTool))({
     file: tool.path, args: ["scan", "source", "--offline-vulnerabilities", "--download-offline-databases", "--no-resolve", "--no-call-analysis=all", "--format", "json", "--recursive", "."],
     cwd: root, env: { ...installEnv(options.env ?? process.env), OSV_SCANNER_LOCAL_DB_CACHE_DIRECTORY: dir }, timeoutMs: 600_000, signal: options.signal,
   });
-  const state = await osvDbState(options.homeDir);
+  const state = await osvDbState(options.homeDir, options.now?.());
+  const after = await osvFiles(options.homeDir);
+  // Only a file that is new or different was downloaded: osv-scanner 2.6.0 checks an existing file's checksum against
+  // the server's and leaves an unchanged one as it is.
+  const changed = [...after].filter(([name, file]) => before.get(name) !== file).map(([name]) => name).sort();
+  const kept = state.present ? state.ecosystems.filter((name) => !changed.includes(name)) : [];
   if ((result.exitCode === 0 || result.exitCode === 1 || result.exitCode === 128) && state.present) {
-    return { ok: true, message: `Advisory data downloaded for ${state.ecosystems.join(", ")}.` };
+    if (changed.length) return { ok: true, message: `Advisory data downloaded for ${changed.join(", ")}.${kept.length ? ` ${kept.join(", ")} ${kept.length === 1 ? "was" : "were"} already current.` : ""}` };
+    // Exit 128: no package osv-scanner reads, so nothing was looked up.
+    if (result.exitCode === 128) return { ok: true, message: `osv-scanner found no packages it reads here, so nothing was downloaded. Advisory data in place: ${state.ecosystems.join(", ")}, downloaded ${dataAge(state)}.` };
+    return { ok: true, message: `Advisory data for ${state.ecosystems.join(", ")} is already current: osv-scanner checked it and there was nothing new. It was downloaded ${dataAge(state)}.` };
   }
   if (tool.kind === "path" && currentSandbox()?.on) return { ok: false, message: OSV_PATH_SANDBOXED };
-  return { ok: false, message: "osv-scanner could not download the advisory data." };
+  return { ok: false, message: `osv-scanner could not download the advisory data.${state.present ? ` The data in place is from ${dataAge(state)}.` : ""}` };
 }

@@ -13,6 +13,7 @@ import {
 import { approvalsPath } from "../src/security/suppressions";
 import type { SecurityFinding } from "../src/security/types";
 import { FAKE_PROGRAM_SETUP_MS, fakeTools, fixtureRepo, gitIn, prepareFakePrograms } from "./fixtures/security-tools/setup";
+import { withEnv } from "./support/env";
 import { posixOnly } from "./support/platform";
 import { removeTempDir } from "./support/temp-dir";
 
@@ -358,4 +359,31 @@ test("the approvals store is untouched by a review run", async () => {
   const fake = fakeAI(GOOD);
   await runSecurityReview(host(root, home, tools.find, "cannot-ask", fake.ai).host, ["ai"]);
   expect(await readFile(approvalsPath(await realpath(root), home), "utf8").catch(() => "none")).toBe("none");
+});
+
+// Pi's own grep writes `path:N: text` for a match and `path-N- text` around it; the filter reads those. A format change
+// in Pi would let a denied file's lines through (the filter keeps lines it can't read), so this runs Pi's real tool.
+posixOnly("Pi's real grep output, match and context lines, from a file the review may not read is dropped", async () => {
+  const root = await temp("casper-ai-real-grep-");
+  await mkdir(path.join(root, "app"));
+  await writeFile(path.join(root, "app/settings.py"), "# settings\nTOKEN = 'LIVE-sk-real-grep'\nDEBUG = False\n");
+  await writeFile(path.join(root, "app/main.py"), "import os\nTOKEN = os.environ['TOKEN']\nrun()\n");
+  await writeFile(path.join(root, ".env"), "OTHER=1\nTOKEN=LIVE-env-real-grep\n");
+  const { createGrepTool } = await import("@earendil-works/pi-coding-agent");
+  const result = await withEnv({ PI_OFFLINE: "1" }, () =>
+    createGrepTool(root).execute("guard", { pattern: "TOKEN", path: ".", context: 1 }, new AbortController().signal));
+  const texts = result.content.flatMap((part) => part.type === "text" ? [part.text] : []);
+  const raw = texts.join("\n");
+  // Pi still writes both kinds of line for every file: the filter's input is what this test assumes.
+  for (const line of ["app/settings.py:2: TOKEN = 'LIVE-sk-real-grep'", "app/settings.py-1- # settings", "app/main.py:2: TOKEN", ".env:2: TOKEN=LIVE-env-real-grep"]) {
+    expect(raw).toContain(line);
+  }
+  const kept = dropDeniedGrepLines(root, flagged, { pattern: "TOKEN", path: ".", context: 1 }, texts).join("\n");
+  expect(kept).not.toContain("LIVE-");
+  expect(kept).not.toContain("app/settings.py");
+  expect(kept).not.toMatch(/^\.env[:-]/m);
+  expect(kept).toContain("app/main.py:2: TOKEN = os.environ['TOKEN']");
+  expect(kept).toContain("app/main.py-1- import os");
+  // Three lines from each denied file at one line of context (Pi adds an empty context line after a file's last line).
+  expect(kept).toContain("6 matching lines from files that may hold secrets not shown.");
 });

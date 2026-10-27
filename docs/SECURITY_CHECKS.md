@@ -67,7 +67,9 @@ that carry a hash for every package.
   nothing, runs what is installed and says so.
 - `/security-review update` downloads osv-scanner's advisory data, after asking
   (`1 Stop · 2 Download it`; Enter downloads nothing).
-  The report shows how old it is.
+  The report shows how old it is. It says `downloaded` only for data that changed: osv-scanner
+  checks each file it has against the server and keeps an unchanged one, which reads `already current`
+  with its date; a run that found no packages or failed says what data is in place and how old.
 
 ## Ignores
 
