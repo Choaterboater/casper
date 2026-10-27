@@ -1,8 +1,9 @@
 import { expect } from "bun:test";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { BrowserSession } from "../src/browser/session";
 import { browserTool } from "../src/browser/tools";
-import { browserFixtures, browserTest, freePort } from "./support/browser-fixture";
+import { browserFixtures, browserTest, executable, freePort } from "./support/browser-fixture";
 
 const { cleanup, fixture } = browserFixtures();
 
@@ -497,3 +498,46 @@ browserTest("local synthetic interactions proceed while consequential actions re
   await expect(f.session.run({ action: "click", selector: "button" })).rejects.toThrow("impact");
 }, 20_000);
 
+browserTest("the next task's browser replays an earlier task's check: it counts there only once it runs, and that run is its baseline", async () => {
+  const f = await fixture();
+  await writeFile(f.sourceFile, "<!doctype html><h1>Old title</h1>");
+  const title = await f.session.run({ action: "check", scenario: { name: "Title", url: f.url, scope: { inputs: ["index.html"] }, steps: [],
+    assertions: [{ kind: "text", selector: "h1", expected: "New title" }] } }) as { id: string };
+  expect(title).toMatchObject({ status: "fail", baseline: "fail" });
+  await writeFile(f.sourceFile, "<!doctype html><h1>New title</h1>");
+  f.session.invalidate();
+  expect(await f.session.run({ action: "replay", id: title.id })).toMatchObject({ status: "pass", baseline: "fail" });
+  // That task ends and its browser closes; the next task's browser has the check.
+  await f.session.close();
+  const next = new BrowserSession({ projectRoot: f.project, stateDirectory: f.state, executablePath: executable, carried: f.session.carried() });
+  cleanup.push(() => next.close());
+  expect(await next.report()).toMatchObject({ status: "incomplete", checks: [] });
+  // Its first run here is this task's before-edit result: the earlier task's failure is not this task's proof.
+  expect(await next.run({ action: "replay", id: title.id })).toMatchObject({ status: "pass", baseline: "pass", freshness: "fresh" });
+  expect(await next.report()).toMatchObject({ status: "pass", checks: [{ id: title.id, status: "pass", baseline: "pass" }] });
+}, 60_000);
+
+browserTest("an earlier task's failed check is withdrawn in the next task only after it runs there, or for a replacement that ran there", async () => {
+  const f = await fixture();
+  await writeFile(f.sourceFile, "<!doctype html><h1>Hello</h1>");
+  const scenario = (name: string, expected: string) => ({ name, url: f.url, scope: { inputs: ["index.html"] }, steps: [],
+    assertions: [{ kind: "text", selector: "h1", expected }] });
+  const typo = await f.session.run({ action: "check", scenario: scenario("Typo", "Helo") }) as { id: string };
+  const spelled = await f.session.run({ action: "check", scenario: scenario("Spelled", "Hello") }) as { id: string };
+  expect([typo, spelled]).toMatchObject([{ status: "fail" }, { status: "pass" }]);
+  await f.session.close();
+  const next = new BrowserSession({ projectRoot: f.project, stateDirectory: f.state, executablePath: executable, carried: f.session.carried() });
+  cleanup.push(() => next.close());
+  await expect(next.run({ action: "withdraw", id: typo.id, reason: "typo" })).rejects.toThrow("recorded in an earlier task: replay it first");
+  await expect(next.run({ action: "withdraw", id: typo.id, reason: "typo", replacedBy: spelled.id })).rejects.toThrow("replacedBy must name a check run in this task");
+  expect(await next.run({ action: "replay", id: spelled.id })).toMatchObject({ status: "pass" });
+  expect(await next.run({ action: "withdraw", id: typo.id, reason: "typo", replacedBy: spelled.id })).toMatchObject({ status: "withdrawn" });
+  // Withdrawn here, it is named on this task's receipt, and its replacement decides.
+  expect(await next.report()).toMatchObject({ status: "pass", checks: [{ id: typo.id, status: "withdrawn" }, { id: spelled.id, status: "pass" }] });
+  // One that runs here first can be withdrawn as any check whose failure came before any change.
+  const again = new BrowserSession({ projectRoot: f.project, stateDirectory: f.state, executablePath: executable,
+    carried: [{ ...f.session.carried()[0]! }] });
+  cleanup.push(() => again.close());
+  expect(await again.run({ action: "replay", id: typo.id })).toMatchObject({ status: "fail", baseline: "fail" });
+  expect(await again.run({ action: "withdraw", id: typo.id, reason: "typo" })).toMatchObject({ status: "withdrawn" });
+}, 60_000);

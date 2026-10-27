@@ -107,7 +107,7 @@ export async function revokeWorkspaceCapabilities(app: CasperApp): Promise<void>
   app.serverSeen = false;
   app.openPlan = undefined;
   await Promise.all([app.broker?.close(), app.lsp?.close(), app.references?.close(), app.browser?.close(), app.services?.close(), stopDebugger(app)]);
-  app.browser = undefined;
+  app.browser = undefined; app.browserChecks = undefined;
   app.services = undefined;
   app.debugSession = undefined;
 }

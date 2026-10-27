@@ -9,7 +9,7 @@ import path from "node:path";
 import { reloadProject } from "./app/project-file";
 import type { LabSettings } from "./network/spec";
 import { modelPreference } from "./tui/model-preference";
-import { BrowserSession } from "./browser/session";
+import { BrowserSession, type CarriedCheck } from "./browser/session";
 import { ServiceManager } from "./services/manager";
 import { reachesLocalServer } from "./services/tool";
 import type { BackgroundCommands } from "./runtime/background-commands";
@@ -210,6 +210,8 @@ export class CasperApp {
   readonly loadLSPConfigurationFn: (context: ProjectContext) => Promise<LSPConfiguration>;
   readonly loadReferenceConfigurationFn: (context: ProjectContext) => Promise<ReferenceConfiguration>;
   browser?: BrowserSession;
+  /** The checks of this conversation's last closed browser: the next one replays their ids (BrowserSession.carried). */
+  browserChecks?: CarriedCheck[];
   /** Managed services live for the session, not the task (docs/SERVICES.md). */
   services?: ServiceManager;
   /** Slow commands moved to the background (src/runtime/background-commands.ts), for the session. */

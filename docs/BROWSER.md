@@ -210,9 +210,15 @@ yourself; it shows what a check holds:
 
 Use `{"action":"replay","id":"<returned-id>"}` after the fix. The scenario is
 immutable, identified by ID and SHA-256, and retains its original baseline outcome.
-Each execution uses fresh browser storage. IDs last for this task/session only;
-there is no durable scenario library. A baseline that never failed is not proof of
-reproducing the user's bug.
+Each execution uses fresh browser storage. IDs last for the conversation: the
+browser closes at each task's end, and the next task's browser takes its newest 24
+checks, so a later task can replay an earlier one's check, for example before its
+own edit. That check decides nothing in the later task until it runs there, and
+that first run is its baseline there: an earlier task's failure is never a later
+task's proof. Until then it can be withdrawn only for a replacement that ran in the
+later task. `/clear`, `/resume` and a session switch forget them; there is no
+durable scenario library ([decision 41](adr/0002/41-checks-last-the-conversation.md)).
+A baseline that never failed is not proof of reproducing the user's bug.
 
 A check or replay the model runs also brings the page as the steps left it, under
 `finalPage`: its title, address, size, the first 1,500 characters of its text and
@@ -325,7 +331,7 @@ task already set a stronger result. Inspecting a page alone is not a check.
 When a task finishes (not when it fails or is cancelled), Casper replays once,
 before the receipt and without asking the model to replay, each check this task recorded or
 replayed that ran before a later edit or command, so the model need not replay a
-check just to count it. Checks from earlier tasks in the session are left alone.
+check just to count it. Checks from earlier tasks that this task didn't run are left alone.
 The fresh result counts: a pass is a pass, a failure is a failure with its
 evidence. Only pages on this computer are replayed, and only `local-test` steps;
 one whose label has a word such as "send", "buy" or "delete" (a contact form's

@@ -178,6 +178,7 @@ export function browserSession(app: CasperApp): BrowserSession {
     }),
     checkPictures: () => app.projectContext?.showPages !== "off",
     services: () => serviceManager(app),
+    ...(app.browserChecks?.length ? { carried: app.browserChecks } : {}),
   });
   // Capture the instance: the field is cleared after explicit closes (revoke, /clear),
   // but the registered close must still close the session it was registered for.

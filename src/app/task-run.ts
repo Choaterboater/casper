@@ -139,8 +139,9 @@ export async function runModelTask(app: CasperApp, prompt: string, options: { fl
     && underSpecifiedTarget(typed);
   // Debug values and active debuggees do not silently become model-task context.
   await stopDebugger(app);
-  // A finished task's immutable evidence belongs to its receipt, not the next prompt.
-  if (app.browser?.status().state === "closed") app.browser = undefined;
+  // A finished task's immutable evidence belongs to its receipt, not the next prompt. Its checks go on, so this task can
+  // replay their ids in its own browser; none counts here until it runs again (BrowserSession.carried).
+  if (app.browser?.status().state === "closed") { app.browserChecks = app.browser.carried(); app.browser = undefined; }
   app.lastTaskRequest = prompt;
   const selected = await app.skillRegistry!.loadForTask(prompt, context.model, classification);
   reportSkillWarnings(app);
