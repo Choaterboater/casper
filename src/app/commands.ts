@@ -472,7 +472,7 @@ export async function runSlashCommand(host: CommandHost, prompt: string): Promis
       const named = title ? `"${terminalText(title)}"` : "that conversation";
       host.output.write(!host.interactive
         ? prompt === "/clear"
-          ? "[session] New conversation for this run only: a one-shot run doesn't change what Casper opens next. Run /clear in a session for that.\n"
+          ? "[session] New conversation for this run only: a one-shot run doesn't change what Casper opens next.\n"
           : `[session] Opened ${named} for this run only: a one-shot run doesn't change what Casper opens next. Use casper --resume ${id.slice(0, 8)} "<prompt>" to continue it.\n`
         : prompt === "/clear"
           ? "[session] New conversation. Your files are not changed; /resume brings the last one back.\n"

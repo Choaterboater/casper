@@ -1,6 +1,13 @@
 import { expect, test } from "bun:test";
 import { writeFileSync } from "node:fs";
+import { mkdir, mkdtemp } from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
+import { CasperApp } from "../src/app";
+import { conversationDay, NEW_CONVERSATION_HINT } from "../src/app/earlier-conversation";
+import { loadProjectContext } from "../src/project/context";
+import { SkillRegistry } from "../src/skills/registry";
+import { removeTempDir } from "./support/temp-dir";
 import type { AgentRuntime, RuntimeConversation } from "../src/runtime/types";
 import { CONTINUE_TYPED, continueNamed, formatTaskPrompt } from "../src/task/classify";
 import { COMMANDS, runsDuringWork } from "../src/tui/commands";
@@ -79,7 +86,7 @@ test("/continue with no other conversation in this folder says so, and nothing c
 
 test("/help and the / menu list /continue next to /resume, and it waits for a running task as /resume does", () => {
   expect(HELP_TEXT).toContain("\n  /continue, /resume     Go back to this folder's last conversation, or pick one; /clear starts fresh\n");
-  expect(FULL_HELP_TEXT).toContain("\n  /continue                         Go back to the most recent other conversation saved in this folder, as casper --continue does at startup\n");
+  expect(FULL_HELP_TEXT).toContain("\n  /continue                         Go back to the most recent other conversation saved in this folder, as casper --continue does at startup; each start is a new conversation, and 1 on the start's row runs this\n");
   expect(FULL_HELP_TEXT).toContain("Conversations are saved per folder: /continue and /resume see this folder's.");
   const names = COMMANDS.map(command => command.name);
   expect(names.indexOf("continue")).toBe(names.indexOf("resume") + 1);
@@ -107,4 +114,103 @@ test("asked in plain words to continue an earlier session, the AI is told the co
   const proving = { proveChange: true, reviewFollows: true };
   expect(formatTaskPrompt("fix the login bug", general, model, proving)).toBe("fix the login bug");
   expect(formatTaskPrompt("continue the last session", general, model, proving)).toBe(`${CONTINUE_TYPED}\nUser request:\ncontinue the last session`);
+});
+
+/** The earlier conversations a folder has, as the start's row reads them: an old one with replies, and an empty one
+ * /clear left (newer, never offered). */
+const EARLIER: RuntimeConversation[] = [
+  { id: "b0b0b0b0-0000", name: "Fix the login bug", modified: "2026-10-21T12:00:00Z", messages: 12 },
+  { id: "e0e0e0e0-0000", modified: "2026-10-22T12:00:00Z", messages: 0 },
+];
+function withPrompts(base: AgentRuntime, prompts: string[]): AgentRuntime {
+  return {
+    ...base,
+    async start(options) {
+      const session = await base.start(options);
+      return { ...session, prompt: async (text: string) => { prompts.push(text); } };
+    },
+  };
+}
+const ROW = `Next: 1 Continue the ${conversationDay(EARLIER[0]!.modified)} conversation (Fix the login bug · 12 messages)`;
+
+test("a plain start begins a new conversation and offers one row to continue the last one: 1 continues it", async () => {
+  const resumed: Array<[string, unknown]> = [];
+  const prompts: string[] = [];
+  await withEnv({ TERM: "xterm-256color" }, async () => {
+    const app = await richApp(project => withPrompts(runtime(() => EARLIER, resumed, project), prompts), { savedConversations: async () => EARLIER });
+    try {
+      await app.until(text => text.includes(ROW));
+      expect(app.screen()).toContain(NEW_CONVERSATION_HINT);
+      // Nothing reopened on its own.
+      expect(resumed).toEqual([]);
+      app.input.write("1");
+      await app.until(text => text.includes("Back in \"Fix the login bug\""));
+      // What --continue would pick: the newest with replies, never the empty one /clear left.
+      expect(resumed).toEqual([["b0b0b0b0-0000", { keepUnwritten: false }]]);
+      expect(prompts).toEqual([]);
+    } finally { await app.close(); }
+  });
+}, 30_000);
+
+test("Enter on the empty prompt runs nothing, and typing a request starts the new conversation", async () => {
+  const resumed: Array<[string, unknown]> = [];
+  const prompts: string[] = [];
+  await withEnv({ TERM: "xterm-256color" }, async () => {
+    const app = await richApp(project => withPrompts(runtime(() => EARLIER, resumed, project), prompts), { savedConversations: async () => EARLIER });
+    try {
+      await app.until(text => text.includes(ROW));
+      app.input.write("\r");
+      await Bun.sleep(200);
+      expect(resumed).toEqual([]);
+      app.input.write("explain the notes\r");
+      await app.until(() => prompts.length === 1);
+      expect(prompts[0]).toContain("explain the notes");
+      expect(resumed).toEqual([]);
+      // The row is gone with the first request: a later 1 is an ordinary request.
+      app.input.write("1\r");
+      await app.until(() => prompts.length === 2);
+      expect(resumed).toEqual([]);
+    } finally { await app.close(); }
+  });
+}, 30_000);
+
+test("a folder with no earlier conversation shows no row; a one-shot run never offers one", async () => {
+  const resumed: Array<[string, unknown]> = [];
+  const prompts: string[] = [];
+  await withEnv({ TERM: "xterm-256color" }, async () => {
+    const empty = await richApp(project => withPrompts(runtime(() => [], resumed, project), prompts), { savedConversations: async () => [] });
+    try {
+      await empty.until(text => text.includes("idle"));
+      await Bun.sleep(200);
+      expect(empty.screen()).not.toContain("Continue the");
+    } finally { await empty.close(); }
+  });
+  const root = await mkdtemp(path.join(os.tmpdir(), "casper-oneshot-row-"));
+  try {
+    const home = path.join(root, "home"); const project = path.join(root, "project");
+    await mkdir(home); await mkdir(project); writeFileSync(path.join(project, "notes.txt"), "notes\n");
+    let written = "";
+    const app = new CasperApp({
+      sessionHomeDir: home, runtimeFactory: () => withPrompts(runtime(() => EARLIER, resumed, project), prompts), savedConversations: async () => EARLIER,
+      loadProjectContext: info => loadProjectContext(info, { homeDir: home }),
+      loadSkillRegistry: context => SkillRegistry.discover({ projectRoot: context.info.root, homeDir: home }),
+      loadMCPConfiguration: async () => ({ servers: [], diagnostics: [] }),
+      loadLSPConfiguration: async () => ({ servers: [], diagnostics: [] }),
+      output: { write: (text: string) => { written += text; } },
+    });
+    try {
+      await app.runOnce("explain the notes", project);
+      expect(written).not.toContain("Continue the");
+      expect(resumed).toEqual([]);
+      expect(prompts.at(-1)).toContain("explain the notes");
+    } finally { await app.close(); }
+  } finally { await removeTempDir(root); }
+}, 30_000);
+
+test("the row names the day plainly: today's, yesterday's, a date, and the year when it isn't this one", () => {
+  const now = new Date(2026, 9, 27, 15, 0);
+  expect(conversationDay(new Date(2026, 9, 27, 9, 0).toISOString(), now)).toBe("today's");
+  expect(conversationDay(new Date(2026, 9, 26, 23, 0).toISOString(), now)).toBe("yesterday's");
+  expect(conversationDay(new Date(2026, 9, 21, 12, 0).toISOString(), now)).toBe("Oct 21");
+  expect(conversationDay(new Date(2025, 11, 30, 12, 0).toISOString(), now)).toBe("Dec 30, 2025");
 });

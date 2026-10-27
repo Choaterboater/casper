@@ -239,6 +239,40 @@ describe("Phase 7 sessions and worktrees", () => {
     await expect((await SessionWorkspaceManager.open(options)).resumeActive(mismatched)).rejects.toThrow("does not match");
   });
 
+  test("a plain start in the folder's main session keeps its new conversation, even when an earlier one is saved", async () => {
+    const { home, repo } = await repository();
+    const sessions = path.join(home, "fake-sessions"); await mkdir(sessions);
+    const keptFile = path.join(sessions, "kept.jsonl"); await writeFile(keptFile, "earlier conversation");
+    const options = { projectRoot: repo, gitBranch: "main", homeDir: home, policy: SAFE_DEFAULT_POLICY.workspace };
+    // What an earlier /clear, /resume or --continue left: main holds that conversation.
+    await (await SessionWorkspaceManager.open(options)).rememberConversation(new BranchRuntimeSession(sessions, repo, keptFile));
+    const freshFile = path.join(sessions, "fresh.jsonl"); await writeFile(freshFile, "");
+    const fresh = new BranchRuntimeSession(sessions, repo, freshFile);
+    const restarted = await SessionWorkspaceManager.open(options);
+    expect(await restarted.resumeActive(fresh, { fresh: true })).toBeUndefined();
+    expect(fresh.getSessionInfo().sessionFile).toBe(freshFile);
+    // Asked again for the same runtime, nothing changes either.
+    expect(await restarted.resumeActive(fresh)).toBeUndefined();
+    expect(fresh.getSessionInfo().sessionFile).toBe(freshFile);
+  });
+
+  test("a /branch experiment folder still reopens its branch's conversation on a plain start", async () => {
+    const { home, repo } = await repository();
+    const sessions = path.join(home, "fake-sessions"); await mkdir(sessions);
+    const mainFile = path.join(sessions, "main.jsonl"); await writeFile(mainFile, "main session");
+    const options = { projectRoot: repo, gitBranch: "main", homeDir: home, policy: SAFE_DEFAULT_POLICY.workspace };
+    const runtime = new BranchRuntimeSession(sessions, repo, mainFile);
+    const child = await (await SessionWorkspaceManager.open(options)).branch("exp", { getRuntime: async () => runtime, confirm: async () => true });
+    const branchFile = runtime.getSessionInfo().sessionFile;
+    expect(branchFile).not.toBe(mainFile);
+    const freshFile = path.join(sessions, "fresh.jsonl"); await writeFile(freshFile, "");
+    const fresh = new BranchRuntimeSession(sessions, child!.workspacePath, freshFile);
+    const inExperiment = await SessionWorkspaceManager.open({ ...options, projectRoot: child!.workspacePath, gitBranch: null });
+    expect(inExperiment.activeName).toBe("exp");
+    await inExperiment.resumeActive(fresh, { fresh: true });
+    expect(fresh.getSessionInfo().sessionFile).toBe(branchFile);
+  });
+
   test("a one-shot run starts its own conversation and leaves the one /clear or /resume kept for the next session", async () => {
     const { home, repo } = await repository();
     const sessions = path.join(home, "fake-sessions"); await mkdir(sessions);
@@ -271,7 +305,7 @@ describe("Phase 7 sessions and worktrees", () => {
     // A one-shot /clear starts a new conversation for this run only, and says so.
     await app.runOnce("/clear");
     expect(session.getSessionInfo().sessionFile).toBe(clearedFile);
-    expect(written).toContain("[session] New conversation for this run only: a one-shot run doesn't change what Casper opens next. Run /clear in a session for that.\n");
+    expect(written).toContain("[session] New conversation for this run only: a one-shot run doesn't change what Casper opens next.\n");
     expect(written).not.toContain("/resume brings the last one back");
     // So does a one-shot /resume <id>, naming the way to continue that conversation.
     await app.runOnce("/resume 0123456789abcdef");

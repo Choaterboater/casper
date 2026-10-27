@@ -808,6 +808,15 @@ export function toolPathContext(root: string, home: string, agentDir: string | u
   return context;
 }
 
+/** The conversations saved for `cwd` (Pi's own list, as /resume shows), without starting a runtime. Read only: a folder
+ * with none saved has no session folder, and Pi's default list would make one. */
+export async function savedConversations(cwd: string): Promise<RuntimeConversation[]> {
+  const dir = path.join(path.resolve(getAgentDir()), "sessions", `--${path.resolve(cwd).replace(/^[/\\]/, "").replace(/[/\\:]/g, "-")}--`);
+  if (!existsSync(dir)) return [];
+  return (await SessionManager.list(cwd, dir)).map(info => ({ id: info.id, name: info.name, modified: info.modified.toISOString(),
+    firstMessage: info.firstMessage.slice(0, 4000), messages: info.messageCount }));
+}
+
 export class PiRuntime implements AgentRuntime {
   private runtime?: AgentSessionRuntime;
   private models?: PiModels;

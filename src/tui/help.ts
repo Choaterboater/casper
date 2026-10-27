@@ -116,7 +116,7 @@ Local commands:
   /compact [instructions]           Summarize context using the model (not a local-only command)
   /clear, /new                      New conversation; no file rollback
   /resume [id]                      Pick a saved conversation (or give the start of its ID)
-  /continue                         Go back to the most recent other conversation saved in this folder, as casper --continue does at startup
+  /continue                         Go back to the most recent other conversation saved in this folder, as casper --continue does at startup; each start is a new conversation, and 1 on the start's row runs this
   /diff [n|list]                    Task n's changes (default: the last task in this folder), also outside git; list picks one. Before any task in this folder: git status plus tracked diff against HEAD
   /undo [n]                         Put back the files of the last task (or task n); files changed since are left alone
   /redo [n]                         Put an undone task's files back as the task left them

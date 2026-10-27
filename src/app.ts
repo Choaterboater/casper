@@ -41,7 +41,7 @@ import { loadProjectContext, type ProjectContext } from "./project/context";
 import { broadFolder, inspectProject, type ProjectInfo } from "./project/inspect";
 import { forgetSshSecrets } from "./ssh/login";
 import { useTelemetrySetting } from "./runtime/openrouter-attribution";
-import type { AgentRuntime, RuntimeSession, RuntimeImage, RuntimeTool, RuntimeShell } from "./runtime/types";
+import type { AgentRuntime, RuntimeConversation, RuntimeSession, RuntimeImage, RuntimeTool, RuntimeShell } from "./runtime/types";
 import { SkillRegistry, skillRegistryOptions } from "./skills/registry";
 import type { TaskResult, TaskUsage } from "./task/result";
 import type { TaskClassification } from "./task/classify";
@@ -111,6 +111,9 @@ export type { OutputWriter } from "./app/commands";
 
 export interface CasperAppOptions {
   runtimeFactory?: () => AgentRuntime | Promise<AgentRuntime>;
+  /** The conversations saved for a folder, read without starting a model (the start's "1 Continue …" row). Pi's
+   * list by default; with a runtimeFactory of its own and none given, no row. */
+  savedConversations?: (cwd: string) => Promise<RuntimeConversation[]>;
   /** Fresh child runtime per invocation; must implement startReadOnly. Never reuse the main runtime. */
   subagentRuntimeFactory?: () => AgentRuntime | Promise<AgentRuntime>;
   inspectProject?: (cwd: string) => Promise<ProjectInfo>;
@@ -201,6 +204,7 @@ export class CasperApp {
   /** Browser actions you said "Yes, for this session" to. */
   readonly sessionYes = new SessionYes((preview, question, options, signal) => recordedApproval(this, preview, question, options, signal));
   readonly runtimeFactory: () => AgentRuntime | Promise<AgentRuntime>;
+  readonly savedConversations?: (cwd: string) => Promise<RuntimeConversation[]>;
   readonly subagents: SubagentManager;
   readonly ripgrep?: (options: RipgrepOptions) => Promise<RipgrepResult>;
   readonly inspectProjectFn: (cwd: string) => Promise<ProjectInfo>;
@@ -491,6 +495,8 @@ export class CasperApp {
       return new PiRuntime({ homeDir: this.sessionHomeDir ?? os.homedir() });
     };
     this.runtimeFactory = options.runtimeFactory ?? freshPiRuntime;
+    this.savedConversations = options.savedConversations
+      ?? (options.runtimeFactory ? undefined : async (cwd: string) => (await import("./runtime/pi")).savedConversations(cwd));
     this.pageOpenerFn = options.pageOpener ?? pageOpener;
     this.pageSeams = options.pageSeams;
     this.pictureSeams = options.pictureSeams;

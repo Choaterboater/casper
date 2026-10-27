@@ -21,6 +21,7 @@ import { leadingImagePath, startsWithImageFile } from "./images";
 import { serviceManager } from "./task-tools";
 import { updateFooter, loadPaneSetting, askPaneOnce, paneCommand, detailsCommand } from "./footer";
 import { holdBackSteered, settleQueuedLines } from "./during-work";
+import { offerEarlierConversation } from "./earlier-conversation";
 import { newProjectFlowWithAbort, openProjectFolder, newProjectCommand, initialProjectRequest, openWorkspaceBeforeRuntime } from "./workspace";
 import { rebindWorkspace } from "./session-branches";
 import { runModelTask, runSuggestion } from "./task-run";
@@ -67,6 +68,8 @@ export async function runInteractive(app: CasperApp, cwd = process.cwd(), firstR
   await checkSignIn(app);
   await loadPaneSetting(app);
   updateFooter(app);
+  // Looked up beside the prompt, not before it: the prompt never waits on the folder's saved conversations.
+  void offerEarlierConversation(app);
   while (!app.closing) {
     app.cancelBeforeCommand = false;
     updateFooter(app);

@@ -161,9 +161,12 @@ export class SessionWorkspaceManager {
    * Bind a newly-created runtime to the saved active conversation before recording it.
    * Returns a user-visible notice when the saved conversation file was deleted outside
    * Casper and the record was rebound to the runtime's fresh conversation instead.
+   * `fresh`: the folder's own `main` keeps the runtime's new conversation instead (a plain start); a /branch
+   * experiment folder still reopens its branch's conversation, which is what that folder is for.
    */
-  async resumeActive(runtime: RuntimeSession): Promise<string | undefined> {
+  async resumeActive(runtime: RuntimeSession, options: { fresh?: boolean } = {}): Promise<string | undefined> {
     if (this.boundRuntime === runtime) return undefined;
+    if (options.fresh && this.currentName === "main") { this.boundRuntime = runtime; return undefined; }
     const saved = this.store.get(this.currentName);
     let notice: string | undefined;
     if (saved) {
