@@ -44,6 +44,9 @@ export interface BrowserSessionOptions {
   checkPictures?: () => boolean;
   /** Browser clicks (browser_clicks, on unless turned off): every action runs without asking. Read at each action. */
   allowActions?: () => boolean;
+  /** Test seam, never model-supplied: whether pictures are saved to files. Unset: where Casper can save them safely,
+   * macOS and Linux (src/visualize/artifacts.ts); on Windows they stay in the conversation. */
+  savePictures?: boolean;
   /** Checks an earlier task's browser recorded in this conversation (its carried()): their ids replay here. None is in
    * this task's report or end replays until it runs here, and that first run records its baseline anew. */
   carried?: readonly CarriedCheck[];
@@ -700,6 +703,8 @@ const FINAL_TEXT = 1500;
 const FINAL_ELEMENTS = 20;
 /** The model's screenshots a session may take; a byte-identical retake of the last one doesn't count. */
 const SCREENSHOT_LIMIT = 16;
+/** A screenshot's result where its copy isn't saved (Windows): the picture itself still comes with it. */
+const NOT_SAVED = "Not saved to a file here (Casper saves pictures only on macOS and Linux); the picture comes with this result.";
 /** Final-page pictures a session's checks and replays may send (their own limit; the model's 16 screenshots are apart). */
 const FINAL_PICTURE_LIMIT = 30;
 /** The final page gets at most this long, and none when the check has used most of its 30 s, so it never makes a check overrun. */
@@ -1003,7 +1008,7 @@ export class BrowserSession {
   private readonly runId = randomUUID();
   private screenshotCount = 0;
   /** The last screenshot counted: a byte-identical retake is sent again without counting. */
-  private lastScreenshot?: { digest: string; path: string };
+  private lastScreenshot?: { digest: string; path?: string };
   /** Pages whose last navigation ran out of time: still loading, so reading them never waits for them to settle. */
   private hung = new WeakSet<Page>();
   /** Page-check pictures taken this session (their own limit; the model's 16 screenshots are apart). */
@@ -1150,13 +1155,14 @@ export class BrowserSession {
       combined.throwIfAborted();
       if (bytes.byteLength > 4 * 1024 * 1024) throw new Error("Browser screenshot exceeds 4 MiB");
       const digest = createHash("sha256").update(bytes).digest("hex");
-      const shot = (saved: string, left: number) => ({ path: saved, bytes: bytes.byteLength, screenshotsLeft: left,
+      const shot = (saved: string | undefined, left: number) => ({ ...(saved ? { path: saved } : { note: NOT_SAVED }), bytes: bytes.byteLength, screenshotsLeft: left,
         url: page.url(), viewport: page.viewport(), guidance: "The picture comes with this result when the model can see images. Capture alone is not verification.", ...held,
         [SCREENSHOT_PNG]: Buffer.from(bytes).toString("base64") });
       if (this.lastScreenshot?.digest === digest) return { ...shot(this.lastScreenshot.path, SCREENSHOT_LIMIT - this.screenshotCount),
         note: "The same picture as the last screenshot: nothing on the screen changed, and it didn't count against the limit." };
       if (this.screenshotCount >= SCREENSHOT_LIMIT) throw new Error(`Browser screenshot limit reached (${SCREENSHOT_LIMIT} per session, none left). A retake identical to the last screenshot is free, and a check brings a picture of the page it ends on (30 a session).`);
-      const saved = await this.savePicture(`${this.screenshotCount + 1}.png`, bytes, combined);
+      // Where its copy can't be saved safely (Windows), the picture still goes to the model, only not to a file.
+      const saved = await this.savesPictures() ? await this.savePicture(`${this.screenshotCount + 1}.png`, bytes, combined) : undefined;
       this.screenshotCount++;
       this.lastScreenshot = { digest, path: saved };
       return shot(saved, SCREENSHOT_LIMIT - this.screenshotCount);
@@ -1262,6 +1268,11 @@ export class BrowserSession {
     return `The page went to a sign-in page (${here.origin}${here.pathname}) instead of ${asked.pathname}, so nothing was checked. Use the browser's signin action so the person can sign in, then replay this check.`;
   }
 
+  /** Whether pictures are saved to files: only where Casper can do it safely (macOS and Linux). */
+  private async savesPictures(): Promise<boolean> {
+    return this.options.savePictures ?? (await import("../visualize/artifacts")).artifactFilesystemSupported;
+  }
+
   /** Saves a PNG in this run's folder outside the project (0700 folders, 0600 files); its full path. */
   private async savePicture(name: string, bytes: Uint8Array, signal: AbortSignal): Promise<string> {
     if (!this.artifacts) {
@@ -1281,8 +1292,7 @@ export class BrowserSession {
   private async pagePicture(page: Page, name: string, signal: AbortSignal, height?: number): Promise<string | undefined> {
     if (this.pagePictures >= PAGE_PICTURE_LIMIT) return undefined;
     try {
-      const { artifactFilesystemSupported } = await import("../visualize/artifacts");
-      if (!artifactFilesystemSupported) return undefined;
+      if (!await this.savesPictures()) return undefined;
       const width = page.viewport()?.width ?? 1280;
       let bytes = await page.screenshot({ type: "png", ...(height ? { clip: { x: 0, y: 0, width, height }, captureBeyondViewport: true } : { fullPage: false }) });
       signal.throwIfAborted();
@@ -1745,7 +1755,7 @@ export class BrowserSession {
       const bytes = await inTime(page.screenshot({ type: "png", fullPage: false }));
       if (!bytes || signal.aborted || bytes.byteLength > 4 * 1024 * 1024) return { finalPage };
       this.finalPictures++;
-      finalPage.screenshot = await this.savePicture(`check-${this.finalPictures}.png`, bytes, signal).catch(() => undefined);
+      if (await this.savesPictures()) finalPage.screenshot = await this.savePicture(`check-${this.finalPictures}.png`, bytes, signal).catch(() => undefined);
       return { finalPage, [SCREENSHOT_PNG]: Buffer.from(bytes).toString("base64") };
     } finally { clearTimeout(timer); }
   }

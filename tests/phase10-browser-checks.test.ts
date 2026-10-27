@@ -395,6 +395,29 @@ browserTest("the browser tool's screenshot comes with the picture, and its text 
   expect(tool.description).toContain("Casper replays stale checks at the end");
 }, 20_000);
 
+browserTest("on Windows, where Casper can't save a picture's copy safely, a screenshot still reaches the model, with no file", async () => {
+  const f = await fixture({ savePictures: false });
+  const tool = browserTool(f.session);
+  await tool.execute({ action: "open", url: f.url });
+  const shot = await tool.execute({ action: "screenshot" });
+  expect(shot.isError).toBeUndefined();
+  expect(shot.images).toHaveLength(1);
+  expect(Buffer.from(shot.images![0]!.data, "base64").subarray(1, 4).toString()).toBe("PNG");
+  const data = JSON.parse(shot.text).data;
+  expect(data.path).toBeUndefined();
+  expect(data.note).toBe("Not saved to a file here (Casper saves pictures only on macOS and Linux); the picture comes with this result.");
+  expect(data.screenshotsLeft).toBe(15);
+  // The same picture again is free, as everywhere.
+  const again = await tool.execute({ action: "screenshot" });
+  expect(again.images).toHaveLength(1);
+  expect(JSON.parse(again.text).data).toMatchObject({ screenshotsLeft: 15, note: expect.stringContaining("The same picture as the last screenshot") });
+  expect(JSON.parse(again.text).data.path).toBeUndefined();
+  // A check's picture of the page it ends on comes the same way.
+  const checked = await tool.execute({ action: "check", scenario: { name: "Heading", url: f.url, steps: [], assertions: [{ kind: "text", selector: "h1", expected: "Hello Casper" }] } });
+  expect(checked.images).toHaveLength(1);
+  expect(JSON.parse(checked.text).data.finalPage.screenshot).toBeUndefined();
+}, 30_000);
+
 browserTest("a check and a replay bring the final page's picture and short text, so the model needs no open, inspect or screenshot after", async () => {
   const f = await fixture();
   await writeFile(f.sourceFile, `<!doctype html><title>Booking</title><h1>Hello Casper</h1><p>${"slot ".repeat(2000)}</p>${Array.from({ length: 30 }, (_, i) => `<button id="b${i}">Book ${i}</button>`).join("")}`);

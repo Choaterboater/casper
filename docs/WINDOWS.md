@@ -257,8 +257,8 @@ commands.
   Casper does not install Bash or any other tool.
 - **Browser:** Casper looks for installed Chrome and Edge. It never downloads a browser.
 - **Diagrams and screenshots:** diagram files and screenshot files need macOS or Linux.
-  On Windows, diagrams are shown in the conversation instead; screenshot files are
-  not available.
+  On Windows, diagrams are shown in the conversation instead, and the AI still sees its
+  browser screenshots: they come with the result, only not as files.
 - **Debugger:** needs a debug adapter (DAP) that you installed and set up yourself.
 - **Process cleanup:** Casper uses the Windows parent/child process list. When it is
   not sure a process stopped, it says so instead of guessing and stopping something

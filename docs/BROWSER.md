@@ -542,6 +542,7 @@ screenshot alone does not establish that the model understood it. Model/provider
 retention policy still applies.
 
 
-Screenshot file output currently requires macOS/Linux. Windows screenshot capture
-cannot use the POSIX artifact bridge; inline diagram fallback does not provide
-screenshot files. See [platform support](PLATFORM_SUPPORT.md).
+Screenshot files need macOS or Linux, where Casper can write them safely. On Windows the
+AI's screenshots and a check's picture of the page it ends on still come with the result, so
+the AI sees the page; they are only not saved to files (the result says so). Casper's own
+page-check pictures after a change are skipped there. See [platform support](PLATFORM_SUPPORT.md).
