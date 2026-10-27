@@ -36,7 +36,10 @@ for await (const line of lines) {
     const result = (subtype: string, value: string) => send({ ...common, type: "result", subtype, is_error: subtype !== "success", errors: subtype === "success" ? [] : ["Reached maximum number of turns (1)"], result: value, num_turns: 1,
       total_cost_usd: 0, usage: { input_tokens: 2, output_tokens: 3 }, modelUsage: {}, permission_denials: [] });
     if (text.includes("SUBSCRIPTION_TOOL_FIXTURE") && !text.includes("structured context checkpoint") && !text.includes("PREFIX of a turn")) {
-      const proposal = !text.includes("TOOL RESULT") ? { name: "read", id: "read_fixture", args: { path: "fixture.txt" } }
+      // First a call whose JSON Claude wrote wrong: it must come back refused, and the task go on.
+      const proposal: { name: string; id: string; args?: unknown; json?: string } | undefined = !text.includes("TOOL RESULT")
+        ? { name: "read", id: "malformed_fixture", json: '{"path" "fixture.txt"}' }
+        : !text.includes("TOOL RESULT read (read_fixture)") ? { name: "read", id: "read_fixture", args: { path: "fixture.txt" } }
         : !text.includes("TOOL RESULT read (private_fixture)") ? { name: "read", id: "private_fixture", args: { path: "private/token.txt" } }
         : !text.includes("TOOL RESULT write (blocked_fixture)") ? { name: "write", id: "blocked_fixture", args: { path: "marker.txt", content: "native write\n" } }
         : !text.includes("TOOL RESULT write (allowed_fixture)") ? { name: "write", id: "allowed_fixture", args: { path: "marker.txt", content: "native write\n" } }
@@ -44,7 +47,7 @@ for await (const line of lines) {
       raw({ type: "message_start", message: { id: "msg_fixture", model: "claude-opus-4-8", usage: { input_tokens: 2, output_tokens: 0 } } });
       if (proposal) {
         raw({ type: "content_block_start", index: 0, content_block: { type: "tool_use", id: proposal.id, name: `mcp__casper__${proposal.name}`, input: {} } });
-        raw({ type: "content_block_delta", index: 0, delta: { type: "input_json_delta", partial_json: JSON.stringify(proposal.args) } });
+        raw({ type: "content_block_delta", index: 0, delta: { type: "input_json_delta", partial_json: proposal.json ?? JSON.stringify(proposal.args) } });
       } else {
         raw({ type: "content_block_start", index: 0, content_block: { type: "text", text: "fixture complete" } });
       }

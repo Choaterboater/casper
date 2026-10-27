@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import os from "node:os";
 import { createEditToolDefinition, createReadToolDefinition, createWriteToolDefinition } from "@earendil-works/pi-coding-agent";
-import { repairNote, repairToolArguments, ToolArgumentRepair } from "../src/runtime/tool-repair";
+import { invalidArguments, repairNote, repairToolArguments, ToolArgumentRepair } from "../src/runtime/tool-repair";
 
 const edit = { type: "object", required: ["path", "edits"], properties: {
   path: { type: "string" },
@@ -83,6 +83,19 @@ describe("ToolArgumentRepair", () => {
     expect(hook({ path: "a.ts", edits: "[]" })).toEqual({ path: "a.ts", edits: [] });
     repair.claim("edit", "call_1");
     expect(repair.take("call_1")).toBeUndefined();
+  });
+});
+
+describe("a call whose arguments a transport couldn't read", () => {
+  test("is refused before the tool's own hook, Pi's check or the tool, with the transport's reason, for any tool", () => {
+    const repair = new ToolArgumentRepair();
+    let ownHook = 0;
+    const reason = "its arguments weren't valid JSON (Unexpected EOF); send it again as one JSON object";
+    for (const [name, schema] of [["bash", bash], ["edit", edit], ["browser", { type: "object", properties: {} }]] as const) {
+      const hook = repair.hook(name, schema, (args) => { ownHook++; return args; });
+      expect(() => hook(invalidArguments(reason))).toThrow(`Not run: ${reason}`);
+    }
+    expect(ownHook).toBe(0);
   });
 });
 

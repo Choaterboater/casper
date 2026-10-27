@@ -11,6 +11,7 @@ import { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { normalizeContext } from "@earendil-works/pi-ai/utils/transcript";
 import { assertSubscriptionAccount, claudeExecutable, CLAUDE_SUBSCRIPTION, proposalServer, registerClaudeSubscription, streamClaudeSubscription, subscriptionEnvironment, subscriptionPrompt } from "../src/runtime/claude-subscription";
 import { subscriptionName } from "../src/tui/usage";
+import { INVALID_ARGUMENTS } from "../src/runtime/tool-repair";
 
 const account: AccountInfo = { apiProvider: "firstParty", subscriptionType: "max", apiKeySource: "none" };
 const tool = { name: "read", description: "Read a file", parameters: { type: "object", properties: { path: { type: "string" } }, required: ["path"] } };
@@ -271,14 +272,55 @@ test("failed subscription auth never releases a user prompt", async () => {
   expect(response.stopReason).toBe("error"); expect(fake.prompts).toHaveLength(0); expect(fake.closed()).toBe(true);
 });
 
-test("undeclared tools, invalid arguments, server errors and truncated streams fail closed", async () => {
+test("undeclared tools, server errors and truncated streams fail closed", async () => {
   const unknown = events(true); unknown[1] = raw({ type: "content_block_start", index: 0, content_block: { type: "tool_use", id: "fixture", name: "Bash" } });
-  const invalid = events(true); invalid[2] = raw({ type: "content_block_delta", index: 0, delta: { type: "input_json_delta", partial_json: "[]" } });
-  for (const messages of [unknown, invalid, events().slice(0, 3), [result("error_during_execution")]]) {
+  for (const messages of [unknown, events().slice(0, 3), [result("error_during_execution")]]) {
     const fake = fakeQuery(messages);
     expect((await streamClaudeSubscription(model, context, undefined, { ...fake, executable: "fixture" }).result()).stopReason).toBe("error");
     expect(fake.closed()).toBe(true);
   }
+});
+
+/** The tool call a stream ends with, its streamed arguments replaced by `json` (and its starting input by `input`). */
+async function toolCallFrom(json: string, input: Record<string, unknown> = {}) {
+  const messages = events(true);
+  messages[1] = raw({ type: "content_block_start", index: 0, content_block: { type: "tool_use", id: "call_fixture", name: "mcp__casper__read", input } });
+  messages[2] = raw({ type: "content_block_delta", index: 0, delta: { type: "input_json_delta", partial_json: json } });
+  const response = await streamClaudeSubscription(model, context, undefined, { ...fakeQuery(messages), executable: "fixture" }).result();
+  return { response, call: response.content.find(block => block.type === "toolCall") as { arguments: Record<string, unknown> } | undefined };
+}
+
+test("a tool call whose arguments aren't valid JSON comes back as a call that can't run, so the task goes on and the model sends it again", async () => {
+  // A bench lost 10 of 60 Haiku tasks to these: Claude wrote a call's JSON wrong and the whole task stopped.
+  for (const [json, reason] of [
+    ['{"path" "fixture.txt"}', "Expected ':' before value in object property definition"],
+    ['{"path":"fixture.txt"}{"path":"fixture.txt"}', "Unable to parse JSON string"],
+    ['{"path":"fixture', "Unterminated string"],
+    ["[]", "not one JSON object"],
+  ] as const) {
+    const { response, call } = await toolCallFrom(json);
+    expect(response.stopReason).toBe("toolUse");
+    const refusal = call?.arguments[INVALID_ARGUMENTS];
+    expect(typeof refusal).toBe("string");
+    expect(refusal).toContain(reason);
+    expect(refusal).toContain("send it again");
+    // Nothing else is passed on: no guessed or partly read arguments.
+    expect(Object.keys(call!.arguments)).toEqual([INVALID_ARGUMENTS]);
+  }
+});
+
+test("string escapes the model got wrong are mended as Pi mends them for its other providers; nothing else is guessed", async () => {
+  // A raw line break, a raw tab and a regex's \d inside a string: what the model meant, so they are kept as it meant them.
+  const lineBreak = String.raw`{"path":"a` + "\n" + String.raw`b"}`;
+  const tab = String.raw`{"path":"a` + "\t" + String.raw`b"}`;
+  const regex = String.raw`{"path":"\d+.txt"}`;
+  expect((await toolCallFrom(lineBreak)).call?.arguments).toEqual({ path: "a\nb" });
+  expect((await toolCallFrom(tab)).call?.arguments).toEqual({ path: "a\tb" });
+  expect((await toolCallFrom(regex)).call?.arguments).toEqual({ path: String.raw`\d+.txt` });
+});
+
+test("a tool call's streamed arguments replace its starting input instead of being added to it", async () => {
+  expect((await toolCallFrom('{"path":"fixture.txt"}', { path: "fixture.txt" })).call?.arguments).toEqual({ path: "fixture.txt" });
 });
 
 test("a Casper tool called without its MCP prefix is still that tool call", async () => {
