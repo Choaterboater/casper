@@ -374,6 +374,8 @@ export class CasperApp {
   sessionWorkspaceStart?: Promise<SessionWorkspaceManager>;
   /** Last normal coding/chat request; local commands other than /receipt clear it. Not acceptance evidence. */
   lastTaskRequest?: string;
+  /** The conversation /continue or --continue opened: /continue in it stays, rather than going back to the one left. */
+  continuedConversation?: string;
   commandActive = false;
   /** What the session's earlier model tasks spent; the footer adds the current task to it. */
   spentBefore = { tokens: 0, cost: 0 };

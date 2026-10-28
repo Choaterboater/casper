@@ -958,7 +958,7 @@ Daily commands include `/help`, `/status`, `/project`, `/diff`, `/verify`, `/ski
 | `/clear` | Fresh saved conversation; files stay as they are (`/undo` puts a task's files back); the earlier conversation stays resumable |
 | `/resume` | Pick a saved conversation from a numbered list (title · when · messages; 1 stays here); then the last few turns show |
 | `/resume <id>` | Go back to that conversation; the first few characters of its ID are enough |
-| `/continue` | Go back to this folder's most recent other conversation (not the one you are in, nor an empty one `/clear` left); then the last few turns show. With none it says so and nothing changes |
+| `/continue` | Go back to this folder's most recent other conversation (not the one you are in, nor an empty one `/clear` left); then the last few turns show. With none it says so and nothing changes. In the conversation `/continue` or `--continue` opened, it stays there and says so |
 
 Each start in a folder is a new conversation, as in Claude Code, Codex, Copilot CLI and Pi; only a `/branch`
 experiment's folder reopens its branch's own. When the folder has an earlier conversation, the start offers one row,
