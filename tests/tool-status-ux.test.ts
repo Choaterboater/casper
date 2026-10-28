@@ -335,3 +335,20 @@ test("a shell answer's note is dim in the fold's colour bytes, never red", () =>
     expect(note.every(cell => cell.dim && cell.foreground === "default")).toBe(true);
   } finally { useTheme(previous); }
 });
+
+test("a helper that stopped at its limit with findings is a grey partial note in plain words, never a red failure with JSON", () => {
+  // As the delegate tool returns it: the bounded envelope, the helper's result under data.
+  const partial = JSON.stringify({ isError: false, summary: "Partial result: stopped at its 12-turn limit; the helper's findings so far are below, not a whole answer.", truncated: false,
+    data: { isError: false, partial: true, status: "limited", reason: "partial: stopped at its 12-turn limit", response: "Found 2 issues in auth.ts" } });
+  const event: Extract<RuntimeEvent, { type: "tool_end" }> = { type: "tool_end", toolName: "delegate", input: { role: "reviewer", goal: "Review auth" }, isError: false, output: { text: partial, truncated: false } };
+  expect(outcomeNote(event)).toBe("partial: stopped at its 12-turn limit");
+  const line = Bun.stripANSI(formatToolActivity(event));
+  expect(line).toContain("— partial: stopped at its 12-turn limit");
+  expect(line).not.toMatch(/✗|failed|\{|isError/);
+  // A real failure stays red.
+  const failed = { ...event, isError: true, output: { text: JSON.stringify({ isError: true, status: "failed", reason: "the model errored" }), truncated: false } };
+  expect(outcomeNote(failed)).toBeUndefined();
+  expect(Bun.stripANSI(formatToolActivity(failed))).toContain("✗");
+  // A completed helper is an ordinary ✓.
+  expect(outcomeNote({ ...event, output: { text: JSON.stringify({ isError: false, status: "completed", response: "ok" }), truncated: false } })).toBeUndefined();
+});
