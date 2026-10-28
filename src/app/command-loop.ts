@@ -25,7 +25,7 @@ import { offerEarlierConversation } from "./earlier-conversation";
 import { newProjectFlowWithAbort, openProjectFolder, newProjectCommand, initialProjectRequest, openWorkspaceBeforeRuntime } from "./workspace";
 import { rebindWorkspace } from "./session-branches";
 import { runModelTask, runSuggestion } from "./task-run";
-import { parseRequestWords } from "./request-words";
+import { parseRequestWords, withoutTranscripts } from "./request-words";
 import { askSideQuestion, BTW_USAGE, btwQuestion, sideQuestionsOn, sideQuestionText } from "./side-question";
 import { applyWeb } from "./wiring";
 import { typedDuringTask } from "../tui/give-way";
@@ -195,7 +195,9 @@ export async function handlePrompt(app: CasperApp, prompt: string, typed?: { pas
     const looked = look ? await lookTyped(app, look) : undefined;
     if (looked) return report = looked.report;
     const words = typed ? parseRequestWords(prompt, typed.pasted) : undefined;
-    return report = await runModelTask(app, words?.text ?? prompt, { ...(words ? { words } : {}), ...(app.planMode ? { planFirst: true } : {}) });
+    const asked = typed ? withoutTranscripts(prompt, typed.pasted) : undefined;
+    return report = await runModelTask(app, words?.text ?? prompt, { ...(words ? { words } : {}), ...(asked !== undefined ? { asked } : {}),
+      ...(app.planMode ? { planFirst: true } : {}) });
   } catch (error) {
     if (error instanceof ProcessCleanupError) app.cleanupRecovery.queue(error);
     else throw error;

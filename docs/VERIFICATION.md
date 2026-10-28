@@ -575,7 +575,10 @@ the model's own tests cover each one. On the hard eval pack it cut wrong runs fr
 
 **On by default in interactive sessions for code changes** (requests Casper classifies as
 implement, fix or test). Off for questions, docs,
-refactors and configuration, and off in one-shot runs unless set:
+refactors and configuration, and off in one-shot runs unless set. A terminal transcript pasted into
+the request (an agent session copied off the screen) is left out of both choices: its "fix" or "add
+tests" is context, not what you asked, so a pasted transcript alone makes no checklist, and the cases
+come only from what you typed around it.
 
 ```yaml
 verification:
