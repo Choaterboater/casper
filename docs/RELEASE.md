@@ -14,11 +14,23 @@ when releasing. Existing historical notes below stay as written; feature tests c
 reference docs, not a per-PR release-note or roadmap entry. Release-prep checks verify the version and
 installer targets (`tests/release-install.test.ts`, `tests/release-targets.test.ts`).
 
-Casper distributes an unsigned **v0.3.7 preview**, not a stable release. The installers
-download from `https://github.com/Choaterboater/casper/releases/download/v0.3.7`,
+Casper distributes an unsigned **v0.3.8 preview**, not a stable release. The installers
+download from `https://github.com/Choaterboater/casper/releases/download/v0.3.8`,
 because GitHub's `latest/download` link skips preview releases. The first published
 preview was **v0.1.0**. A published release is never changed; every fix ships under a
 new version.
+
+## v0.3.8: /continue that stays where it is, a pasted transcript read as context, and refusals that say why
+
+### Changed
+
+- `/continue` in the conversation `/continue` or `--continue` opened stays there, instead of jumping back to the one you left.
+- A `1` sent before the start's `1 Continue …` row shows waits for the row and continues, instead of becoming a request.
+- A pasted terminal transcript no longer makes a test checklist or the `Big job` line; the model still gets it.
+
+### Fixed
+
+- A copy refused because Casper can't read its destination (`"$d/cli.js"`) says so and names it, instead of claiming it changes a configured check.
 
 ## v0.3.7: a new conversation at every start, fewer red marks that weren't failures, and code that isn't hidden as a secret
 

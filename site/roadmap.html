@@ -78,6 +78,7 @@
           </li>
           <li><a href="#released">Released</a>
             <ul>
+              <li><a href="#v0308">v0.3.8: /continue stays</a></li>
               <li><a href="#v0307">v0.3.7: a fresh start</a></li>
               <li><a href="#v0306">v0.3.6: /look without the slash</a></li>
               <li><a href="#v0305">v0.3.5: keeps going</a></li>
@@ -132,7 +133,7 @@
         <h2 id="next-h">Next release</h2>
         <aside class="callout soon">
           <strong class="callout-title">Built, not released</strong>
-          <p>Nothing on the main branch is waiting: everything built so far is in v0.3.7. New work shows here before the next preview.</p>
+          <p>Nothing on the main branch is waiting: everything built so far is in v0.3.8. New work shows here before the next preview.</p>
         </aside>
       </section>
 
@@ -374,10 +375,23 @@
         and on the <a href="https://github.com/Choaterboater/casper/releases">Releases page</a>.</p>
         <div class="stack">
 
+        <details class="card release" id="v0308" aria-labelledby="v0308-h" open>
+          <summary class="release-heading">
+            <h3 id="v0308-h">v0.3.8 · /continue that stays where it is, a pasted transcript read as context, and refusals that say why</h3>
+            <span class="badge ok">current preview</span>
+          </summary>
+          <ul>
+            <li><strong>/continue stays.</strong> In the conversation <code>/continue</code> or <code>--continue</code> opened, <code>/continue</code> stays there instead of jumping back to the one you left; <code>/resume</code> lists the others.</li>
+            <li><strong>An early 1.</strong> A <code>1</code> sent before the start's <code>1 Continue …</code> row shows waits for the row and continues.</li>
+            <li><strong>Transcripts are context.</strong> A pasted terminal transcript no longer makes a test checklist or the <code>Big job</code> line; the model still gets it.</li>
+            <li><strong>Refusals that say why.</strong> A copy to <code>"$d/cli.js"</code> is still refused, and the message now says Casper can't tell where it leads, instead of claiming it changes a check.</li>
+          </ul>
+        </details>
+
         <details class="card release" id="v0307" aria-labelledby="v0307-h" open>
           <summary class="release-heading">
             <h3 id="v0307-h">v0.3.7 · A new conversation at every start, fewer red marks that weren't failures, and code that isn't hidden as a secret</h3>
-            <span class="badge ok">current preview</span>
+            <span class="badge">previous preview</span>
           </summary>
           <ul>
             <li><strong>A new conversation at start.</strong> A plain <code>casper</code> in a folder always starts fresh, as Claude Code, Codex and Copilot CLI do; a <code>/branch</code> experiment's folder still reopens its own.</li>
@@ -392,7 +406,7 @@
         <details class="card release" id="v0306" aria-labelledby="v0306-h" open>
           <summary class="release-heading">
             <h3 id="v0306-h">v0.3.6 · /look without the slash, one key to fix what a look found, and browser checks that last the conversation</h3>
-            <span class="badge">previous preview</span>
+            <span class="badge">released</span>
           </summary>
           <ul>
             <li><strong>Look without the slash.</strong> In a session, <code>look adapt</code>, <code>look clairfy</code> (one letter off) or <code>look layout and type</code> runs as <code>/look</code> and says so first; words after it go with the request.</li>
@@ -403,7 +417,7 @@
             <li><strong>Screenshots on Windows.</strong> The AI's browser screenshots reach it on Windows instead of failing, so <code>/look</code> sees the page there too.</li>
           </ul>
         </details>
-        <details class="card release" id="v0305" aria-labelledby="v0305-h" open>
+        <details class="card release" id="v0305" aria-labelledby="v0305-h">
           <summary class="release-heading">
             <h3 id="v0305-h">v0.3.5 · Work that keeps going until it is done, plan questions asked at once, and apps that stay running</h3>
             <span class="badge">released</span>
@@ -1401,7 +1415,7 @@
   <footer class="site-footer">
     <div class="container footer-inner">
       <div>
-        <p><strong>Casper 0.3.7</strong> · early preview, unsigned</p>
+        <p><strong>Casper 0.3.8</strong> · early preview, unsigned</p>
         <p><a href="https://github.com/Choaterboater/casper/blob/main/LICENSE">MIT licence</a> · © 2026 Choaterboater</p>
         <p>Built on the <a href="https://github.com/earendil-works/pi">Pi SDK</a>. Other parts keep their own licences (<a href="https://github.com/Choaterboater/casper/blob/main/THIRD_PARTY_NOTICES.txt">notices</a>).</p>
       </div>
