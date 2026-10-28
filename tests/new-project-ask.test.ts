@@ -261,7 +261,7 @@ test("Enter keeps this folder, and the question is not asked again in the sessio
   } finally { await finish(h, running); await dirs.cleanup(); }
 });
 
-test("a typed name instead of a number builds the project under that name", async () => {
+test("a name typed after picking Other builds the project under that name", async () => {
   const dirs = await setup("casper-new-ask-name-");
   const h = harness(dirs.home);
   const running = h.app.runInteractive(dirs.work);
@@ -269,6 +269,8 @@ test("a typed name instead of a number builds the project under that name", asyn
     await h.until(text => text.includes("idle"));
     h.input.write(`${REQUEST}\r`);
     await h.until(text => text.includes("Build this as a new Mist Python project"));
+    h.input.write("4");
+    await h.until(text => text.includes("4. Other — type your own answer —"));
     h.input.write("ap-list\r");
     await h.until(text => text.includes("[folder] Working in ~/Projects/ap-list"));
     await h.until(() => h.prompts.length === 1);

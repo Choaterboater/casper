@@ -33,11 +33,13 @@ test.each([24, 40, 80])("wrapped settings options respect the row budget and ret
   }
 });
 
-test("a long typed refusal stays in its box with its end in view, where the letters go, and submits the entire comment as No", async () => {
+test("a long typed refusal stays in its box with its end in view, where the letters go, and submits the entire note as No", async () => {
   const session = box();
   const comment = "Please do not run this command ".repeat(200) + "final-comment-marker";
   try {
     const answer = session.surface.approve("", shellQuestion("custom-tool --check", "Check the output."), [...SHELL_COMMAND_CHOICES]);
+    // The note row, after the five choices, opens the line the words go on.
+    session.input.write(String(SHELL_COMMAND_CHOICES.length + 1));
     session.input.write(comment);
     for (const width of [20, 40, 80]) for (const height of [6, 10, 18]) {
       const lines = session.render(width, height);
@@ -45,8 +47,8 @@ test("a long typed refusal stays in its box with its end in view, where the lett
       expect(lines.every(line => visibleWidth(line) <= width)).toBe(true);
       expect(Bun.stripANSI(lines.join("\n"))).toContain("Run this command?");
       // The start gives way to "…"; the end, where typing goes on, shows (a word wider than the row breaks in two).
-      expect(Bun.stripANSI(lines.join("\n"))).toContain("❯ 1. No —");
-      expect(Bun.stripANSI(lines.join("")).replace(/\s+/g, "")).toMatch(/No—….*marker/);
+      expect(Bun.stripANSI(lines.join("\n"))).toContain(`❯ ${SHELL_COMMAND_CHOICES.length + 1}. No`);
+      expect(Bun.stripANSI(lines.join("")).replace(/\s+/g, "")).toMatch(/No(?:,andtelltheAIwhattodoinstead)?—….*marker/);
     }
     session.input.write("\r");
     expect(await answer).toBe("No");
@@ -62,6 +64,7 @@ test("a long answer typed on the Other row fits every budget, its end in view, a
   try {
     const answer = session.surface.ask("How far should I take this now?", [{ label: "Just the fix", description: "the smallest change" }, { label: "Stop here" }],
       false, undefined, "ai");
+    session.input.write("3");
     session.input.write(typed);
     for (const width of [20, 30, 40, 80]) for (const height of [1, 2, 3, 6, 10, 18]) {
       const lines = session.render(width, height);
@@ -99,8 +102,8 @@ test("shrinking a command preview adds newly omitted logical lines to its origin
   try {
     const command = Array.from({ length: 20 }, (_, index) => `custom-step-${index + 1}`).join("\n");
     const answer = session.surface.approve("", shellQuestion(command, "Check the steps."), [...SHELL_COMMAND_CHOICES]);
-    // The shell box has five choices: from 11 rows its command frame stays (one more choice, one more row).
-    for (const height of [11, 14, 18, 27]) {
+    // The shell box has five choices and the note row: from 12 rows its command frame stays (one more row, one more).
+    for (const height of [12, 14, 18, 27]) {
       const lines = Bun.stripANSI(session.render(80, height).join("\n")).split("\n");
       expect(lines.length).toBeLessThanOrEqual(height);
       expect(lines[2]).toStartWith(`${GLYPHS.corners[0]}─ Command `);

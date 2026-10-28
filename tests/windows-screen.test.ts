@@ -309,6 +309,8 @@ conpty("ConPTY: the old console draws every mark in ASCII, not only the spinner"
   s.send("make hello\n");
   await s.until("* edited hello.txt");
   await idle(s);
+  // Read before the approval below: an open box can push the first lines off the screen.
+  expect(s.visible()).toMatch(/^> make hello/m);
   s.send("run mkdir\n");
   await s.until("> 1. No");
   await boxReady();
@@ -316,7 +318,6 @@ conpty("ConPTY: the old console draws every mark in ASCII, not only the spinner"
   await s.until("- bash · mkdir made — not run");
   await idle(s);
   // Live, the old console showed ❯ → ✓ ▌ • ↳ ○ … while only the spinner fell back.
-  expect(s.visible()).toMatch(/^> make hello/m);
   for (const mark of ["❯", "●", "✓", "✗", "→", "↳", "▌", "•", "○", "…", "–", "⠋"]) expect(s.raw).not.toContain(mark);
   expect(await exitWith(s, () => s.send("/exit\n"))).toBe(0);
 }, 120_000);

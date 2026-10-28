@@ -559,7 +559,7 @@ is every fact and the exact way to be asked less for each kind. A mistyped word 
   project, another machine) are answered `Yes, for this session` without showing them, builders' included (a host while a builder's command runs too); the footer says `asking off` in warning colour, with `/permissions ask` only the first time. It lives in memory only, is
   never saved or read from a project file, only your typed command and your answer set it, and `/permissions ask` or quitting ends it. A one-shot or `--json` run
   refuses it (`--no-sandbox` is the flag for one run). `5 Yes to everything this session` in the no-sandbox `Run this command?` box turns on the same
-  switch in one key, with the same limits: only a person answering a shown box can pick it (Enter and typed words stay No), and it runs that command too.
+  switch in one key, with the same limits: only a person answering a shown box can pick it (Enter and a note on the last row stay No; letters typed on the list answer nothing), and it runs that command too.
 - **For good.** `sandbox: allowedDomains`, `allowWrite` and `off` in `~/.casper/config.yaml`; `--allow-host`, `--allow-write`, `--allow-reach` and `--no-sandbox` for one run.
 
 What stays protected whatever you pick: `~/.ssh`, `~/.casper`, cloud logins, shell start-up files and git's own files (the AI's tools never read or write them, and no

@@ -658,6 +658,8 @@ test("unclear requests ask 1–3 normal questions once, accept a typed answer, a
     await f.screen.until(waiting("Sign-in?"));
     f.input.write("1");
     await f.screen.until(waiting("Which look?"));
+    f.input.write("3");
+    await f.screen.until((output) => output.slice(output.lastIndexOf("Which look?")).includes("Other — type your own answer —"));
     f.input.write("like Linear, dark and quiet\r");
     await f.screen.until(waiting("Build this plan?"));
     expect(f.prompts).toHaveLength(2);

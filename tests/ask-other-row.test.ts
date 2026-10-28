@@ -70,7 +70,7 @@ test("the AI's question ends with an Other row; its number opens the answer line
       "  3. Fix, tests and docs",
       "  4. Stop here",
       "❯ 5. Other — type your own answer —",
-      "Enter to choose · Esc to skip",
+      "Enter to send · Esc to go back",
     ].map(line => `  ${line}`).join("\n"));
     // Numbers on the answer line are the answer, not rows.
     session.input.write("2 files, then stop");
@@ -112,15 +112,20 @@ test("Up/Down and Enter reach the Other row; Esc goes back to the list, and Esc 
   } finally { session.close(); }
 });
 
-test("typing letters straight into the box still answers, with the Other row highlighted", async () => {
+test("letters typed on the list go nowhere and name the keys; the answer is typed after picking Other", async () => {
   const session = interactiveTerminal();
   try {
     session.terminal.setStatus("fixture"); session.terminal.start();
     const answer = session.terminal.ask(QUESTION, OPTIONS, false, undefined, "ai");
     await session.screen.until((output) => output.includes(OTHER_CHOICE));
     session.input.write("only the parser");
-    await waitFor(() => box(session.screen.output).includes("❯ 5. Other — type your own answer"));
-    session.input.write("\r");
+    await waitFor(() => screenText(session.screen.output).includes("Pick with 1-5 or ↑↓ Enter · 5 to type your own answer"));
+    // Nothing was typed into the box, and the highlight stayed on the first choice.
+    expect(box(session.screen.output)).toContain("❯ 1. Just the fix");
+    expect(box(session.screen.output)).not.toContain("only the parser");
+    session.input.write("5");
+    await waitFor(() => box(session.screen.output).includes("❯ 5. Other — type your own answer —"));
+    session.input.write("only the parser\r");
     expect(await answer).toEqual(["only the parser"]);
   } finally { session.close(); }
 });
@@ -190,5 +195,30 @@ test("a key's release does not move or choose again: Down once and Enter pick th
     await waitFor(() => box(session.screen.output).includes("❯ 2. Fix and tests"));
     session.input.write("\r\x1b[13;1:3u");
     expect(await answer).toEqual(["Fix and tests"]);
+  } finally { session.close(); }
+});
+
+test("a paste on the list starts no answer and waits as the draft; after picking Other it goes on the answer line", async () => {
+  const session = interactiveTerminal();
+  try {
+    session.terminal.setStatus("fixture"); session.terminal.start();
+    const first = session.terminal.ask(QUESTION, OPTIONS, false, undefined, "ai");
+    await session.screen.until((output) => output.includes(OTHER_CHOICE));
+    session.input.write("\x1b[200~pasted on the list\x1b[201~");
+    // Had the paste opened an answer, 1 would be typed after it; it picks the first choice instead.
+    session.input.write("1");
+    expect(await first).toEqual(["Just the fix"]);
+    // The paste is back in the prompt once the box closes.
+    void session.terminal.readCommand();
+    await waitFor(() => screenText(session.screen.output).includes("pasted on the list"));
+
+    const second = session.terminal.ask(QUESTION, OPTIONS, false, undefined, "ai");
+    await waitFor(() => box(session.screen.output).includes("❯ 1. Just the fix"));
+    session.input.write("5");
+    await waitFor(() => box(session.screen.output).includes("❯ 5. Other — type your own answer —"));
+    session.input.write("\x1b[200~only the parser\x1b[201~");
+    await waitFor(() => box(session.screen.output).includes("Other — type your own answer — only the parser"));
+    session.input.write("\r");
+    expect(await second).toEqual(["only the parser"]);
   } finally { session.close(); }
 });
