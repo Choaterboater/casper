@@ -36,20 +36,20 @@ Casper itself is free and open source. A task spends money only with your own mo
 macOS / Linux:
 
 ```sh
-curl -fsSL https://github.com/Choaterboater/casper/releases/download/v0.3.7/install.sh | sh
+curl -fsSL https://github.com/Choaterboater/casper/releases/download/v0.3.8/install.sh | sh
 ```
 
 Windows (x64 or ARM64), in PowerShell:
 
 ```powershell
-[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; irm https://github.com/Choaterboater/casper/releases/download/v0.3.7/install.ps1 | iex
+[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; irm https://github.com/Choaterboater/casper/releases/download/v0.3.8/install.ps1 | iex
 ```
 
 No admin rights, Bun or source checkout needed. The installer checks the file's SHA-256 (with
 `gh` signed in, also where it was built; for releases signed with the
 [release key](docs/RELEASE.md#the-release-key), none yet, the signature too) and keeps your old install
-if anything is wrong. These commands pin **v0.3.7**; after that,
-`casper update` gets the newest preview. `install.sh` takes `--dir <path>`, `--version 0.3.7`,
+if anything is wrong. These commands pin **v0.3.8**; after that,
+`casper update` gets the newest preview. `install.sh` takes `--dir <path>`, `--version 0.3.8`,
 `--sha256 <hex>` and `--force`. [Installer details](docs/RELEASE.md#installer-contract).
 
 Use the one-line command above rather than downloading a program in your browser: the installer
@@ -83,7 +83,7 @@ From the shell:
 ```sh
 casper "Explain this project"  # start a session with this first request
 casper --no-verify   # no Casper-run checks this run
-casper --version     # casper 0.3.7 (/absolute/path/of/the/binary/or/cli.ts)
+casper --version     # casper 0.3.8 (/absolute/path/of/the/binary/or/cli.ts)
 casper doctor        # check Casper's own setup and fix what it can (no model)
 ```
 
@@ -210,6 +210,8 @@ Ctrl+D on an empty prompt exits. [Keys and commands](docs/TERMINAL_UX.md#quick-r
 | Contributing | [How Casper is built](docs/ARCHITECTURE.md) · [Working on Casper](docs/DEVELOPING.md) |
 
 ## What's new
+
+v0.3.8: `/continue` in the conversation it opened stays there; a `1` sent before the start's continue row shows still continues; a pasted terminal transcript no longer makes a test checklist or a `Big job` line; a copy refused because Casper can't read its destination names it. See [release notes](docs/RELEASE.md).
 
 v0.3.7: a plain `casper` always starts a new conversation, and `1` on the start's row continues the folder's last one; a helper that stopped at its limit with findings is a grey partial note, not a red failure; a full conversation compacts with one line instead of an error; code like `secret = !pagination` is no longer hidden as a secret; a Claude tool call with broken JSON no longer stops the task. See [release notes](docs/RELEASE.md).
 
