@@ -78,6 +78,7 @@
           </li>
           <li><a href="#released">Released</a>
             <ul>
+              <li><a href="#v0307">v0.3.7: a fresh start</a></li>
               <li><a href="#v0306">v0.3.6: /look without the slash</a></li>
               <li><a href="#v0305">v0.3.5: keeps going</a></li>
               <li><a href="#v0304">v0.3.4: OpenRouter rows</a></li>
@@ -131,7 +132,7 @@
         <h2 id="next-h">Next release</h2>
         <aside class="callout soon">
           <strong class="callout-title">Built, not released</strong>
-          <p>Nothing on the main branch is waiting: everything built so far is in v0.3.6. New work shows here before the next preview.</p>
+          <p>Nothing on the main branch is waiting: everything built so far is in v0.3.7. New work shows here before the next preview.</p>
         </aside>
       </section>
 
@@ -373,10 +374,25 @@
         and on the <a href="https://github.com/Choaterboater/casper/releases">Releases page</a>.</p>
         <div class="stack">
 
+        <details class="card release" id="v0307" aria-labelledby="v0307-h" open>
+          <summary class="release-heading">
+            <h3 id="v0307-h">v0.3.7 · A new conversation at every start, fewer red marks that weren't failures, and code that isn't hidden as a secret</h3>
+            <span class="badge ok">current preview</span>
+          </summary>
+          <ul>
+            <li><strong>A new conversation at start.</strong> A plain <code>casper</code> in a folder always starts fresh, as Claude Code, Codex and Copilot CLI do; a <code>/branch</code> experiment's folder still reopens its own.</li>
+            <li><strong>One key back.</strong> When the folder has an earlier conversation, <code>Next: 1 Continue the Oct 21 conversation</code> picks it up; anything you type starts the new one.</li>
+            <li><strong>Partial, not failed.</strong> A helper that stopped at its limit with findings shows a grey partial note, and the AI still reads it as partial.</li>
+            <li><strong>Compacted, not an error.</strong> When a conversation outgrows the model's window, one line says Casper compacted it.</li>
+            <li><strong>Code stays code.</strong> <code>secret = !pagination</code> and <code>!!token</code> are no longer hidden as secrets; a value starting with <code>!</code> still is.</li>
+            <li><strong>Fixes.</strong> A Claude tool call with broken JSON no longer stops the task, and <code>/security-review update</code> says downloaded only for data that changed.</li>
+          </ul>
+        </details>
+
         <details class="card release" id="v0306" aria-labelledby="v0306-h" open>
           <summary class="release-heading">
             <h3 id="v0306-h">v0.3.6 · /look without the slash, one key to fix what a look found, and browser checks that last the conversation</h3>
-            <span class="badge ok">current preview</span>
+            <span class="badge">previous preview</span>
           </summary>
           <ul>
             <li><strong>Look without the slash.</strong> In a session, <code>look adapt</code>, <code>look clairfy</code> (one letter off) or <code>look layout and type</code> runs as <code>/look</code> and says so first; words after it go with the request.</li>
@@ -390,7 +406,7 @@
         <details class="card release" id="v0305" aria-labelledby="v0305-h" open>
           <summary class="release-heading">
             <h3 id="v0305-h">v0.3.5 · Work that keeps going until it is done, plan questions asked at once, and apps that stay running</h3>
-            <span class="badge">previous preview</span>
+            <span class="badge">released</span>
           </summary>
           <ul>
             <li><strong>Keeps going.</strong> When the AI stops with work it says is not done, or says what it does next, and asks you nothing, Casper sends it on with what is still open, twice at most (<code>↻ keep going 1/2</code>; Esc stops it). <code>keep_going: off</code> or <code>/settings</code> waits for you instead.</li>
@@ -403,7 +419,7 @@
           </ul>
         </details>
 
-        <details class="card release" id="v0304" aria-labelledby="v0304-h" open>
+        <details class="card release" id="v0304" aria-labelledby="v0304-h">
           <summary class="release-heading">
             <h3 id="v0304-h">v0.3.4 · Rows for OpenRouter's free, cheapest, newest and smartest models in /model</h3>
             <span class="badge">released</span>
@@ -1385,7 +1401,7 @@
   <footer class="site-footer">
     <div class="container footer-inner">
       <div>
-        <p><strong>Casper 0.3.6</strong> · early preview, unsigned</p>
+        <p><strong>Casper 0.3.7</strong> · early preview, unsigned</p>
         <p><a href="https://github.com/Choaterboater/casper/blob/main/LICENSE">MIT licence</a> · © 2026 Choaterboater</p>
         <p>Built on the <a href="https://github.com/earendil-works/pi">Pi SDK</a>. Other parts keep their own licences (<a href="https://github.com/Choaterboater/casper/blob/main/THIRD_PARTY_NOTICES.txt">notices</a>).</p>
       </div>

@@ -14,11 +14,29 @@ when releasing. Existing historical notes below stay as written; feature tests c
 reference docs, not a per-PR release-note or roadmap entry. Release-prep checks verify the version and
 installer targets (`tests/release-install.test.ts`, `tests/release-targets.test.ts`).
 
-Casper distributes an unsigned **v0.3.6 preview**, not a stable release. The installers
-download from `https://github.com/Choaterboater/casper/releases/download/v0.3.6`,
+Casper distributes an unsigned **v0.3.7 preview**, not a stable release. The installers
+download from `https://github.com/Choaterboater/casper/releases/download/v0.3.7`,
 because GitHub's `latest/download` link skips preview releases. The first published
 preview was **v0.1.0**. A published release is never changed; every fix ships under a
 new version.
+
+## v0.3.7: a new conversation at every start, fewer red marks that weren't failures, and code that isn't hidden as a secret
+
+### Added
+
+- When a folder has an earlier conversation, the start offers `1 Continue the Oct 21 conversation`, and anything you type starts a new one.
+
+### Changed
+
+- A plain `casper` in a folder always starts a new conversation, as Claude Code, Codex and Copilot CLI do.
+- A helper that stopped at its limit with findings shows a grey partial note instead of a red failure.
+- When a conversation outgrows the model's window, one line says Casper compacted it instead of an error.
+
+### Fixed
+
+- Code such as `secret = !pagination` is no longer hidden as a secret, while a value starting with `!` still is.
+- A Claude tool call with broken JSON is refused and the task goes on instead of stopping.
+- `/security-review update` says downloaded only for advisory data that changed, and says how old the data in place is.
 
 ## v0.3.6: /look without the slash, one key to fix what a look found, and browser checks that last the conversation
 
