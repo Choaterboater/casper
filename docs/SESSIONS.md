@@ -67,7 +67,8 @@ Next: 1 Continue the Oct 21 conversation (Fix the login bug · 12 messages)
 ```
 
 A lone `1` on the empty prompt continues it (the conversation `/continue` and
-`--continue` pick); anything you type starts the new one, and Enter runs nothing
+`--continue` pick), even when typed and sent before the row shows: Casper waits a
+moment for the row first. Anything you type starts the new one, and Enter runs nothing
 ([decision 42](adr/0002/42-a-plain-start-is-new.md)). When you start Casper
 inside an experiment's worktree folder, it resumes that branch's saved
 conversation: that folder is for that branch. A Git worktree you made yourself (`git worktree add`) is a folder

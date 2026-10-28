@@ -21,7 +21,7 @@ import { leadingImagePath, startsWithImageFile } from "./images";
 import { serviceManager } from "./task-tools";
 import { updateFooter, loadPaneSetting, askPaneOnce, paneCommand, detailsCommand } from "./footer";
 import { holdBackSteered, settleQueuedLines } from "./during-work";
-import { offerEarlierConversation } from "./earlier-conversation";
+import { EARLY_ONE_WAIT_MS, offerEarlierConversation } from "./earlier-conversation";
 import { newProjectFlowWithAbort, openProjectFolder, newProjectCommand, initialProjectRequest, openWorkspaceBeforeRuntime } from "./workspace";
 import { rebindWorkspace } from "./session-branches";
 import { runModelTask, runSuggestion } from "./task-run";
@@ -69,7 +69,8 @@ export async function runInteractive(app: CasperApp, cwd = process.cwd(), firstR
   await loadPaneSetting(app);
   updateFooter(app);
   // Looked up beside the prompt, not before it: the prompt never waits on the folder's saved conversations.
-  void offerEarlierConversation(app);
+  const earlier = offerEarlierConversation(app);
+  let firstLine = true;
   while (!app.closing) {
     app.cancelBeforeCommand = false;
     updateFooter(app);
@@ -89,11 +90,15 @@ export async function runInteractive(app: CasperApp, cwd = process.cwd(), firstR
       app.output.write("[cancel] Stopped before it started; nothing ran.\n");
       continue;
     }
-    const prompt = line.trim();
+    let prompt = line.trim();
 
     if (!prompt) {
       continue;
     }
+    // A lone 1 typed before the start's row showed is the row's key: wait a moment for the row, then run it.
+    if (firstLine && queued === undefined && prompt === "1"
+      && await Promise.race([earlier, Bun.sleep(EARLY_ONE_WAIT_MS).then(() => false)])) prompt = "/continue";
+    firstLine = false;
 
     // Only the command leaves: "exit" or "quit" typed without the "/" is a request like any other.
     if (prompt.startsWith("/") && findCommand(prompt)?.name === "exit") {

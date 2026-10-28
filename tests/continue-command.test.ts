@@ -4,7 +4,7 @@ import { mkdir, mkdtemp, readFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { CasperApp } from "../src/app";
-import { conversationDay, NEW_CONVERSATION_HINT } from "../src/app/earlier-conversation";
+import { conversationDay, EARLY_ONE_WAIT_MS, NEW_CONVERSATION_HINT } from "../src/app/earlier-conversation";
 import { loadProjectContext } from "../src/project/context";
 import { SkillRegistry } from "../src/skills/registry";
 import { removeTempDir } from "./support/temp-dir";
@@ -276,4 +276,52 @@ test("the docs say /continue stays in the conversation it opened", async () => {
   const read = async (file: string) => (await readFile(path.join(import.meta.dir, "..", "docs", file), "utf8")).replace(/\s+/g, " ");
   expect(await read("SESSIONS.md")).toContain("In the conversation `/continue` or `--continue` opened, `/continue` stays there and says so, rather than going back to the one you left; `/resume` lists the others.");
   expect(await read("TERMINAL_UX.md")).toContain("In the conversation `/continue` or `--continue` opened, it stays there and says so |");
+});
+
+test("1 typed before the continue row shows waits for it, and continues the last conversation", async () => {
+  const resumed: Array<[string, unknown]> = [];
+  const prompts: string[] = [];
+  let release!: () => void;
+  const looked = new Promise<void>(resolve => { release = resolve; });
+  await withEnv({ TERM: "xterm-256color" }, async () => {
+    const app = await richApp(project => withPrompts(runtime(() => EARLIER, resumed, project), prompts),
+      { savedConversations: async () => { await looked; return EARLIER; } });
+    try {
+      await app.until(text => text.includes("idle"));
+      expect(app.screen()).not.toContain(ROW);
+      app.input.write("1\r");
+      await Bun.sleep(100);
+      release();
+      await app.until(text => text.includes("Back in \"Fix the login bug\""));
+      expect(resumed).toEqual([["b0b0b0b0-0000", { keepUnwritten: false }]]);
+      expect(prompts).toEqual([]);
+    } finally { await app.close(); }
+  });
+}, 30_000);
+
+test("1 typed early in a folder with no earlier conversation is an ordinary request", async () => {
+  const resumed: Array<[string, unknown]> = [];
+  const prompts: string[] = [];
+  let release!: () => void;
+  const looked = new Promise<void>(resolve => { release = resolve; });
+  await withEnv({ TERM: "xterm-256color" }, async () => {
+    const app = await richApp(project => withPrompts(runtime(() => [], resumed, project), prompts),
+      { savedConversations: async () => { await looked; return []; } });
+    try {
+      await app.until(text => text.includes("idle"));
+      app.input.write("1\r");
+      await Bun.sleep(100);
+      release();
+      const deadline = Date.now() + 15_000;
+      while (!prompts.length && Date.now() < deadline) await Bun.sleep(25);
+      expect(prompts.length).toBe(1);
+      expect(resumed).toEqual([]);
+    } finally { await app.close(); }
+  });
+}, 30_000);
+
+test("the docs say a 1 sent before the row shows still continues", async () => {
+  const read = async (file: string) => (await readFile(path.join(import.meta.dir, "..", "docs", file), "utf8")).replace(/\s+/g, " ");
+  expect(await read("SESSIONS.md")).toContain("even when typed and sent before the row shows: Casper waits a moment for the row first.");
+  expect(await read("TERMINAL_UX.md")).toContain(`a lone \`1\` on the empty prompt runs \`/continue\` (sent before the row shows, it waits up to ${EARLY_ONE_WAIT_MS / 1000} s for it)`);
 });
