@@ -68,7 +68,10 @@ Next: 1 Continue the Oct 21 conversation (Fix the login bug · 12 messages)
 
 A lone `1` on the empty prompt continues it (the conversation `/continue` and
 `--continue` pick), even when typed and sent before the row shows: Casper waits a
-moment for the row first. Anything you type starts the new one, and Enter runs nothing
+moment for the row first. So does a first line that only asks to go back, in plain
+words: `continue`, `continue session`, `resume my last session`, `pick up where we left off`.
+Anything else you type starts the new one (`continue the refactor` is a request), later in a
+conversation `continue` means keep going, and Enter runs nothing
 ([decision 42](adr/0002/42-a-plain-start-is-new.md)). When you start Casper
 inside an experiment's worktree folder, it resumes that branch's saved
 conversation: that folder is for that branch. A Git worktree you made yourself (`git worktree add`) is a folder

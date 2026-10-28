@@ -21,7 +21,7 @@ import { leadingImagePath, startsWithImageFile } from "./images";
 import { serviceManager } from "./task-tools";
 import { updateFooter, loadPaneSetting, askPaneOnce, paneCommand, detailsCommand } from "./footer";
 import { holdBackSteered, settleQueuedLines } from "./during-work";
-import { EARLY_ONE_WAIT_MS, offerEarlierConversation } from "./earlier-conversation";
+import { continueWords, EARLY_ONE_WAIT_MS, offerEarlierConversation } from "./earlier-conversation";
 import { newProjectFlowWithAbort, openProjectFolder, newProjectCommand, initialProjectRequest, openWorkspaceBeforeRuntime } from "./workspace";
 import { rebindWorkspace } from "./session-branches";
 import { runModelTask, runSuggestion } from "./task-run";
@@ -98,6 +98,12 @@ export async function runInteractive(app: CasperApp, cwd = process.cwd(), firstR
     // A lone 1 typed before the start's row showed is the row's key: wait a moment for the row, then run it.
     if (firstLine && queued === undefined && prompt === "1"
       && await Promise.race([earlier, Bun.sleep(EARLY_ONE_WAIT_MS).then(() => false)])) prompt = "/continue";
+    // "continue session" as the first line, with the row offered: the same as 1. Only short lines that ask nothing else.
+    else if (firstLine && queued === undefined && continueWords(prompt, pasted)
+      && await Promise.race([earlier, Bun.sleep(EARLY_ONE_WAIT_MS).then(() => false)])) {
+      app.output.write(`[session] "${terminalText(prompt)}" at the start: continuing that conversation, as 1 does.\n`);
+      prompt = "/continue";
+    }
     firstLine = false;
 
     // Only the command leaves: "exit" or "quit" typed without the "/" is a request like any other.

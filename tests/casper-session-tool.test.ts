@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { casperSessionTool, sessionSnapshot, SESSION_TOOL, type SessionToolSource } from "../src/app/session-tool";
+import { casperSessionTool, CONVERSATION_NOTE, sessionSnapshot, SESSION_TOOL, type SessionToolSource } from "../src/app/session-tool";
 
 const secret = "sk-or-v1-0123456789abcdef0123456789abcdef";
 
@@ -62,9 +62,18 @@ test("casper_session: part narrows the answer; an unknown part is an error, not 
 
 test("casper_session: nothing loaded yet reads as null, and the description stays short", async () => {
   const empty = sessionSnapshot({ status: () => undefined, roles: () => ({}), usage: () => undefined, lastTask: () => undefined, tasks: () => [], mcp: () => [] });
-  expect(empty).toEqual({ model: null, usage: null, context: null, lastTask: null, tasks: [], mcp: [] });
+  expect(empty).toEqual({ model: null, usage: null, context: null, lastTask: null, tasks: [], mcp: [], conversation: CONVERSATION_NOTE });
   const tool = casperSessionTool(source());
   // About 60 tokens: it is offered every task.
   expect(tool.description.split(/\s+/).length).toBeLessThanOrEqual(45);
   expect(JSON.stringify(tool.inputSchema).length).toBeLessThan(300);
+});
+
+test("casper_session says plainly that the AI can't open an earlier conversation, and what the person types", async () => {
+  expect(CONVERSATION_NOTE).toBe("This conversation only. You can't open or read an earlier one, and searching files won't find it: "
+    + "tell the user to type /continue for the most recent conversation in this folder, or /resume to pick one.");
+  const source = { status: () => undefined, roles: () => ({}), usage: () => undefined, lastTask: () => undefined, tasks: () => [], mcp: () => [] };
+  expect(JSON.parse((await casperSessionTool(source).execute({})).text).conversation).toBe(CONVERSATION_NOTE);
+  // Asked for one part, it says only that part.
+  expect(JSON.parse((await casperSessionTool(source).execute({ part: "model" })).text).conversation).toBeUndefined();
 });

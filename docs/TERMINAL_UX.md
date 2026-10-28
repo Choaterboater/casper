@@ -964,7 +964,8 @@ Daily commands include `/help`, `/status`, `/project`, `/diff`, `/verify`, `/ski
 Each start in a folder is a new conversation, as in Claude Code, Codex, Copilot CLI and Pi; only a `/branch`
 experiment's folder reopens its branch's own. When the folder has an earlier conversation, the start offers one row,
 `Next: 1 Continue the Oct 21 conversation (<title> · 12 messages)` with `Anything you type starts a new conversation.`
-under it: a lone `1` on the empty prompt runs `/continue` (sent before the row shows, it waits up to 3 s for it), anything typed is the new conversation's first request, and
+under it: a lone `1` on the empty prompt runs `/continue` (sent before the row shows, it waits up to 3 s for it), and so does a
+first line that only asks to go back (`continue`, `continue session`, `pick up where we left off`); anything else typed is the new conversation's first request, and
 Enter runs nothing ([decision 42](adr/0002/42-a-plain-start-is-new.md)).
 | `/branch`, `/switch <name>` | Existing named-workspace navigation and its approval policy |
 | `/output [n]` | Full command and output of the last task's n-th most recent tool call (1 = latest; 20 retained per task); out-of-range n is a usage error |
