@@ -347,7 +347,7 @@ A narrow window shortens that to `✔ restart to update`, then hides it rather t
 Other update notices keep their text, dropping the detail after `·` when needed; they never become restart
 advice. `NO_COLOR` keeps the words and alignment without colour. The row yields to questions, pickers and
 screens too short to keep the prompt, live steps and footer visible; it never takes room from the footer's
-folder, model or state. Without an install it says `Casper 0.3.7 is out · casper update` (or
+folder, model or state. Without an install it says `Casper 0.3.8 is out · casper update` (or
 `Casper update ready · casper update` for a checkout). A checkout Casper didn't fast-forward by itself says why in
 a few words, such as `Casper update ready · checkout has uncommitted changes · casper update`;
 a narrow window keeps `Casper update ready`. A quiet failure says `update failed · casper update`.
