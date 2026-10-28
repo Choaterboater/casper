@@ -50,11 +50,13 @@ function kindFor(name: string): SecretKind {
 /** Is this unquoted value a literal (a real value), not code? Only asked for command output. */
 function literalValue(value: string, name: string, separator: string): boolean {
   if (value.length < 4 || /[\s(){}[\]<>`]/.test(value) || /^[$%&@*]/.test(value)) return false;
-  if (CODE_WORDS.has(value.toLowerCase())) return false;
+  // A negated name is still that name: `secret = !pagination`, `token = !this.enabled`.
+  const bare = value.replace(/^!+/, "");
+  if (CODE_WORDS.has(bare.toLowerCase())) return false;
   // self.password, config.token, os.environ...
-  if (/^[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)+$/.test(value)) return false;
+  if (/^[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)+$/.test(bare)) return false;
   // A bare identifier is a variable in code; it counts only in dotenv style (NAME=value, name upper case).
-  if (/^[A-Za-z_]+$/.test(value)) return separator === "=" && /^[A-Z0-9_]+$/.test(name);
+  if (/^[A-Za-z_]+$/.test(bare)) return separator === "=" && /^[A-Z0-9_]+$/.test(name);
   return true;
 }
 

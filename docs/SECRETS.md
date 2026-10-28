@@ -67,8 +67,9 @@ through. Check what a tool returns before you share it.
   `SENTRY_DSN=...`, `Authorization: Bearer ...`, in any case: `authorization: bearer ...`,
   git's `extraheader = AUTHORIZATION: basic ...`) is hidden when it looks like a real
   value, and so is the password inside an address
-  (`postgres://app:<secret hidden>@db/app`). Code such as `token = getToken()` or
-  `password: str` is left alone. The same names count in XML, as an element or an
+  (`postgres://app:<secret hidden>@db/app`). Code such as `token = getToken()`,
+  `password: str` or a negated name (`secret = !pagination`, `token = !this.enabled`) is left alone;
+  a value that only starts with `!` (`DB_PASSWORD=!hunter`, `password = !…` with digits) is still hidden. The same names count in XML, as an element or an
   attribute (an app's `config.xml`: `<ApiKey><secret hidden></ApiKey>`,
   `<Password>...</Password>`, `apikey="..."`), and in compose `environment:` lists
   (`- SONARR_API_KEY=...`). A name that ends in plain `key` (a compose label such as
