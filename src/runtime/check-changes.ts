@@ -125,23 +125,26 @@ export class CheckChangeGuard {
     if (readOnlyCommand(command, { root: this.root })) return undefined;
     // Executing the configured command is not permission to rewrite it.
     if (Object.values(this.options?.commands() ?? await this.configured()).includes(command.trim())) return undefined;
-    const { targets, globs, anywhere } = shellWritePaths(command, this.root, this.home);
-    const refusal = "Not run: this command may change a configured check. Use native edit/write so Casper can show old → new and ask 'Change the test check for this project?'";
-    for (const file of await this.files()) {
-      const relative = path.relative(realpathLongest(this.root), file);
-      if (isOutside(relative)) continue;
-      if (anywhere || targets.some((target) => !isOutside(path.relative(realpathLongest(target), file)))
-        || globs.some((glob) => globReaches(glob, file))) return refusal;
+    const { targets, globs, unknown } = shellWritePaths(command, this.root, this.home);
+    const checks = [...await this.files()].filter((file) => !isOutside(path.relative(realpathLongest(this.root), file)));
+    if (checks.some((file) => targets.some((target) => !isOutside(path.relative(realpathLongest(target), file)))
+      || globs.some((glob) => globReaches(glob, file)))) {
+      return "Not run: this command may change a configured check. Use native edit/write so Casper can show old → new and ask 'Change the test check for this project?'";
+    }
+    // Refused only because the destination can't be read: say that, not that it changes a check.
+    if (checks.length && unknown.length) {
+      return `Not run: Casper can't tell where \`${unknown[0]}\` leads, so this copy could replace a configured check. Write the destination as a plain path. Use native edit/write to change a check.`;
     }
     return undefined;
   }
 }
 
 /** Keep literal cd operands scoped to their shell; a copy's destination can replace all its descendants. */
-function shellWritePaths(command: string, root: string, home: string): { targets: string[]; globs: string[]; anywhere: boolean } {
+function shellWritePaths(command: string, root: string, home: string): { targets: string[]; globs: string[]; unknown: string[] } {
   const targets: string[] = [];
   const globs: string[] = [];
-  let anywhere = false;
+  /** Copy destinations that could lead anywhere, as written. */
+  const unknown: string[] = [];
   const visit = (text: string, folders: string[], depth: number) => {
     if (depth > 4) return;
     let cursor = 0;
@@ -175,7 +178,7 @@ function shellWritePaths(command: string, root: string, home: string): { targets
             const where = copyDestination(destination, folder, home);
             targets.push(...where.paths);
             globs.push(...where.globs);
-            if (where.anywhere) anywhere = true;
+            if (where.anywhere && !unknown.includes(destination)) unknown.push(destination);
           }
         }
       }
@@ -189,7 +192,7 @@ function shellWritePaths(command: string, root: string, home: string): { targets
     }
   };
   visit(command, [root], 0);
-  return { targets, globs, anywhere };
+  return { targets, globs, unknown };
 }
 
 /** The most brace lists expand to before a destination is taken as unknown. */
