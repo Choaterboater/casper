@@ -170,6 +170,7 @@ export interface CommandHost {
   services?: ServiceManager;
   debugSession?: DebugSession;
   lastTaskRequest?: string;
+  continuedConversation?: string;
   ensureRuntime(): Promise<RuntimeSession>;
   acquireRuntime(): Promise<AgentRuntime>;
   /** /copy's clipboard; tests pass a fake. */
@@ -403,6 +404,10 @@ export async function runSlashCommand(host: CommandHost, prompt: string): Promis
         if (!session.listConversations || !session.resumeConversation) throw new Error("This runtime does not support saved conversations.");
         let current: string | undefined;
         try { current = session.getSessionInfo?.().sessionId; } catch { current = undefined; }
+        if (current !== undefined && current === host.continuedConversation) {
+          host.output.write("[session] You're in the conversation /continue opened, so you stay in it. /resume lists the others.\n");
+          return;
+        }
         const all = await session.listConversations();
         // What --continue opens at startup: the most recent conversation saved here, other than the one you are in
         // and the empty one /clear leaves.
@@ -466,6 +471,7 @@ export async function runSlashCommand(host: CommandHost, prompt: string): Promis
         // As at startup, a new conversation with no reply yet is dropped, not saved for the next /continue to find.
         await session.resumeConversation(id, prompt === "/continue" ? { keepUnwritten: false } : undefined);
       }
+      host.continuedConversation = prompt === "/continue" ? id : undefined;
       host.lastTaskRequest = undefined;
       // Like --continue and --resume, a one-shot /clear or /resume does not change what later sessions open, and says so.
       if (host.interactive) await (await host.ensureSessionWorkspace()).rememberConversation(session);

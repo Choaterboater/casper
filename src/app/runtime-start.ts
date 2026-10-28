@@ -167,6 +167,7 @@ export async function applyRunConversation(app: CasperApp, session: RuntimeSessi
     await session.resumeConversation(target, { keepUnwritten: false });
     if (app.interactive && session.getSessionInfo) await (await ensureSessionWorkspace(app)).rememberConversation(session);
   }
+  if (!("resume" in request)) app.continuedConversation = target;
   app.output.write(`[session] Continuing conversation ${target}.\n`);
 }
 

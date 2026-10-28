@@ -90,6 +90,8 @@ the most recent conversation saved in this folder, other than the one you are in
 an empty one `/clear` left). With none, it says
 `[session] No earlier conversation in this workspace; starting a new one.` (or
 `staying in this one` once the one you are in has a reply), and nothing changes.
+In the conversation `/continue` or `--continue` opened, `/continue` stays there and
+says so, rather than going back to the one you left; `/resume` lists the others.
 Conversations are saved per folder, so `/continue` and `/resume` see only this
 folder's: to pick up work from another folder, start Casper there. Casper's AI can't
 open them for you; asked to continue a last session, it names these commands.
