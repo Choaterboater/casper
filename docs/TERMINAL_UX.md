@@ -404,7 +404,8 @@ Before work nothing waits: a build request with several asks is built at once, w
 `– Big job (this asks for 4 things): /plan first next time to see the steps before any change`. The
 line is the `plan-first` suggestion, so it fades the same way and `/suggestions off plan-first` or
 Suggestions off in `/settings` leaves it out. A request that already lists its requirements (two or
-more list lines, most with a detail such as a command, number, file or example) gets no line.
+more list lines, most with a detail such as a command, number, file or example) gets no line, and the asks
+in a pasted terminal transcript don't count.
 `/plan <request>` (or `plan first:` at the start of a request) runs a
 plan turn: the model may only read (read, grep, find, ls and look-only shell commands such as `ls`,
 `cat` or `git log`); every other tool, MCP and Casper's own tools included, is refused with "Planning

@@ -36,6 +36,28 @@ export function pastedMask(line: string, pasted: readonly string[]): boolean[] {
   return mask;
 }
 
+/** A line from an agent's or a terminal's screen: a prompt, a bullet or a box-drawing border leads it. */
+const SCREEN_LINE = /^\s*[❯●⏺⎿▌\u2500-\u257f]/u;
+
+/** Whether a pasted piece is a terminal transcript (an agent session copied off the screen): at least 3 of its lines,
+ * and a quarter of them, start the way such a screen's lines do. A pasted spec or note doesn't. */
+export function isScreenTranscript(piece: string): boolean {
+  const lines = piece.split(/\r?\n/).filter((line) => line.trim());
+  const screen = lines.filter((line) => SCREEN_LINE.test(line)).length;
+  return screen >= 3 && screen * 4 >= lines.length;
+}
+
+/** The request without the terminal transcripts pasted into it, or undefined when none was. What such a paste says
+ * ("fix", "add tests") is context, not what the person asked for. */
+export function withoutTranscripts(line: string, pasted: readonly string[]): string | undefined {
+  const transcripts = pasted.filter(isScreenTranscript);
+  if (!transcripts.length) return undefined;
+  const mask = pastedMask(line, transcripts);
+  let text = "";
+  for (let at = 0; at < line.length; at++) if (!mask[at]) text += line[at];
+  return text.trim();
+}
+
 /** The words in a typed request. `pasted` is what was pasted into it (the terminal keeps it); none of it is read. */
 export function parseRequestWords(line: string, pasted: readonly string[] = []): RequestWords {
   const mask = pastedMask(line, pasted);

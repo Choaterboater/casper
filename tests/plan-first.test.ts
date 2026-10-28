@@ -9,6 +9,7 @@ import { bundledFlows, findFlow } from "../src/flows/catalog";
 import { loadProjectContext } from "../src/project/context";
 import type { RuntimeTool, AgentRuntime, RuntimeEventListener, RuntimeStartOptions } from "../src/runtime/types";
 import { SkillRegistry } from "../src/skills/registry";
+import { isScreenTranscript } from "../src/app/request-words";
 import { removeTempDir } from "./support/temp-dir";
 import { ansiCells, cellsFor, cellSnapshot } from "./support/ansi-cells";
 
@@ -54,6 +55,7 @@ async function fixture(tty = true, setup: { planWrites?: boolean; planCode?: boo
   const prompts: string[] = [];
   const gate: Array<{ tool: string; reason: string | undefined }> = [];
   let checklistCalls = 0;
+  const checklistAsked: string[] = [];
   let planCalls = 0;
   let options: RuntimeStartOptions | undefined;
   let tools: RuntimeTool[] = [];
@@ -65,7 +67,7 @@ async function fixture(tty = true, setup: { planWrites?: boolean; planCode?: boo
         getState: () => ({ cwd: project, isStreaming: false }),
         setTools: value => { tools = value; }, abort: async () => {},
         subscribe: (listener) => { listeners.add(listener); return () => listeners.delete(listener); },
-        complete: async () => { checklistCalls++; return { text: JSON.stringify(CASES), usage: { tokens: 10, estimatedCost: 0 } }; },
+        complete: async (input) => { checklistCalls++; checklistAsked.push(input.user); return { text: JSON.stringify(CASES), usage: { tokens: 10, estimatedCost: 0 } }; },
         prompt: async (text) => {
           prompts.push(text);
           emit({ type: "assistant_response_start", provider: "fixture", model: "demo" });
@@ -112,7 +114,7 @@ async function fixture(tty = true, setup: { planWrites?: boolean; planCode?: boo
   });
   const interactive = tty ? app.runInteractive(project) : undefined;
   if (tty) await screen.until((output) => output.includes(process.env.TERM === "dumb" ? "> " : "idle"));
-  return { app, input, screen, prompts, gate, project, plain: () => plain, checklistCalls: () => checklistCalls, close: async () => {
+  return { app, input, screen, prompts, gate, project, plain: () => plain, checklistCalls: () => checklistCalls, checklistAsked, close: async () => {
     await app.close(); input.destroy();
     if (interactive) await interactive;
     await removeTempDir(root);
@@ -1015,3 +1017,60 @@ test("/plan on plans every request until /plan off, and the footer says PLAN whi
     await f.screen.until(output => output.includes("[plan] Plan mode off."));
   } finally { await f.close(); }
 }, 60_000);
+
+/** An agent session copied off the screen: its own asks ("add…", "fix…") are what that session did, not this request. */
+const TRANSCRIPT = [
+  "● I'll add a rate limiter to the API, then add a /health endpoint, then add request logging.",
+  "  ╭─ ◆ Changed in api: add_route ─────────────╮",
+  "  │ { \"path\": \"/health\" }                    │",
+  "  ╰───────────────────────────────────────────╯",
+  "● Next I'll fix the failing test and also add a config file for the limits.",
+  "  ⎿ 3 files changed",
+  "❯ ran",
+].join("\n");
+
+test("a pasted terminal transcript doesn't make a checklist or the Big job line; the model still gets it", async () => {
+  for (const typed of ["", "here is the handoff note: "]) {
+    const f = await fixture();
+    try {
+      if (typed) f.input.write(typed);
+      f.input.write(`\x1b[200~${TRANSCRIPT}\x1b[201~`);
+      await f.screen.until((output) => output.includes("❯ ran"));
+      f.input.write("\r");
+      await f.screen.until(idleAfter("Built."));
+      // This project turns the checklist on for every request: then it is asked about the typed words only.
+      expect({ typed, bigJob: f.screen.output.includes("Big job"), asked: f.checklistAsked }).toEqual({ typed, bigJob: false, asked: typed ? [expect.stringContaining("here is the handoff note:")] : [] });
+      expect(f.checklistAsked.join("")).not.toContain("add_route");
+      expect(f.prompts[0]).toContain("Changed in api: add_route");
+    } finally { await f.close(); }
+  }
+}, 120_000);
+
+test("asked to build what a pasted transcript describes, the cases come from what was typed, not the transcript", async () => {
+  const f = await fixture();
+  try {
+    f.input.write(`${REQUEST}: `);
+    f.input.write(`\x1b[200~${TRANSCRIPT}\x1b[201~`);
+    await f.screen.until((output) => output.includes("❯ ran"));
+    f.input.write("\r");
+    await f.screen.until(idleAfter("Built."));
+    expect(f.screen.output).toContain(HINT);
+    expect(f.checklistAsked).toEqual([expect.stringContaining(REQUEST)]);
+    expect(f.checklistAsked[0]).not.toContain("add_route");
+  } finally { await f.close(); }
+}, 60_000);
+
+test("a terminal transcript is told from a pasted spec, list or snippet", () => {
+  expect(isScreenTranscript(TRANSCRIPT)).toBe(true);
+  expect(isScreenTranscript(DETAILED)).toBe(false);
+  expect(isScreenTranscript("- add a cart\n- add plans\n- add reviews\n- keep it fast")).toBe(false);
+  expect(isScreenTranscript("● one\n● two")).toBe(false);
+  // A table in a long spec: a few bordered lines among many plain ones.
+  expect(isScreenTranscript([DETAILED, "┌───┐", "│ a │", "└───┘", DETAILED, DETAILED].join("\n"))).toBe(false);
+});
+
+test("the docs say a pasted transcript makes no checklist and its asks don't count toward Big job", async () => {
+  const read = async (file: string) => (await readFile(path.join(import.meta.dir, "..", "docs", file), "utf8")).replace(/\s+/g, " ");
+  expect(await read("VERIFICATION.md")).toContain("so a pasted transcript alone makes no checklist, and the cases come only from what you typed around it.");
+  expect(await read("TERMINAL_UX.md")).toContain("gets no line, and the asks in a pasted terminal transcript don't count.");
+});

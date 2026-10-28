@@ -74,7 +74,8 @@ import { appAgentDir, ensureRuntime } from "./runtime-start";
 import { reloadProject, writeProjectFile } from "./project-file";
 
 /** `guide`: guidance a command the user typed adds to this one request (/look's instructions), after the request. */
-export async function runModelTask(app: CasperApp, prompt: string, options: { flow?: Flow; planFirst?: boolean; savedPlan?: SavedPlan; words?: RequestWords; guide?: string } = {}): Promise<VerificationReport | undefined> {
+/** `asked`: the request without the terminal transcripts pasted into it, when it had any (app/request-words.ts). */
+export async function runModelTask(app: CasperApp, prompt: string, options: { flow?: Flow; planFirst?: boolean; savedPlan?: SavedPlan; words?: RequestWords; guide?: string; asked?: string } = {}): Promise<VerificationReport | undefined> {
   if (app.closing) return;
   // The person's words ("think hard:", "big model:", "plan first:"): this task only, said in a line, then put back.
   const { words, ...rest } = options;
@@ -216,13 +217,15 @@ export async function runModelTask(app: CasperApp, prompt: string, options: { fl
   // verification.checklist: the cases the request states, listed before the model starts, so it tests each one.
   // Unset, it is on for interactive code changes and off otherwise: questions, docs, refactors and one-shot runs.
   // After the new-project question no checklist is made and no plan-first line is shown.
+  // A pasted transcript's words ("fix", "add tests") are context: what was asked is read without them.
+  const asked = options.asked === undefined ? classification : classifyTask(options.asked);
   const checklistOn = !app.beforeWorkAsked && (context.verification.checklist
-    ?? (app.interactive && ["implement", "fix", "test"].includes(classification.intent)));
+    ?? (app.interactive && ["implement", "fix", "test"].includes(asked.intent)));
   const complete = checklistOn ? session.complete?.bind(session) : undefined;
   // Plan first: a build request with several asks is built straight away; with suggestions on, one line says
   // /plan shows the steps first next time. /plan (or "plan first:") chooses the plan turn directly.
   const planFirst = options.planFirst === true;
-  const planOffer = !app.beforeWorkAsked ? suggestBeforeWork(typed, classification, { interactive: app.interactive }) : undefined;
+  const planOffer = !app.beforeWorkAsked ? suggestBeforeWork(options.asked ?? typed, asked, { interactive: app.interactive }) : undefined;
   const planState = planOffer ? await app.suggestions.state(context) : undefined;
   if (planOffer && planState?.visible(planOffer.id)) {
     app.events.ensureLineBreak();
@@ -232,7 +235,8 @@ export async function runModelTask(app: CasperApp, prompt: string, options: { fl
   }
   // Using /plan is taking the hint: its fading starts again.
   if (planFirst) await (await app.suggestions.state(context))?.recordChosen("plan-first").catch(() => {});
-  let checklist = !planFirst && complete ? await makeChecklist(app, complete, prompt) : undefined;
+  // Its cases come from what was asked: none from a pasted transcript, and none at all when that is the whole request.
+  let checklist = !planFirst && complete && options.asked !== "" ? await makeChecklist(app, complete, options.asked ?? prompt) : undefined;
   if (app.closing || app.commandAbort?.signal.aborted) return;
   // The model plans and lists cases; the user can request a rewrite before choosing Build.
   let planBlock = "";
