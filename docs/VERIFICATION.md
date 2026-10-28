@@ -138,7 +138,8 @@ In a copy's destination, a brace list `{a,b}` is each of its words, and a glob i
 and their folders. So copying or moving files out of the project, to a folder written any of those ways, is
 never refused, and a write to a check through `~` is refused like any other. A copy's destination Casper
 can't know (a variable or a command at its start, another user's `~name`, or a `..` after an unknown part)
-is refused as before. This text guard is
+is refused as before, with a message that names the destination it couldn't read: write it as a plain path.
+This text guard is
 not an operating-system sandbox against opaque scripts. User-issued setup commands keep their own flows.
 
 ## Working on Casper's own tests

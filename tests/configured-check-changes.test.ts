@@ -338,11 +338,28 @@ test("a copy, move or other write onto a configured check is still refused, howe
   ]) expect({ command, refused: (await guard.shellReason(command))?.includes("Use native edit/write") }).toEqual({ command, refused: true });
 });
 
+test("a copy to a destination Casper can't know says so, and names it, instead of claiming it changes a check", async () => {
+  const project = await setup();
+  const guard = new CheckChangeGuard(project.root, undefined, path.dirname(project.root));
+  for (const [command, word] of [
+    ['cp node_modules/x/cli.js "$d/cli.js"', "$d/cli.js"],
+    ["cp output.txt $DEST", "$DEST"],
+    ["cp output.txt ~other/project", "~other/project"],
+    ['cp output.txt "`pwd`/x"', "`pwd`/x"],
+  ]) {
+    const reason = await guard.shellReason(command);
+    expect({ command, reason }).toEqual({ command, reason: `Not run: Casper can't tell where \`${word}\` leads, so this copy could replace a configured check. Write the destination as a plain path. Use native edit/write to change a check.` });
+  }
+  expect(await guard.shellReason("cp output.txt .casper/quick-test.ts")).toBe("Not run: this command may change a configured check. Use native edit/write so Casper can show old → new and ask 'Change the test check for this project?'");
+  // Both in one command: the write that names a check is the reason given.
+  expect(await guard.shellReason("cp output.txt $DEST; cp output.txt .casper/quick-test.ts")).toContain("may change a configured check");
+});
+
 test("the docs say how a command's paths and a copy's destination are read, and which ones are still refused", async () => {
   const docs = (await readFile(path.join(import.meta.dir, "..", "docs/VERIFICATION.md"), "utf8")).replace(/\s+/g, " ");
   expect(docs).toContain("Paths are read as the shell reads them: `~` and `$HOME` are your home folder and `~+` and `$PWD` the folder the command runs in. In a copy's destination, a brace list `{a,b}` is each of its words");
   expect(docs).toContain("copying or moving files out of the project, to a folder written any of those ways, is never refused, and a write to a check through `~` is refused like any other");
-  expect(docs).toContain("A copy's destination Casper can't know (a variable or a command at its start, another user's `~name`, or a `..` after an unknown part) is refused as before.");
+  expect(docs).toContain("A copy's destination Casper can't know (a variable or a command at its start, another user's `~name`, or a `..` after an unknown part) is refused as before, with a message that names the destination it couldn't read: write it as a plain path.");
 });
 
 test("missing, quoted and test-folder check scripts remain guarded at their write boundary", async () => {
