@@ -18,6 +18,7 @@ import { ensureRuntime } from "./runtime-start";
 import { askSideQuestion, BTW_USAGE, btwQuestion, sideQuestionsOn, sideQuestionText } from "./side-question";
 import { duringTask } from "../tui/give-way";
 import { chooseModel, handledHere, modelChangeRequest, namesModel, severalModelsMessage } from "./model-words";
+import { exportHandledHere, exportRequest, exportWordsLine } from "./export-words";
 
 /** After a task: lines the AI never read join the queue. A stopped task runs nothing more: its queued lines go
  * back into the prompt (the rich terminal) for you to send or clear. */
@@ -119,6 +120,16 @@ export function submitDuringWork(app: CasperApp, line: string, plain = false): t
       app.output.write(handledHere(target));
       return duringTask(() => setModelDuringWork(app, target));
     });
+    return true;
+  }
+  // "export this session to the desktop": saved now, as /export would be, and never sent to the AI.
+  const exported = exportRequest(line, pasted);
+  if (exported) {
+    void exportWordsLine(app, exported).then((command) => {
+      if (app.closing) return;
+      app.output.write(exportHandledHere(command));
+      duringTask(() => runCommandDuringWork(app, command));
+    }, (error: unknown) => { app.output.write(`[error] ${terminalText(error instanceof Error ? error.message : String(error))}\n`); });
     return true;
   }
   inOrder(app, () => steerOrQueue(app, line));

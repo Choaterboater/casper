@@ -31,6 +31,7 @@ import { applyWeb } from "./wiring";
 import { typedDuringTask } from "../tui/give-way";
 import { checkSignIn, ensureRuntime } from "./runtime-start";
 import { handledHere, modelChangeRequest, namesModel } from "./model-words";
+import { exportHandledHere, exportRequest, exportWordsLine } from "./export-words";
 import { reloadProject } from "./project-file";
 import { pagesCommand } from "./pages";
 import { lookCommand, lookTyped } from "./look";
@@ -199,6 +200,13 @@ export async function handlePrompt(app: CasperApp, prompt: string, typed?: { pas
     if (target && await namesModel(await ensureRuntime(app), target)) {
       app.output.write(handledHere(target));
       return report = await handleSlashCommand(app, `/model ${target}`);
+    }
+    // "export this session to the desktop": /export, as if typed, with no model call (src/app/export-words.ts).
+    const exported = typed && !app.pastedImages?.size ? exportRequest(prompt, typed.pasted) : undefined;
+    if (exported) {
+      const line = await exportWordsLine(app, exported);
+      app.output.write(exportHandledHere(line));
+      return report = await handleSlashCommand(app, line);
     }
     // "look adapt", typed without the slash: /look adapt (src/look/commands.ts lookWords). Only a line typed here; when
     // /look can't run, the line goes on to the AI below.

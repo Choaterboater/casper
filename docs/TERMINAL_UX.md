@@ -662,6 +662,14 @@ live rows, popups or pickers, or a duplicated prompt box (`bun test tests/termin
   also be a model family (`opus`, `qwen`, `gpt` …) or carry a version (`sonnet 5`), so `use next`,
   `switch to main` and `use the 70b model` stay requests. Anything else (`change the model class in
   models.py to …`) goes to the AI as before. To ask the AI instead, say it another way.
+- A typed line that only asks to save this conversation (`export this session`, `save the chat to my
+  desktop`, typos such as `explort` included) runs `/export` the same way, with no model call, idle or
+  during a task, and says so first: `[export] Handled here, no model call: /export <file> does the
+  same.` It may name the Desktop, Documents or Downloads (on Windows the known folder, so one moved
+  to OneDrive; under WSL the Windows one; on Linux the XDG folder), a file name (`as notes.md`) or
+  `as jsonl`; with a folder and no name the file is `casper-conversation-<id>.md`, and a file that is
+  there is never written over. Anything else (`export the CSV function`, `how do I export a model`,
+  `save the session token`) goes to the AI as before.
 - `/model --session [provider/id]`: for this conversation only; the browser opens with Enter
   choosing for this session only.
 - `/effort`: automatic or supported fixed-effort picker in an interactive terminal, otherwise a list.
