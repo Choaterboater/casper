@@ -527,6 +527,7 @@ When no `verify:` or `commands:` entry sets a check, Casper looks for one in the
 |---|---|
 | Node (`package.json`) | The `test`, `lint`, `build` scripts, and `typecheck`, `check-types` or `tsc` for typecheck, run with the package manager (`bun run test`, `npm run test`, …). A `check` script fills the check it runs when no script of that name does: the tests when it (or a script it runs) starts a test runner (`bun test`, `vitest`, `jest`, …), else typecheck (`tsc`, `svelte-check`, …), else lint (`eslint`, `biome`, …); one Casper can't read runs as the test check. The package manager comes from `packageManager` in `package.json`, else the lockfile, else npm. |
 | Bun tests (`*.test.ts`, `*_test.js`, `*.spec.tsx`, …) | `bun test` when no script runs the tests, in a Bun project or wherever the test files import `bun:test`. |
+| Node tests (`test/*.test.mjs`, … that import `node:test`) | `node --test` when no script runs the tests, also with no `package.json` at the root. |
 | Python (`pyproject.toml` or any `requirements*.txt`) | `pytest`, `ruff check .` and `mypy .` when those names appear in those files; bare `mypy` when `[tool.mypy]` lists `files`. A build (`python -m build`, `uv build`, `poetry build`) when `pyproject.toml` has `[build-system]`. |
 | Rust (`Cargo.toml`) | `cargo test`, `cargo clippy`, `cargo build` |
 | Go (`go.mod`) | `go test ./...`, `go build ./...` |

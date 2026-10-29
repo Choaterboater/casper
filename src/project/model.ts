@@ -396,9 +396,16 @@ async function projectTests(root: string): Promise<string[]> {
 
 /** A test file imports bun:test: Bun runs it, whatever the lockfile says. */
 async function importsBunTest(root: string, files: readonly string[]): Promise<boolean> {
+  return importsModule(root, files, "bun:test");
+}
+
+/** Whether any of the first test files imports `module` (an import or a require). */
+async function importsModule(root: string, files: readonly string[], module: string): Promise<boolean> {
+  const name = module.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const imported = new RegExp(String.raw`\bfrom\s*["']${name}["']|\brequire\(\s*["']${name}["']\s*\)|\bimport\s*["']${name}["']`);
   for (const file of files.slice(0, 10)) {
     const text = await readFile(path.join(root, file), "utf8").then((source) => source.slice(0, 64 * 1024), () => "");
-    if (/\bfrom\s*["']bun:test["']|\brequire\(\s*["']bun:test["']\s*\)/.test(text)) return true;
+    if (imported.test(text)) return true;
   }
   return false;
 }
@@ -598,11 +605,13 @@ async function detectModel(
     commands = { test: `swift test${flag}`, build: `swift build${flag}`, ...commands };
   }
   // Tests no command runs yet: Bun runs its own test files with no script (in a Bun project, or wherever they import
-  // bun:test); any others are said as found, never as "no tests yet".
+  // bun:test), Node runs ones that import node:test; any others are said as found, never as "no tests yet".
   let testsWithoutCommand = false;
   if (!commands.test && !overrides.commands?.test?.trim() && tests.length) {
     const bunTests = tests.filter((file) => JS_TEST_FILE.test(path.basename(file)));
     if (bunTests.length && (packageManager === "bun" || await importsBunTest(project.root, bunTests))) commands = { ...commands, test: "bun test" };
+    // Node's own runner (test/*.test.mjs importing node:test, often with no root package.json): it finds the files itself.
+    else if (bunTests.length && await importsModule(project.root, bunTests, "node:test")) commands = { ...commands, test: "node --test" };
     else testsWithoutCommand = true;
   }
   const structure = await detectRepositoryStructure(project.root);
