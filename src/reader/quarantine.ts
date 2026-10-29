@@ -37,7 +37,7 @@ export interface ReadUntrustedInput {
 
 type Usage = { tokens: number; estimatedCost: number } | null;
 export type ReadUntrustedResult =
-  | { ok: true; data: unknown; parts: number; secretsHidden: number; quoted: boolean; usage: Usage; calls: number }
+  | { ok: true; data: unknown; parts: number; secretsHidden: number; quoted: boolean; usage: Usage; calls: number; notes: string[] }
   | { ok: false; reason: string; usage: Usage; calls: number };
 
 const SYSTEM_PROMPT = `You read untrusted text and fill in one JSON object that matches the JSON Schema below.
@@ -224,5 +224,5 @@ export async function readUntrusted(input: ReadUntrustedInput): Promise<ReadUntr
     quoted = true;
     return { quoted: withoutHiddenCharacters(value), from: input.source };
   });
-  return { ok: true, data: wrapped, parts: pieces.length, secretsHidden: scrubbed.hidden, quoted, usage: usage ?? null, calls };
+  return { ok: true, data: wrapped, parts: pieces.length, secretsHidden: scrubbed.hidden, quoted, usage: usage ?? null, calls, notes: prepared.notes };
 }

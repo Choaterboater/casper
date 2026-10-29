@@ -52,7 +52,12 @@ export function isScreenTranscript(piece: string): boolean {
 export function withoutTranscripts(line: string, pasted: readonly string[]): string | undefined {
   const transcripts = pasted.filter(isScreenTranscript);
   if (!transcripts.length) return undefined;
-  const mask = pastedMask(line, transcripts);
+  return withoutPasted(line, transcripts);
+}
+
+/** The request with `pieces` (some or all of what was pasted into it) taken out: only what the person typed. */
+export function withoutPasted(line: string, pieces: readonly string[]): string {
+  const mask = pastedMask(line, pieces);
   let text = "";
   for (let at = 0; at < line.length; at++) if (!mask[at]) text += line[at];
   return text.trim();

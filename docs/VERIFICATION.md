@@ -264,7 +264,9 @@ it; the one here stays as it was), and the next request continues it there
 folder name, or a link ending in it; a plain-word name such as `review` only where the request points at a folder:
 "move to review", "the review project") asks `This request names casper-tools, in ~/Documents/casper-tools.` with
 `1 Stay here · 2 Move there`: Move runs the request there (in a new conversation when one had started here, which
-stays in /resume). Only the saved conversations' folders are matched; Casper never searches for the project. A one-shot run prints `[folder] The work is in ~/Documents/sample-tools. To work there: cd
+stays in /resume). Only the saved conversations' folders are matched; Casper never searches for the project. Only
+words you typed count: a pasted piece of more than one line (a copied terminal screen) and Casper's own
+`[folder] This folder holds …` line never name a project; a one-line pasted path or link does. A one-shot run prints `[folder] The work is in ~/Documents/sample-tools. To work there: cd
 ~/Documents/sample-tools && casper`. In a folder Casper can't compare (over 20,000 files, as a Documents folder
 holding many projects often is, or with a folder it can't read, as a NAS's `docker` folder of app folders is), the work
 folder is found from the files Casper's edit and write tools changed, even when the open folder is a project or

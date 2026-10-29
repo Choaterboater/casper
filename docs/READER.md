@@ -13,8 +13,10 @@ It is on by default and costs nothing until the AI calls it. Each call is one sm
 ## What happens on a call
 
 1. The AI names one source, never the text itself: `path` (a file in the project), `command` (a
-   command that only reads, such as `tail -n 500 logs/app.log`, run in the shell sandbox like the
-   AI's own commands) or `mcp` (an MCP tool by id; its own approval box still applies).
+   command that only reads files in the project, such as `tail -n 500 logs/app.log`, run in the shell
+   sandbox like the AI's own commands) or `mcp` (an MCP tool by id; its own approval box still applies).
+   Other output, such as `docker logs`, is refused; the error tells the AI to save it to a file with
+   its own shell first (`docker logs --tail 500 app > tmp/app.log 2>&1`) and then give that `path`.
 2. Casper reads the source. Paths follow the same rules as the AI's read tool: private places
    (`~/.ssh`, your `sandbox.denyRead`) are refused, also through a link. Secrets are hidden
    before the text leaves.
@@ -24,7 +26,8 @@ It is on by default and costs nothing until the AI calls it. Each call is one sm
 4. Casper checks the answer against the schema. Anything that isn't one JSON object that matches
    it gets one retry, with the problems in plain words, then a plain error. The error never holds
    the text or the reader's answer.
-5. The AI gets `{ from, data, note }` (plus `sourceCut` when an MCP result was cut; see below).
+5. The AI gets `{ from, data, note }` (plus `notes` when Casper capped a string or read only the end
+   of a file, and `sourceCut` when an MCP result was cut; see below).
 
 ## The schema
 
@@ -36,7 +39,9 @@ with no top-level `type`. Only the shape is filled in; every rule below applies 
 Casper tightens it before use:
 
 - Objects never get fields the schema doesn't name (`additionalProperties: false` is forced).
-- Strings are capped at 200 characters unless `maxLength` says otherwise, and at most 500.
+- Strings are capped at 200 characters unless `maxLength` says otherwise, and at most 500. A plain
+  string that asks for more is capped to 500, and the answer's `notes` says so
+  (`body.maxLength capped to 500; set "x-casper-quoted": true for longer text`).
 - Lists are capped at 100 items unless `maxItems` says otherwise, and at most 1000.
 - `$ref`, `anyOf`, `oneOf`, `allOf`, pattern properties and several types per field are refused.
 - A plain string that reads like orders to an AI, a shell command or a tool name
@@ -56,8 +61,10 @@ came from:
 ```
 
 Text over 64 KB is read in parts, by lines. That needs a top-level list in the schema: the lists
-from each part are joined, and other fields come from the first part. Text over 200 KB is refused;
-read a smaller part, such as the last lines of a log.
+from each part are joined, and other fields come from the first part. A file over 200 KB is read from
+its end: the last 200 KB, starting at a whole line, after the same checks and secret hiding, with a note
+such as `read the last 200 KB of 1.3 MB; use command with grep for earlier parts`. Other text over
+200 KB is refused; read a smaller part, such as the last lines of a log.
 
 An MCP result is cut to 200 KB and 1000 items per list before the reader sees it (the AI's own MCP
 calls get 16 KB and 50 items). When it was cut, the answer has `sourceCut`: which lists were cut

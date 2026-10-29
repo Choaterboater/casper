@@ -290,6 +290,11 @@ export class CasperApp {
   /** Every line sent to the AI during this task, oldest first, read or not; a line taken back leaves it. A repair or
    * proof round restates the request with them, as later instructions. */
   steeredInTask: string[] = [];
+  /** A model task has started and its model has not: a line typed now (while Casper sets up a server, reads the
+   * workspace) joins the first model turn as part of the request instead of queueing as a task of its own. */
+  beforeFirstModelTurn = false;
+  /** Those lines, oldest first (also in steeredInTask), until the first model turn takes them. */
+  linesBeforeModel: string[] = [];
   /** What was pasted into a line typed during work, by the line, until it runs (words count only where typed). */
   readonly linePastes = new Map<string, readonly string[]>();
   /** Pictures pasted (Ctrl+V) into a line typed during work that was queued, by the line, until it runs. */

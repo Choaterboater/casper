@@ -1,7 +1,8 @@
 /**
  * The schema guard for casper_read_untrusted. The caller's JSON Schema is copied into a tight one: every object
  * takes no fields it does not name, every string and list has a size cap, and free text longer than 500 characters
- * must be marked `"x-casper-quoted": true` (it then comes back wrapped as quoted data with its source). Refs,
+ * must be marked `"x-casper-quoted": true` (it then comes back wrapped as quoted data with its source); a plain string
+ * asking for more is capped to 500, with a note. Refs,
  * anyOf/oneOf/allOf, pattern properties and several types per field are refused, so the shape stays easy to check.
  */
 
@@ -24,7 +25,8 @@ const PLAIN_KEYS = new Set(["type", "description", "title", "enum", "const", "mi
   "multipleOf", "minLength", "maxLength", "pattern", "format", "minItems", "maxItems", "uniqueItems", "required", "properties", "items",
   "additionalProperties", "default", "examples", QUOTED_KEY, "$schema"]);
 
-export type PreparedSchema = { ok: true; schema: Record<string, unknown> } | { ok: false; reason: string };
+/** `notes`: what Casper changed to make the schema fit (a plain string's maxLength capped), for the result. */
+export type PreparedSchema = { ok: true; schema: Record<string, unknown>; notes: string[] } | { ok: false; reason: string };
 
 type Node = Record<string, unknown>;
 const isNode = (value: unknown): value is Node => typeof value === "object" && value !== null && !Array.isArray(value);
@@ -64,14 +66,15 @@ export function prepareReaderSchema(input: unknown): PreparedSchema {
   try { size = Buffer.byteLength(JSON.stringify(input)); } catch { return { ok: false, reason: "schema must be plain JSON" }; }
   if (size > MAX_SCHEMA_BYTES) return { ok: false, reason: "schema is over 16 KB; ask for fewer fields" };
   if (input.type !== "object") return { ok: false, reason: 'schema must have "type": "object" at the top' };
-  try { return { ok: true, schema: tighten(input, "", 0) }; }
+  const notes: string[] = [];
+  try { return { ok: true, schema: tighten(input, "", 0, notes), notes }; }
   catch (error) {
     if (error instanceof SchemaRefused) return { ok: false, reason: error.message };
     throw error;
   }
 }
 
-function tighten(node: unknown, path: string, depth: number): Node {
+function tighten(node: unknown, path: string, depth: number, notes: string[]): Node {
   if (!isNode(node)) return refuse(`${at(path)}: each field needs a schema object`);
   if (depth > MAX_DEPTH) return refuse(`${at(path)}: schema is nested more than ${MAX_DEPTH} levels`);
   for (const key of Object.keys(node)) if (!PLAIN_KEYS.has(key)) refuse(`${at(path)}: "${key.slice(0, 40)}" is not supported in a reader schema (use type, properties, items, enum, maxLength and the like)`);
@@ -87,7 +90,7 @@ function tighten(node: unknown, path: string, depth: number): Node {
   if (type === "object") {
     const properties = node.properties ?? {};
     if (!isNode(properties)) refuse(`${at(path)}: properties must be an object`);
-    out.properties = Object.fromEntries(Object.entries(properties as Node).map(([name, child]) => [name, tighten(child, `${path}.${name}`.replace(/^\./, ""), depth + 1)]));
+    out.properties = Object.fromEntries(Object.entries(properties as Node).map(([name, child]) => [name, tighten(child, `${path}.${name}`.replace(/^\./, ""), depth + 1, notes)]));
     if (node.required !== undefined) {
       if (!Array.isArray(node.required) || node.required.some((name) => typeof name !== "string")) refuse(`${at(path)}: required must be a list of field names`);
       out.required = node.required;
@@ -96,12 +99,14 @@ function tighten(node: unknown, path: string, depth: number): Node {
     out.additionalProperties = false;
   } else if (type === "array") {
     if (!isNode(node.items)) refuse(`${at(path)}: a list needs "items" with one schema`);
-    out.items = tighten(node.items, `${path}[]`, depth + 1);
+    out.items = tighten(node.items, `${path}[]`, depth + 1, notes);
     out.maxItems = cap(node.maxItems, DEFAULT_ITEMS_MAX, ITEMS_MAX, `${at(path)}: maxItems`);
   } else if (type === "string") {
     const quoted = node[QUOTED_KEY] === true;
-    out.maxLength = cap(node.maxLength, DEFAULT_STRING_MAX, quoted ? QUOTED_MAX : FREE_TEXT_MAX,
-      quoted ? `${at(path)}: maxLength` : `${at(path)}: free text over ${FREE_TEXT_MAX} characters needs "${QUOTED_KEY}": true, and maxLength`);
+    // A plain string asking for more than free text may have is capped, with a note, rather than refused.
+    const given = !quoted && typeof node.maxLength === "number" && Number.isInteger(node.maxLength) && node.maxLength > FREE_TEXT_MAX;
+    if (given) notes.push(`${at(path)}.maxLength capped to ${FREE_TEXT_MAX}; set "${QUOTED_KEY}": true for longer text`);
+    out.maxLength = given ? FREE_TEXT_MAX : cap(node.maxLength, DEFAULT_STRING_MAX, quoted ? QUOTED_MAX : FREE_TEXT_MAX, `${at(path)}: maxLength`);
     if (quoted) out[QUOTED_KEY] = true;
   }
   return out;

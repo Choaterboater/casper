@@ -243,7 +243,9 @@ gets a box of its own, `◆ Changed config`, with up to 40 diff rows per file an
 secrets hidden as in the edit box; a lockfile is one row, `◆ lockfile updated (bun.lock)`. A shell command that changed
 another machine or a device shows a row as soon as it ends, `◆ Changed on build-server: installed a service (…)` or
 `◆ Changed on sw1: sent 3 config lines`, with the commands it sent in a box (secrets hidden): the receipt's
-remote-change rules, or device lines that enter config mode, commit or delete. Each change Casper sends to an MCP server,
+remote-change rules, or device lines that enter config mode, commit or delete. Plain server reads sent over ssh
+(`hostname`, `uname -a`, `uptime`, `df -h`, `docker ps`, `ip a`, `systemctl status` and the like, with `2>&1` or
+`2>/dev/null`, or piped into `head`, `tail`, `grep`, `wc` or `sort`) are no config lines and show no row. Each change Casper sends to an MCP server,
 also after `Yes to everything`, is a row with what was sent, masked as in its box: `◆ Changed in mist: update_site_setting
 site-1`. Setup on this computer gets named rows when the command worked: `◆ installed left-pad`,
 `◆ committed "fix port" (a1b2c3d)`, `◆ pushed main to origin`, `◆ switched to fix-port`, `◆ deleted 3 files: a, b, c`.
@@ -972,7 +974,10 @@ only. See [platform support](PLATFORM_SUPPORT.md) for host-validation limits.
   question mid-build no longer ends the build. Only the model sees the note; the line shows, waits and is saved as you
   typed it. While the model is working it reads the
   line when its current step ends (`↳ sent to Casper · it reads this when its current step ends`),
-  which can be a while for a long step (a step that only waits ends at once, as below); while Casper runs checks or writes
+  which can be a while for a long step (a step that only waits ends at once, as below). Before the model's first step
+  (while Casper sets up a server or reads the workspace), the line joins the request: the first prompt lists it under
+  `Later instructions the user typed during this task, oldest first:` (`↳ added to your request · the AI reads it with
+  it`); if the task stops before the model starts, it is queued instead. While Casper runs checks or writes
   the receipt, the line is queued and runs as the next request (`↳ queued · runs when this task
   ends`). Until the AI reads it, each line shows above the prompt as `↳ waiting: …` (the newest 3),
   and the row goes when the AI has read it. ↑ on an empty prompt (or Alt+Up) takes the newest

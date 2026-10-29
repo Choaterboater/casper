@@ -64,7 +64,7 @@ import { tildePath } from "../new/scaffold";
 import { offerNetworkServer } from "./network-host";
 import { updateFooter, nameConversation, phase, clearSteps } from "./footer";
 import { reviewPendingParts, partsNotReviewed, prepareCapabilities, serviceManager, stopDebugger, planPages, pageNotesFor, pagePaths } from "./task-tools";
-import type { RequestWords } from "./request-words";
+import { withoutPasted, type RequestWords } from "./request-words";
 import { applyWords, hasWords } from "./task-words";
 import { ensureModel, retryModelFailure, bigModelReceipt, bigModelNotice, imagesForModel, switchForPictures, restoreModel } from "./big-model";
 import { attachImages } from "./images";
@@ -76,12 +76,20 @@ import { finishConfiguredTest, runVerification, writeCheckResult, taskNetworkOpt
 import { projectPrivatePaths, reportSkillWarnings } from "./wiring";
 import { appAgentDir, ensureRuntime } from "./runtime-start";
 import { reloadProject, writeProjectFile } from "./project-file";
-import { requestAsItStands } from "./steered-request";
+import { requestAsItStands, withLinesBeforeModel } from "./steered-request";
 
 /** `guide`: guidance a command the user typed adds to this one request (/look's instructions), after the request. */
 /** `asked`: the request without the terminal transcripts pasted into it, when it had any (app/request-words.ts). */
-export async function runModelTask(app: CasperApp, prompt: string, options: { flow?: Flow; planFirst?: boolean; savedPlan?: SavedPlan; words?: RequestWords; guide?: string; asked?: string } = {}): Promise<VerificationReport | undefined> {
+/** `pasted`: what was pasted into a request the person typed. Offers before work (another project, the network server)
+ * read only their own typing. */
+export async function runModelTask(app: CasperApp, prompt: string, options: { flow?: Flow; planFirst?: boolean; savedPlan?: SavedPlan; words?: RequestWords; guide?: string; asked?: string; pasted?: readonly string[] } = {}): Promise<VerificationReport | undefined> {
   if (app.closing) return;
+  // From here until the model's first turn, a line typed joins this request (app/during-work.ts steerOrQueue).
+  if (!app.beforeFirstModelTurn) {
+    app.beforeFirstModelTurn = true;
+    app.linesBeforeModel = [];
+    app.steeredInTask = [];
+  }
   // The person's words ("think hard:", "big model:", "plan first:"): this task only, said in a line, then put back.
   const { words, ...rest } = options;
   if (hasWords(words)) {
@@ -106,11 +114,12 @@ export async function runModelTask(app: CasperApp, prompt: string, options: { fl
   prompt = attached.text;
   // A flow the user picked, /plan or /look is already this task's one choice before work: no other panel.
   app.beforeWorkAsked = Boolean(options.flow || options.planFirst || options.guide);
-  if (await offerNamedProject(app, typed, options.planFirst) === "stop" || app.closing || app.commandAbort?.signal.aborted) return;
+  if (await offerNamedProject(app, typed, options.planFirst, options.pasted) === "stop" || app.closing || app.commandAbort?.signal.aborted) return;
   if ((!options.planFirst && await offerNewProject(app, prompt) === "stop") || app.closing || app.commandAbort?.signal.aborted) return;
   app.planBuild = undefined;
   app.events.setPlanProgress(undefined);
-  await offerNetworkServer(app, prompt);
+  // Only words the person typed name a network product: a pasted screen, log or page never brings up the offer.
+  await offerNetworkServer(app, options.pasted ? withoutPasted(typed, options.pasted) : typed);
   if (app.closing || app.commandAbort?.signal.aborted) return;
   const previous = app.observations.spent();
   app.spentBefore = { tokens: app.spentBefore.tokens + previous.tokens, cost: app.spentBefore.cost + previous.cost };
@@ -118,7 +127,6 @@ export async function runModelTask(app: CasperApp, prompt: string, options: { fl
   // The AI's shell reached a server on this machine in an earlier task: the service tool joins from this one and stays.
   if (app.serverSeen) { app.offeredTools.add("service"); app.serverSeen = false; }
   app.lastAnswer = "";
-  app.steeredInTask = [];
   app.judgeSteps = [];
   // A limit said in the request ("keep it under $2") is this task's pause, whatever the config says.
   const said = requestSpendLimit(prompt);
@@ -317,7 +325,7 @@ export async function runModelTask(app: CasperApp, prompt: string, options: { fl
         if (app.closing || app.commandAbort?.signal.aborted) return;
       }
       const emptyFolder = await emptyFolderNote(workspaceRoot);
-      await session.prompt([
+      await session.prompt(withLinesBeforeModel(app, [
         // A picture that failed after the last request ended, told once.
         ...app.pendingPictures.takeUnseen(),
         memoryContext,
@@ -335,7 +343,7 @@ export async function runModelTask(app: CasperApp, prompt: string, options: { fl
         // A flow the user picked from the row: guidance for this one request.
         options.flow ? formatFlowPrompt(options.flow, prompt) : "",
         options.guide ?? "",
-      ].filter(Boolean).join("\n\n"), app.commandAbort?.signal, { request: prompt, typed: prompt, maxTurns: app.maxTurns, ...(images.length ? { images } : {}) });
+      ].filter(Boolean).join("\n\n")), app.commandAbort?.signal, { request: prompt, typed: prompt, maxTurns: app.maxTurns, ...(images.length ? { images } : {}) });
       await retryModelFailure(app, session, prompt);
       await keepGoing(app, session, prompt);
     } finally {
@@ -720,7 +728,7 @@ export async function runPlanTurn(app: CasperApp, session: RuntimeSession, reque
     app.planning = true;
     // Show only Casper's plan screen, not the raw answer too. This resets held words for every rewrite.
     app.events.holdText("Writing the plan");
-    try { await session.prompt(prompt, signal, { request, typed, maxTurns: app.maxTurns }); }
+    try { await session.prompt(withLinesBeforeModel(app, prompt), signal, { request, typed, maxTurns: app.maxTurns }); }
     finally { app.planning = false; app.events.holdText(undefined); }
     const written = app.events.heldWords();
     const showWritten = () => {

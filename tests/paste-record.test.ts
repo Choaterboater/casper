@@ -62,7 +62,7 @@ function fakeApp(over: Partial<Record<string, unknown>> = {}) {
   const restored: Array<{ text: string; pasted: readonly string[] }> = [];
   const output: string[] = [];
   const app = {
-    closing: false, commandActive: true, queuedLines: [] as string[], linePastes: new Map<string, readonly string[]>(), lineImages: new Map(),
+    closing: false, commandActive: true, queuedLines: [] as string[], linesBeforeModel: [] as string[], linePastes: new Map<string, readonly string[]>(), lineImages: new Map(),
     commandAbort: new AbortController(), session: undefined as unknown,
     terminal: {
       restoreDraft: (text: string, pasted: readonly string[] = []) => { restored.push({ text, pasted }); return true; },

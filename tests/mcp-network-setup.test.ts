@@ -120,21 +120,25 @@ test("setup choices are safe first", () => {
   expect(question.text).toBe(`Casper can set up its network server (casper-network-mcp ${NETWORK_SERVER.version}, about ${NETWORK_SERVER.approxMB} MB from pypi.org, installed with uv into ~/.casper/tools).\nIt starts read-only. Logins are asked per product the first time you use it.`);
 });
 
-test("the offer comes for Mist, Central, ClearPass and Wi-Fi questions, not for others", () => {
+test("the offer comes for product names (Mist, Central, ClearPass, GreenLake, Marvis, UXI, OpsRamp), not for Wi-Fi words alone", () => {
   for (const prompt of [
-    "list the Mist APs at Branch-12", "Which Central sites are down?", "check clearpass auth", "why is the wifi slow on the APs", "add a WLAN",
-    "rename the SSID", "bounce switch port 1/1/3", "an access point is offline", "Aruba gateway health", "what does Marvis say about Branch-12",
-    "cppm endpoints for 10.1.1.5", "list my GreenLake devices", "Aruba Central inventory", "juniper mist webhooks", "is the Wi-Fi down at the site",
+    "list the Mist APs at Branch-12", "Which Central sites are down?", "check clearpass auth", "Aruba gateway health", "what does Marvis say about Branch-12",
+    "cppm endpoints for 192.0.2.5", "list my GreenLake devices", "Aruba Central inventory", "juniper mist webhooks", "show the UXI sensor results",
+    "which OpsRamp alerts are open", "rename the SSID in Mist for site Branch-12",
   ]) {
-    expect(namesNetworkProduct(prompt)).toBe(true);
+    expect({ prompt, offered: namesNetworkProduct(prompt) }).toEqual({ prompt, offered: true });
   }
   for (const prompt of [
     "add a test for parseConfig", "mistake in the readme", "the centralized logger", "switch to the main branch",
     // Web and code words: loose words count only next to a network word.
     "add central logging to the API", "refactor the central store", "add a mist effect to the hero image", "add a wifi icon to the settings page",
     "move this into a central place", "aruba beach photos for the travel blog",
+    // Wi-Fi, an SSID, a switch port or an access point alone: a home network as often as a product.
+    "set up a cloudflare tunnel in docker on my NAS for home assistant, wifi devices on my network",
+    "why is the wifi slow on the APs", "add a WLAN", "rename the SSID", "bounce switch port 1/1/3", "an access point is offline",
+    "is the Wi-Fi down at the site", "my wireless printer drops off the network",
   ]) {
-    expect(namesNetworkProduct(prompt)).toBe(false);
+    expect({ prompt, offered: namesNetworkProduct(prompt) }).toEqual({ prompt, offered: false });
   }
 });
 

@@ -29,6 +29,7 @@ import { updateFooter, phase } from "./footer";
 import { revokeWorkspaceCapabilities } from "./session-branches";
 import { writeCheckResult, networkOptions } from "./verification";
 import { loadWorkspace } from "./wiring";
+import { withoutPasted } from "./request-words";
 
 /** The last choice of the home-folder and folder-of-projects question. */
 
@@ -329,18 +330,30 @@ export function namedProject(request: string, folders: readonly string[], root: 
   return found;
 }
 
+/** Casper's own lines a copied screen may carry: the folder line that names the projects here (projectsHeldLine). */
+const CASPER_FOLDER_LINE = /^\s*(?:\[folder\]|To work in one: casper\b)/;
+
+/** The words a request names a project with: what the person typed. A pasted piece of more than one line (a copied
+ * terminal screen lists other projects) is taken out, and so are Casper's own lines; a one-line paste (a link, a
+ * path) still counts. */
+export function projectWords(request: string, pasted: readonly string[] = []): string {
+  const typed = withoutPasted(request, pasted.filter((piece) => /\n/.test(piece.trim())));
+  return typed.split(/\r?\n/).filter((line) => !CASPER_FOLDER_LINE.test(line)).join("\n");
+}
+
 /** Before the model starts, zero tokens: a request naming another project Casper has worked in asks "1 Stay here ·
  * 2 Move there" (Enter stays, asked once per folder). Only the saved conversations' folders are matched: Casper never
  * searches the person's folders for it. Move before the conversation starts opens the folder and the request runs
  * there; after, the conversation here stays in /resume and the request is queued for a new one there ("stop"). */
-export async function offerNamedProject(app: CasperApp, request: string, planFirst?: boolean): Promise<"stop" | undefined> {
+export async function offerNamedProject(app: CasperApp, request: string, planFirst?: boolean, pasted: readonly string[] = []): Promise<"stop" | undefined> {
   if (!app.interactive || !app.terminal.canAsk) return undefined;
   const home = app.sessionHomeDir ?? os.homedir();
+  const own = projectWords(request, pasted);
   // Only conversation folders ending in a word of the request ("--…-casper-tools--"), however old: not just the newest.
-  const words = [...new Set(request.toLowerCase().match(/[\w.-]{5,}/g) ?? [])];
+  const words = [...new Set(own.toLowerCase().match(/[\w.-]{5,}/g) ?? [])];
   const named = (folder: string) => words.some((word) => folder.toLowerCase().endsWith(`-${word}--`));
   const folders = words.length ? await recentlyUsedProjects({ base: home, agentDir: appAgentDir(app), named }).catch(() => []) : [];
-  const target = namedProject(request, folders, app.activeWorkspaceRoot());
+  const target = namedProject(own, folders, app.activeWorkspaceRoot());
   if (!target || app.stayedOutOf.has(target)) return undefined;
   const display = terminalText(tildePath(target, home));
   const choices = namedProjectChoices(terminalText(path.basename(app.activeWorkspaceRoot())), terminalText(path.basename(target)));
