@@ -228,7 +228,9 @@ export function testFailureSummary(output: string): string | undefined {
     if (result && typeof result === "object") output = [result.stderr, result.stdout].filter(value => typeof value === "string").join("\n");
   } catch { /* Ordinary command output. */ }
   const summaries = stripVTControlCharacters(output).split("\n")
-    .filter(line => /^\s*(?:Tests:|[=]+)|^\s*\d+ (?:pass|passed|fail|failed|skip|skipped)\b/.test(line)).join("\n");
+    // node --test says the word first ("ℹ fail 2", "# fail 2" in TAP): turned around, it reads like the others.
+    .map(line => line.replace(/^\s*(?:ℹ|#)\s+(tests|pass|fail|skipped)\s+(\d+)\s*$/, (_all, word: string, count: string) => `${count} ${word === "tests" ? "total" : word}`))
+    .filter(line => /^\s*(?:Tests:|[=]+)|^\s*\d+ (?:pass|passed|fail|failed|skip|skipped|total)\b/.test(line)).join("\n");
   const last = (pattern: RegExp) => { const value = [...summaries.matchAll(pattern)].at(-1)?.[1]; return value === undefined ? undefined : Number(value); };
   const failed = last(/\b(\d+) (?:fail|failed)\b/g);
   const passed = last(/\b(\d+) (?:pass|passed)\b/g);

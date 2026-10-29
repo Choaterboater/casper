@@ -67,6 +67,10 @@ test("only complete runner summaries produce failure denominators", () => {
   expect(testFailureSummary("(pass) case 1\n1 fail")).toBeUndefined();
   expect(testFailureSummary("Tests: 2 failed, 161 passed, 163 total")).toBe("2 of 163 tests failed");
   expect(testFailureSummary("=== 2 failed, 161 passed in 2s ===")).toBe("2 of 163 tests failed");
+  // node --test: the word, then the number ("ℹ fail 2"; "# fail 2" in TAP).
+  expect(testFailureSummary("ℹ tests 1735\nℹ suites 0\nℹ pass 1733\nℹ fail 2\nℹ cancelled 0\nℹ skipped 0\nℹ todo 14")).toBe("2 of 1735 tests failed");
+  expect(testFailureSummary("# tests 3\n# pass 1\n# fail 2")).toBe("2 of 3 tests failed");
+  expect(testFailureSummary("ℹ tests 3\nℹ pass 3\nℹ fail 0")).toBeUndefined();
   expect(testFailureSummary("2 failed, 161 passed in 2s")).toBe("2 of 163 tests failed");
   expect(testFailureSummary("129 pass\n1 skip\n1 fail")).toBe("1 of 131 tests failed");
   expect(testFailureSummary("130 pass\n0 fail")).toBeUndefined();
