@@ -195,6 +195,10 @@ Ctrl+D on an empty prompt exits. [Keys and commands](docs/TERMINAL_UX.md#quick-r
   shows its own hidden box (1 No · 2 Yes, this once · 3 Yes, for this session) and the password goes to ssh only,
   never to the AI, and is hidden wherever the AI reads. Nothing is saved; `ssh_login: off` turns it off.
   [Private ssh passwords](docs/CONFIGURATION.md#private-ssh-passwords)
+- **A hidden box for keys and tokens.** Ask for one ("prompt me for the token") and the AI uses Casper's hidden box:
+  the value goes to a project file (mode 600, kept out of git) or to the AI's next command, and the AI only learns where
+  it went and its length. A token in a terminal screen you paste is caught before it is sent: 1 Remove it · 2 Send
+  anyway. [Secrets](docs/SECRETS.md)
 - **Secrets hidden, best effort.** Known device secrets (passwords, keys, SNMP communities) are
   swapped for `<secret hidden>` before the AI sees them. Known formats only. [Secrets](docs/SECRETS.md)
 - **Untrusted text, read at arm's length.** The AI can read a log, an email or a web form through

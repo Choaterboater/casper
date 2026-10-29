@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import {
   ADD_LOGIN_CHOICES, DOCS_COPY_CHOICES, SKILL_TRUST_CHOICES, REPLACE_LOGIN_CHOICES, ALREADY_FAILING_CHOICES, forgetLoginChoices, forgetServerChoices, NOTHING_ANSWERED_CHOICES, APPROVE_CHOICES, APPROVE_ONCE_CHOICES, APPROVE_ONCE_PREVIEW_CHOICES, APPROVE_PREVIEW_CHOICES, allowKindsChoices, kindAllowChoices, LAB_IMPORT_CHOICES, MCP_ALLOW_KEEP_CHOICES, NETWORK_SETUP_CHOICES, NETWORK_SETUP_UV_CHOICES, NETWORK_UPDATE_CHOICES, REFERENCE_ADD_CHOICES, sshHostChoices, sshNameChoices, DOCTOR_INSTALL_CHOICES, DOCTOR_UPDATE_CHOICES, MCP_REMEMBER_CHOICES, MCP_WRITES_CHOICES, modelFailedChoices, PLAN_CHOICES, PLAN_QUESTION, REMEMBER_BIG_MODEL_CHOICES,
-  REPAIR_LIMIT_STOP, pictureChoices, spendChoices, undoChangedChoices, missingFolderChoices, workFolderChoices, unfinishedChoices, HOST_CHOICES, SHELL_COMMAND_CHOICES, AI_REVIEW_CHOICES, REACH_CHOICES, writeChoices, githubLoginChoices,
+  REPAIR_LIMIT_STOP, PASTED_SECRET_CHOICES, pictureChoices, spendChoices, undoChangedChoices, missingFolderChoices, workFolderChoices, unfinishedChoices, HOST_CHOICES, SHELL_COMMAND_CHOICES, AI_REVIEW_CHOICES, REACH_CHOICES, writeChoices, githubLoginChoices,
 } from "../src/app/safe-choices";
 import { planScreenRows } from "../src/flows/plan";
 import { interactiveTerminal } from "./support/tty";
@@ -57,6 +57,7 @@ const firsts: Array<[string, string, string]> = [
   ["casper doctor: update Casper", DOCTOR_UPDATE_CHOICES[0], "Not now"],
   ["casper doctor: install security tools", DOCTOR_INSTALL_CHOICES[0], "Not now"],
   ["network login", ADD_LOGIN_CHOICES[0], "Not now"],
+  ["a secret in a paste", PASTED_SECRET_CHOICES[0]!.label, "Remove it"],
   ["network login that stopped working", REPLACE_LOGIN_CHOICES[0], "Not now"],
   ["forget a network login", forgetLoginChoices("Mist")[0]!, "Keep the Mist login"],
   ["forget a model server", forgetServerChoices("ollama-myserver")[0]!, "Keep ollama-myserver"],

@@ -135,6 +135,31 @@ through. Check what a tool returns before you share it.
   the conversation (`/clear`), change workspace or quit; nothing is saved to disk. Spaces and non-ASCII letters are
   fine. Like the others, an encoded or split copy is not recognised.
   See [CONFIGURATION.md](CONFIGURATION.md#private-ssh-passwords).
+- **A secret the AI asks you for: always, any length.** When the AI needs a password, token or key ("prompt me for
+  the token"), it asks through `casper_secret`. Casper shows its own hidden box, as for ssh, naming what is asked, why,
+  and where it goes: a file in the project (mode 600, never one git tracks; a `.env` file gets `NAME=value`, and a file
+  git would pick up is added to `.gitignore`), or `$NAME` in the AI's next command only. The AI gets where it went and its
+  length, never the value. From the moment you type it, the value is hidden like an ssh password, and it is never in
+  the screen, the `--json` events, the saved conversation or `/export`. A run that can't show the box (one-shot,
+  `--json`, piped) refuses, and nothing is asked in chat. The tool is offered from the first request that names a
+  password, token, key, secret or credential ([decision 44](adr/0002/44-the-secret-box.md)).
+- **Tokens with no name in front: always.** Base64 of a JSON object (`eyJ…`: a Cloudflare tunnel token, a JWT, a cloud
+  login blob), 30 characters or longer, is hidden anywhere, and so is a whole JWT with its dotted parts. When a paste
+  split a token with a space (`--token eyJhIjoi…abc MDAwMDAw…`), the second half is hidden too.
+- **Secrets in what you paste: asked first.** When the text you paste into a request (a copied terminal screen, a log, a
+  config) holds something the rules above hide, or a long random-looking run (upper case, lower case and several
+  digits; not a hash, a path, an ssh public key or an npm integrity), Casper asks before the AI gets it:
+
+  ```text
+  This looks like a copied terminal screen with a secret in it:
+    user@nas ~ % docker run -d cloudflare/cloudflared tunnel run --token <secret hidden>
+  1 Remove it      the AI gets <secret hidden> in its place
+  2 Send anyway    the AI, and this conversation's record, get it as you pasted it
+  ```
+
+  Enter and Esc remove it. A run that can't ask, and a line you send while a task runs, have it removed with one line:
+  `[paste] Removed a secret from the copied screen; the AI gets <secret hidden> in its place.` What you type yourself
+  is never changed.
 - **Command and grep output: only when it looks like a config.** Output from
   `bash`, `powershell` or `grep` (failed commands too) is scrubbed when it has two
   config lines such as `hostname`, `version 23.4;`, `## Last commit` or
@@ -268,9 +293,8 @@ Casper.
 - A password typed for ssh stays out of the AI's reach, but the AI can still send ssh its own command: a rogue
   server could ask for a password in words that look like another question, so the box names the machine and ssh's own
   prompt, and you can say No.
-- Secrets the AI already had (for example ones you typed in a request, or ones in a
-  file that is not a config file) stay in the conversation and the saved session
-  like any other text.
+- Secrets the AI already had (for example ones you typed in a request, a pasted one you chose to send anyway, or
+  ones in a file that is not a config file) stay in the conversation and the saved session like any other text.
 - `/secrets files off` turns device config scrubbing off for subagents too.
 - From v0.2.16 the AI's file tools can't open private places such as `~/.ssh` at
   all. From v0.2.19 a shell command that names one is refused too, even with the

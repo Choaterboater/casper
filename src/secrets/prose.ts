@@ -98,6 +98,13 @@ const RULES: ProseRule[] = [
   // A GitHub token anywhere (ghp_, gho_, ghu_, ghs_, ghr_, github_pat_): git and gh may run outside the sandbox with your
   // login, so one that shows up in their output is hidden even with no name in front.
   { re: /(?<![\w])(gh[pousr]_[A-Za-z0-9]{36,251}|github_pat_[A-Za-z0-9_]{22,251})(?![\w])/gd, group: 1, kind: "key", accept: () => true },
+  // Base64 of a JSON object ("eyJ" is `{"`) anywhere: a Cloudflare tunnel token (eyJhIjoi…), a JWT's parts, a cloud
+  // login's JSON blob. Long enough that no word or name is one.
+  { re: /(?<![A-Za-z0-9+/_=-])(eyJ[A-Za-z0-9+/_-]{30,}={0,2}(?:\.[A-Za-z0-9+/_-]{8,}={0,2}){0,2})(?![A-Za-z0-9+/_=-])/gd, group: 1, kind: "key", accept: () => true },
+  // The rest of a token a paste broke with a space (--token eyJhIjoi…xyz MDAwMDAw…): the next long word, when it holds
+  // letters and digits.
+  { re: /(?<![\w-])--?(?:token|api-?key|api-token|auth-token|access-token|secret|client-secret)(?:=|\s+)[^\s'"]{16,}[ \t]+([A-Za-z0-9+_][A-Za-z0-9+/_-]{15,}={0,2})(?!\S)/gid,
+    group: 1, kind: "key", accept: (value) => /\d/.test(value) && /[A-Za-z]/.test(value) },
 ];
 
 const TOKEN_ID = /token[-_]?id\b/gi;

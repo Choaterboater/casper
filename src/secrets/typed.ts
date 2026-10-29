@@ -1,7 +1,7 @@
 /**
- * Secrets you typed into one of Casper's own hidden boxes this session (an ssh password or key passphrase). They live in
- * memory only, are never saved, and are hidden wherever text could reach the AI: tool output, MCP results, command
- * previews, reference excerpts, model replies.
+ * Secrets you typed into one of Casper's own hidden boxes this session (an ssh password or key passphrase, or a value the
+ * AI asked for with casper_secret). They live in memory only, are never saved, and are hidden wherever text could reach
+ * the AI: tool output, MCP results, command previews, reference excerpts, model replies.
  *
  * There is deliberately no length floor: a 3-character password is still a password. The cost is that a short secret also
  * hides the same letters in ordinary text (a password of "e" hides every "e" in what the AI reads) until it is forgotten.
@@ -10,6 +10,8 @@
  * hidden by then); a "Yes, for this session" value, and any other, when the conversation is cleared, the workspace
  * changes or Casper ends.
  */
+import { clearNextCommandEnv } from "./next-command";
+
 const typed = new Set<string>();
 const once = new Set<string>();
 
@@ -32,8 +34,9 @@ export function forgetOnceSecrets(): void {
   once.clear();
 }
 
-/** Forget them all. */
+/** Forget them all, and any still waiting for the AI's next command. */
 export function forgetTypedSecrets(): void {
   typed.clear();
   once.clear();
+  clearNextCommandEnv();
 }

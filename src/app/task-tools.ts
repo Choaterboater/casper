@@ -35,6 +35,7 @@ import { pageToolFor, showDiagramPage } from "./pages";
 import { mcpAddToolFor } from "./mcp-add";
 import { skillAddToolFor } from "./skill-add";
 import { pictureToolFor } from "./pictures";
+import { secretToolFor } from "./secret-tool";
 import { sameRuntimeInputs } from "../services/try-it";
 import { runtimeChanges } from "../services/detect";
 
@@ -59,6 +60,7 @@ export async function prepareCapabilities(app: CasperApp, task: string, options:
     }),
     mcpAdd: mcpAddToolFor(app),
     skillAdd: skillAddToolFor(app),
+    secret: secretToolFor(app),
     offered: app.offeredTools,
   });
   if (app.planBuild) nextTools.push(app.planBuild.tool());

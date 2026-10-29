@@ -287,6 +287,14 @@ export function workFolderChoices(here: string, there: string): Choice[] {
   ];
 }
 
+export const REMOVE_PASTED_SECRET = "Remove it";
+export const SEND_PASTED_SECRET = "Send anyway";
+/** "This looks like a copied terminal screen with a secret in it." Enter removes it; the AI never gets it. */
+export const PASTED_SECRET_CHOICES: readonly Choice[] = [
+  { label: REMOVE_PASTED_SECRET, description: "the AI gets <secret hidden> in its place" },
+  { label: SEND_PASTED_SECRET, description: "the AI, and this conversation's record, get it as you pasted it" },
+];
+
 /** "This request names casper-tools, in ~/Documents/casper-tools." Enter stays; Move runs the request there. */
 export function namedProjectChoices(here: string, there: string): Choice[] {
   return [

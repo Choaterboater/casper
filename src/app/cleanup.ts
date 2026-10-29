@@ -1,4 +1,5 @@
 /** Uncertain teardown is a recoverable incident, not a session-wide command lock. */
+import { clearNextCommandEnv } from "../secrets/next-command";
 import { truncateToWidth } from "@earendil-works/pi-tui";
 import type { CasperApp } from "../app";
 import { ProcessCleanupError, type CleanupOutcome } from "../platform/processes";
@@ -88,6 +89,8 @@ export class CleanupRecovery {
 
 /** Drain independent task owners even if one teardown is uncertain. Preserve unrelated failures. */
 export async function finishTaskCleanup(app: CasperApp, closeBrowser: boolean): Promise<void> {
+  // A secret typed for the AI's next command that it never ran: not kept for a later task.
+  clearNextCommandEnv();
   let failure: unknown;
   const opener = app.taskPageOpener;
   app.taskPageOpener = undefined;

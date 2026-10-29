@@ -174,6 +174,8 @@ export interface CasperAppOptions {
   pageSeams?: { desktop?: () => boolean; open?: (url: string) => boolean };
   /** Tests: where make_picture finds codex (PATH) and how it reaches the image services. */
   pictureSeams?: { env?: NodeJS.ProcessEnv; fetch?: typeof fetch; urls?: { openrouter?: string; openai?: string } };
+  /** Tests: casper_secret's hidden box on a terminal without Casper's full screen (the value "typed", or undefined for Esc). */
+  secretInput?: (box: { label: string; title: string; hint: string }) => Promise<string | undefined>;
   /** Opens pages for the page check: Chrome when installed, else HTTP only. Tests pass a fake. */
   pageOpener?: (options: { projectRoot: string; stateDirectory: string }) => Promise<PageOpener>;
   /** Where network checks find their tools (PATH), temp folders and home; tests point these at fakes. */
@@ -373,6 +375,7 @@ export class CasperApp {
   /** Pictures make_picture is still making (src/pictures/pending.ts); Esc stops the ones its request started. */
   readonly pendingPictures = new PendingPictures(() => this.commandAbort?.signal);
   readonly pictureSeams?: CasperAppOptions["pictureSeams"];
+  readonly secretInput?: CasperAppOptions["secretInput"];
   readonly modelRetryWait?: CasperAppOptions["modelRetryWait"];
   /** The dev-server lines are printed once per session. */
   readonly pageNotice: DevServerNotice = { shown: false };
@@ -518,6 +521,7 @@ export class CasperApp {
     this.pageOpenerFn = options.pageOpener ?? pageOpener;
     this.pageSeams = options.pageSeams;
     this.pictureSeams = options.pictureSeams;
+    this.secretInput = options.secretInput;
     this.modelRetryWait = options.modelRetryWait;
     this.networkTools = options.networkTools;
     this.securitySeams = options.securitySeams;
