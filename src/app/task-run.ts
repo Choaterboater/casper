@@ -72,7 +72,7 @@ import { confirmYes } from "./approvals";
 import { lookPrompt, pageLook, SHOW_PAGES_CHOICES, SHOW_PAGES_QUESTION } from "../services/page-look";
 import { offerNamedProject, offerNewProject, childProjectOfTask, runChildChecks, offerWorkFolder } from "./workspace";
 import { settlePictures } from "./pictures";
-import { finishConfiguredTest, runVerification, writeCheckResult, taskNetworkOptions, checksPlan, saveFoundCheck, projectAfterSetup } from "./verification";
+import { finishConfiguredTest, repairFailingWhenRecorded, runVerification, writeCheckResult, taskNetworkOptions, checksPlan, saveFoundCheck, projectAfterSetup } from "./verification";
 import { projectPrivatePaths, reportSkillWarnings } from "./wiring";
 import { appAgentDir, ensureRuntime } from "./runtime-start";
 import { reloadProject, writeProjectFile } from "./project-file";
@@ -487,9 +487,15 @@ export async function runModelTask(app: CasperApp, prompt: string, options: { fl
       if (stoppedNow()) return [];
       return (await app.browser.report()).checks.filter(check => replayed.has(check.id) && check.status === "fail" && check.freshness === "fresh");
     };
-    const browserFailures = await replay();
+    let browserFailures = await replay();
     const max = context.repair.maxAttempts;
     const used = verification?.repairAttempts ?? 0;
+    // A check that already failed when it was recorded gets the question a command check gets when it failed before.
+    const failingBefore = browserFailures.filter(check => check.baseline === "fail");
+    if (failingBefore.length && used < max && !stoppedNow()
+      && !await repairFailingWhenRecorded(app, failingBefore.map(check => check.name), app.commandAbort?.signal)) {
+      browserFailures = browserFailures.filter(check => check.baseline !== "fail");
+    }
     if (browserFailures.length && used < max && !stoppedNow()) {
       const attempt = used + 1;
       // Browser-only tasks still record the spent turn, without claiming any repository command ran.
