@@ -78,6 +78,7 @@
           </li>
           <li><a href="#released">Released</a>
             <ul>
+              <li><a href="#v0309">v0.3.9: a crew you can watch</a></li>
               <li><a href="#v0308">v0.3.8: /continue stays</a></li>
               <li><a href="#v0307">v0.3.7: a fresh start</a></li>
               <li><a href="#v0306">v0.3.6: /look without the slash</a></li>
@@ -133,7 +134,7 @@
         <h2 id="next-h">Next release</h2>
         <aside class="callout soon">
           <strong class="callout-title">Built, not released</strong>
-          <p>Nothing on the main branch is waiting: everything built so far is in v0.3.8. New work shows here before the next preview.</p>
+          <p>Nothing on the main branch is waiting: everything built so far is in v0.3.9. New work shows here before the next preview.</p>
         </aside>
       </section>
 
@@ -375,10 +376,25 @@
         and on the <a href="https://github.com/Choaterboater/casper/releases">Releases page</a>.</p>
         <div class="stack">
 
+        <details class="card release" id="v0309" aria-labelledby="v0309-h" open>
+          <summary class="release-heading">
+            <h3 id="v0309-h">v0.3.9 · A crew you can watch, plain words for continue and export, and approval boxes that take keys</h3>
+            <span class="badge ok">current preview</span>
+          </summary>
+          <ul>
+            <li><strong>A crew you can watch.</strong> The crew panel shows explorers too, each row names the step a helper is on, and Ctrl+O lists each helper's last five steps.</li>
+            <li><strong>Plain words.</strong> "continue session" or "resume" as the first line continues the last conversation, and "export this session to the desktop" runs <code>/export</code>.</li>
+            <li><strong>Switch there, conversation too.</strong> "Switch there" carries the conversation into the work's folder, and the next request continues it there.</li>
+            <li><strong>Keys in boxes.</strong> Approval and question boxes take keys; words go only on the row that asks for them.</li>
+            <li><strong>Node's own tests.</strong> Tests that import <code>node:test</code> run with <code>node --test</code> on the test files only, and the receipt reads Node's counts.</li>
+            <li><strong>Fixes.</strong> <code>/export</code> saves the whole conversation; inside WSL Casper finds a Linux Chrome; a folder holding only <code>.casper</code> gets its repository in place; a bad grep pattern is a note.</li>
+          </ul>
+        </details>
+
         <details class="card release" id="v0308" aria-labelledby="v0308-h" open>
           <summary class="release-heading">
             <h3 id="v0308-h">v0.3.8 · /continue that stays where it is, a pasted transcript read as context, and refusals that say why</h3>
-            <span class="badge ok">current preview</span>
+            <span class="badge">previous preview</span>
           </summary>
           <ul>
             <li><strong>/continue stays.</strong> In the conversation <code>/continue</code> or <code>--continue</code> opened, <code>/continue</code> stays there instead of jumping back to the one you left; <code>/resume</code> lists the others.</li>
@@ -391,7 +407,7 @@
         <details class="card release" id="v0307" aria-labelledby="v0307-h" open>
           <summary class="release-heading">
             <h3 id="v0307-h">v0.3.7 · A new conversation at every start, fewer red marks that weren't failures, and code that isn't hidden as a secret</h3>
-            <span class="badge">previous preview</span>
+            <span class="badge">released</span>
           </summary>
           <ul>
             <li><strong>A new conversation at start.</strong> A plain <code>casper</code> in a folder always starts fresh, as Claude Code, Codex and Copilot CLI do; a <code>/branch</code> experiment's folder still reopens its own.</li>
@@ -403,7 +419,7 @@
           </ul>
         </details>
 
-        <details class="card release" id="v0306" aria-labelledby="v0306-h" open>
+        <details class="card release" id="v0306" aria-labelledby="v0306-h">
           <summary class="release-heading">
             <h3 id="v0306-h">v0.3.6 · /look without the slash, one key to fix what a look found, and browser checks that last the conversation</h3>
             <span class="badge">released</span>
@@ -1415,7 +1431,7 @@
   <footer class="site-footer">
     <div class="container footer-inner">
       <div>
-        <p><strong>Casper 0.3.8</strong> · early preview, unsigned</p>
+        <p><strong>Casper 0.3.9</strong> · early preview, unsigned</p>
         <p><a href="https://github.com/Choaterboater/casper/blob/main/LICENSE">MIT licence</a> · © 2026 Choaterboater</p>
         <p>Built on the <a href="https://github.com/earendil-works/pi">Pi SDK</a>. Other parts keep their own licences (<a href="https://github.com/Choaterboater/casper/blob/main/THIRD_PARTY_NOTICES.txt">notices</a>).</p>
       </div>

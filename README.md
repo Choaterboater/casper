@@ -36,20 +36,20 @@ Casper itself is free and open source. A task spends money only with your own mo
 macOS / Linux:
 
 ```sh
-curl -fsSL https://github.com/Choaterboater/casper/releases/download/v0.3.8/install.sh | sh
+curl -fsSL https://github.com/Choaterboater/casper/releases/download/v0.3.9/install.sh | sh
 ```
 
 Windows (x64 or ARM64), in PowerShell:
 
 ```powershell
-[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; irm https://github.com/Choaterboater/casper/releases/download/v0.3.8/install.ps1 | iex
+[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; irm https://github.com/Choaterboater/casper/releases/download/v0.3.9/install.ps1 | iex
 ```
 
 No admin rights, Bun or source checkout needed. The installer checks the file's SHA-256 (with
 `gh` signed in, also where it was built; for releases signed with the
 [release key](docs/RELEASE.md#the-release-key), none yet, the signature too) and keeps your old install
-if anything is wrong. These commands pin **v0.3.8**; after that,
-`casper update` gets the newest preview. `install.sh` takes `--dir <path>`, `--version 0.3.8`,
+if anything is wrong. These commands pin **v0.3.9**; after that,
+`casper update` gets the newest preview. `install.sh` takes `--dir <path>`, `--version 0.3.9`,
 `--sha256 <hex>` and `--force`. [Installer details](docs/RELEASE.md#installer-contract).
 
 Use the one-line command above rather than downloading a program in your browser: the installer
@@ -83,7 +83,7 @@ From the shell:
 ```sh
 casper "Explain this project"  # start a session with this first request
 casper --no-verify   # no Casper-run checks this run
-casper --version     # casper 0.3.8 (/absolute/path/of/the/binary/or/cli.ts)
+casper --version     # casper 0.3.9 (/absolute/path/of/the/binary/or/cli.ts)
 casper doctor        # check Casper's own setup and fix what it can (no model)
 ```
 
@@ -210,6 +210,8 @@ Ctrl+D on an empty prompt exits. [Keys and commands](docs/TERMINAL_UX.md#quick-r
 | Contributing | [How Casper is built](docs/ARCHITECTURE.md) · [Working on Casper](docs/DEVELOPING.md) |
 
 ## What's new
+
+v0.3.9: the crew panel shows explorers and the step each helper is on; "continue session" and "export this session to the desktop" work in plain words; "Switch there" takes the conversation with it; approval and question boxes take keys; `node:test` tests run with `node --test`; inside WSL Casper finds a Linux Chrome. See [release notes](docs/RELEASE.md).
 
 v0.3.8: `/continue` in the conversation it opened stays there; a `1` sent before the start's continue row shows still continues; a pasted terminal transcript no longer makes a test checklist or a `Big job` line; a copy refused because Casper can't read its destination names it. See [release notes](docs/RELEASE.md).
 
