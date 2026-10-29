@@ -35,6 +35,7 @@ import { trustCommand } from "./folder-trust";
 import { trustHandledHere, trustLine, trustRequest } from "./trust-words";
 import { autoModeHandledHere, autoModeRequest, setAutoMode } from "./auto-mode";
 import { exportHandledHere, exportRequest, exportWordsLine } from "./export-words";
+import { stopAskingRequest } from "./stop-asking-words";
 import { reloadProject } from "./project-file";
 import { pagesCommand } from "./pages";
 import { lookCommand, lookTyped } from "./look";
@@ -210,6 +211,11 @@ export async function handlePrompt(app: CasperApp, prompt: string, typed?: { pas
       const line = await exportWordsLine(app, exported);
       app.output.write(exportHandledHere(line));
       return report = await handleSlashCommand(app, line);
+    }
+    // "stop asking": the /permissions all box, as if typed, with no model call (src/app/stop-asking-words.ts).
+    if (typed && !app.pastedImages?.size && stopAskingRequest(prompt, typed.pasted)) {
+      app.output.write("[permissions] Handled here, no model call: /permissions all does the same.\n");
+      return report = await handleSlashCommand(app, "/permissions all");
     }
     // "auto mode off" or "auto mode on": saved as /settings would, with no model call (src/app/auto-mode.ts).
     const auto = typed && !app.pastedImages?.size ? autoModeRequest(prompt, typed.pasted) : undefined;

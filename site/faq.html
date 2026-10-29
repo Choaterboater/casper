@@ -489,9 +489,9 @@ on in ~/.casper/config.yaml)</pre>
           <summary>How do I stop it asking so much?</summary>
           <p>Type <code>/permissions</code>: a short screen of whether Casper is asking and what is allowed, then a box: <code>2 Stop asking until I quit</code>.
           <code>/permissions details</code> has the exact way to be asked less for each kind. The short version:
-          answer <code>3</code> or <code>4</code> in a box to remember it for the session or the project (for a shell command, that exact command); for a folder outside the project
-          answer <code>4 Yes, always for this project</code> (or <code>/permissions write &lt;folder&gt;</code>);
-          <code>/permissions all</code> stops the shell's questions until you quit (the footer says <code>ASKING OFF</code>, and
+          answer <code>3 Yes, for this session</code> in a box to remember it for the session (for a shell command, that exact command); after the task, the row under it offers
+          <code>Always allow … in this project</code> to keep it for the project (for a folder outside the project, also <code>/permissions write &lt;folder&gt;</code>);
+          <code>/permissions all</code>, or <code>stop asking</code> typed alone, stops the shell's questions until you quit (the footer says <code>ASKING OFF</code>, and
           <code>/permissions ask</code> turns it back). There is no one switch for everything, on purpose. These stay protected whatever you pick:
           <code>~/.ssh</code>, <code>~/.casper</code>, cloud logins and shell start-up files, secrets, writes to network devices (the product login must allow
           them), and the AI can't answer a box for you. <code>--no-sandbox</code> for one run, or <code>sandbox: off</code> in your own config, takes the shell sandbox away too.</p>

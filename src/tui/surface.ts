@@ -7,7 +7,7 @@ import { imageLabel, imageMimeType, MAX_IMAGE_BYTES, MAX_IMAGES, promptPath } fr
 import { readClipboardFiles } from "./clipboard-files";
 import { commandMenu, COMMANDS, findCommand, fitDescriptions, type MenuCommand, menuRunsDuringWork } from "./commands";
 import { BUSY_GLYPH, dim, formatElapsed, hasLineControls, hasTerminalControls, lineText, markdownTheme, PROMPT_GLYPH, terminalText, tint } from "./format";
-import { answerRecord, answerRecordText, choiceHint, choiceNumber, KEY_PICK_MAX, keyChoice, NOTE_CHOICE, OTHER_CHOICE, pickKeysHint, reasonPrefix, typedChoice, type PickRecord } from "./choices";
+import { answerRecord, answerRecordText, choiceHint, choiceNumber, KEY_PICK_MAX, keyChoice, OTHER_CHOICE, pickKeysHint, reasonPrefix, typedChoice, type PickRecord } from "./choices";
 import { typedDuringTask } from "./give-way";
 import { GLYPHS } from "./glyphs";
 import { StreamingMarkdown } from "./markdown-stream";
@@ -539,7 +539,7 @@ export class TerminalSurface {
       }
       if (this.pendingAsk && this.askOptions && !this.editor.getText() && (matchesKey(data, "up") || matchesKey(data, "down"))) {
         // On an empty line, Up/Down goes back to the list from the last row.
-        if (this.askOther) { this.askOther = false; this.askActiveIndex = this.askOptions.length; }
+        if (this.askOther) { this.askOther = false; this.askActiveIndex = this.noteRow() ?? this.askOptions.length; }
         const count = this.askRows();
         this.askActiveIndex = (this.askActiveIndex + (matchesKey(data, "up") ? count - 1 : 1)) % count;
         this.render(); return { consume: true };
@@ -562,8 +562,9 @@ export class TerminalSurface {
       // last row opens (Other, or an approval's note). Past nine rows a row's number is typed, so digits still go in.
       const typedKey = this.pendingAsk && !this.askOther ? printableKey(data) : undefined;
       if (typedKey !== undefined && !(this.askRows() > KEY_PICK_MAX && /^\d+$/.test(typedKey))) {
-        const field = this.askField();
-        this.flashNote(pickKeysHint(this.askRows(), field ? { row: this.askRows(), what: field === NOTE_CHOICE ? "tell the AI what to do instead" : "type your own answer" } : undefined));
+        const field = this.askField(), note = this.noteRow();
+        this.flashNote(pickKeysHint(this.askRows(), note !== undefined ? { row: note + 1, what: "tell the AI what to do instead" }
+          : field ? { row: this.askRows(), what: "type your own answer" } : undefined));
         return { consume: true };
       }
       if (matchesKey(data, "ctrl+l")) { this.tui.requestRender(true); return { consume: true }; }
@@ -1175,8 +1176,13 @@ export class TerminalSurface {
     // A box that takes a typed answer ends with the Other row; while an answer is typed, it stays highlighted.
     const count = this.askRows();
     const typing = this.askTyping();
-    const active = typing ? choices : this.askActiveIndex;
-    const hint = typing ? (this.askFrom === "approval" ? "Enter to send No with this note · Esc to go back" : "Enter to send · Esc to go back") : choiceHint(count);
+    const note = this.noteRow();
+    // The line words are typed on: an approval's No row, or the Other row after the choices.
+    const typedAt = typing ? note ?? choices : -1;
+    const active = typing ? typedAt : this.askActiveIndex;
+    // An approval's rows need no hint (the keys are the numbers); once No's line is open, it says what Enter does.
+    const hint = typing ? (note !== undefined ? "Enter sends No · type to tell the AI what to do instead · Esc goes back" : "Enter to send · Esc to go back")
+      : note !== undefined ? "" : choiceHint(count);
     const question = (this.askQuestion ?? "").split("\n");
     const reason = reasonPrefix(question[1]) !== undefined ? question[1] : undefined;
     // Casper's question stays first; the model's last sentence is dim context on one row.
@@ -1188,7 +1194,7 @@ export class TerminalSurface {
     const wrappedTitle = wrapTextWithAnsi(this.accent(coded), width);
     const titleRows = shell && wrappedTitle.length > 3 ? [...wrappedTitle.slice(0, 2), this.muted("…")] : wrappedTitle;
     const context = shell ? [...(inline ? [inline[2]!] : []), ...question.slice(reason ? 2 : 1)] : question.slice(reason ? 2 : 1);
-    let tail = wrapTextWithAnsi(dim(hint, this.io.color), width);
+    let tail = hint ? wrapTextWithAnsi(dim(hint, this.io.color), width) : [];
     if (tail.length > Math.max(1, height - 4)) tail = [dim(truncateToWidth(hint, width), this.io.color)];
     // Reserve the selected row and, where possible, the two scroll cues before budgeting context.
     const headBudget = Math.max(0, height - tail.length - Math.min(3, Math.max(1, height - tail.length)));
@@ -1209,8 +1215,7 @@ export class TerminalSurface {
       head.push(...context.flatMap(line => wrapTextWithAnsi(this.muted(line), width)).slice(0, contextBudget));
     }
     if (!typing && this.editor.getText() && head.length < headBudget) head.push(this.muted(`Number: ${this.editor.getText()}`));
-    // The row that shows what is typed: the last row, once its line is open.
-    const typedAt = typing ? choices : -1;
+    // The row that shows what is typed, once its line is open.
     const typed = typedAt < 0 ? undefined : this.typedText();
     const entries = Array.from({ length: count }, (_, index) => {
       const entry = index < choices ? this.askOptions![index]! : { label: this.askField()! };
@@ -1224,7 +1229,7 @@ export class TerminalSurface {
       if (index !== typedAt) return pickerOptionLines(entries, index, index === active, width, this.io.color, { compact, labelWidth });
       const whole = entries[index]!.label;
       const room = Math.max(1, maxLines) * Math.max(1, width - 2 - visibleWidth(choiceNumber(index, count))) - visibleWidth(`${whole} — `);
-      const short = whole === OTHER_CHOICE ? "Other" : whole === NOTE_CHOICE ? "No" : undefined;
+      const short = whole === OTHER_CHOICE ? "Other" : undefined;
       const label = short && room < TYPED_ROOM && visibleWidth(typed!.text) > room ? short : whole;
       return typedRowLines(typed!.text, typed!.cursor, maxLines, width, shown => pickerOptionLines([{ label: `${label} — ${shown}` }],
         0, true, width, this.io.color, { count, offset: index, compact, labelWidth }));
@@ -1265,7 +1270,7 @@ export class TerminalSurface {
 
   /** Enter on the list: the highlighted option, or every toggled option (the highlighted one if none). */
   private chooseAsk(): void {
-    if (this.askActiveIndex === (this.askOptions?.length ?? 0)) { this.typeAsk(); return; }
+    if (this.askActiveIndex === (this.askOptions?.length ?? 0) || this.askActiveIndex === this.noteRow()) { this.typeAsk(); return; }
     if (!this.askMulti) { this.pendingAsk?.([this.askLabels[this.askActiveIndex]!]); return; }
     if (!this.askSelections.size) this.askSelections.add(this.askActiveIndex);
     this.pendingAsk?.([...this.askSelections].sort((a, b) => a - b).map(index => this.askLabels[index]!));
@@ -1274,16 +1279,21 @@ export class TerminalSurface {
   /** A digit, or a number typed and sent past nine rows: picks that choice, or toggles it in a multi-select. */
   private pickAsk(index: number): void {
     this.askActiveIndex = index;
-    if (index === (this.askOptions?.length ?? 0)) { this.typeAsk(); return; }
+    if (index === (this.askOptions?.length ?? 0) || index === this.noteRow()) { this.typeAsk(); return; }
     if (!this.askMulti) { this.chooseAsk(); return; }
     if (this.askSelections.has(index)) this.askSelections.delete(index); else this.askSelections.add(index);
     this.render();
   }
 
-  /** The open box's last row that opens a line to type on: Other for a box that takes a typed answer, the note row
-   * for an approval, or none for a key-only picker. */
+  /** The row after the choices that opens a line to type on: Other, for a box that takes a typed answer. */
   private askField(): string | undefined {
-    return this.askTyped ? OTHER_CHOICE : this.askFrom === "approval" ? NOTE_CHOICE : undefined;
+    return this.askTyped ? OTHER_CHOICE : undefined;
+  }
+
+  /** An approval's No row, which opens the line for a note to the AI (docs/adr/0002/45-three-row-approvals.md): picking
+   * No, by its number or Enter, opens it; an empty Enter there is a plain No. Undefined for other boxes. */
+  private noteRow(): number | undefined {
+    return this.askFrom === "approval" && !this.askTyped && this.askLabels[0] === "No" ? 0 : undefined;
   }
 
   /** The rows of the open box: its choices, then the row that opens a line to type on. */

@@ -4,6 +4,7 @@ import { mkdtemp, realpath, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { linuxSandboxProblem, quote, ripgrepPath } from "./linux";
+import { isOutside } from "../platform/inside";
 import { gitDirs, realpathLongest, within } from "../platform/project-paths";
 import { hostListed, hostName, sandboxPolicy, submoduleGitDirs, systemTempDirs, worktreeConfigFiles, writeFileToOffer, writeFolderToOffer, type SandboxPolicy, type SandboxProjectSettings, type SandboxUserSettings } from "./policy";
 import { runtimeEngine, type SandboxEngine } from "./runtime";
@@ -485,6 +486,13 @@ export class ShellSandbox {
       // the write box Yes, always for this project: only folders (never the single file of the AI's tools), and only ones a question may
       // offer. Checked before the folder joins this session's list, which the check reads.
       if (given === "always" && !options.file) for (const target of left) await this.rememberWrite(target).catch(() => undefined);
+      // A folder (never one file) allowed for the session can be kept from the Next row, if a question may offer it.
+      // Checked now, before the folder joins this session's list (which then protects the folder's own git files),
+      // and kept later without checking it against its own session entry.
+      if (given === true && !options.file) for (const target of left) {
+        const real = this.offerableFolder(target);
+        if (real) this.options.store?.offerKeep(`writes to ${this.shownPlace(real)}`, () => this.keepWrite(real));
+      }
       const list = options.file ? this.sessionFiles : this.sessionWrites;
       for (const target of left) if (!list.includes(target)) list.push(target);
       return "allowed";
@@ -537,7 +545,7 @@ export class ShellSandbox {
       if (builders.size) {
         if (!this.blockedSaid.has(`crew\0${name}`)) {
           this.blockedSaid.add(`crew\0${name}`);
-          const line = `[sandbox] Blocked ${name} (a crew is running, so nobody is asked). To allow it: --allow-host ${name}, or Yes, always for this project in a session.`;
+          const line = `[sandbox] Blocked ${name} (a crew is running, so nobody is asked). To allow it: --allow-host ${name}, or allow it in a session and keep it from the Next row.`;
           this.options.note?.(line);
           for (const builder of builders) builder.options.note?.(line);
         }
@@ -547,7 +555,7 @@ export class ShellSandbox {
       if (!answer) {
         if (!this.blockedSaid.has(name)) {
           this.blockedSaid.add(name);
-          this.options.note?.(`[sandbox] Blocked ${name}${port && port !== 443 && port !== 80 ? `:${port}` : ""} (this run can't ask). To allow it for one run: --allow-host ${name}. Or allow it in a session (Yes, always for this project).`);
+          this.options.note?.(`[sandbox] Blocked ${name}${port && port !== 443 && port !== 80 ? `:${port}` : ""} (this run can't ask). To allow it for one run: --allow-host ${name}. Or allow it in a session, then keep it from the Next row.`);
         }
         return false;
       }
@@ -556,6 +564,8 @@ export class ShellSandbox {
       if (choice === "once") return true;
       this.sessionHosts.add(name);
       if (choice === "project") await this.remember(name);
+      // A session yes can be kept from the Next row, as "Yes, always for this project" kept it.
+      else this.options.store?.offerKeep(name, () => this.remember(name));
       return true;
     })();
     this.pendingHosts.set(name, decision);
@@ -586,6 +596,12 @@ export class ShellSandbox {
     await this.loadWrites();
   }
 
+  /** A place as the Next row names it: under your home as ~/… . */
+  private shownPlace(place: string): string {
+    const relative = path.relative(this.home, place);
+    return relative && !isOutside(relative) && !path.isAbsolute(relative) ? `~/${relative.split(path.sep).join("/")}` : place;
+  }
+
   /** The folder a write to `folder` offers, which is the folder itself only when nothing protected is in it, is it or holds it. */
   private offerableFolder(folder: string): string | undefined {
     const real = realpathLongest(path.resolve(folder));
@@ -604,6 +620,17 @@ export class ShellSandbox {
       this.rememberedWrites.push(real);
       if (!this.sessionWrites.includes(real)) this.sessionWrites.push(real);
     }
+  }
+
+  /** A folder you allowed for this session, kept for the project from the Next row (/allowed keep). It was offerable
+   * when you said yes; it is checked again without its own session entry, which protects its git files. */
+  private async keepWrite(real: string): Promise<void> {
+    const at = this.sessionWrites.indexOf(real);
+    if (at >= 0) this.sessionWrites.splice(at, 1);
+    try {
+      const kept = await this.rememberWrite(real);
+      if ("refused" in kept) throw new Error(`not kept: ${kept.refused}`);
+    } finally { if (!this.sessionWrites.includes(real)) this.sessionWrites.push(real); }
   }
 
   /** Folders outside the project you allowed for good, for /permissions. */

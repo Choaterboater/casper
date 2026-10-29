@@ -30,7 +30,8 @@ test.skipIf(!mux)("real tmux: lone suggestion is 1, arrow-first check approval s
     expect(next).not.toContain(" 3  ");
     await mux!.run("send-keys", "-t", "checks", "1");
     const box = await wait(screen => screen.includes("Change the test check for this project?") && screen.includes("3. Use this command"));
-    for (const text of ["Picked: /verify add junos-syntax", "Old → new", "--- old", "bun .casper/quick-test.ts", "+++ new", "test: bun test", "❯ 1. No", "2. Yes, save this change", "Enter to choose · Esc to skip"]) expect(box).toContain(text);
+    for (const text of ["Picked: /verify add junos-syntax", "Old → new", "--- old", "bun .casper/quick-test.ts", "+++ new", "test: bun test", "❯ 1. No", "2. Yes, save this change"]) expect(box).toContain(text);
+    expect(box).not.toContain("Enter to choose");
     if (process.env.SHOW_SCREEN) console.log(`CHECK BOX (80 columns):\n${box}`);
     await Bun.sleep(350); // Answer only after the real box's input guard.
     await mux!.run("send-keys", "-t", "checks", "Down", "Down");

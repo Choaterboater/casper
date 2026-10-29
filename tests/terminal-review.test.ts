@@ -127,7 +127,8 @@ test("rich approve: a pretyped draft never answers, one key picks, Esc is no ans
     await tick();
     input.write("2"); await tick();
     const first = terminal.approve("Box\n", "Make this change?", ["No", "Preview first", "Yes, this once"]);
-    input.write("\r");
+    // Enter on No opens its note line; an empty Enter there is a plain No.
+    input.write("\r"); input.write("\r");
     expect(await first).toBe("No");
     const second = terminal.approve("Box\n", "Make this change?", ["No", "Preview first", "Yes, this once"]);
     await tick();

@@ -63,7 +63,7 @@ for (const width of [80, 160]) test(`ANSI approval at ${width} columns keeps the
   const lines = Array.from({ length: 30 }, (_, at) => `printf step-${at + 1}`);
   lines[15] = "sudo custom-tool"; lines[29] = "git push";
   const answer = f.terminal.pick(shellQuestion(lines.join("\n")), [...SHELL_COMMAND_CHOICES]);
-  await f.screen.until(text => text.includes("Enter to choose"));
+  await f.screen.until(text => text.includes("3. Yes, for this session"));
   const frame = rows(f, width);
   const plain = Bun.stripANSI(frame.join("\n"));
   expect(plain).toContain("git push"); expect(plain).toContain("sudo custom-tool");
@@ -71,7 +71,7 @@ for (const width of [80, 160]) test(`ANSI approval at ${width} columns keeps the
   expect(plain).toContain("step-28"); expect(plain).toContain("step-29");
   expect(frame.find(line => line.includes("git push"))).toContain("\x1b[2m");
   for (const row of frame) expect(visibleWidth(row)).toBeLessThanOrEqual(width);
-  f.input.write("1"); await answer;
+  f.input.write("1"); f.input.write("\r"); await answer;
 });
 
 test("allowlisted literal project assignments and set prefixes keep routines and test-session families", async () => {

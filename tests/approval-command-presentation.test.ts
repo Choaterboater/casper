@@ -121,7 +121,7 @@ test("the rich numbered box dims the labelled model reason after Casper's questi
     session.terminal.start();
     const command = Array.from({ length: 15 }, (_, index) => `custom-tool step-${index}`).join("\n");
     const answer = session.terminal.pick(shellQuestion(command, "Check the custom steps."), [...SHELL_COMMAND_CHOICES]);
-    expect(await waitUntil(() => Bun.stripANSI(session.screen.output).includes("4. Yes, always"))).toBe(true);
+    expect(await waitUntil(() => Bun.stripANSI(session.screen.output).includes("4. Yes to everything"))).toBe(true);
     const visible = Bun.stripANSI(session.screen.output).replaceAll("\r", "");
     const commandRows = renderPanel("Command", [...command.split("\n").slice(0, 8), "… 4 more lines", ...command.split("\n").slice(-3)], session.screen.writer.columns - 2, false, "muted");
     expect(visible).toContain(`  Run this command?\n  The model says: Check the custom steps.\n${commandRows.map(row => `  ${row}`).join("\n")}\n`);
@@ -130,7 +130,7 @@ test("the rich numbered box dims the labelled model reason after Casper's questi
     // The entire command row, including omitted-line text, padding and border, is one faint span.
     for (const row of commandRows) expect(session.screen.output).toContain(`\x1b[2m${row}\x1b[0m`);
     expect(visible).not.toContain("custom-tool step-10");
-    session.input.write("1");
+    session.input.write("1"); session.input.write("\r");
     expect(await answer).toBe(NO);
   } finally { session.close(); }
 });

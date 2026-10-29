@@ -1810,7 +1810,7 @@ async function stopAskingBox(host: CommandHost, sayStill = true, task = "\n"): P
   stopAsking(host, task);
 }
 
-/** /permissions all's switch, turned on: by its box, or by "Yes to everything this session" in the shell box. */
+/** /permissions all's switch, turned on: by its box (which "stop asking" typed alone also opens), or by "Yes to everything this session" in the shell box. */
 export function stopAsking(host: Pick<CommandHost, "stopAsking" | "updateFooter" | "output">, task = "\n"): void {
   host.stopAsking = true;
   host.updateFooter();

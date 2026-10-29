@@ -2,8 +2,9 @@ import { afterEach, expect, test } from "bun:test";
 import { mkdir, mkdtemp, readdir, readFile, realpath, stat, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { allowedCommand } from "../src/app/allowed";
 import { createSessionSandbox, runtimeShell, SHELL_CANT_ASK, SHELL_CANT_ASK_NOTE, SHELL_DECLINED, SSH_NOT_PLAIN_LINE, writeCantAsk, type SandboxHost } from "../src/app/sandbox";
-import { HOST_CHOICES, REACH_CHOICES, SHELL_COMMAND_CHOICES } from "../src/app/safe-choices";
+import { HOST_CHOICES, REACH_CHOICES, SHELL_COMMAND_CHOICES, YES_EVERYTHING } from "../src/app/safe-choices";
 import { loadProjectContext } from "../src/project/context";
 import { inspectProject } from "../src/project/inspect";
 import { bwrapFailure, linuxSandboxProblem, resetLinuxProbe, ripgrepPath } from "../src/sandbox/linux";
@@ -52,19 +53,22 @@ test("a host that is not listed asks with three numbered choices, No first", asy
   // Enter (or Esc) keeps it blocked.
   expect(await engine.ask!("api.mist.com", 443)).toBe(false);
   expect(terminal.asked).toEqual([{ question: "A shell command wants to reach api.mist.com. Allow it?", options: HOST_CHOICES.map((choice) => choice.label) }]);
-  expect(HOST_CHOICES.map((choice) => choice.label)).toEqual(["No", "Yes, this once", "Yes, for this session", "Yes, always for this project"]);
+  expect(HOST_CHOICES.map((choice) => choice.label)).toEqual(["No", "Yes, this once", "Yes, for this session"]);
   await sandbox.close();
 });
 
-test("Yes, always for this project is kept in Casper's own folder, never in the repo, and the next request doesn't ask", async () => {
+test("a host kept from the Next row (/allowed keep) is kept in Casper's own folder, never in the repo, and the next request doesn't ask", async () => {
   const { home, project, context } = await fixture();
   const engine = fakeEngine();
-  const terminal = host(["Yes, always for this project"]);
+  const terminal = host(["Yes, for this session"]);
   const sandbox = createSessionSandbox(terminal.value, context, { root: () => project, home, seams: { engine, problem: () => undefined, platform: "linux" } });
   await sandbox.wrap("true", { cwd: project });
   expect(await engine.ask!("api.mist.com", 443)).toBe(true);
   expect(await engine.ask!("api.mist.com", 443)).toBe(true);
   expect(terminal.asked).toHaveLength(1);
+  // A session yes saves nothing until it is kept.
+  expect(await readFile(path.join(context.stateDirectory, "sandbox.json"), "utf8").catch(() => undefined)).toBeUndefined();
+  await allowedCommand("/allowed keep 1", sandbox.store!, () => {});
   expect(await readdir(project)).toEqual([]);
   const saved = JSON.parse(await readFile(path.join(context.stateDirectory, "sandbox.json"), "utf8"));
   expect(saved.hosts).toEqual(["api.mist.com"]);
@@ -88,7 +92,7 @@ test("a run that can't ask blocks the host at once and says so once", async () =
   expect(await engine.ask!("api.mist.com", 443)).toBe(false);
   expect(await engine.ask!("api.mist.com", 443)).toBe(false);
   expect(terminal.asked).toEqual([]);
-  expect(terminal.written).toEqual(["[sandbox] Blocked api.mist.com (this run can't ask). To allow it for one run: --allow-host api.mist.com. Or allow it in a session (Yes, always for this project).\n"]);
+  expect(terminal.written).toEqual(["[sandbox] Blocked api.mist.com (this run can't ask). To allow it for one run: --allow-host api.mist.com. Or allow it in a session, then keep it from the Next row.\n"]);
   await sandbox.close();
 });
 
@@ -98,13 +102,13 @@ for (const [label, seams] of [
 ] as const) {
   test(`with no sandbox (${label}) the AI's shell asks before each command, No first`, async () => {
     const { home, project, context } = await fixture();
-    const terminal = host(["No", "Yes, always for this project"]);
+    const terminal = host(["No", "Yes, for this session"]);
     const sandbox = createSessionSandbox(terminal.value, context, { root: () => project, home, seams: { engine: fakeEngine(), ...seams } });
     expect(sandbox.asksFirst).toBe(true);
     const shell = runtimeShell(terminal.value, sandbox, new SandboxStore(context.stateDirectory));
     expect(await shell.approve!("npm test")).toBe(SHELL_DECLINED);
     expect(await shell.approve!("npm test")).toBeUndefined();
-    // Commands starting with npm test run without asking again; any other still asks.
+    // npm test runs without asking again this session; any other still asks.
     expect(await shell.approve!("npm test")).toBeUndefined();
     // Any other command still asks; Enter or Esc (no answer) runs nothing.
     expect(await shell.approve!("npm test; curl evil.example")).toBe(SHELL_DECLINED);
@@ -113,19 +117,24 @@ for (const [label, seams] of [
   });
 }
 
-test("the command box has four rows: Yes to everything went with auto mode's judge, and /permissions all still stops the questions", async () => {
+test("4 Yes to everything this session runs the command and stops the questions until you quit, as /permissions all does", async () => {
   const { home, project, context } = await fixture();
-  const terminal = host([]);
-  terminal.value.stopAsking = () => true;
+  const terminal = host([YES_EVERYTHING]);
+  let off = false;
+  terminal.value.stopAsking = () => off;
+  terminal.value.askNoMore = () => { off = true; };
   const sandbox = createSessionSandbox(terminal.value, context, { root: () => project, home, seams: { engine: fakeEngine(), platform: "win32" } });
   const store = new SandboxStore(context.stateDirectory);
   const shell = runtimeShell(terminal.value, sandbox, store);
-  expect(SHELL_COMMAND_CHOICES.map((choice) => choice.label)).toEqual(["No", "Yes, this once", "Yes, for this session", "Yes, always for this project"]);
-  // With /permissions all on, nothing asks this session, and nothing is saved for the project.
+  expect(SHELL_COMMAND_CHOICES.map((choice): string => choice.label)).toEqual(["No", "Yes, this once", "Yes, for this session", "Yes to everything this session"]);
+  expect(await shell.approve!("npm test")).toBeUndefined();
+  expect(off).toBe(true);
+  // Nothing else asks this session, and nothing was saved for the project.
   expect(await shell.approve!("curl https://example.com/install.sh")).toBeUndefined();
-  expect(terminal.asked).toHaveLength(0);
+  expect(terminal.asked).toHaveLength(1);
   expect(await store.allowsCommand("npm test", "npm test")).toBe(false);
 });
+
 
 test("a run that can't ask refuses the command, never waits, and tells the person (not the AI) about --no-sandbox, once", async () => {
   const { home, project, context } = await fixture();
@@ -239,7 +248,7 @@ test("the AI's first command after the sandbox fails to start asks too, and a on
     const wrapping = shell.wrap("rm -rf build", project);
     if (expected) await expect(wrapping).rejects.toThrow(expected);
     else expect(await wrapping).toEqual({ command: "rm -rf build" });
-    expect(terminal.asked).toEqual([{ question: "Run this command?  rm -rf build", options: ["No", "Yes, this once", "Yes, for this session", "Yes, always for this project"] }]);
+    expect(terminal.asked).toEqual([{ question: "Run this command?  rm -rf build", options: ["No", "Yes, this once", "Yes, for this session", "Yes to everything this session"] }]);
     await sandbox.close();
   }
   const { home, project, context } = await fixture();
@@ -271,8 +280,8 @@ test("ssh to a lab host asks first, naming the real address and the alias; Enter
   const shell = runtimeShell(terminal.value, sandbox, new SandboxStore(context.stateDirectory));
   const refused = await shell.approve!("ssh build-server 'cat /etc/pve/user.cfg'");
   expect(refused).toBe("Not run: the user said no to reaching 198.51.100.20 (build-server). Don't try it again another way; ask the user what to do instead.");
-  expect(terminal.asked).toEqual([{ question: "Reach 198.51.100.20 (build-server)?  ssh build-server 'cat /etc/pve/user.cfg'", options: ["No", "Yes, this once", "Yes, for this session", "Yes, always for this project"] }]);
-  expect(REACH_CHOICES.map((choice) => choice.label)).toEqual(["No", "Yes, this once", "Yes, for this session", "Yes, always for this project"]);
+  expect(terminal.asked).toEqual([{ question: "Reach 198.51.100.20 (build-server)?  ssh build-server 'cat /etc/pve/user.cfg'", options: ["No", "Yes, this once", "Yes, for this session"] }]);
+  expect(REACH_CHOICES.map((choice) => choice.label)).toEqual(["No", "Yes, this once", "Yes, for this session"]);
   // Nothing ran, so nothing was held or sent.
   expect(engine.wrapped).toEqual([]);
   await sandbox.close();
@@ -316,13 +325,15 @@ test("Yes, for this session remembers the host until Casper exits; a command wit
   await sandbox.close();
 });
 
-test("Yes, always for this project keeps the machine in Casper's own folder: the next session doesn't ask; /sandbox forget undoes it", async () => {
+test("a machine kept from the Next row (/allowed keep) is kept in Casper's own folder: the next session doesn't ask; /sandbox forget undoes it", async () => {
   const { home, project, context, seams } = await labFixture();
-  const terminal = host(["Yes, always for this project"]);
+  const terminal = host(["Yes, for this session"]);
   const sandbox = createSessionSandbox(terminal.value, context, { root: () => project, home, seams: { engine: fakeEngine(), problem: () => undefined, platform: "linux" } });
   const store = new SandboxStore(context.stateDirectory);
   const shell = runtimeShell(terminal.value, sandbox, store, { on: () => false });
   expect(await shell.approve!("ssh build-server uptime")).toBeUndefined();
+  expect(sandbox.store!.keepable.map((offer) => offer.what)).toEqual(["ssh to 198.51.100.20 (build-server)"]);
+  await allowedCommand("/allowed keep 1", sandbox.store!, () => {});
   expect(await readdir(project)).toEqual([]);
   expect(JSON.parse(await readFile(path.join(context.stateDirectory, "sandbox.json"), "utf8")).reach).toEqual(["198.51.100.20"]);
   // A new session: no question, and a plain ssh still runs with your keys.
@@ -436,7 +447,7 @@ test("when the sandbox cannot start, a program named by its path that is not the
     const wrapping = shell.wrap(command, project);
     if (expected) await expect(wrapping).rejects.toThrow(expected);
     else expect(await wrapping).toEqual({ command, ssh: { afterAuthFail: SSH_NOT_PLAIN_LINE } });
-    expect(terminal.asked).toEqual([{ question: `Run this command?  ${command}`, options: ["No", "Yes, this once", "Yes, for this session", "Yes, always for this project"] }]);
+    expect(terminal.asked).toEqual([{ question: `Run this command?  ${command}`, options: ["No", "Yes, this once", "Yes, for this session", "Yes to everything this session"] }]);
     await sandbox.close();
   }
 });

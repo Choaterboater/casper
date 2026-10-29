@@ -20,7 +20,7 @@ test("#327 command questions keep Casper's title, dim model reason and safe defa
       const reason = `Check custom steps, round ${round}.`;
       const command = Array.from({ length: 15 }, (_, i) => `custom-tool step-${i}`).join("\n");
       const commandAnswer = session.terminal.pick(shellQuestion(command, reason), [...SHELL_COMMAND_CHOICES]);
-      await session.screen.until(text => text.slice(plainFrom).includes("4. Yes, always"));
+      await session.screen.until(text => text.slice(plainFrom).includes("4. Yes to everything"));
       const visible = Bun.stripANSI(session.screen.output.slice(rawFrom)).replaceAll("\r", "");
       const commandRows = renderPanel("Command", [...command.split("\n").slice(0, 8), "… 4 more lines", ...command.split("\n").slice(-3)], session.screen.writer.columns - 2, false, "muted");
       expect(visible).toContain(`  Run this command?\n  ${MODEL_REASON_PREFIX}${reason}\n${commandRows.map(row => `  ${row}`).join("\n")}\n`);
@@ -28,7 +28,7 @@ test("#327 command questions keep Casper's title, dim model reason and safe defa
       expect(session.screen.output.slice(rawFrom)).toContain(tint(`${MODEL_REASON_PREFIX}${reason}`, "muted", true));
       for (const row of commandRows) expect(session.screen.output.slice(rawFrom)).toContain(`\x1b[2m${row}\x1b[0m`);
       session.input.write("\x07"); // Ctrl+G must not answer an ordinary command box.
-      session.input.write("\r");
+      session.input.write("\r"); session.input.write("\r"); // Enter on No opens its note line; an empty one is a plain No.
       expect(await commandAnswer).toBe(NO);
       if (round === 1) {
         const planFrom = Bun.stripANSI(session.screen.output).length;

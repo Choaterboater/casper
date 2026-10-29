@@ -38,8 +38,8 @@ test("a long typed refusal stays in its box with its end in view, where the lett
   const comment = "Please do not run this command ".repeat(200) + "final-comment-marker";
   try {
     const answer = session.surface.approve("", shellQuestion("custom-tool --check", "Check the output."), [...SHELL_COMMAND_CHOICES]);
-    // The note row, after the five choices, opens the line the words go on.
-    session.input.write(String(SHELL_COMMAND_CHOICES.length + 1));
+    // Picking No opens the line the words go on.
+    session.input.write("1");
     session.input.write(comment);
     for (const width of [20, 40, 80]) for (const height of [6, 10, 18]) {
       const lines = session.render(width, height);
@@ -47,8 +47,8 @@ test("a long typed refusal stays in its box with its end in view, where the lett
       expect(lines.every(line => visibleWidth(line) <= width)).toBe(true);
       expect(Bun.stripANSI(lines.join("\n"))).toContain("Run this command?");
       // The start gives way to "…"; the end, where typing goes on, shows (a word wider than the row breaks in two).
-      expect(Bun.stripANSI(lines.join("\n"))).toContain(`❯ ${SHELL_COMMAND_CHOICES.length + 1}. No`);
-      expect(Bun.stripANSI(lines.join("")).replace(/\s+/g, "")).toMatch(/No(?:,andtelltheAIwhattodoinstead)?—….*marker/);
+      expect(Bun.stripANSI(lines.join("\n"))).toContain("❯ 1. No");
+      expect(Bun.stripANSI(lines.join("")).replace(/\s+/g, "")).toMatch(/No—….*marker/);
     }
     session.input.write("\r");
     expect(await answer).toBe("No");
@@ -114,6 +114,6 @@ test("shrinking a command preview adds newly omitted logical lines to its origin
       const footers = preview.filter(line => /^… \d+ more lines$/.test(line));
       expect(footers).toEqual([`… ${20 - shown.length} more lines`]);
     }
-    session.input.write("\r"); expect(await answer).toBe("No");
+    session.input.write("\r"); session.input.write("\r"); expect(await answer).toBe("No");
   } finally { session.close(); }
 });

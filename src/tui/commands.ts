@@ -212,6 +212,7 @@ export const COMMAND_REGISTRY: readonly CommandSpec[] = [
   ] },
   { name: "allowed", description: "The shell commands you said yes to for this project; forget one", afterCleanupError: NONE, subcommands: [
     { name: "forget", args: "<n>", description: "Forget one by its number or words, or all of them", aliases: FORGET_ALIASES },
+    { name: "keep", args: "<n>", description: "Keep a yes you gave for this session for this project (the Next row's Always allow)" },
     LIST("The same as /allowed"),
   ] },
   { name: "lab", description: "Your lab devices; /lab import <file> marks more; /lab ssh off makes ssh to them ask", afterCleanupError: NONE, subcommands: [

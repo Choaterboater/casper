@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { PassThrough } from "node:stream";
 import { CasperApp } from "../src/app";
+import { allowedCommand } from "../src/app/allowed";
 import { updateFooter } from "../src/app/footer";
 import { parsePermissions, permissionsScreen, permissionsSummary, type PermissionsView } from "../src/app/permissions";
 import { canonicalLine } from "../src/tui/commands";
@@ -20,8 +21,8 @@ import { removeTempDir } from "./support/temp-dir";
 
 /**
  * /permissions: one screen of what Casper may do and how to be asked less; /permissions all (stop asking until you quit,
- * session only), /permissions ask, /permissions write <folder> and /permissions forget <folder>; and "Yes, always for this
- * folder" in the write box. Protected places never become allowable.
+ * session only), /permissions ask, /permissions write <folder> and /permissions forget <folder>; and a session yes in the
+ * write box kept for the project from the Next row (/allowed keep). Protected places never become allowable.
  */
 
 const roots: string[] = [];
@@ -55,12 +56,17 @@ async function sandboxFor(d: Awaited<ReturnType<typeof dirs>>, terminal: Sandbox
   return { sandbox, shell };
 }
 
-test("Yes, always for this project: remembered for this project in ~/.casper, used by the next session, covering the folder and below", async () => {
+test("a folder write kept from the Next row (/allowed keep): remembered for this project in ~/.casper, used by the next session, covering the folder and below", async () => {
   const d = await dirs();
-  const first = fakeHost(["Yes, always for this project"]);
+  const first = fakeHost(["Yes, for this session"]);
   const one = await sandboxFor(d, first.value);
   expect(await one.shell.outsideWrite!(path.join(d.app, "a.json"))).toBeUndefined();
   expect(first.asked).toHaveLength(1);
+  // A session yes saves nothing until it is kept.
+  expect(one.sandbox.rememberedWriteFolders()).toEqual([]);
+  let said = "";
+  await allowedCommand("/allowed keep 1", one.sandbox.store!, (text) => { said += text; });
+  expect(said).toContain("✓ allowed always in this project: writes to ~/apps/SomeApp");
   const saved = JSON.parse(await readFile(path.join(d.context.stateDirectory, "sandbox.json"), "utf8")) as { writes?: string[] };
   expect(saved.writes).toEqual([d.app]);
   expect(await readdir(d.project)).not.toContain("sandbox.json");
@@ -162,8 +168,10 @@ test("only the person's typed command can set the switch: nothing the AI can cal
     }
   };
   walk(root);
-  // crew/shell.ts and sandbox/manager.ts only read it: a builder's box, and a host while a builder runs.
-  expect(found.sort()).toEqual(["app.ts", "app/commands.ts", "app/footer.ts", "app/sandbox.ts", "app/wiring.ts", "crew/shell.ts", "sandbox/manager.ts"]);
+  // crew/shell.ts and sandbox/manager.ts only read it: a builder's box, and a host while a builder runs. command-loop.ts and
+  // stop-asking-words.ts only see the person's own typed "stop asking" line, which opens the /permissions all box.
+  expect(found.sort()).toEqual(["app.ts", "app/command-loop.ts", "app/commands.ts", "app/footer.ts", "app/sandbox.ts", "app/stop-asking-words.ts",
+    "app/wiring.ts", "crew/shell.ts", "sandbox/manager.ts"]);
 });
 
 /** `typed`: each command runs as if typed while a task runs. */
@@ -233,7 +241,7 @@ test("your own servers that started with writes on are named apart: their change
 test("/permissions details is the full screen: every fact and every way to be asked less, with no box", async () => {
   const d = await dirs();
   const { output } = await session(d, ["/permissions details"], []);
-  for (const line of ["What Casper may do here, and how to change it. Asking is on.", "To stop being asked about one command: answer 3", "Writes outside the project: Casper asks (1 No · 2 Yes, this once · 3 Yes, for this session · 4 Yes, always for this project)",
+  for (const line of ["What Casper may do here, and how to change it. Asking is on.", "To stop being asked about one command: answer 3", "Writes outside the project: Casper asks (1 No · 2 Yes, this once · 3 Yes, for this session; the Next row offers to keep it for this project)",
     "/permissions write <folder>", "To turn everything on: there is no single switch, on purpose.", "Protected whatever you pick: ~/.ssh, ~/.casper", "/verify and /services may execute project scripts"]) {
     expect(output).toContain(line);
   }
@@ -267,6 +275,17 @@ test("/permissions all asks 1 Keep asking · 2 Stop asking until I quit; 1 chang
   const again = await session(d, ["/permissions"], []);
   expect(again.output).toContain("Asking is on:");
   expect(await readdir(d.context.stateDirectory).catch(() => [])).not.toContain("permissions.json");
+});
+
+test("\"stop asking\" typed alone opens the /permissions all box with no model call; 1 keeps asking, 2 stops it", async () => {
+  const d = await dirs();
+  const kept = await session(d, ["stop asking"], ["1"]);
+  expect(kept.output).toContain("[permissions] Handled here, no model call: /permissions all does the same.");
+  expect(kept.output).toContain("Stop asking until you quit?");
+  expect(kept.output).toContain("[permissions] Still asking.");
+  const on = await session(d, ["don't ask me again", "/permissions"], ["2"]);
+  expect(on.output).toContain("[permissions] Not asking until you quit");
+  expect(on.output).toContain("Asking is OFF until you quit");
 });
 
 test("a run that cannot ask refuses /permissions all and points at --no-sandbox", async () => {

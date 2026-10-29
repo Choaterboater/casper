@@ -24,7 +24,7 @@ import { measuredCheckTime, recordCheckTimings } from "../verify/timings";
 import { checkEvent } from "./json-events";
 import { sandboxReceipt } from "./sandbox";
 import { exactPick } from "./approvals";
-import { CHECKS_OUTSIDE_CHOICES, checksOutsideQuestion, YES_ALWAYS, YES_ONCE, YES_SESSION } from "./safe-choices";
+import { CHECKS_OUTSIDE_CHOICES, checksOutsideQuestion, YES_ONCE, YES_SESSION } from "./safe-choices";
 import { SANDBOX_CHECK_BLOCKED, SLOW_TEST } from "../verify/command";
 import { phase, clearSteps } from "./footer";
 import { prepareCapabilities, pageRun, smokeRun } from "./task-tools";
@@ -359,18 +359,17 @@ export async function askUnfinished(app: CasperApp, unfinished: VerificationResu
 }
 
 /** "test failed because the sandbox blocked something. Run this project's checks outside it? 1 No · 2 Yes, this once ·
- * 3 Yes, for this session · 4 Yes, always for this project". Only your answer turns it on; Enter (1) keeps the sandbox. */
+ * 3 Yes, for this session". Only your answer turns it on; Enter (1) keeps the sandbox. A session yes can be kept for the
+ * project from the Next row (/allowed keep). */
 export async function askChecksOutside(app: CasperApp, blocked: VerificationResult[], signal: AbortSignal): Promise<"once" | "kept" | undefined> {
   const sandbox = app.sandbox;
   if (!sandbox) return undefined;
   app.events.ensureLineBreak();
   const answer = await exactPick(app, checksOutsideQuestion(blocked.map((result) => terminalText(result.name))), CHECKS_OUTSIDE_CHOICES.map((choice) => ({ ...choice })), signal);
   if (answer === YES_ONCE) return "once";
-  if (answer === YES_SESSION) { sandbox.allowChecksOutsideForSession(); return "kept"; }
-  if (answer === YES_ALWAYS) {
+  if (answer === YES_SESSION) {
     sandbox.allowChecksOutsideForSession();
-    try { await sandbox.rememberChecksOutside(true); }
-    catch (error) { app.output.write(`[sandbox] Not saved (${terminalText(error instanceof Error ? error.message : String(error))}); this session runs the checks outside the sandbox.\n`); }
+    sandbox.store?.offerKeep("checks outside the sandbox", () => sandbox.rememberChecksOutside(true));
     return "kept";
   }
   return undefined;

@@ -3,7 +3,8 @@ import { mkdir, mkdtemp, readFile, realpath, symlink, writeFile } from "node:fs/
 import os from "node:os";
 import path from "node:path";
 import { createSessionSandbox, runtimeShell, SHELL_DECLINED, STOP_ASKING_HINT, type PickSettings, type SandboxHost } from "../src/app/sandbox";
-import { YES_ALWAYS, YES_ONCE, YES_SESSION } from "../src/app/safe-choices";
+import { allowedCommand } from "../src/app/allowed";
+import { YES_EVERYTHING, YES_ONCE, YES_SESSION } from "../src/app/safe-choices";
 import { loadProjectContext } from "../src/project/context";
 import { inspectProject } from "../src/project/inspect";
 import { commandCore, readOnlyCommand } from "../src/sandbox/read-only";
@@ -218,16 +219,20 @@ async function shellFor(answers: Array<string | undefined>) {
   const context = await loadProjectContext(await inspectProject(root), { homeDir: home });
   const terminal = host(answers);
   const sandbox = createSessionSandbox(terminal.value, context, { root: () => root, home, seams: { engine: fakeEngine(), platform: "win32" } });
-  return { project, home, context, terminal, shell: runtimeShell(terminal.value, sandbox, new SandboxStore(context.stateDirectory)) };
+  const store = sandbox.store!;
+  /** The Next row's "Always allow …": /allowed keep <n>, saving what that session yes covered for the project. */
+  const keep = async (n = store.keepable.length) => { let said = ""; await allowedCommand(`/allowed keep ${n}`, store, (text) => { said += text; }); return said; };
+  return { project, home, context, terminal, store, keep, shell: runtimeShell(terminal.value, sandbox, new SandboxStore(context.stateDirectory)) };
 }
 
-test("with no sandbox: those reads never ask, and 'always' for the test run covers that command again, also inside the same kind of line", async () => {
-  const { project, context, terminal, shell } = await shellFor([YES_ALWAYS, undefined, undefined, undefined]);
+test("with no sandbox: those reads never ask, and the test run kept for the project covers that command again, also inside the same kind of line", async () => {
+  const { project, context, terminal, shell, keep } = await shellFor([YES_SESSION, undefined, undefined, undefined]);
   for (const line of lookAroundLines(project)) expect(await shell.approve!(line)).toBeUndefined();
   expect(terminal.asked).toEqual([]);
   expect(await shell.approve!(TEST_RUN(project))).toBeUndefined();
   expect(terminal.asked).toHaveLength(1);
-  expect(terminal.asked[0]!.options).toEqual(["No", "Yes, this once", "Yes, for this session", "Yes, always for this project"]);
+  expect(terminal.asked[0]!.options).toEqual(["No", "Yes, this once", "Yes, for this session", "Yes to everything this session"]);
+  await keep();
   const saved = JSON.parse(await readFile(path.join(context.stateDirectory, "sandbox.json"), "utf8"));
   expect(saved.commands).toEqual(["cd webapp && ./.venv/Scripts/python.exe -m pytest -q"]);
   expect(saved.prefixes).toBeUndefined();
@@ -246,18 +251,20 @@ test("with no sandbox: those reads never ask, and 'always' for the test run cove
 });
 
 test("a remembered command covers no file read after it on the line (it may have made that file a link)", async () => {
-  const { project, home, terminal, shell } = await shellFor([YES_ALWAYS, undefined, undefined]);
+  const { project, home, terminal, shell, keep } = await shellFor([YES_SESSION, undefined, undefined]);
   await mkdir(path.join(home, ".ssh"), { recursive: true });
   await writeFile(path.join(home, ".ssh", "id_rsa"), "KEY");
   expect(await shell.approve!(`ln -s ${sh(project)}/app/main.py ${sh(project)}/b.py`)).toBeUndefined();
+  await keep();
   expect(terminal.asked).toHaveLength(1);
   expect(await shell.approve!(`ln -s ${sh(home)}/.ssh/id_rsa k2 && cat k2`)).toBe(SHELL_DECLINED);
   expect(terminal.asked).toHaveLength(2);
 });
 
 test("a program remembered by a relative path is not another folder's program of the same name", async () => {
-  const { terminal, shell } = await shellFor([YES_ALWAYS, undefined]);
+  const { terminal, shell, keep } = await shellFor([YES_SESSION, undefined]);
   expect(await shell.approve!("./build.sh --release")).toBeUndefined();
+  await keep();
   expect(await shell.approve!("./build.sh --release")).toBeUndefined();
   expect(terminal.asked).toHaveLength(1);
   expect(await shell.approve!("cd webapp && ./build.sh --release")).toBe(SHELL_DECLINED);
@@ -265,9 +272,10 @@ test("a program remembered by a relative path is not another folder's program of
 });
 
 test("a remembered command keeps its folder: the same words after another cd, or with no cd, ask again", async () => {
-  const { project, context, terminal, shell } = await shellFor([YES_ALWAYS, YES_SESSION, undefined, undefined, undefined, undefined]);
+  const { project, context, terminal, shell, keep } = await shellFor([YES_SESSION, YES_SESSION, undefined, undefined, undefined, undefined]);
   await mkdir(path.join(project, "other"));
   expect(await shell.approve!("cd webapp/app && python3 gen.py")).toBeUndefined();
+  await keep(1);
   expect(await shell.approve!("cd webapp && make")).toBeUndefined();
   expect(JSON.parse(await readFile(path.join(context.stateDirectory, "sandbox.json"), "utf8")).commands).toEqual(["cd webapp/app && python3 gen.py"]);
   // The same command from the same folder, its output read: no box.
@@ -281,9 +289,10 @@ test("a remembered command keeps its folder: the same words after another cd, or
 });
 
 test("a yes to a command fed by a pipe covers that line only: what is piped in is what runs", async () => {
-  const { terminal, shell } = await shellFor([YES_SESSION, YES_ALWAYS, undefined, undefined, undefined, undefined]);
+  const { terminal, shell, keep } = await shellFor([YES_SESSION, YES_SESSION, undefined, undefined, undefined, undefined]);
   expect(await shell.approve!("cat webapp/pytest.ini | sh")).toBeUndefined();
   expect(await shell.approve!("find webapp/tests -name '*.pyc' | xargs rm -f")).toBeUndefined();
+  await keep(2);
   expect(await shell.approve!("cat webapp/pytest.ini | sh")).toBeUndefined();
   expect(await shell.approve!("find webapp/tests -name '*.pyc' | xargs rm -f")).toBeUndefined();
   expect(terminal.asked).toHaveLength(2);
@@ -304,13 +313,15 @@ test("an exact command an older Casper saved covers the same words in the projec
 });
 
 test("a yes leaves no line of its own; a remembered one leaves one short line; a No keeps the usual record", async () => {
-  const { terminal, shell } = await shellFor([YES_SESSION]);
+  const { terminal, shell, keep } = await shellFor([YES_SESSION]);
   expect(await shell.approve!("npm test 2>&1 | tail -20")).toBeUndefined();
   const record = terminal.asked[0]!.settings!.record!;
   expect(record(YES_ONCE)).toBe("");
   expect(record(YES_SESSION)).toBe("✓ allowed until you quit: npm test");
-  expect(record(YES_ALWAYS)).toBe("✓ allowed always in this project: npm test");
+  expect(record(YES_EVERYTHING)).toBe("");
   expect(record("No")).toBeUndefined();
+  // Kept from the Next row, it says so in one short line.
+  expect(await keep()).toStartWith("✓ allowed always in this project: npm test");
 });
 
 test("the third shell box answered yes in a session says once how to stop them", async () => {

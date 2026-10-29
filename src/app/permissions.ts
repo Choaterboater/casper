@@ -119,7 +119,7 @@ export function permissionsScreen(view: PermissionsView): string {
     ...(view.sandboxOn ? ["  To stop being asked: answer 4 at the box, sandbox: allowedDomains in ~/.casper/config.yaml, or --allow-host <host> for one run (/sandbox forget <host> takes one back)."] : []),
     "",
     view.outsideWritesAsk
-      ? "Writes outside the project: Casper asks (1 No · 2 Yes, this once · 3 Yes, for this session · 4 Yes, always for this project). The project, temp and package caches never ask."
+      ? "Writes outside the project: Casper asks (1 No · 2 Yes, this once · 3 Yes, for this session; the Next row offers to keep it for this project). The project, temp and package caches never ask."
       : "Writes outside the project: with the sandbox off they don't ask.",
     `  Allowed for good: ${list(view.writesForGood.map(view.show))}. This session only: ${list(view.writesSession.map(view.show))}.`,
     "  To stop being asked: answer 4 at the box, /permissions write <folder> ahead of time, sandbox: allowWrite in config, or --allow-write <folder> for one run. /permissions forget <folder> takes one back.",
@@ -132,7 +132,7 @@ export function permissionsScreen(view: PermissionsView): string {
     "",
     `Switches (/settings): web lookups ${view.web ? "on" : "off"}, GitHub tool ${view.github ? "on" : "off"}. Fetching ripgrep ${view.downloads ? "on" : "off"} (tools: downloads: off in config).`,
     "",
-    "To turn everything on: there is no single switch, on purpose. The closest is /permissions all, or 5 Yes to everything this session in the Run this command? box: until you quit, shell commands, hosts, writes outside the project and other machines are answered Yes for this session (--no-sandbox for one run, or sandbox: off in ~/.casper/config.yaml, takes the shell sandbox away too).",
+    "To turn everything on: there is no single switch, on purpose. The closest is /permissions all (or type 'stop asking'), or 4 Yes to everything this session in the Run this command? box: until you quit, shell commands, hosts, writes outside the project and other machines are answered Yes for this session (--no-sandbox for one run, or sandbox: off in ~/.casper/config.yaml, takes the shell sandbox away too).",
     "Protected whatever you pick: ~/.ssh, ~/.casper, cloud logins and shell start-up files stay out of the AI's reach; secrets are hidden from the AI; device writes still need the product's own login to allow them and their own box; the spend pause stays; the AI can't answer a box for you.",
     view.scripts,
   ];

@@ -402,8 +402,9 @@ fixture writes are off. → Enable for this server
           <p>The AI's shell can also run <code>ssh</code> and <code>scp</code> itself. Casper asks first, naming the real address:</p>
         </div>
         <div class="cmd"><span class="cmd-label">casper</span><pre><code>Reach 198.51.100.20 (build-server)?  ssh build-server uptime
-  1 No · 2 Yes, this once · 3 Yes, for this session · 4 Yes, always for this project</code></pre></div>
+  1 No · 2 Yes, this once · 3 Yes, for this session</code></pre></div>
         <ul class="prose">
+          <li>After a 3, the row under the finished task offers <code>Always allow ssh to build-server in this project</code>; pick it to stop asking about that machine here.</li>
           <li>A device on your lab list (<code>/lab</code>) does not ask. <code>/lab ssh off</code> makes it ask again. A run that cannot ask refuses and says so.</li>
           <li>When an <code>ssh</code> or <code>scp</code> you allowed asks for a <strong>password</strong> or a key's passphrase, Casper shows its own hidden box: <code>1 No · 2 Yes, this once · 3 Yes, for this session</code>. The password goes to ssh only. The AI never sees it, and it is hidden wherever the AI reads. Nothing is saved to disk.</li>
           <li><code>ssh_login: off</code> in your own config (or <strong>Private ssh passwords</strong> in <code>/settings</code>) turns the box off. A project file cannot change it.</li>

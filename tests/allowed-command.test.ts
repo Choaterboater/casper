@@ -182,12 +182,14 @@ function host(answers: Array<string | undefined>) {
   return { value, asked };
 }
 
-test("a command that was allowed asks again after you forget it, for always and for this session", async () => {
+test("a command that was allowed asks again after you forget it, kept for the project and for this session", async () => {
   const { home, project, context } = await fixture();
-  const terminal = host(["Yes, always for this project", "Yes, for this session", "No", "No"]);
+  const terminal = host(["Yes, for this session", "Yes, for this session", "No", "No"]);
   const sandbox = createSessionSandbox(terminal.value, context, { root: () => project, home, seams: { engine: fakeEngine(), platform: "win32" } });
   const shell = runtimeShell(terminal.value, sandbox, new SandboxStore(context.stateDirectory));
   expect(await shell.approve!("cargo build")).toBeUndefined();
+  // Kept from the Next row: /allowed keep 1 saves exactly cargo build for the project.
+  await allowedCommand("/allowed keep 1", sandbox.store!, () => {});
   expect(await shell.approve!("python3 tools/gen.py")).toBeUndefined();
   expect(await shell.approve!("cargo build")).toBeUndefined();
   expect(await shell.approve!("python3 tools/gen.py")).toBeUndefined();
@@ -195,6 +197,7 @@ test("a command that was allowed asks again after you forget it, for always and 
   const say = run(sandbox.store!);
   const listed = await say("/allowed");
   expect(listed).toContain("cargo build (this exact command)");
+  expect(listed).not.toContain("cargo build (this exact command) (this session)");
   expect(listed).toContain("python3 tools/gen.py (this exact command) (this session)");
   await say("/allowed forget all");
   expect(await shell.approve!("cargo build")).toBe(SHELL_DECLINED);

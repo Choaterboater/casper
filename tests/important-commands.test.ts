@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { DEFAULT_SYSTEM_PROMPT_APPEND, LEAN_SYSTEM_PROMPT_APPEND } from "../src/app/prompt";
 import { runtimeShell } from "../src/app/sandbox";
-import { YES_ALWAYS, YES_SESSION } from "../src/app/safe-choices";
+import { YES_SESSION } from "../src/app/safe-choices";
 import { ShellSandbox } from "../src/sandbox/manager";
 import { answerKey, readOnlyCommand, testRunKey } from "../src/sandbox/read-only";
 import { routineCommand } from "../src/sandbox/routine";
@@ -153,15 +153,17 @@ test("session test approvals are listed and can be forgotten without becoming ex
 });
 
 test("permanent test approvals keep exact matching instead of remembering the runner family", async () => {
-  const { shell, asked, store } = await fixture(false, YES_ALWAYS);
+  const { shell, asked, store } = await fixture(false, YES_SESSION);
   const first = "bun test tests/a.test.ts > .casper/a.log; result=$?; tail -n 10 .casper/a.log; exit $result";
   const second = "bun test tests/b.test.ts > .casper/b.log; code=$?; tail -n 20 .casper/b.log; exit $code";
-  await shell.approve!(first); await shell.approve!(first); await shell.approve!(second);
-  expect(asked).toHaveLength(2);
-  expect(store.sessionCommands.size).toBe(0);
-  expect((await store.allowed()).map(({ value, session }) => ({ value, session }))).toEqual([
-    { value: first, session: false }, { value: second, session: false },
-  ]);
+  await shell.approve!(first);
+  expect(asked).toHaveLength(1);
+  // Kept from the Next row: named and saved as that exact line, not the family the session yes covers.
+  expect(store.keepable.map((offer) => offer.what)).toEqual(["bun test tests/a.test.ts > .casper/a.log; result=$?; tail -…"]);
+  await store.keepable[0]!.keep();
+  expect(await store.allowsCommand(first, first)).toBe(true);
+  expect(await store.allowsCommand(second, second)).toBe(false);
+  expect((await store.allowed()).filter(({ session }) => !session).map(({ value }) => value)).toEqual([first]);
 });
 
 test("full and lean guidance steer tests and page reads to dedicated tools, not shell plumbing", async () => {

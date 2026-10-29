@@ -23,7 +23,7 @@ import { remoteTargets, runsAlone, segmentTargets, splitShell, sshNameLine, targ
 import { startAskpass } from "../ssh/askpass";
 import { forgetSshSecrets, sshLoginHandler, sshSessionMemory, type SshLoginHost } from "../ssh/login";
 import { forgetOnceSecrets } from "../secrets/typed";
-import { githubLoginChoices, HOST_CHOICES, NO, REACH_CHOICES, SHELL_COMMAND_CHOICES, writeChoices, YES_ALWAYS, YES_ONCE, YES_SESSION } from "./safe-choices";
+import { githubLoginChoices, HOST_CHOICES, NO, REACH_CHOICES, SHELL_COMMAND_CHOICES, writeChoices, YES_EVERYTHING, YES_ONCE, YES_SESSION } from "./safe-choices";
 import { githubLoginCommand, githubRunEnv, LOGIN_FAILED, startsGitOrGh, type GithubLoginCommand } from "../sandbox/github-login";
 import { answerKey, readOnlyCommand, testRunKey } from "../sandbox/read-only";
 import { routineCommand } from "../sandbox/routine";
@@ -47,6 +47,8 @@ export interface SandboxHost {
   planning(): boolean;
   /** /permissions all is on: the questions below are answered "Yes, for this session" without being shown. */
   stopAsking?(): boolean;
+  /** "Yes to everything this session" in the shell box: turns that on, as /permissions all does. */
+  askNoMore?(): void;
   /** Your lab list (names or addresses): ssh to these doesn't ask, unless /lab ssh off. */
   labHosts?(): readonly string[];
   /** Routine commands (routine_commands, on unless turned off): with no sandbox, routine work (see routineCommand) runs
@@ -139,7 +141,7 @@ export const SHELL_CANT_ASK_SCREEN = "Shell commands need your OK here, and this
 export const SHELL_CANT_ASK_NOTE = "[shell] This run can't ask before the AI's shell commands, so they are not run. --no-sandbox allows them for one run.";
 export const SHELL_DECLINED = "Not run: the user said no to this command. Don't run it again; ask the user what to do instead.";
 /** Said once a session, after the third shell box answered yes. */
-export const STOP_ASKING_HINT = "Tip: 5 Yes to everything this session (or /permissions all) stops these questions until you quit (/permissions ask turns them back on).";
+export const STOP_ASKING_HINT = 'Tip: 4 Yes to everything this session (or type "stop asking") stops these questions until you quit (/permissions ask turns them back on).';
 /** A remembered exact command, as its one short line shows it. */
 const shortCommand = (command: string) => { const shown = shownCommand(command).replace(/\s+/g, " ").trim(); return shown.length > 60 ? `${shown.slice(0, 59)}…` : shown; };
 export const writeQuestion = (from: WriteAsker, folder: string) => `${from === "shell" ? "A shell command" : "The AI"} wants to write to ${terminalText(folder)}. Allow it?`;
@@ -165,13 +167,12 @@ export function createSessionSandbox(host: SandboxHost, context: ProjectContext,
     ...(options.allow?.writes?.length ? { allowWrites: options.allow.writes } : {}),
     ...(options.allow?.reach?.length ? { allowReach: options.allow.reach } : {}),
     askHost: (name) => host.canAsk() ? sessionYesOr(host, hostQuestion(name), [...HOST_CHOICES]).then((answer): HostAnswer =>
-      answer === YES_ONCE ? "once" : answer === YES_SESSION ? "session" : answer === YES_ALWAYS ? "project" : "no") : undefined,
+      answer === YES_ONCE ? "once" : answer === YES_SESSION ? "session" : "no") : undefined,
     stopAsking: () => Boolean(host.stopAsking?.()),
-    askWrite: (targets, from, { file }) => {
+    askWrite: (targets, from) => {
       if (!host.canAsk()) return undefined;
       const shown = writePlaces(targets.map((target) => displayPath(target, options.root(), options.home)));
-      const choices = writeChoices(shown, !file);
-      return sessionYesOr(host, writeQuestion(from, shown), choices).then((answer) => answer === YES_ALWAYS ? "always" : answer === YES_SESSION ? true : answer === YES_ONCE ? "once" : false);
+      return sessionYesOr(host, writeQuestion(from, shown), writeChoices(shown)).then((answer) => answer === YES_SESSION ? true : answer === YES_ONCE ? "once" : false);
     },
     note: (line) => host.write(`${line}\n`),
     seccompPath: () => seccompHelper({ home: options.home }),
@@ -243,10 +244,9 @@ export function runtimeShell(host: SandboxHost, sandbox: ShellSandbox, given: Sa
     if (!found.once && (store.sessionGithub.has(found.action) || await store.allowsGithub(found.action))) { githubCleared.add(command); return undefined; }
     if (!host.canAsk()) { githubUnasked.add(command); return undefined; }
     const answer = await host.pick(githubLoginQuestion(command, preceding), githubLoginChoices(found.action, !found.once), signal);
-    if (answer === YES_SESSION && !found.once) store.sessionGithub.add(found.action);
-    else if (answer === YES_ALWAYS && !found.once) {
-      try { await store.addGithub(found.action); }
-      catch (error) { store.sessionGithub.add(found.action); host.write(`[sandbox] Not saved (${terminalText(error instanceof Error ? error.message : String(error))}); ${found.action} doesn't ask again this session.\n`); }
+    if (answer === YES_SESSION && !found.once) {
+      store.sessionGithub.add(found.action);
+      store.offerKeep(`${found.action} with your GitHub login`, () => store.addGithub(found.action));
     } else if (answer !== YES_ONCE) return GITHUB_LOGIN_DECLINED;
     githubCleared.add(command);
     return undefined;
@@ -269,9 +269,9 @@ export function runtimeShell(host: SandboxHost, sandbox: ShellSandbox, given: Sa
       const answer = await sessionYesOr(host, reachQuestion(target, command, preceding), [...REACH_CHOICES], signal);
       asked = true;
       // A machine the command names as $HOST could be any machine next time: that yes counts for this command only.
-      if (answer === YES_SESSION) { if (!target.unclear) sessionReach.add(target.host); }
-      else if (answer === YES_ALWAYS) { if (!target.unclear) await store.addReach(target.host); }
-      else if (answer !== YES_ONCE) return { refused: reachDeclined(target), asked };
+      if (answer === YES_SESSION) {
+        if (!target.unclear) { sessionReach.add(target.host); store.offerKeep(`ssh to ${targetLabel(target)}`, () => store.addReach(target.host)); }
+      } else if (answer !== YES_ONCE) return { refused: reachDeclined(target), asked };
     }
     // Only the command about to run (a service start approved here never comes back to wrap).
     cleared.clear();
@@ -410,13 +410,18 @@ export function runtimeShell(host: SandboxHost, sandbox: ShellSandbox, given: Sa
       if (judged?.verdict === "allow") { host.write(`${stepLine(judged.reason)}\n`); return undefined; }
       const kept = testRun ? "bun test (project test files)" : shortCommand(exact);
       // A yes leaves no line of its own (the command's own line shows it ran); a remembered one leaves one short line.
-      const record = (answer: string) => answer === YES_ONCE ? "" : answer === YES_SESSION ? `✓ allowed until you quit: ${kept}`
-        : answer === YES_ALWAYS ? `✓ allowed always in this project: ${kept}` : undefined;
+      const record = (answer: string) => answer === YES_ONCE || answer === YES_EVERYTHING ? "" : answer === YES_SESSION ? `✓ allowed until you quit: ${kept}` : undefined;
       const answer = await sessionYesOr(host, shellQuestion(command, preceding, judged?.reason), [...SHELL_COMMAND_CHOICES], signal, { record });
+      if (answer === YES_EVERYTHING) { host.askNoMore?.(); return undefined; }
       if (answer !== undefined && answer !== NO && !host.stopAsking?.() && ++shellYeses === 3) sayOnce(STOP_ASKING_HINT);
       if (answer === YES_ONCE) return undefined;
-      if (answer === YES_SESSION) { (testRun ? sessionTestRuns : sessionCommands).add(testRun ?? exact); return undefined; }
-      if (answer === YES_ALWAYS) { await store.addCommand(exact); return undefined; }
+      if (answer === YES_SESSION) {
+        (testRun ? sessionTestRuns : sessionCommands).add(testRun ?? exact);
+        // Kept from the Next row, it is saved as the old "always" answer saved it, and named so: the exact command
+        // (a test run's session yes covers its family; kept for good, only this line).
+        if (!host.stopAsking?.()) store.offerKeep(shortCommand(exact), () => store.addCommand(exact));
+        return undefined;
+      }
       return SHELL_DECLINED;
     },
     logDir() {
@@ -466,7 +471,7 @@ export function sandboxReport(sandbox: ShellSandbox, root: string, reach: readon
   const home = sandbox.home;
   const show = (entry: string) => entry === root ? "this project" : entry.startsWith(`${home}${path.sep}`) ? `~/${path.relative(home, entry).split(path.sep).join("/")}` : entry;
   const lines = [`Shell: ${sandboxStatusLine(sandbox)}`];
-  const machines = `ssh, scp and the like to other machines: Casper asks (1 No · 2 Yes, this once · 3 Yes, for this session · 4 Yes, always for this project)${reach.length ? `; always for this project: ${reach.join(", ")} (/sandbox forget <address>)` : ""}. Lab devices don't ask (/lab ssh off).`;
+  const machines = `ssh, scp and the like to other machines: Casper asks (1 No · 2 Yes, this once · 3 Yes, for this session; the Next row offers to keep it for this project)${reach.length ? `; always for this project: ${reach.join(", ")} (/sandbox forget <address>)` : ""}. Lab devices don't ask (/lab ssh off).`;
   if (!sandbox.on) {
     lines.push(sandbox.state.kind === "off"
       ? "Shell commands, checks, services and dev servers run with your permissions, files and network."
@@ -481,7 +486,7 @@ export function sandboxReport(sandbox: ShellSandbox, root: string, reach: readon
   lines.push(`Hosts:   ${REGISTRY_HOSTS.join(", ")}, localhost${sandbox.user.allowedDomains?.length ? `; yours: ${sandbox.user.allowedDomains.join(", ")}` : ""}`);
   const remembered = sandbox.rememberedHosts();
   lines.push(`Remembered for this project: ${remembered.length ? `${remembered.join(", ")} (/sandbox forget <host>)` : "none"}`);
-  lines.push("Other hosts: Casper asks (1 No · 2 Yes, this once · 3 Yes, for this session · 4 Yes, always for this project); a run that can't ask blocks them.");
+  lines.push("Other hosts: Casper asks (1 No · 2 Yes, this once · 3 Yes, for this session; the Next row offers to keep it for this project); a run that can't ask blocks them.");
   const folders = sandbox.allowedWriteFolders();
   lines.push(`Other writes outside the project: Casper asks (1 No · 2 Yes, this once · 3 Yes, for this session)${folders.length ? `; allowed this session: ${[...new Set(folders.map(show))].join(", ")}` : ""}.`);
   lines.push(machines);
