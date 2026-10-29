@@ -1,12 +1,16 @@
 import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import { stripVTControlCharacters } from "node:util";
 import type { HelperActivity, SubagentStatus } from "../agents/manager";
-import { formatElapsed, formatTokens, redactPreview, terminalText, tint } from "./format";
+import { commandLabel, formatElapsed, formatTokens, redactPreview, terminalText, tint, toolTarget } from "./format";
 import { GLYPHS } from "./glyphs";
 
 export const CREW_FADE_MS = 1200;
 export const CREW_EXPIRE_MS = 6000;
 export const CREW_ROW_CAP = 4;
+/** Steps kept per helper for crew details (Ctrl+O): the latest ones, newest last. */
+export const CREW_STEP_CAP = 5;
+
+interface CrewStep { id?: string; text: string; mark: "•" | "✓" | "✗" }
 
 interface CrewRow {
   id: number;
@@ -19,6 +23,7 @@ interface CrewRow {
   status?: SubagentStatus;
   waitedMs: number;
   waitingSince?: number;
+  steps: CrewStep[];
 }
 
 const clean = (text: string) => terminalText(redactPreview(text)).replace(/\s+/g, " ").trim();
@@ -27,21 +32,32 @@ const clean = (text: string) => terminalText(redactPreview(text)).replace(/\s+/g
 export class CrewPanel {
   private readonly helpers = new Map<number, CrewRow>();
   private builder = 0;
+  private explorer = 0;
   constructor(private readonly now: () => number = () => performance.now()) {}
 
-  update(activity: HelperActivity): void {
+  /** `root`: the project folder, so a step's path shows relative to it (`read · cad/otto.js`). */
+  update(activity: HelperActivity, root?: string): void {
     const { run } = activity;
-    if (run.role === "explorer") return;
     let row = this.helpers.get(run.id);
     if (!row) {
       if (activity.kind !== "start") return; // Ignore a late event after expiry.
-      row = { id: run.id, name: run.label ?? (run.role === "builder" ? `Builder ${++this.builder}` : `Reviewer ${run.id}`),
-        goal: clean(run.goal), startedAt: this.now(), activity: "Starting", waitedMs: 0 };
+      row = { id: run.id, name: run.label ?? (run.role === "builder" ? `Builder ${++this.builder}` : run.role === "explorer" ? `Explorer ${++this.explorer}` : `Reviewer ${run.id}`),
+        goal: clean(run.goal), startedAt: this.now(), activity: "Starting", waitedMs: 0, steps: [] };
       this.helpers.set(run.id, row);
     }
     row.tokens = run.spent?.tokens ?? row.tokens;
     if (activity.kind === "tool" && row.finishedAt === undefined) {
-      row.activity = activity.event.type === "tool_end" ? "Thinking" : clean(activity.event.toolName) + "…";
+      const { event } = activity;
+      if (event.type === "tool_end") {
+        row.activity = "Thinking";
+        const step = [...row.steps].reverse().find(step => step.mark === "•" && (step.id === undefined || step.id === event.toolCallId));
+        if (step) step.mark = event.isError ? "✗" : "✓";
+      } else {
+        const target = toolTarget(event.input, root ? { root } : {}, commandLabel);
+        row.activity = clean(target ? `${event.toolName} · ${target}` : event.toolName);
+        row.steps.push({ id: event.toolCallId, text: row.activity, mark: "•" });
+        if (row.steps.length > CREW_STEP_CAP) row.steps.shift();
+      }
     } else if (activity.kind === "end" && row.finishedAt === undefined) {
       this.resume(row);
       row.finishedAt = this.now();
@@ -75,16 +91,16 @@ export class CrewPanel {
   }
 
   get size(): number { return this.current().length; }
+  /** Lines in crew details: each helper, then its recent steps. */
+  get detailSize(): number { return this.current().reduce((sum, row) => sum + 1 + row.steps.length, 0); }
 
   /** Height includes the overflow/hint row. Even a one-column or one-row terminal gets bounded output. */
   render(width: number, height: number, options: { color?: boolean; frame?: number; details?: boolean; offset?: number } = {}): string[] {
     if (width < 1 || height < 1) return [];
     const rows = this.current();
     if (!rows.length) return [];
-    const cap = options.details ? Math.max(1, height - 1) : Math.min(CREW_ROW_CAP, Math.max(1, height - 1));
-    const offset = options.details ? Math.min(Math.max(0, options.offset ?? 0), Math.max(0, rows.length - cap)) : 0;
-    const shown = rows.slice(offset, offset + cap);
-    const lines = shown.map(row => {
+    const color = options.color ?? false;
+    const helperLine = (row: CrewRow) => {
       const waited = row.waitedMs + (row.waitingSince === undefined ? 0 : Math.max(0, this.now() - row.waitingSince));
       const elapsed = Math.max(0, (row.finishedAt ?? this.now()) - row.startedAt - waited);
       const mark = row.finishedAt !== undefined ? row.status === "completed" ? "✓" : "○"
@@ -96,12 +112,22 @@ export class CrewPanel {
       const line = room >= 4 ? `${lead} · ${truncateToWidth(activity, room, "…")} · ${time}` : `${lead} · ${time}`;
       const full = `${line} · ${row.goal}`;
       const faded = row.finishedAt !== undefined && this.now() - row.finishedAt >= CREW_FADE_MS;
-      return tint(truncateToWidth(full, width, "…"), faded ? "muted" : "accent", options.color ?? false);
-    });
+      return tint(truncateToWidth(full, width, "…"), faded ? "muted" : "accent", color);
+    };
+    if (options.details) {
+      // Each helper, then what it did last (Ctrl+O): the same steps the steps pane logs, a few per helper.
+      const all = rows.flatMap(row => [helperLine(row), ...row.steps.map(step => tint(truncateToWidth(`    ${step.mark} ${step.text}`, width, "…"), "muted", color))]);
+      const cap = Math.max(1, height - 1);
+      const offset = Math.min(Math.max(0, options.offset ?? 0), Math.max(0, all.length - cap));
+      const lines = all.slice(offset, offset + cap);
+      if (lines.length < height) lines.push(tint(truncateToWidth(
+        `Crew details · ${rows.length} helper${rows.length === 1 ? "" : "s"} · ↑↓ scroll · Ctrl+O closes · Alt+O raw steps`, width, "…"), "muted", color));
+      return color ? lines : lines.map(stripVTControlCharacters);
+    }
+    const shown = rows.slice(0, Math.min(CREW_ROW_CAP, Math.max(1, height - 1)));
+    const lines = shown.map(helperLine);
     const hidden = rows.length - shown.length;
-    if (lines.length < height) lines.push(tint(truncateToWidth(options.details
-      ? `Crew ${offset + 1}–${offset + shown.length}/${rows.length} · ↑↓ scroll · Ctrl+O closes · Alt+O raw steps`
-      : `${hidden ? `+${hidden} more · ` : ""}Ctrl+O crew details · Alt+O raw steps`, width, "…"), "muted", options.color ?? false));
+    if (lines.length < height) lines.push(tint(truncateToWidth(`${hidden ? `+${hidden} more · ` : ""}Ctrl+O crew details · Alt+O raw steps`, width, "…"), "muted", color));
     return options.color ? lines : lines.map(stripVTControlCharacters);
   }
 }

@@ -522,7 +522,7 @@ export class CasperApp {
     privatePaths: () => projectPrivatePaths(this),
     // Inside tmux or iTerm2 each helper's steps show in the view-only steps pane; nowhere else.
     onActivity: (activity) => {
-      this.terminal.updateCrew(activity);
+      this.terminal.updateCrew(activity, this.projectContext ? this.activeWorkspaceRoot() : undefined);
       if (activity.kind === "usage" && activity.event && this.onEvent) {
         for (const mapped of new RuntimeEventMapper().map(activity.event)) if (mapped.type === "usage") this.onEvent({ ...mapped, helper: activity.run.id });
       }

@@ -26,7 +26,7 @@ takes nothing after its name says so (`Usage: /theme, with nothing after it.`).
 | Ctrl+G | In a plan, open its saved Markdown in `VISUAL` or `EDITOR`; reread it and show the plan again on return |
 | Ctrl+L | Redraw the screen |
 | Ctrl+V (Alt+V on Windows) | Paste a picture from the clipboard; it shows as `[image 1]` and goes with the request. A file you copied in Finder, Explorer or a file manager goes in as its path, and a picture file goes with the request like a dropped one. With neither on the clipboard, its text is pasted |
-| Ctrl+O | Open or close crew details while helper rows are shown; otherwise toggle raw/plain steps |
+| Ctrl+O | Open or close crew details (each helper's last steps) while helper rows are shown; otherwise toggle raw/plain steps |
 | Alt+O | Toggle raw steps (every tool call on its own row) or plain ones, including while crew details are open (works during work too) |
 | Ctrl+X | Turn MCP writes off for every server at once and refuse an open change box (see [MCP.md](MCP.md)); works during work and while a box is open |
 
@@ -299,8 +299,10 @@ short line, `✓ Ran the tests` for the project's test command (and the linter, 
 `✓ Ran git status`; a failure reads `✗ The tests failed` or `✗ Couldn't edit a.py`. Alt+O shows the raw steps
 instead: every call on its own row (`⠋ read · src/x.ts` while it runs, the spinner
 standing for `•`; `✓ read · src/x.ts` once done), even with calls running side by side; Alt+O again goes back to
-plain words. A small crew panel above the prompt lists each live builder/reviewer with its activity,
-working time and tokens (four rows, then `+N more`). Completed rows fade after 1.2 seconds and disappear
+plain words. A small crew panel above the prompt lists each live builder, reviewer and explorer with what
+it is doing now (`⠋ Explorer 1 · read · cad/otto.js · 12s · 3.1k tokens`), working time and tokens (four rows,
+then `+N more`). Crew details (Ctrl+O) list every helper with its last five steps under it
+(`    ✓ grep · stale · cad`, `•` while a step runs, `✗` when it failed); ↑↓ scroll and Ctrl+O or Esc closes. Completed rows fade after 1.2 seconds and disappear
 at six seconds. A helper waiting for approval pauses its own clock and shows `waited` separately;
 other helpers keep working. Plain terminals retain the existing `[crew]` lines.
 Ctrl+O does the same when no helper rows are shown; while helpers run or their completed rows remain,

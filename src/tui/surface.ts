@@ -468,7 +468,7 @@ export class TerminalSurface {
           this.crewDetails = false; this.render(); return { consume: true };
         }
         if (matchesKey(data, "up") || matchesKey(data, "down")) {
-          this.crewOffset = Math.max(0, Math.min(this.crew.size - 1, this.crewOffset + (matchesKey(data, "up") ? -1 : 1)));
+          this.crewOffset = Math.max(0, Math.min(this.crew.detailSize - 1, this.crewOffset + (matchesKey(data, "up") ? -1 : 1)));
           this.render(); return { consume: true };
         }
       }
@@ -818,8 +818,8 @@ export class TerminalSurface {
     this.render();
   }
   /** Helper lifecycle is independent of the current tool group and the optional side pane. */
-  updateCrew(activity: HelperActivity): void {
-    this.crew.update(activity);
+  updateCrew(activity: HelperActivity, root?: string): void {
+    this.crew.update(activity, root);
     this.updateSpinner();
     this.render();
   }
