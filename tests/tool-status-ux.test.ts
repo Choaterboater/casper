@@ -42,13 +42,15 @@ for (const rich of [true, false]) {
       ...call("2", "grep", { pattern: "absent" }, "No matches found", true),
       ...call("3", "read", { path: "a.ts" }, "Skipped as a repeat; earlier result follows"),
       ...call("4", "bash", { command: "example" }, "Not run: the user said no. Ask the user instead.", true),
-      ...call("5", "casper_check", { check: "junos" }, JSON.stringify({ status: "skip", reason: "no device" })), done);
+      ...call("5", "casper_check", { check: "junos" }, JSON.stringify({ status: "skip", reason: "no device" })),
+      ...call("6", "grep", { pattern: "foo(" }, "rg: regex parse error:\n    (?:foo()\n    ^\nerror: unclosed group", true), done);
     expect(s.text()).not.toMatch(/✗|— failed/);
     expect(s.text()).toContain("– read · guessed.ts — path not found");
     expect(s.text()).toContain("– grep · absent — nothing found");
     expect(s.text()).toContain("– bash · example — not run · You said no.");
     expect(s.text()).not.toContain("Ask the user");
     expect(s.text()).toContain("– casper_check · junos — skipped");
+    expect(s.text()).toContain("– grep · foo( — pattern not valid");
     expect(s.folds.flatMap(fold => fold.failures)).toHaveLength(0);
   });
 

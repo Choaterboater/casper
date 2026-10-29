@@ -199,6 +199,10 @@ test("idle: /details alone shows the level and saves nothing; --session goes bef
     await typed(app, "/details", "[details] quiet:");
     expect(await readFile(config, "utf8").catch(() => "")).not.toContain("display");
     await typed(app, "/details --session", "[error] Usage: /details [quiet|normal|detailed] [--session]");
+    // "all" and "everything" are the words people reach for: they mean detailed.
+    shown = await typed(app, "/details all --session", "[details] detailed:");
+    expect(shown).toContain("every step");
+    await typed(app, "/details everything --session", "[details] detailed:");
     await typed(app, "/effort --session low", "effort low");
     await typed(app, "/effort medium --session", "effort medium");
     expect(state.efforts).toEqual([{ level: "low", persist: false }, { level: "medium", persist: false }]);
