@@ -207,34 +207,33 @@ test("local skill commands work without starting an unavailable runtime", async 
       expect(runtime.prompts[0]).toContain("MCP_INSTRUCTIONS");
       expect(runtime.prompts[0]).toContain("TS_INSTRUCTIONS");
       expect(runtime.prompts[0]).not.toContain("UNRELATED_INSTRUCTIONS");
-      expect(runtime.prompts[0]).not.toContain("PROJECT_INSTRUCTIONS");
+      // A run that can't ask trusts its folder, so the folder's own skill is used, with no review of its own.
+      expect(runtime.prompts[0]).toContain("PROJECT_INSTRUCTIONS");
       expect(runtime.prompts[0]).toContain("User request:\nAdd a TypeScript MCP tool");
 
       const id = output.match(/project-mcp@[a-f0-9]+/)![0];
       output = "";
       await app.runOnce(`/skills inspect ${id}`);
       expect(output).toContain("PROJECT_INSTRUCTIONS");
+      expect(output).toContain("This folder's own skill: used while you trust the folder");
       expect(runtime.prompts).toHaveLength(1);
       const digest = output.match(/SHA256: ([a-f0-9]{64})/)![1];
-      await app.runOnce(`/skills trust ${id} incorrect`);
-      expect(output).toContain("digest is incorrect");
       await app.runOnce(`/skills trust ${id} ${digest}`);
+      expect(output).toContain(`${id} is this folder's own skill: it is used while you trust the folder.`);
       expect(runtime.prompts).toHaveLength(1);
-      await app.runOnce("Add a TypeScript MCP tool");
-      expect(runtime.prompts[1]).toContain("PROJECT_INSTRUCTIONS");
       await app.runOnce(`/skills block ${id}`);
       await app.runOnce("Add a TypeScript MCP tool");
-      expect(runtime.prompts[2]).not.toContain("PROJECT_INSTRUCTIONS");
+      expect(runtime.prompts[1]).not.toContain("PROJECT_INSTRUCTIONS");
       output = "";
       await app.runOnce("Hello there");
-      expect(runtime.prompts[3]).not.toContain("_INSTRUCTIONS");
+      expect(runtime.prompts[2]).not.toContain("_INSTRUCTIONS");
       expect(app.getLastTaskResult()).toBeDefined();
       await app.runOnce("/help");
       expect(app.getLastTaskResult()).toBeUndefined();
       await expect(app.runOnce("/nope")).rejects.toThrow("Unknown command");
       expect(app.getLastTaskResult()).toBeUndefined();
       await expect(app.runOnce("/skills nonsense")).rejects.toThrow("Usage: /skills | /skills diagnostics");
-      expect(runtime.prompts).toHaveLength(4);
+      expect(runtime.prompts).toHaveLength(3);
     } finally {
       await app.close();
     }

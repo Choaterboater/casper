@@ -206,8 +206,16 @@ fonts, spacing and components, and to keep anything below the project's style al
 Put a `SKILL.md` in its own folder:
 
 - `~/.casper/skills/<name>/SKILL.md`: yours, trusted.
-- `<project>/.casper/skills/<name>/SKILL.md`: the project's, used only after `/skills trust <id>`
-  shows it and you pick `2 Trust it` (scripts can still pass the hash: `/skills trust <id> <sha256>`).
+- Your other tools' folders are yours too, so a skill you made for Claude Code, Copilot, Codex or Pi works
+  here as well: `~/.agents/skills/` (the shared Agent Skills folder), `~/.claude/skills/`,
+  `~/.copilot/skills/`, `~/.pi/agent/skills/` and `~/.codex/skills/` (`skills.imports` in
+  [CONFIGURATION.md](CONFIGURATION.md#skills) lists fewer).
+- `<project>/.casper/skills/<name>/SKILL.md`, and the project's `.agents/skills/`, `.claude/skills/` and
+  `.github/skills/`: the project's, used only while you trust the folder ("trust this folder"). In a
+  folder you haven't trusted, none are used.
+
+When the same name is in two places, yours comes first (`~/.casper/skills/`, then the other tools' in the
+order above), then the project's; `/skills` lists the others as not used.
 
 ```markdown
 ---
@@ -237,8 +245,8 @@ skill tagged `mcp`. Keep tags specific; a word as broad as `mcp` matches more re
 (for example `network-mist-api`) is used in its place only while it keeps the same eight sections in
 order, opens "Changing things" with the stop-and-ask line and the "Casper also asks" line, and uses
 none of the words the pack avoids ("read-only", "safe to run", "guaranteed" …). If it drops any of
-that, Casper uses the bundled text and `/skills diagnostics` says why. A project's same-name skill
-never replaces a bundled one, even after `/skills trust`.
+that, Casper uses the bundled text and `/skills diagnostics` says why. A same-name skill from a
+project, or from another tool's folder, never replaces a bundled one.
 
 ## Writing or changing a bundled skill
 

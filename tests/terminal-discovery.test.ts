@@ -2,7 +2,7 @@ import { afterEach, expect, test } from "bun:test";
 import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { SkillRegistry } from "../src/skills/registry";
+import { DEFAULT_SKILL_IMPORTS, SkillRegistry } from "../src/skills/registry";
 import { loadConfiguration } from "../src/config/load";
 import { CasperApp } from "../src/app";
 import { loadProjectContext } from "../src/project/context";
@@ -21,19 +21,19 @@ async function fixture() {
 }
 const valid = "---\nname: sample\ndescription: Sample guidance\n---\nInstructions";
 
-test("default discovery never scans other tools' roots", async () => {
+test("with skills.imports [] Casper never scans other tools' roots", async () => {
   const f = await fixture();
   for (const folder of [".claude/skills/AionUi", ".codex/skills/bad", ".pi/agent/skills/sample", ".agents/skills/paperclip"]) {
     await f.put(f.homeDir, `${folder}/README.md`, "# ordinary documentation");
     await f.put(f.homeDir, `${folder}/bad/SKILL.md`, "invalid");
   }
   await f.put(f.homeDir, ".casper/skills/native/SKILL.md", valid);
-  const registry = await SkillRegistry.discover(f);
+  const registry = await SkillRegistry.discover({ ...f, imports: [] });
   expect(registry.list()).toHaveLength(1);
   expect(registry.diagnostics).toEqual([]);
 });
 
-test("opted-in trees ignore ordinary docs but retain malformed skill diagnostics and standalone skills", async () => {
+test("your other tools' trees ignore ordinary docs but retain malformed skill diagnostics and standalone skills", async () => {
   const f = await fixture();
   await f.put(f.homeDir, ".claude/skills/AionUi/README.md", "# ordinary documentation");
   await f.put(f.homeDir, ".claude/skills/paperclip/docs/frontmatter.md", "---\ntitle: Design\n---\nDocumentation");
@@ -43,7 +43,7 @@ test("opted-in trees ignore ordinary docs but retain malformed skill diagnostics
   await f.put(f.homeDir, ".claude/skills/broken.md", "---\nname: broken\ndescription: [\n---\nBad skill");
   await f.put(f.homeDir, ".codex/skills/invalid/SKILL.md", `---\nname: invalid\ndescription: ${"x".repeat(1025)}\n---\nBad skill`);
   const registry = await SkillRegistry.discover({ ...f, imports: ["claude", "codex"] });
-  expect(registry.list().map((s) => [s.name, s.trust])).toEqual([["flow", "untrusted"], ["sample", "untrusted"]]);
+  expect(registry.list().map((s) => [s.name, s.trust])).toEqual([["flow", "trusted"], ["sample", "trusted"]]);
   expect(registry.diagnostics).toHaveLength(3);
   expect(registry.diagnostics.join("\n")).not.toMatch(/README|frontmatter.md/);
   expect(registry.diagnostics.join("\n")).toContain("description must contain");
@@ -75,9 +75,9 @@ test("startup summarizes genuine warnings, keeps detail local and never prints o
   } finally { await app.close(); }
 });
 
-test("imports are validated, user/profile-only, replace rather than merge, and default empty", async () => {
+test("imports are validated, user/profile-only, replace rather than merge, and default to every tool", async () => {
   const f = await fixture();
-  expect((await loadConfiguration(f)).skills.imports).toEqual([]);
+  expect((await loadConfiguration(f)).skills.imports).toEqual([...DEFAULT_SKILL_IMPORTS]);
   await f.put(f.homeDir, ".casper/config.yaml", "skills: { imports: [pi, agents] }\n");
   await f.put(f.homeDir, ".casper/profiles/default/config.yaml", "skills: { imports: [codex] }\n");
   await f.put(f.projectRoot, ".casper/project.yaml", "skills: { imports: [claude] }\n");
