@@ -610,8 +610,13 @@ async function detectModel(
   if (!commands.test && !overrides.commands?.test?.trim() && tests.length) {
     const bunTests = tests.filter((file) => JS_TEST_FILE.test(path.basename(file)));
     if (bunTests.length && (packageManager === "bun" || await importsBunTest(project.root, bunTests))) commands = { ...commands, test: "bun test" };
-    // Node's own runner (test/*.test.mjs importing node:test, often with no root package.json): it finds the files itself.
-    else if (bunTests.length && await importsModule(project.root, bunTests, "node:test")) commands = { ...commands, test: "node --test" };
+    // Node's own runner (test/*.test.mjs importing node:test, often with no root package.json). Plain `node --test`
+    // also runs every .js/.mjs under test/ (helpers, fixtures) and counts each as a test, so it gets the test files'
+    // own endings; Node expands the quoted patterns itself and still skips node_modules.
+    else if (bunTests.length && await importsModule(project.root, bunTests, "node:test")) {
+      const endings = [...new Set(bunTests.map((file) => /[._](?:test|spec)\.[cm]?[jt]sx?$/.exec(path.basename(file))![0]))].sort();
+      commands = { ...commands, test: `node --test ${endings.map((ending) => `"**/*${ending}"`).join(" ")}` };
+    }
     else testsWithoutCommand = true;
   }
   const structure = await detectRepositoryStructure(project.root);
