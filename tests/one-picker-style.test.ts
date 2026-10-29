@@ -85,7 +85,7 @@ test("the shared list uses arrows and Enter first, with numbers as shortcuts pas
   expect(chosen).toBe("12");
 });
 
-test.each([80, 160])("NO_COLOR approvals have no input row, keep safe order, and show typed No comments at %i columns", async width => {
+test.each([80, 160])("NO_COLOR approvals have no input row, keep safe order, and show a No note typed on its own row at %i columns", async width => {
   const previous = process.env.NO_COLOR;
   process.env.NO_COLOR = "1";
   const session = interactiveTerminal();
@@ -106,9 +106,13 @@ test.each([80, 160])("NO_COLOR approvals have no input row, keep safe order, and
     expect(session.screen.output).not.toMatch(/\x1b\[(?!0m)[0-9;]*m/);
     session.input.write("\x1b[B");
     await wait(() => screen().includes("❯ 2. Yes, this once"));
-    // Even the granting label typed in full is a comment, not consent.
+    // Letters on the list go nowhere; the note row opens a line, and even the granting label typed there is a note on a No.
     session.input.write("Yes, this once");
-    await wait(() => screen().includes("❯ 1. No — Yes, this once"));
+    await wait(() => screen().includes("3 to tell the AI what to do instead"));
+    expect(screen()).toContain("❯ 2. Yes, this once");
+    session.input.write("3");
+    session.input.write("Yes, this once");
+    await wait(() => screen().includes("❯ 3. No, and tell the AI what to do instead — Yes, this once"));
     expect(screen()).not.toContain("? Yes, this once");
     session.input.write("\r");
     expect(await answer).toBe("No");
@@ -129,8 +133,9 @@ test.each([80, 160])("NO_COLOR approvals have no input row, keep safe order, and
     const command = session.terminal.pick("Run this command?  custom-tool build", choices);
     await wait(() => screen().includes("custom-tool build"));
     expect(screen()).toContain("Run this command?");
+    session.input.write("3");
     session.input.write("not that command");
-    await wait(() => screen().includes("❯ 1. No — not that command"));
+    await wait(() => screen().includes("❯ 3. No, and tell the AI what to do instead — not that command"));
     session.input.write("\r"); expect(await command).toBe("No");
     const skipped = session.terminal.approve("", "Skip this?", choices);
     await wait(() => screen().includes("Skip this?"));

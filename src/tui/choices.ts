@@ -17,6 +17,16 @@ export function choiceNumber(index: number, count: number): string {
  * type the answer in. Casper adds it; it is never one of the asker's choices, and approvals and pickers don't have it. */
 export const OTHER_CHOICE = "Other — type your own answer";
 
+/** The last row of an approval on the rich terminal: picking it opens a line for a note, and Enter sends No with it. */
+export const NOTE_CHOICE = "No, and tell the AI what to do instead";
+
+/** Flashed when letters are typed on a box's list: choices are picked with keys, and only the box's last row (when it
+ * has one) takes typed words. */
+export function pickKeysHint(count: number, field?: { row: number; what: string }): string {
+  const keys = count <= KEY_PICK_MAX ? `${count === 1 ? "1" : `1-${count}`} or ↑↓ Enter` : "↑↓ Enter, or type a number";
+  return [`Pick with ${keys}`, ...(field ? [`${field.row} to ${field.what}`] : [])].join(" · ");
+}
+
 /** Arrows move the highlight; numbering is a shortcut, not a second input style. */
 export const PICKER_HINT = "Enter to choose · Esc to skip";
 export function choiceKeys(_count: number): string { return "Enter to choose"; }

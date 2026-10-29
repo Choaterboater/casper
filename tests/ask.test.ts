@@ -57,7 +57,7 @@ test("a question from the AI opens with \"The AI asks:\"; Casper's own questions
   } finally { session.close(); }
 });
 
-test("pressing a choice's number picks it at once; a digit after typed text stays free text", async () => {
+test("pressing a choice's number picks it at once; a digit past the last row picks nothing, and numbers on the answer line are words", async () => {
   const session = interactiveTerminal();
   try {
     session.terminal.setStatus("fixture"); session.terminal.start();
@@ -66,15 +66,15 @@ test("pressing a choice's number picks it at once; a digit after typed text stay
     expect(Bun.stripANSI(session.screen.output)).toContain("    3. Other — type your own answer\r\n  Enter to choose · Esc to skip");
     session.input.write("2");
     expect(await byNumber).toEqual(["Postgres"]);
-    // A digit past the last row (the Other row is 3) is ordinary text.
+    // A digit past the last row (the Other row is 3) picks nothing and starts no answer; after 3, it is words.
     const outOfRange = session.terminal.ask("Replicas?", OPTIONS, false, undefined, "ai");
     await session.screen.until(output => output.includes("Replicas?"));
+    session.input.write("4");
+    await session.screen.until(output => Bun.stripANSI(output).includes("Pick with 1-3 or ↑↓ Enter · 3 to type your own answer"));
+    session.input.write("3");
+    await session.screen.until(output => Bun.stripANSI(output).includes("3. Other — type your own answer —"));
     session.input.write("4 replicas\r");
     expect(await outOfRange).toEqual(["4 replicas"]);
-    const typed = session.terminal.ask("Which version?", OPTIONS, false, undefined, "ai");
-    await session.screen.until(output => output.includes("Which version?"));
-    session.input.write("v1\r");
-    expect(await typed).toEqual(["v1"]);
     // In a multiple choice a number toggles its option.
     const multi = session.terminal.ask("Pick layers?", OPTIONS, true);
     await session.screen.until(output => output.includes("Pick layers?"));
@@ -85,12 +85,14 @@ test("pressing a choice's number picks it at once; a digit after typed text stay
   } finally { session.close(); }
 });
 
-test("a non-numeric reply is a free-text answer to the AI's question", async () => {
+test("after picking Other, a non-numeric reply is a free-text answer to the AI's question", async () => {
   const session = interactiveTerminal();
   try {
     session.terminal.setStatus("fixture"); session.terminal.start();
     const answer = session.terminal.ask("Which database?", OPTIONS, false, undefined, "ai");
     await session.screen.until(output => output.includes("SQLite"));
+    session.input.write("3");
+    await session.screen.until(output => Bun.stripANSI(output).includes("3. Other — type your own answer —"));
     session.input.write("SQLite with litestream\r");
     expect(await answer).toEqual(["SQLite with litestream"]);
   } finally { session.close(); }
@@ -400,6 +402,8 @@ test("an answered question leaves one line: → the choice or the typed answer, 
     session.terminal.start();
     const typed = session.terminal.ask("Name?", [{ label: "Ann" }, { label: "Bo" }], false, undefined, "ai");
     await session.screen.until(output => output.includes("Name?"));
+    session.input.write("3");
+    await session.screen.until(output => Bun.stripANSI(output).includes("3. Other — type your own answer —"));
     session.input.write("Cy\r");
     expect(await typed).toEqual(["Cy"]);
     const skipped = session.terminal.ask("Colour?", [{ label: "Red" }, { label: "Blue" }], false);

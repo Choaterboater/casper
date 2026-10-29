@@ -1,5 +1,5 @@
 import {
-  CombinedAutocompleteProvider, type AutocompleteProvider, type Component, Editor, getNativeClipboard, type MarkdownTheme,
+  CombinedAutocompleteProvider, type AutocompleteProvider, type Component, decodeKittyPrintable, Editor, getNativeClipboard, type MarkdownTheme,
   isKeyRelease, matchesKey, setCapabilityOverrides, TuiMainScreen, truncateToWidth, visibleWidth, wrapTextWithAnsi,
 } from "@earendil-works/pi-tui";
 import type { RuntimeImage, RuntimeModelPickerHost, RuntimePickerIO, RuntimePickerView } from "../runtime/types";
@@ -7,7 +7,7 @@ import { imageLabel, imageMimeType, MAX_IMAGE_BYTES, MAX_IMAGES, promptPath } fr
 import { readClipboardFiles } from "./clipboard-files";
 import { commandMenu, COMMANDS, findCommand, fitDescriptions, type MenuCommand, menuRunsDuringWork } from "./commands";
 import { BUSY_GLYPH, dim, formatElapsed, hasLineControls, hasTerminalControls, lineText, markdownTheme, PROMPT_GLYPH, terminalText, tint } from "./format";
-import { answerRecord, answerRecordText, choiceHint, choiceNumber, KEY_PICK_MAX, keyChoice, MODEL_REASON_PREFIX, OTHER_CHOICE, typedChoice, type PickRecord } from "./choices";
+import { answerRecord, answerRecordText, choiceHint, choiceNumber, KEY_PICK_MAX, keyChoice, MODEL_REASON_PREFIX, NOTE_CHOICE, OTHER_CHOICE, pickKeysHint, typedChoice, type PickRecord } from "./choices";
 import { typedDuringTask } from "./give-way";
 import { GLYPHS } from "./glyphs";
 import { StreamingMarkdown } from "./markdown-stream";
@@ -89,7 +89,23 @@ const WORD_EDGE = 16;
 /** Columns the Other row keeps for the words typed after its label; with fewer, the label is just "Other". */
 const TYPED_ROOM = 20;
 
-/** Words typed in a box (an answer on the Other row, a comment on an approval) on their row, laid out by `layout` at
+/** The character a key types, however the terminal sends it: as itself, or as a kitty or modifyOtherKeys escape code
+ * (the keypad's digits, Shift+letters), which the editor would otherwise insert. Undefined for keys that type nothing. */
+export function printableKey(data: string): string | undefined {
+  if (!data.startsWith("\x1b")) return /^[^\x00-\x1f\x7f]+$/.test(data) ? data : undefined;
+  // A key the keypad sends as a private-use character (its Enter, say) types nothing.
+  const kitty = decodeKittyPrintable(data);
+  if (kitty !== undefined) return /^[\ue000-\uf8ff]$/u.test(kitty) ? undefined : kitty;
+  // modifyOtherKeys: ESC [ 27 ; <modifier> ; <code> ~, as pi-tui reads it: Shift alone (Caps and Num Lock aside) types.
+  const other = /^\x1b\[27;(\d+);(\d+)~$/.exec(data);
+  if (!other) return undefined;
+  const modifier = (Number(other[1]) - 1) & ~(64 | 128);
+  const code = Number(other[2]);
+  if ((modifier & ~1) !== 0 || !Number.isFinite(code) || code < 32) return undefined;
+  try { return String.fromCodePoint(code); } catch { return undefined; }
+}
+
+/** Words typed in a box (an answer on the Other row, a note on an approval's last row) on their row, laid out by `layout` at
  * most `width` columns wide: all of them when they fit in `maxLines` rows, else the part around the cursor (where letters
  * go in, at the end while typing goes on) with … for what is left out. They were cut at 100 characters, so the end of
  * a long answer never showed while it was typed. */
@@ -238,7 +254,7 @@ class PromptEditor extends Editor {
 }
 
 /** Who asked a numbered question: Casper itself (choices), Casper's approval boxes, or the AI through its ask tool.
- * An approval takes an inline comment (typed words are a No) and Ctrl+X revokes writes. */
+ * An approval's last row takes a note (a No with it) and Ctrl+X revokes writes. */
 export type AskOrigin = "ai" | "casper" | "approval";
 /** Keys pressed this soon after a box opens are ignored: they were typed before it appeared (mid-sentence), so they
  * never answer it. tests/support/preload.ts sets 0 for the suite; tests/one-input-style.test.ts checks the real wait. */
@@ -324,7 +340,7 @@ export class TerminalSurface {
   private askActiveIndex = 0;
   /** When the open question appeared; keys before askDefaults.guardMs has passed are ignored. */
   private askOpenedAt = 0;
-  /** The question accepts a free answer (the AI's questions, a name); approvals instead keep a No comment inline. */
+  /** The question accepts a free answer on its Other row (the AI's questions, a name); an approval has its note row. */
   private askTyped = false;
   /** The Other row was picked: the box takes the typed answer, and Esc goes back to the list. */
   private askOther = false;
@@ -472,9 +488,9 @@ export class TerminalSurface {
           this.render(); return { consume: true };
         }
       }
-      // A picker or approval takes keys, not pastes: a paste waits as the draft for after the box, so it never lands
-      // in the box's answer row. pi-tui delivers a whole paste as one input. A box that takes a typed answer takes it.
-      if (this.pendingAsk && !this.askTyped && data.startsWith("\x1b[200~")) {
+      // A box takes keys, not pastes: a paste waits as the draft for after the box, so it never lands in an answer
+      // nobody picked. pi-tui delivers a whole paste as one input. Once the last row's line is open, it goes there.
+      if (this.pendingAsk && !this.askOther && data.startsWith("\x1b[200~")) {
         this.keepPaste(data.slice(6).replace(/\x1b\[201~$/, ""));
         return { consume: true };
       }
@@ -517,7 +533,7 @@ export class TerminalSurface {
         this.render(); return { consume: true };
       }
       if (this.pendingAsk && this.askOptions && !this.editor.getText() && (matchesKey(data, "up") || matchesKey(data, "down"))) {
-        // On an empty answer line, Up/Down goes back to the list from the Other row.
+        // On an empty line, Up/Down goes back to the list from the last row.
         if (this.askOther) { this.askOther = false; this.askActiveIndex = this.askOptions.length; }
         const count = this.askRows();
         this.askActiveIndex = (this.askActiveIndex + (matchesKey(data, "up") ? count - 1 : 1)) % count;
@@ -528,7 +544,7 @@ export class TerminalSurface {
         if (matchesKey(data, "enter")) { this.chooseAsk(); return { consume: true }; }
         // A choice's number picks it (or toggles it) while nothing is typed; a digit past the last
         // choice, after typed text, or in a list past nine rows (typed, then Enter) is ordinary text.
-        const index = keyChoice(data, count);
+        const index = keyChoice(printableKey(data) ?? data, count);
         if (index >= 0) { this.pickAsk(index); return { consume: true }; }
         if (this.askMulti && matchesKey(data, "space")) {
           const index = this.askActiveIndex;
@@ -537,11 +553,12 @@ export class TerminalSurface {
           this.render(); return { consume: true };
         }
       }
-      // Key-only pickers ignore words; approval comments use the hidden editor and always resolve to No.
-      // Past nine rows a row's number is typed, so digits still go in.
-      if (this.pendingAsk && this.askFrom !== "approval" && !this.askTyped && !data.startsWith("\x1b") && /^[^\x00-\x1f\x7f]+$/.test(data)
-        && !((this.askOptions?.length ?? 0) > KEY_PICK_MAX && /^\d+$/.test(data))) {
-        this.flashNote(choiceHint(this.askRows()));
+      // Letters on a box's list go nowhere: choices are picked with keys, and words are typed only on the line the
+      // last row opens (Other, or an approval's note). Past nine rows a row's number is typed, so digits still go in.
+      const typedKey = this.pendingAsk && !this.askOther ? printableKey(data) : undefined;
+      if (typedKey !== undefined && !(this.askRows() > KEY_PICK_MAX && /^\d+$/.test(typedKey))) {
+        const field = this.askField();
+        this.flashNote(pickKeysHint(this.askRows(), field ? { row: this.askRows(), what: field === NOTE_CHOICE ? "tell the AI what to do instead" : "type your own answer" } : undefined));
         return { consume: true };
       }
       if (matchesKey(data, "ctrl+l")) { this.tui.requestRender(true); return { consume: true }; }
@@ -998,7 +1015,7 @@ export class TerminalSurface {
   }
   /**
    * One approval box: the context lines go into the transcript, then the numbered panel asks. One key picks (or
-   * Up/Down and Enter); typed words are a No, the first choice. It resolves the chosen label, or undefined for Esc,
+   * Up/Down and Enter); a note typed on its last row is a No, the first choice. It resolves the chosen label, or undefined for Esc,
    * Ctrl+C, Ctrl+X, close or abort. A pretyped draft never answers, and nor does a key pressed as the box opened.
    * This channel is the user's alone: the model's ask tool never reaches it.
    */
@@ -1021,7 +1038,7 @@ export class TerminalSurface {
     if (this.held && !typedDuringTask()) return this.held.then(() => this.ask(question, options, multi, signal, from, typed, ownRecord));
     this.yieldSlot();
     if (this.closed || this.slot || this.lending || this.pendingAsk || this.pendingLine || signal?.aborted) return Promise.resolve(undefined);
-    // Shell approvals arrive through pick(), not approve(); they still own the same safe comment channel.
+    // Shell approvals arrive through pick(), not approve(); they still own the same safe note row.
     if (from === "casper" && options[0]?.label === "No" && SHELL_QUESTION.test(question)) from = "approval";
     // The steps and the status row step aside while the box is open, and come back after it.
     this.endAssistant();
@@ -1151,10 +1168,8 @@ export class TerminalSurface {
     // A box that takes a typed answer ends with the Other row; while an answer is typed, it stays highlighted.
     const count = this.askRows();
     const typing = this.askTyping();
-    const comment = this.askFrom === "approval" ? this.editor.getExpandedText().replace(/\s+/g, " ").trim() : "";
-    const active = typing ? choices : comment ? 0 : this.askActiveIndex;
-    // A multi-select's numbers toggle rather than pick, so its keys say so.
-    const hint = choiceHint(count);
+    const active = typing ? choices : this.askActiveIndex;
+    const hint = typing ? (this.askFrom === "approval" ? "Enter to send No with this note · Esc to go back" : "Enter to send · Esc to go back") : choiceHint(count);
     const question = (this.askQuestion ?? "").split("\n");
     const reason = question[1]?.startsWith(MODEL_REASON_PREFIX) ? question[1] : undefined;
     // Casper's question stays first; the model's last sentence is dim context on one row.
@@ -1184,23 +1199,24 @@ export class TerminalSurface {
     } else {
       head.push(...context.flatMap(line => wrapTextWithAnsi(this.muted(line), width)).slice(0, contextBudget));
     }
-    if (!typing && this.editor.getText() && !comment && head.length < headBudget) head.push(this.muted(`Number: ${this.editor.getText()}`));
-    // The row that shows what is typed: the answer on the Other row, or an approval's comment on its No.
-    const typedAt = typing ? choices : comment ? 0 : -1;
+    if (!typing && this.editor.getText() && head.length < headBudget) head.push(this.muted(`Number: ${this.editor.getText()}`));
+    // The row that shows what is typed: the last row, once its line is open.
+    const typedAt = typing ? choices : -1;
     const typed = typedAt < 0 ? undefined : this.typedText();
     const entries = Array.from({ length: count }, (_, index) => {
-      const entry = index < choices ? this.askOptions![index]! : { label: OTHER_CHOICE };
+      const entry = index < choices ? this.askOptions![index]! : { label: this.askField()! };
       const marker = this.askMulti && index < choices ? (this.askSelections.has(index) ? "[x] " : "[ ] ") : "";
       return { ...entry, ...(index === typedAt ? { description: undefined } : {}), label: marker + entry.label };
     });
-    const labelWidth = Math.max(0, ...this.askOptions?.map(row => visibleWidth(row.label)) ?? [], ...(this.askTyped ? [visibleWidth(OTHER_CHOICE)] : [])) + (this.askMulti ? 4 : 0);
-    // Typed words show in full after the row's label; in fewer than `maxLines` rows, the part where the cursor is. An
-    // Other row too small for words after its whole label keeps only "Other".
+    const labelWidth = Math.max(0, ...this.askOptions?.map(row => visibleWidth(row.label)) ?? [], ...(this.askField() ? [visibleWidth(this.askField()!)] : [])) + (this.askMulti ? 4 : 0);
+    // Typed words show in full after the row's label; in fewer than `maxLines` rows, the part where the cursor is. A
+    // last row too small for words after its whole label keeps only "Other" (or an approval's "No").
     const option = (index: number, compact: boolean, maxLines = height) => {
       if (index !== typedAt) return pickerOptionLines(entries, index, index === active, width, this.io.color, { compact, labelWidth });
       const whole = entries[index]!.label;
       const room = Math.max(1, maxLines) * Math.max(1, width - 2 - visibleWidth(choiceNumber(index, count))) - visibleWidth(`${whole} — `);
-      const label = whole === OTHER_CHOICE && room < TYPED_ROOM && visibleWidth(typed!.text) > room ? OTHER_CHOICE.split(" — ")[0]! : whole;
+      const short = whole === OTHER_CHOICE ? "Other" : whole === NOTE_CHOICE ? "No" : undefined;
+      const label = short && room < TYPED_ROOM && visibleWidth(typed!.text) > room ? short : whole;
       return typedRowLines(typed!.text, typed!.cursor, maxLines, width, shown => pickerOptionLines([{ label: `${label} — ${shown}` }],
         0, true, width, this.io.color, { count, offset: index, compact, labelWidth }));
     };
@@ -1255,17 +1271,23 @@ export class TerminalSurface {
     this.render();
   }
 
-  /** The rows of the open box: its choices, then the Other row where a typed answer is taken. */
+  /** The open box's last row that opens a line to type on: Other for a box that takes a typed answer, the note row
+   * for an approval, or none for a key-only picker. */
+  private askField(): string | undefined {
+    return this.askTyped ? OTHER_CHOICE : this.askFrom === "approval" ? NOTE_CHOICE : undefined;
+  }
+
+  /** The rows of the open box: its choices, then the row that opens a line to type on. */
   private askRows(): number {
-    return (this.askOptions?.length ?? 0) + (this.askTyped ? 1 : 0);
+    return (this.askOptions?.length ?? 0) + (this.askField() ? 1 : 0);
   }
 
-  /** An answer is being typed: the Other row was picked, or letters were typed straight into the box. */
+  /** Words are being typed: the last row was picked and its line is open. */
   private askTyping(): boolean {
-    return this.askTyped && (this.askOther || this.editor.getText() !== "");
+    return this.askOther;
   }
 
-  /** The Other row: the box now takes a typed answer on its input line; Enter sends it, Esc goes back to the list. */
+  /** The last row: the box now takes typed words on its input line; Enter sends them, Esc goes back to the list. */
   private typeAsk(): void {
     this.askOther = true;
     this.render();
@@ -1275,15 +1297,15 @@ export class TerminalSurface {
    * otherwise picked by number or arrow keys. */
   private answerAsk(value: string): void {
     const text = value.trim();
-    // While an answer is typed after picking Other, a number is the answer, not a row.
+    // While words are typed after picking the last row, a number is the words, not a row.
     const index = this.askOther ? -1 : typedChoice(text, this.askRows());
     if (index >= 0) { this.pickAsk(index); return; }
-    if (text) {
-      if (this.askFrom === "approval") {
-        this.submittedAskComment = text;
-        this.pendingAsk?.([this.askLabels[0]!]);
-      } else this.pendingAsk?.([text]);
-    }
+    if (!this.askOther) return;
+    // An approval's note is a No with the note (an empty one, a plain No); typed words never approve.
+    if (this.askFrom === "approval") {
+      this.submittedAskComment = text;
+      this.pendingAsk?.([this.askLabels[0]!]);
+    } else if (text) this.pendingAsk?.([text]);
   }
 
   private planEdit?: string;

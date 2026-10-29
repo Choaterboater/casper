@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { readFile } from "node:fs/promises";
 import { NO, YES_ONCE } from "../src/app/safe-choices";
-import { OTHER_CHOICE } from "../src/tui/choices";
+import { NOTE_CHOICE, OTHER_CHOICE } from "../src/tui/choices";
 import { Screen } from "./support/conpty";
 import { withEnv } from "./support/env";
 import { interactiveTerminal } from "./support/tty";
@@ -108,7 +108,7 @@ test("an answer too long for a short terminal keeps the words being typed in vie
       expect(LONG.endsWith(shown.slice(1).replace(/^\S*\s/, ""))).toBe(true);
       // The box still fits the screen: its question above, its keys below.
       expect(screen).toContain(`  ${QUESTION}`);
-      expect(screen).toContain("Esc to skip");
+      expect(screen).toContain("Esc to go back");
       // Back at the start (Home), new words show there, and the rest is "…".
       session.input.write("\x01");
       session.input.write("first ");
@@ -149,18 +149,21 @@ test("a long comment on an approval shows in full as it wraps, its end on a shor
       try {
         const answer = session.terminal.approve("", "Make this change?", [NO, YES_ONCE]);
         await waitFor(() => visible(session).includes("Esc to skip"), () => visible(session));
-        await typeWords(session, NO, WORDS);
+        // The note row (3) opens the line the words go on.
+        session.input.write("3");
+        await waitFor(() => visible(session).includes("Esc to go back"), () => visible(session));
+        await typeWords(session, NOTE_CHOICE, WORDS);
         const screen = visible(session);
-        const shown = typedRow(screen, NO);
+        const shown = typedRow(screen, NOTE_CHOICE);
         if (rows === 30) expect(shown).toBe(LONG);
         else {
           expect(shown).toStartWith("…");
           expect(shown).toEndWith("step39 step40");
         }
         expect(screen).toContain("Make this change?");
-        expect(screen).toContain("Esc to skip");
+        expect(screen).toContain("Esc to go back");
         session.input.write("\r");
-        // Typed words are a No, with the words as direction for the task.
+        // The note is a No, with the words as direction for the task.
         expect(await answer).toBe(NO);
         expect(sent).toEqual([LONG]);
       } finally { session.close(); }
@@ -168,11 +171,16 @@ test("a long comment on an approval shows in full as it wraps, its end on a shor
   });
 });
 
-test("the terminal guide says how a long typed answer and an approval's comment show", async () => {
+test("the terminal guide says how a long typed answer and an approval's note show, and that letters on the list go nowhere", async () => {
   const doc = (await readFile(new URL("../docs/TERMINAL_UX.md", import.meta.url), "utf8")).replace(/\s+/g, " ");
   expect(doc).toContain("the answer appears inline beside Other, in full as it wraps. When the box can't hold all of it, the part where the "
     + "cursor is shows (the end, while you type on) with `…` for the rest, and a box too small for the words after the whole label keeps only "
     + "`Other —`. Enter sends all of it");
-  expect(doc).toContain("Typing words selects No with an inline comment, shown like a typed answer (in full, or the part where the cursor is); "
-    + "Enter declines and sends all of those words as direction for Casper");
+  expect(doc).toContain("The approval's last row, `No, and tell the AI what to do instead`, opens a line for a note, shown like a typed answer "
+    + "(in full, or the part where the cursor is; `No —` when the row is too narrow); Enter declines and sends the note as direction for Casper");
+  expect(doc).toContain("Letters typed on the list go nowhere: they never start an answer, and a short hint names the keys and the Other row's number");
+  expect(doc).toContain("Letters typed on the list go nowhere and never answer it: a short hint names the keys and the note row's number.");
+  expect(doc).toContain("Even a note that spells a granting choice is a No ([decision 43](adr/0002/43-boxes-take-keys.md))");
+  const decision = await readFile(new URL("../docs/adr/0002/43-boxes-take-keys.md", import.meta.url), "utf8");
+  for (const heading of ["# 43. Boxes take keys", "**What:**", "**Why:**", "**Guard rails:**", "**A finding:**"]) expect(decision).toContain(heading);
 });

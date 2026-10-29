@@ -202,7 +202,9 @@ test("while a picker is open its row takes no typing and no paste; a paste waits
     await settle(30);
     const open = screenText(session.screen.output).split("\n");
     expect(open.some((line) => line.includes("line 61"))).toBe(false);
-    expect(open.filter((line) => line.trim()).at(-1)).toContain("Enter to choose · Esc to skip");
+    expect(open.some((line) => line.includes("Enter to choose · Esc to skip"))).toBe(true);
+    // The letter went nowhere: a hint names the keys instead.
+    expect(open.some((line) => line.includes("Pick with 1-2 or ↑↓ Enter"))).toBe(true);
     session.input.write("1");
     expect(await picked).toBe("lab");
     // The paste is back in the prompt once the picker closes, nothing typed with it.
@@ -212,12 +214,14 @@ test("while a picker is open its row takes no typing and no paste; a paste waits
   } finally { session.close(); }
 });
 
-test("the AI's own question still takes a typed answer, and so does a long list's row number", async () => {
+test("the AI's own question still takes a typed answer on its Other row, and a long list takes a typed row number", async () => {
   const session = interactiveTerminal();
   try {
     session.terminal.setStatus("fixture"); session.terminal.start();
     const typed = session.terminal.ask("Name?", [{ label: "Ann" }, { label: "Bo" }], false, undefined, "ai");
     await session.screen.until((output) => output.includes("Other — type your own answer"));
+    session.input.write("3");
+    await session.screen.until((output) => screenText(output).includes("3. Other — type your own answer —"));
     session.input.write("Cy\r");
     expect(await typed).toEqual(["Cy"]);
     const rows = Array.from({ length: 12 }, (_, index) => ({ label: `Row ${index + 1}` }));

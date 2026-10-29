@@ -76,7 +76,7 @@ test("shell descriptions explain the same safe order briefly", () => {
   expect(SHELL_COMMAND_CHOICES.map(row => row.description)).toEqual(["the command does not run", "only this time", "until you quit", "always in this project", "every command and question; /permissions ask undoes it"]);
 });
 
-test("a builder's inline command uses the same frame and routes typed words as a No with direction", async () => {
+test("a builder's inline command uses the same frame and routes a note typed on its last row as a No with direction", async () => {
   const input = new PassThrough();
   const surface = new TerminalSurface({ input, output: { write() {}, columns: 80, rows: 30 }, color: false, onEOF() {} }, () => {}, () => {});
   const directions: string[] = [];
@@ -84,11 +84,12 @@ test("a builder's inline command uses the same frame and routes typed words as a
   try {
     surface.start();
     const answer = surface.ask("Builder 1 wants to run: custom-tool --check", [...SHELL_COMMAND_CHOICES], false, undefined, "casper", false);
+    input.write(String(SHELL_COMMAND_CHOICES.length + 1));
     input.write("use the fixture instead");
     const rows = (surface as unknown as { tui: { render(width: number): string[] } }).tui.render(80);
     expect(rows.join("\n")).toContain("Builder 1 wants to run:");
     expect(rows.join("\n")).toContain(`${GLYPHS.corners[0]}─ Command`);
-    expect(rows.join("\n")).toContain("❯ 1. No — use the fixture instead");
+    expect(rows.join("\n")).toContain(`❯ ${SHELL_COMMAND_CHOICES.length + 1}. No, and tell the AI what to do instead — use the fixture instead`);
     input.write("\r");
     expect(await answer).toEqual(["No"]);
     expect(directions).toEqual(["use the fixture instead"]);

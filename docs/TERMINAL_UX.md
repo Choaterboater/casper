@@ -339,7 +339,7 @@ remaining uncertainty stay explicit. This is guidance to the model; a provider's
 ([decision 25](adr/0002/25-visibility-over-a-smaller-prompt.md)).
 
 The prompt box keeps a fixed two-column gutter: `❯` while idle (also for the first command-line request), a dim `type to queue a message` on an empty working prompt (a draft keeps its gutter), `?` while an exclusive line input waits for you. An open choice box replaces the prompt entirely:
-there is no empty `?` input row. Typed answers appear inline in the selected Other row; approval comments appear beside No. An open question's
+there is no empty `?` input row. Typed answers appear inline in the Other row once it is picked; an approval's note appears in its note row. An open question's
 top rule names who asks, in the box's colour: `── Approval ──` (amber) for Casper's approvals,
 `── Question ──` for the AI's questions and `── Choose ──` for Casper's own pickers. The box never shifts
 horizontally between states, so a draft keeps its wrapping. The footer shows a
@@ -826,11 +826,12 @@ only. See [platform support](PLATFORM_SUPPORT.md) for host-validation limits.
   Picking it (its number, or Up/Down and Enter) highlights it; the answer appears inline beside Other,
   in full as it wraps. When the box can't hold all of it, the part where the cursor is shows (the end, while
   you type on) with `…` for the rest, and a box too small for the words after the whole label keeps only
-  `Other —`. Enter sends all of it, and Esc (or Up/Down on an empty answer) goes back to the list. Typing letters straight into the box works too and highlights the same row.
-  Approvals and pickers that take keys only have no Other row. A number picks a row only
-  while nothing is typed, so a custom answer cannot start with a row's number unless
-  Other is picked first (or a letter is typed first); a digit past the last row is ordinary text. A list longer
-  than nine numbers every row: type the number and press Enter; a plain terminal says `Type 1-16:`.
+  `Other —`. Enter sends all of it, and Esc (or Up/Down on an empty answer) goes back to the list; the hint there is
+  `Enter to send · Esc to go back`. Letters typed on the list go nowhere: they never start an answer, and a short hint
+  names the keys and the Other row's number (`Pick with 1-5 or ↑↓ Enter · 5 to type your own answer`), as in Copilot
+  CLI, Claude Code and Codex. Pickers that take keys only have no Other row; an approval's last row is its note row
+  (below). On the answer line numbers are words, so an answer can start with one; on the list a digit past the last
+  row picks nothing. A list longer than nine numbers every row: type the number and press Enter; a plain terminal says `Type 1-16:`.
 - `/settings` on a rich terminal is a screen, not a numbered list: seven tabs at 80 columns or more,
   an area list first below that. Up/Down moves; Enter/Space flips an on/off at once or opens a small
   Keep-first choice. Left/Right or Tab switches areas, typing searches all of them, Backspace clears
@@ -863,13 +864,17 @@ only. See [platform support](PLATFORM_SUPPORT.md) for host-validation limits.
   (and above), so the box never scrolls its own top away.
 - While a picker or approval is open, there is no prompt input row: keys go to the box (a number past
   nine rows is still typed), and the footer says `waiting for you`. A paste waits as the draft for
-  after the box closes, so a 60-line paste never lands in the box. A question that takes a typed answer
-  (the AI's own, a new project's name) takes typing and pastes.
+  after the box closes, so a 60-line paste never lands in the box. Typing and pastes go in only on the line a last
+  row opens once it is picked: Other on a question that takes a typed answer, or an approval's note row.
 - Every box takes the same input: approvals (an MCP change, a host, a shell command, a device
   check, `/mcp writes`) are the same numbered panel as any question. Use Up/Down and Enter, or a digit shortcut
-  (no Enter); Esc skips without approval. Typing words selects No with an inline comment, shown like a typed
-  answer (in full, or the part where the cursor is); Enter declines and sends all of those words as direction for Casper (or keeps them in the draft when no task can take them). Keys pressed in the first moment after a box opens (about 0.3 s) are ignored, so a key
-  typed mid-sentence never answers a box that just appeared.
+  (no Enter); Esc skips without approval. Letters typed on the list go nowhere and never answer it: a short hint names
+  the keys and the note row's number. The approval's last row, `No, and tell the AI what to do instead`, opens a line
+  for a note, shown like a typed answer (in full, or the part where the cursor is; `No —` when the row is too narrow);
+  Enter declines and sends the note as direction for Casper (or keeps it in the draft when no task can take it), and
+  Esc goes back to the list. Even a note that spells a granting choice is a No
+  ([decision 43](adr/0002/43-boxes-take-keys.md)). Keys pressed in the first moment after a box opens (about 0.3 s) are ignored, so a key
+  typed mid-sentence never answers a box that just appeared. Ctrl+X still denies an open approval.
 - Casper's own numbered questions and approvals also work on the plain terminal: it prints the
   choices as numbered lines and reads `Type 1, 2 or 3:` (`Type 1-24:` past nine); a number or
   a choice's words pick it. A question that takes a typed answer lists `Other — type your own answer`
