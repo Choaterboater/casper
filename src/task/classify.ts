@@ -33,6 +33,22 @@ const INTENT_PATTERNS: Array<[TaskIntent, RegExp]> = [
   ["inspect", /\b(inspect|review|summarize|analyse|analyze|find|locate|show|list|what|why|how)\b/i],
 ];
 
+/** "don't change anything", "do not modify any files", "without changing it": a change the request rules out, to the
+ * end of its clause ("don't change the API, but fix the bug" still asks for the fix). */
+const NO_CHANGE = /\b(?:don['’]?t|do not|never|without|no need to)\s+(?:\w+\s+)?(?:chang|modif|edit|touch|fix|writ|updat|delet|remov|implement|add)\w*[^,.;:!?\n]*/gi;
+/** Asking for an account of the code rather than a change to it. */
+const REPORT = /\b(?:report|audit|review)\w*\b|\bread[- ]only\b|\bno changes\b/i;
+/** Asking for a change. "debug", "review" or "optimization" alone don't. */
+const CHANGE = /\b(?:fix(?:es|ed|ing)?|chang(?:e|es|ed|ing)|modif(?:y|ies|ied|ying)|edit(?:s|ed|ing)?|updat(?:e|es|ed|ing)|implement\w*|add(?:s|ed|ing)?|refactor\w*|renam\w*|remov\w*|delet\w*|write|writ(?:es|ing)|build(?:s|ing)?|creat\w*|apply|patch\w*|install\w*)\b/i;
+
+/** A request for a report, review or audit, or one that says not to change anything, that asks for no change once
+ * what it rules out is set aside: "run a crew debug and report back", "look for issues and report back, don't change
+ * anything". Its "debug" or "change" is not the kind of work. */
+function readOnlyRequest(text: string): boolean {
+  const rest = text.replace(NO_CHANGE, " ");
+  return (REPORT.test(text) || rest !== text) && !CHANGE.test(rest);
+}
+
 /** A statement of what something should do, not a question: "The search should also match authors". */
 const REQUIREMENT = /^(?!(?:why|how|what|when|where|which|who|should|must|does|do|is|are|can|could|would)\b)(?:the|this|that|our|my|its|a|an|each|every|all|new)?\s*[\w'-]+(?:\s+[\w'-]+){0,5}\s+(?:should|must|needs? to)\s+(?!not\b)[^?]*$/i;
 
@@ -69,6 +85,7 @@ export function classifyTask(text: string): TaskClassification {
   const head = leading?.object.split(/\s+/).slice(0, 5).join(" ") ?? "";
   const objectIntent = INTENT_PATTERNS.find(([candidate, pattern]) => (candidate === "document" || candidate === "configure") && pattern.test(head))?.[0];
   const intent = visualizationRequest && !modificationRequest ? "visualize"
+    : readOnlyRequest(trimmed) ? "inspect"
     // An opening build verb decides over a keyword found later: "Add a tool that returns the running
     // configuration" builds a tool; only config or docs as the verb's own object keep those intents.
     : leading && (keyword === undefined || ["fix", "test", "configure", "document", "refactor"].includes(keyword))

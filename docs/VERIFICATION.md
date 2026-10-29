@@ -577,7 +577,9 @@ the model's own tests cover each one. On the hard eval pack it cut wrong runs fr
 48 at 1.06× Pi's wall time (docs/evals/2026-09-27-request-checklist.md).
 
 **On by default in interactive sessions for code changes** (requests Casper classifies as
-implement, fix or test). Off for questions, docs,
+implement, fix or test). A request for a report, review or audit, or one that says not to change anything ("look
+for issues and report back, don't change anything"), is read-only even when it names debugging or changes: the AI is told
+so, and it gets no checklist or proof step, unless it also asks for a change ("debug why it fails and fix it"). Off for questions, docs,
 refactors and configuration, and off in one-shot runs unless set. A terminal transcript pasted into
 the request (an agent session copied off the screen) is left out of both choices: its "fix" or "add
 tests" is context, not what you asked, so a pasted transcript alone makes no checklist, and the cases
