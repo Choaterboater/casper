@@ -1,4 +1,5 @@
 import type { SideQuestionUsage } from "./app/side-question";
+import type { KnownFolderName } from "./platform/known-folders";
 import { reviewerLine } from "./crew/review-line";
 import { leavesFilesHere } from "./app/local-effect";
 import { execFile } from "node:child_process";
@@ -132,6 +133,8 @@ export interface CasperAppOptions {
   runGit?: (argv: string[], signal?: AbortSignal) => Promise<{ code: number | null }>;
   /** /copy's clipboard (tests pass a fake). */
   copyText?: (text: string) => Promise<void>;
+  /** Where the Desktop, Documents and Downloads are, for "export this session to the desktop" (tests pass a fake). */
+  knownFolder?: (name: KnownFolderName) => Promise<string>;
   output?: OutputWriter;
   input?: Readable;
   /** This run's verification mode (`--verify` = auto, `--no-verify` = off), over configuration.
@@ -240,6 +243,7 @@ export class CasperApp {
   scrubFiles = true;
   readonly runGit?: CasperAppOptions["runGit"];
   readonly copyText?: CasperAppOptions["copyText"];
+  readonly knownFolder?: CasperAppOptions["knownFolder"];
   /** Owned-subsystem teardown bookkeeping: idempotent per subsystem, drained at close. */
   readonly lifecycle = new LifecycleRegistry();
   runtimeTools: RuntimeTool[] = [];
@@ -631,6 +635,7 @@ export class CasperApp {
     this.scrubber = options.scrubber ?? new Scrubber();
     this.runGit = options.runGit;
     this.copyText = options.copyText;
+    this.knownFolder = options.knownFolder;
     this.newProjectRequest = options.newProject;
     this.createProjectFn = options.createProject;
     this.noSandbox = options.noSandbox ?? false;
