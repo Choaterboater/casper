@@ -1,11 +1,15 @@
 /** Commands every peer has under the same name: /copy, /export, /rename and /logout. All local; none calls a model. */
 
-import { mkdir, rm, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { CommandHost } from "./commands";
+import type { ConversationItem } from "../runtime/types";
 import { copyText } from "../tui/clipboard-files";
 import { terminalText } from "../tui/format";
 import { requestOf } from "../sessions/resume";
+import { scrubPlainSecrets } from "../secrets/files";
+import { scrubValue, type ScrubTextResult } from "../secrets/scrub";
+import { ownValues } from "../verify/model-output";
 
 /** Where /export saves when no file is named: ~/.casper/exports. */
 export function exportFolder(home: string): string { return path.join(home, ".casper", "exports"); }
@@ -47,7 +51,12 @@ export async function conversationCommand(host: CommandHost, prompt: string): Pr
     host.output.write(`[copy] Copied ${n === undefined ? "the last answer" : `code block ${n} of the last answer`} (${lines} line${lines === 1 ? "" : "s"}).\n`);
     return;
   }
-  if (!host.session || !turns.length) { host.output.write("[export] Nothing to save yet: this conversation has no messages.\n"); return; }
+  // The whole conversation as saved (what a compaction took from the AI's context too), else the turns in context.
+  let record: ConversationItem[] | undefined;
+  try { record = host.session?.conversationRecord?.(); } catch { record = undefined; }
+  const items = record ?? turns.map((turn): ConversationItem => turn.role === "user" ? { kind: "you", text: requestOf(turn.text) } : { kind: "answer", text: turn.text.trim() });
+  const messages = items.filter((item) => item.kind !== "compaction").length;
+  if (!host.session || !messages) { host.output.write("[export] Nothing to save yet: this conversation has no messages.\n"); return; }
   let id = "";
   let name: string | undefined;
   try { const info = host.session.getSessionInfo?.(); id = info?.sessionId.slice(0, 8) ?? ""; name = info?.name; } catch { /* not saved: no id */ }
@@ -59,14 +68,19 @@ export async function conversationCommand(host: CommandHost, prompt: string): Pr
   const shown = terminalText(file);
   const jsonl = /\.jsonl$/i.test(file);
   if (jsonl && !host.session.exportJsonl) throw new Error("This runtime can't save every message; use a .md file.");
-  const markdown = `# ${name ?? "Casper conversation"}\n\n${turns.map((turn) => `## ${turn.role === "user" ? "You" : "Casper"}\n\n${turn.role === "user" ? requestOf(turn.text) : turn.text.trim()}\n`).join("\n")}`;
+  const secrets = exportScrubber(host.homeDir());
+  const markdown = jsonl ? "" : secrets.hide(`# ${name ?? "Casper conversation"}\n\n${items.map(markdownItem).join("\n")}`);
   let made = false;
   try {
     if (!argument) await mkdir(path.dirname(file), { recursive: true, mode: 0o700 });
     // Never over an existing file: "wx" fails when it is there.
-    await writeFile(file, jsonl ? "" : markdown, { flag: "wx", mode: 0o600 });
+    await writeFile(file, markdown, { flag: "wx", mode: 0o600 });
     made = true;
-    if (jsonl) host.session.exportJsonl!(file);
+    if (jsonl) {
+      host.session.exportJsonl!(file);
+      // Each line stays the same JSON with its strings through the same pass, so the file reads as before.
+      await writeFile(file, secrets.hideJsonl(await readFile(file, "utf8")), { mode: 0o600 });
+    }
   } catch (error) {
     // A .jsonl that failed after its empty file was made: removed, so the same name works next time.
     if (made) await rm(file, { force: true }).catch(() => {});
@@ -75,7 +89,51 @@ export async function conversationCommand(host: CommandHost, prompt: string): Pr
       : `[export] Not saved: ${code === "ENOENT" ? "that folder doesn't exist" : terminalText(error instanceof Error ? error.message : String(error))}.\n`);
     return;
   }
-  host.output.write(`[export] Saved ${jsonl ? "every message" : `${turns.length} message${turns.length === 1 ? "" : "s"}`} to ${shown}.\n`);
+  const hidden = secrets.hidden ? ` ${secrets.hidden} secret${secrets.hidden === 1 ? " in it is" : "s in it are"} hidden (<secret hidden>).` : "";
+  host.output.write(`[export] Saved ${jsonl ? "every message" : `${messages} message${messages === 1 ? "" : "s"}`} to ${shown}.${hidden}\n`);
+}
+
+/** A picture's or file's base64 in a .jsonl line: data, never words, so it is left as it is. */
+const BLOB = /^[A-Za-z0-9+/=\r\n]{4096,}$/;
+
+/** What /export writes goes through the always-on pass that native bash output and a repair round's evidence get
+ * (src/secrets/files.ts): secret-named environment values, Casper's login keys and saved network logins, secret
+ * KEY=VALUE lines, address passwords, private keys and secrets named in prose. An export can land in a synced folder. */
+function exportScrubber(home: string) {
+  const values = ownValues(home);
+  let hidden = 0;
+  const pass = (text: string): ScrubTextResult => BLOB.test(text) ? { text, hidden: 0, kinds: [] } : scrubPlainSecrets(text, { values });
+  return {
+    get hidden() { return hidden; },
+    hide(text: string): string { const result = pass(text); hidden += result.hidden; return result.text; },
+    hideJsonl(text: string): string {
+      return text.split("\n").map((line) => {
+        if (!line.trim()) return line;
+        let parsed: unknown;
+        try { parsed = JSON.parse(line); } catch { const result = pass(line); hidden += result.hidden; return result.text; }
+        const result = scrubValue(parsed, pass);
+        hidden += result.hidden;
+        return result.hidden ? JSON.stringify(result.value) : line;
+      }).join("\n");
+    },
+  };
+}
+
+/** A fence longer than any run of backticks in `text`, so a prompt's own code blocks stay inside it. */
+const fenceFor = (text: string) => "`".repeat(Math.max(3, ...[...text.matchAll(/`+/g)].map((run) => run[0].length + 1)));
+
+/** One part of the conversation in the exported Markdown. A prompt Casper sent the AI itself (a repair or review round)
+ * is Casper's, never "You", in full but folded; a compaction is marked where it happened, with the summary kept. */
+function markdownItem(item: ConversationItem): string {
+  if (item.kind === "you") return `## You\n\n${item.text}\n`;
+  if (item.kind === "answer") return `## Casper\n\n${item.text}\n`;
+  if (item.kind === "compaction") {
+    return "---\n\n_Casper compacted the conversation here: the AI went on from the summary below. Everything above is still in this file._\n\n"
+      + `<details><summary>Summary the AI kept</summary>\n\n${item.summary}\n\n</details>\n`;
+  }
+  const fence = fenceFor(item.text);
+  return `## Casper (${item.label})\n\n_Casper sent this to the AI; you didn't type it._\n\n`
+    + `<details><summary>What Casper sent</summary>\n\n${fence}text\n${item.text}\n${fence}\n\n</details>\n`;
 }
 
 const SIGN_IN_KINDS = { api_key: "API key", oauth: "browser sign-in" } as const;

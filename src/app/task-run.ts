@@ -320,7 +320,7 @@ export async function runModelTask(app: CasperApp, prompt: string, options: { fl
         // A flow the user picked from the row: guidance for this one request.
         options.flow ? formatFlowPrompt(options.flow, prompt) : "",
         options.guide ?? "",
-      ].filter(Boolean).join("\n\n"), app.commandAbort?.signal, { request: prompt, maxTurns: app.maxTurns, ...(images.length ? { images } : {}) });
+      ].filter(Boolean).join("\n\n"), app.commandAbort?.signal, { request: prompt, typed: prompt, maxTurns: app.maxTurns, ...(images.length ? { images } : {}) });
       await retryModelFailure(app, session, prompt);
       await keepGoing(app, session, prompt);
     } finally {
@@ -680,13 +680,14 @@ export async function runPlanTurn(app: CasperApp, session: RuntimeSession, reque
   const spec = await wantsSpec(root, request);
   const flowPrompt = `${formatFlowPrompt(flow, request)}${spec ? "\n\nThis is a new-project/spec request. Use Goal, Screens, Data, Look, First version, Later, Done means; no implementation Steps required." : ""}`;
   let questionRound = false;
-  const writePlan = async (prompt: string): Promise<ParsedPlan | undefined> => {
+  // `typed`: the person's own words in this round (the request, their answers or change), for the saved conversation.
+  const writePlan = async (prompt: string, typed: string): Promise<ParsedPlan | undefined> => {
     const before = await app.snapshotWorkspace(root, signal);
     app.lastAnswer = "";
     app.planning = true;
     // Show only Casper's plan screen, not the raw answer too. This resets held words for every rewrite.
     app.events.holdText("Writing the plan");
-    try { await session.prompt(prompt, signal, { request, maxTurns: app.maxTurns }); }
+    try { await session.prompt(prompt, signal, { request, typed, maxTurns: app.maxTurns }); }
     finally { app.planning = false; app.events.holdText(undefined); }
     const written = app.events.heldWords();
     const showWritten = () => {
@@ -712,7 +713,7 @@ export async function runPlanTurn(app: CasperApp, session: RuntimeSession, reque
         if (answer === undefined || signal?.aborted || app.closing) { app.output.write("[plan] Stopped without building.\n"); return undefined; }
         answers.push(`${q.question}: ${answer}`);
       }
-      return writePlan(`${prompt}\n\nQuestion round finished. Use these answers in the plan. Do not ask again; leave remaining unknowns under Open questions.\n${answers.join("\n")}`);
+      return writePlan(`${prompt}\n\nQuestion round finished. Use these answers in the plan. Do not ask again; leave remaining unknowns under Open questions.\n${answers.join("\n")}`, answers.join("\n"));
     }
     const last = extractPlan(app.lastAnswer);
     const parsed = last.steps.length || isSpecPlan(last) ? last : extractPlan(written);
@@ -731,7 +732,7 @@ export async function runPlanTurn(app: CasperApp, session: RuntimeSession, reque
   const parsed = reopened?.plan ?? await writePlan([
     flowPrompt,
     ...(cases?.length ? [`Cases the user listed (put each under Tests:):\n${cases.map((item) => `- ${item}`).join("\n")}`] : []),
-  ].join("\n\n"));
+  ].join("\n\n"), request);
   if (!parsed) return "stop";
   let plan: ParsedPlan = { ...parsed, tests: parsed.tests.length ? parsed.tests : normalizeCases([...(cases ?? [])]) };
   let saved = reopened;
@@ -747,7 +748,7 @@ export async function runPlanTurn(app: CasperApp, session: RuntimeSession, reque
     const before = await app.snapshotWorkspace(root, signal);
     app.lastAnswer = "";
     app.planning = true;
-    try { await session.prompt(formatPlanQuestionPrompt(plan, question), signal, { request, maxTurns: app.maxTurns }); }
+    try { await session.prompt(formatPlanQuestionPrompt(plan, question), signal, { request, typed: question, maxTurns: app.maxTurns }); }
     finally { app.planning = false; }
     app.events.ensureLineBreak();
     if (app.closing || signal?.aborted || app.taskRuntimeCancelled) return false;
@@ -860,7 +861,7 @@ export async function runPlanTurn(app: CasperApp, session: RuntimeSession, reque
     const before = plan;
     if (change.trim()) {
       questionRound = true;
-      const rewritten = await writePlan(`${flowPrompt}\n\n${formatPlanChangePrompt(plan, change)}`);
+      const rewritten = await writePlan(`${flowPrompt}\n\n${formatPlanChangePrompt(plan, change)}`, change);
       if (!rewritten) return "stop";
       plan = rewritten;
       if (!await keep()) return "stop";
