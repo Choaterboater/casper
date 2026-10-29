@@ -159,6 +159,8 @@ export interface SmokeCrash { service: string; exit?: { code: number | null; sig
 const SNIPPET = 512;
 const TAIL_CHARS = 2048;
 const REQUEST_TIMEOUT_MS = 10_000;
+/** How long a request without a response waits for its service's crash to be recorded: 40 × 25 ms. */
+const CRASH_WAIT_TRIES = 40, CRASH_WAIT_STEP_MS = 25;
 const message = (error: unknown) => (error instanceof Error ? error.message : String(error)).split("\nLog tail:")[0]!.slice(0, 1024);
 
 /** Fail dominates incomplete; no checks is nothing to report. */
@@ -192,10 +194,23 @@ export class SmokeChecks {
     const id = `smoke-${this.recorded.length + 1}`;
     const afterEdits = await this.changed();
     const result = await this.execute(check, signal);
-    // Without an HTTP response (timeout, reset, a server that just died) the baseline says nothing about the endpoint.
-    const baseline = result.status === "fail" && !result.actual ? "incomplete" : result.status;
+    // Without an HTTP response (a timeout, a reset) the baseline says nothing about the endpoint, unless the request
+    // crashed the service: the service manager saw it exit on its own, and that is a failing endpoint.
+    const unanswered = result.status === "fail" && !result.actual;
+    const baseline = unanswered && !await this.crashedBy(check.service, signal) ? "incomplete" : result.status;
     this.recorded.push({ id, check, baseline, afterEdits });
     return this.result(id, "model", check, result, baseline, afterEdits);
+  }
+
+  /** Whether the service crashed on the request just made. The exit lands a moment after the connection drops, so it
+   * is looked for briefly; the run still reports the crash (this only reads the state). */
+  private async crashedBy(service: string, signal: AbortSignal): Promise<boolean> {
+    for (let tries = 0; tries < CRASH_WAIT_TRIES; tries++) {
+      if (this.manager().status().some(status => status.name === service && status.state === "crashed")) return true;
+      if (signal.aborted) return false;
+      await Bun.sleep(CRASH_WAIT_STEP_MS);
+    }
+    return false;
   }
 
   async replay(id: string, signal: AbortSignal): Promise<SmokeResult> {

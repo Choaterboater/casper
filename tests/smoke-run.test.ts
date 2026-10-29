@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import { mkdir, mkdtemp, realpath, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, realpath, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { hostProcessPlatform, ProcessCleanupError, type ProcessPlatform, type ProcessRecord } from "../src/platform/processes";
@@ -94,6 +94,26 @@ test("a baseline without an HTTP response (a transport error) is not a failing b
   expect((await smoke.run(signal())).checks[0]).toMatchObject({ baseline: "incomplete", status: "pass", evidence: false });
 }, 30_000);
 
+test("a baseline request that crashes the service is a failing baseline (crashed), so the fixed server's pass is evidence", async () => {
+  const f = await fixture();
+  // From a real session: a malformed data URI threw an uncaught URIError, and the server exited on the check's request.
+  await writeFile(path.join(f.root, "src/server.ts"), `require("node:http").createServer((request, response) => {
+  if (request.url === "/health") return response.end("ok");
+  // Thrown outside the handler, so it is uncaught and the process exits (as node's would from the handler).
+  setTimeout(() => decodeURIComponent("%"));
+}).listen(Number(process.env.PORT), process.env.HOST);\n`);
+  const smoke = new SmokeChecks([], () => f.manager);
+  const recorded = await smoke.record(create, signal());
+  expect(recorded).toMatchObject({ baseline: "fail", status: "fail", reason: expect.stringContaining("request failed") });
+  expect(recorded.actual).toBeUndefined();
+  await writeFile(path.join(f.root, "src/server.ts"), notesServer(true));
+  f.manager.markEdited("src/server.ts");
+  const report = await smoke.run(signal());
+  expect(report.checks[0]).toMatchObject({ baseline: "fail", status: "pass", evidence: true });
+  // The crash is still reported once, by the run.
+  expect(report.crashes?.map(crash => crash.service)).toEqual(["api"]);
+}, 30_000);
+
 test("unknown cleanup of another service makes smoke incomplete even when the checked service is fresh and passes", async () => {
   // The OS listing keeps showing the ad-hoc service's root after it is gone, so its stop is never confirmed.
   // The first record seen stays, even if Windows hands the PID to a new process meanwhile (it does that quickly).
@@ -132,3 +152,9 @@ test("a crash since the last report is surfaced on the smoke run, once, and the 
   expect(formatReceipt({ execution: "completed", verification: { status: "pass", results: [], rounds: [], repairAttempts: 0, smoke: report } }))
     .toContain(killedLine);
 }, 30_000);
+
+test("the docs say a baseline request that crashed the service is a failing baseline", async () => {
+  const read = async (file: string) => (await readFile(new URL(`../docs/${file}`, import.meta.url), "utf8")).replace(/\s+/g, " ");
+  expect(await read("VERIFICATION.md")).toContain("The exception is a request that crashed the service: when the service exits on its own during the baseline request, the baseline is `fail`");
+  expect(await read("SCRIPTING.md")).toContain("`incomplete` when it got no HTTP response, `fail` when that request crashed the service");
+});
