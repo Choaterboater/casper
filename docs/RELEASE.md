@@ -14,11 +14,34 @@ when releasing. Existing historical notes below stay as written; feature tests c
 reference docs, not a per-PR release-note or roadmap entry. Release-prep checks verify the version and
 installer targets (`tests/release-install.test.ts`, `tests/release-targets.test.ts`).
 
-Casper distributes an unsigned **v0.3.8 preview**, not a stable release. The installers
-download from `https://github.com/Choaterboater/casper/releases/download/v0.3.8`,
+Casper distributes an unsigned **v0.3.9 preview**, not a stable release. The installers
+download from `https://github.com/Choaterboater/casper/releases/download/v0.3.9`,
 because GitHub's `latest/download` link skips preview releases. The first published
 preview was **v0.1.0**. A published release is never changed; every fix ships under a
 new version.
+
+## v0.3.9: a crew you can watch, plain words for continue and export, and approval boxes that take keys
+
+### Added
+
+- The crew panel shows explorers too, with the step each helper is on; Ctrl+O lists each helper's last five steps.
+- Tests that import `node:test` run with `node --test` when no script runs them, and the receipt reads Node's pass and fail counts.
+- "Export this session to the desktop" in plain words runs `/export`, with no model call.
+- `/details all`, `/details full` and `/details verbose` all mean detailed.
+
+### Changed
+
+- "continue session" or "resume" as the first line at a fresh start continues the last conversation, as `1` does.
+- "Switch there" takes the conversation with it, and the next request continues it in the work's folder.
+- Approval and question boxes take keys, and words go only on the row that asks for them.
+- A spec plan's build line counts its First version steps.
+
+### Fixed
+
+- `/export` saves the whole conversation and shows Casper's own prompts as Casper's.
+- Inside WSL, Casper finds a Linux Chrome and says how to install one when there is none.
+- In a folder holding only `.casper`, the AI sets the repository up there instead of cloning it into a subfolder.
+- A grep pattern that isn't valid shows as a note instead of a red failure.
 
 ## v0.3.8: /continue that stays where it is, a pasted transcript read as context, and refusals that say why
 
