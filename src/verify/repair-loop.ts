@@ -169,6 +169,8 @@ export type VerificationOptions = ({ registry: VerifierRegistry; task?: never } 
   checks: readonly CheckName[];
   cwd: string;
   request: string;
+  /** The request as it stands when a repair round is written (lines typed during the task included); `request` if unset. */
+  restate?: () => string;
   constraints?: string;
   maxAttempts?: number;
   /** Hands the prompt to the model. `info.last` marks the last try the budget allows, so the host can pick a
@@ -412,7 +414,7 @@ export async function verifyAndRepair(options: VerificationOptions): Promise<Ver
       `Casper verification repair ${repairAttempts}/${budget}.`,
       notes.length ? `Fix only the page notes below with the smallest change; ${failures.length ? "the other checks could not run here, which is not yours to fix" : "the checks pass"}. Do not weaken checks or hide content to silence a note. Preserve the original request and project rules. ${PAGE_NOTES_RECHECKED}`
         : "Repair the failures below with the smallest change. Preserve the original request, project rules, and constraints. Do not weaken checks, remove tests, or change verification commands merely to obtain a pass. Casper will rerun selected checks without a valid scoped pass; use casper_check when available for managed check evidence.",
-      "Original request:", options.request,
+      "Original request:", options.restate?.() ?? options.request,
       "Constraints:", options.constraints || "Preserve project architecture and existing behavior outside the requested change.",
       "Current Git changed files (may include pre-existing user changes; do not revert unrelated changes):",
       snapshot.text,

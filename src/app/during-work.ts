@@ -24,6 +24,7 @@ import { exportHandledHere, exportRequest, exportWordsLine } from "./export-word
  * back into the prompt (the rich terminal) for you to send or clear. */
 export function settleQueuedLines(app: CasperApp): void {
   app.steering = [];
+  app.steeredInTask = [];
   let unsent: string[] = [];
   try { unsent = app.session?.takeUnsent?.() ?? []; } catch { /* nothing left to take */ }
   app.queuedLines.unshift(...unsent);
@@ -52,6 +53,7 @@ export function showWaiting(app: CasperApp): void {
 export function holdBackSteered(app: CasperApp): void {
   let lines: string[] = [];
   try { lines = app.session?.unsteer?.() ?? []; } catch { /* nothing left to take */ }
+  forgetSteered(app, lines);
   app.queuedLines.unshift(...lines);
   app.steering = [];
 }
@@ -62,11 +64,20 @@ export function takeBackNewest(app: CasperApp): boolean {
   if (line === undefined) {
     // The runtime's "waiting" event then shows the lines still waiting.
     try { line = app.session?.unsteer?.(true)[0]; } catch { line = undefined; }
+    if (line !== undefined) forgetSteered(app, [line]);
   }
   if (line === undefined) return false;
   showWaiting(app);
   app.terminal.restoreDraft(line, takeLinePastes(app, [line]));
   return true;
+}
+
+/** Lines taken back out of the runtime: the AI never read them, so they are not part of the request. */
+function forgetSteered(app: CasperApp, lines: readonly string[]): void {
+  for (const line of lines) {
+    const at = app.steeredInTask.lastIndexOf(line);
+    if (at >= 0) app.steeredInTask.splice(at, 1);
+  }
 }
 
 /** What was pasted into `lines`, for lines going back into the prompt; their record here is done with. */
@@ -197,6 +208,7 @@ async function steerWithPictures(app: CasperApp, line: string, pasted: Map<numbe
   }
   let sent = false;
   try { sent = await app.session?.steer?.(attached!.text, images) ?? false; } catch { sent = false; }
+  if (sent) app.steeredInTask.push(attached!.text);
   if (app.closing) return;
   if (sent) {
     const count = images.length ? ` with ${images.length === 1 ? "your picture" : `${images.length} pictures`}` : "";
@@ -214,6 +226,7 @@ async function steerWithPictures(app: CasperApp, line: string, pasted: Map<numbe
 export async function steerOrQueue(app: CasperApp, line: string): Promise<void> {
   let sent = false;
   try { sent = await app.session?.steer?.(line) ?? false; } catch { sent = false; }
+  if (sent) app.steeredInTask.push(line);
   if (app.closing) return;
   const back = app.terminal.canTakeBack() ? " · ↑ takes it back" : "";
   // A step that only waits (a sign-in window, a slow command, a service start) ends now, so the AI reads the line now.
