@@ -49,7 +49,7 @@ import { findFlow, formatFlowPrompt, loadFlowCatalog, type Flow, type FlowRule }
 import { suggestBeforeWork } from "../flows/suggest";
 import { extractPlan, formatPlanBlock, formatPlanChangePrompt, formatPlanQuestionPrompt, isSpecPlan, openQuestions, planDetailsText, planMarkdown, planScreenRows, type ParsedPlan } from "../flows/plan";
 import { planChanges } from "../flows/plan-changes";
-import { planQuestions, readPlan, savePlan, updatePlan, wantsSpec, type SavedPlan } from "../flows/plan-store";
+import { emptyFolderNote, planQuestions, readPlan, savePlan, updatePlan, wantsSpec, type SavedPlan } from "../flows/plan-store";
 import { PlanBuild } from "../flows/plan-build";
 import { PROJECT_YAML, saveProjectCommand } from "../project/config-write";
 import type { TaskClassification } from "../task/classify";
@@ -301,6 +301,7 @@ export async function runModelTask(app: CasperApp, prompt: string, options: { fl
         if (!visionBack) images = [];
         if (app.closing || app.commandAbort?.signal.aborted) return;
       }
+      const emptyFolder = await emptyFolderNote(workspaceRoot);
       await session.prompt([
         // A picture that failed after the last request ended, told once.
         ...app.pendingPictures.takeUnseen(),
@@ -308,6 +309,8 @@ export async function runModelTask(app: CasperApp, prompt: string, options: { fl
         skillContext,
         // The accepted plan's steps the last build left open: for this task only (src/task/keep-going.ts).
         takeOpenPlan(app),
+        // Only in a folder holding nothing but .casper: `git clone <url> .` would refuse it.
+        emptyFolder,
         formatTaskPrompt(prompt, classification, context.model, { verificationMode, proveChange: proving, typed, machines: machineNames(app.machines, app.sessionHomeDir),
           reviewFollows: context.verification.review === true, afterContext: Boolean(memoryContext || skillContext) }),
         planBlock,
