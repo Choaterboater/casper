@@ -66,9 +66,14 @@ test("Node's own test runner: tests that import node:test, with no script, run w
   // A browser app with no root package.json and test/*.test.mjs (as a project with a cad/ package and an HTML front end).
   const app = await model({ "index.html": "<!doctype html>", "cad/package.json": "{}", "test/otto.test.mjs": nodeTest,
     "test/engine.test.mjs": "const { test } = require('node:test');\n" });
-  expect(app.commands.test).toBe("node --test");
+  expect(app.commands.test).toBe('node --test "**/*.test.mjs"');
   expect(app.testsWithoutCommand).toBeUndefined();
-  expect((await model({ "package-lock.json": "{}", "package.json": "{}", "tests/add.test.js": nodeTest })).commands.test).toBe("node --test");
+  expect((await model({ "package-lock.json": "{}", "package.json": "{}", "tests/add.test.js": nodeTest })).commands.test).toBe('node --test "**/*.test.js"');
+  // Plain node --test also runs every .js/.mjs under test/ (helpers, fixtures) and counts each as a test: the pattern
+  // names only the test files' own endings.
+  const helpers = await model({ "test/a.test.mjs": nodeTest, "test/b_test.cjs": nodeTest, "test/helpers/h.mjs": "export const x = 1;\n",
+    "test/fixtures/f.js": "export const y = 1;\n" });
+  expect(helpers.commands.test).toBe('node --test "**/*.test.mjs" "**/*_test.cjs"');
   // bun:test still wins where it is imported, and a script still wins over both.
   expect((await model({ "tsconfig.json": "{}", "tests/a.test.ts": "import { test } from 'bun:test';\n", "tests/b.test.mjs": nodeTest })).commands.test).toBe("bun test");
   expect((await model({ "package-lock.json": "{}", "package.json": scripts({ test: "node --test test/" }), "test/a.test.mjs": nodeTest })).commands.test).toBe("npm run test");
