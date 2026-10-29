@@ -1,5 +1,6 @@
 /** Real-terminal fixture: no provider, network or device calls. */
 import { CasperApp } from "../../src/app";
+import { folderTrustDefaults } from "../../src/project/trust";
 import { loadProjectContext } from "../../src/project/context";
 import { SkillRegistry } from "../../src/skills/registry";
 import type { AgentRuntime, RuntimeEventListener } from "../../src/runtime/types";
@@ -24,4 +25,6 @@ const app = new CasperApp({ input: process.stdin, output: process.stdout, runtim
   loadMCPConfiguration: async () => ({ servers: [], diagnostics: [] }), loadLSPConfiguration: async () => ({ servers: [], diagnostics: [] }),
   loadReferenceConfiguration: async () => ({ sources: [], diagnostics: [] }),
 });
+// As in the test preload: the folder counts as one you trusted, so the screen opens with no "Trust this folder?" box.
+folderTrustDefaults.lookup = async (info) => ({ trusted: true, from: info.root });
 try { await app.runInteractive(root); } finally { await app.close(); }

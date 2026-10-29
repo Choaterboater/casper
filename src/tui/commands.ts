@@ -101,6 +101,8 @@ export const COMMAND_REGISTRY: readonly CommandSpec[] = [
   { name: "copy", description: "Copy the last answer, or its code block n, to the clipboard", argumentHint: "[n]" },
   { name: "export", description: "Save this conversation to a file (.md, or .jsonl for every message)", argumentHint: "[file]" },
   { name: "rename", description: "Name this conversation (the window title and /resume)", argumentHint: "<title>" },
+  { name: "trust", description: "Trust this folder: its checks and the project's scripts run (/trust off takes it back)", argumentHint: "[off]",
+    subcommands: [{ name: "off", description: "Stop trusting this folder", afterCleanupError: NONE }], afterCleanupError: NONE },
   { name: "output", description: "Full command and output of a recent tool call (/output [n|all])", argumentHint: "[n|all]", afterCleanupError: /^(?:\d+)?$/,
     subcommands: [{ name: "all", description: "Every tool call of the last task on its own line", afterCleanupError: NONE }] },
   { name: "verify", description: "Run repository verification checks", argumentHint: "[checks ...]", waits: ANY, subcommands: [

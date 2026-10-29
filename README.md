@@ -99,8 +99,10 @@ Use `-p` explicitly in scripts. Existing scripts stay one-shot when either stdin
 a terminal, or with `--json`, a lone `-` prompt, `--require-verification`, `--max-turns`, or `CI` set.
 Exit codes and receipts are unchanged. [Scripting](docs/SCRIPTING.md).
 
-A check runs your project's own command without asking, inside the sandbox when you have turned it on.
-Use `--no-verify` for code you don't trust.
+The first time Casper opens a folder it asks whether you trust it. Only a trusted folder's own commands
+(its checks, and its scripts, builds and tests as routine work) run without asking, inside the sandbox
+when you have turned it on. Say "trust this folder" to change your answer later. Scripts and CI runs
+can't ask, so they treat the folder as trusted; use `--no-verify` for code you don't trust.
 
 Type `/help` for the commands. Ctrl+C stops the current work but keeps changes already made;
 Ctrl+D on an empty prompt exits. [Keys and commands](docs/TERMINAL_UX.md#quick-reference).

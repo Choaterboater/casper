@@ -130,6 +130,7 @@ Local commands:
   /copy [n]                         Copy the last answer, or its code block n, to the clipboard
   /export [file]                    Save this conversation to ~/.casper/exports, or to [file] in the project: Markdown, or every message as .jsonl
   /rename <title>                   Name this conversation (the window title and /resume)
+  /trust, /trust off                Trust this folder: Casper runs its checks, and the project's scripts, builds and tests run without a box; off takes it back ("trust this folder" works too)
   /receipt                          Detailed evidence receipt of the last model task (freshness, scope), also after a restart; in a terminal a card with every line
   /help receipt                     What a receipt's first line means (Verified, Not checked, Failed …) and what to do about each
   /receipt <n>, /receipt list       A saved receipt, or the last 10 (saved with secrets hidden)

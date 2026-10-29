@@ -26,6 +26,8 @@ const PERMISSIONS_WORDS = ["all", "ask", "details", "write", "forget"];
 export interface PermissionsView {
   /** The shell's own paragraph and the last line of /permissions as it was (permissionsText). */
   shell: string;
+  /** Whether you trust the open folder, in a sentence (folderTrustText): its checks and project commands depend on it. */
+  folder?: string;
   /** Why the shell is not sandboxed here ("Windows"), and whether it then asks before each command. */
   sandboxReason?: string;
   shellAsks?: boolean;
@@ -82,6 +84,7 @@ export function permissionsSummary(view: PermissionsView): string {
     view.asking
       ? `Asking is on: Casper asks before ${before}.`
       : "Asking is OFF until you quit: shell commands, hosts, writes outside the project and other machines are answered Yes. /permissions ask turns it back on.",
+    ...(view.folder ? [`  Folder: ${view.folder}`] : []),
     `  Shell: ${shell} · said yes to ${view.commandsSession} this session, ${view.commandsSaved} for this project · /allowed`,
     ...(view.sandboxOn ? [`  Hosts commands reach: ${view.listedHosts} listed, remembered: ${list(view.rememberedHosts)}; others: ${asks} · 4 at the box remembers one`] : []),
     `  Other machines (ssh, scp): ${asks} · remembered: ${list(view.reachHosts)}${lab} · 4 at the box remembers one`,
@@ -98,6 +101,7 @@ export function permissionsScreen(view: PermissionsView): string {
   const lines = [
     `What Casper may do here, and how to change it. Asking is ${view.asking ? "on" : "OFF until you quit (/permissions ask turns it back on)"}.`,
     "",
+    ...(view.folder ? [view.folder, ""] : []),
     view.shell,
     `  You said yes to: ${view.commandsSession} command${view.commandsSession === 1 ? "" : "s"} for this session, ${view.commandsSaved} for this project (/allowed lists them, /allowed forget <n> takes one back).`,
     "  To stop being asked about one command: answer 3 (this session) or 4 (this project) at its box.",

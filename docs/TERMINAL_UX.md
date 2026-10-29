@@ -62,6 +62,7 @@ over the network, and `/references add` downloads files after asking you.
 | `/copy [n]` | Copy the last answer, or its code block n, to the clipboard |
 | `/export [file]` | Save this conversation (Markdown; a `.jsonl` name saves every message): to `~/.casper/exports` with Casper's other per-user files, or to `file` from the project folder; it says the whole path; never over a file that is there. The Markdown has the whole conversation, also what a compaction took out of the AI's context (marked where it happened, with the summary the AI kept); a prompt Casper sent the AI itself (a repair or review round) is under Casper, folded, never under You. Both formats hide secrets as `<secret hidden>` with the pass bash output gets (secret-named environment values, Casper's own login keys, `KEY=VALUE` secrets, address passwords, private keys, secrets named in prose); a `.jsonl` keeps its format, with only those strings changed, and the line says how many were hidden |
 | `/rename <title>` | Name this conversation (the window title and `/resume`) |
+| `/trust`, `/trust off` | Trust this folder: Casper runs its checks, and the project's scripts, builds and tests run as routine work; `off` takes it back. "trust this folder" and "stop trusting this folder" do the same ([VERIFICATION.md](VERIFICATION.md)) |
 | `/output [n\|all]` | Full command and output of a recent tool call from the last task |
 | `/receipt [n\|list]` | The last task's receipt in detail, a saved one, or the last 10; here a card with every line under plain labels |
 | `/help receipt` | What each verdict on a receipt's first line means, and what to do about it |
@@ -673,6 +674,13 @@ live rows, popups or pickers, or a duplicated prompt box (`bun test tests/termin
   `as jsonl`; with a folder and no name the file is `casper-conversation-<id>.md`, and a file that is
   there is never written over. Anything else (`export the CSV function`, `how do I export a model`,
   `save the session token`) goes to the AI as before.
+- The first time a session opens a folder, Casper asks `Trust <folder>? It would run: …` with
+  `1 Not now · 2 Trust this folder`; Enter is Not now and asks again next time. A typed line that
+  only says to trust it or stop (`trust this folder`, `I trust this repo`, `stop trusting this folder`)
+  runs `/trust` or `/trust off` the same way, with no model call, idle or during a task:
+  `[trust] Handled here, no model call: /trust does the same.` A question (`do you trust this
+  repo?`) or code (`trust the user's input in this folder`) goes to the AI. Your home folder and the
+  top of a drive are never trusted.
 - `/model --session [provider/id]`: for this conversation only; the browser opens with Enter
   choosing for this session only.
 - `/effort`: automatic or supported fixed-effort picker in an interactive terminal, otherwise a list.

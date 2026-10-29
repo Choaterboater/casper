@@ -2,6 +2,8 @@
  * references, web lookups and the startup notes. No connection or model starts here. Moved from src/app.ts. */
 
 import { stopAsking } from "./commands";
+import { decideFolderTrust } from "./folder-trust";
+import { migrateFolderTrust } from "../project/trust";
 import type { CasperApp } from "../app";
 import os from "node:os";
 import { resolveEntry } from "../sandbox/policy";
@@ -53,6 +55,8 @@ export function sandboxHost(app: CasperApp): SandboxHost {
     askNoMore: () => { if (!app.closing) stopAsking(app); },
     labHosts: () => app.projectContext?.lab?.hosts ?? [],
     routineCommands: () => app.projectContext?.routineCommands !== false,
+    // In a folder you haven't trusted, the project's own installs, builds, tests and scripts ask (src/app/folder-trust.ts).
+    projectCommandsRoutine: () => app.folderTrust?.trusted !== false,
     precedingText: toolReason,
     // ssh asks for a password: Casper's own numbered question, then its own hidden box (never "The AI asks"). Both in
     // the one turn of the approval queue, so nothing slips in between.
@@ -82,6 +86,8 @@ export function sandboxHost(app: CasperApp): SandboxHost {
 
 /** Load all workspace metadata before publishing it. Your own MCP and language servers start in the background. */
 export async function loadWorkspace(app: CasperApp, cwd: string) {
+  // Before the project's state is written: only folders Casper kept state for before it asked count as trusted (once).
+  try { migrateFolderTrust(app.sessionHomeDir ?? os.homedir()); } catch { /* asked again next start */ }
   const project = await app.inspectProjectFn(cwd);
   const context = await app.loadProjectContextFn(project);
   const [registry, mcpConfiguration, lspConfiguration, referenceConfiguration] = await Promise.all([
@@ -94,6 +100,9 @@ export async function loadWorkspace(app: CasperApp, cwd: string) {
   app.references = new ReferenceLibrary(referenceConfiguration, { secretValues: () => ownSecretValues(app) });
   app.projectContext = context;
   trustProjectFile(app, context);
+  // Before anything of the folder's runs: whether you trust it (asked once per folder, src/app/folder-trust.ts).
+  await decideFolderTrust(app, context);
+  if (app.closing) throw new Error("Casper is closing");
   // The shell sandbox for this session: the AI's bash, checks, services, dev servers and Casper's tool runs.
   // A workspace switch replaces it: the old one stops first (the sandbox runtime is one per process).
   await app.lifecycle.close("sandbox").catch(() => {});

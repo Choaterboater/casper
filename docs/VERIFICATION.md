@@ -27,14 +27,29 @@ Tell Casper your check commands in `.casper/project.yaml` (see [Configuration](#
 or let it find them (see [Where the checks come from](#where-the-checks-come-from)). The banner,
 `/status` and `/project` show which checks will run.
 
-**Trust first.** Checks run the repository's own commands, and Casper does not ask first: in
-`auto` mode (the default) asking for a change runs the repository's test, lint and build commands,
-and a repository's `.casper/project.yaml` can itself choose `auto`. Since v0.2.17 checks run in
-the shell sandbox where it can run: they write only the project, temp and package caches,
-can't read your private folders and reach only listed hosts (see [SECURITY.md](SECURITY.md)).
-Where no sandbox runs (Windows, bubblewrap missing, `--no-sandbox`) they run with your
-permissions. For a repository whose commands you do not trust, start Casper with `--no-verify`.
-A flag wins over every configuration file.
+**Trust first.** Checks run the repository's own commands, so they run only in a folder you trusted.
+The first time a session opens a folder, Casper asks `Trust <folder>? It would run: npm test, npm run
+lint.` with `1 Not now · 2 Trust this folder` (Enter is Not now). Trust is saved for that folder; Not now
+lasts this session and Casper asks again next time. Saying "trust this folder" (or `/trust`) trusts it
+later, and "stop trusting this folder" (`/trust off`) takes it back.
+
+In a folder you haven't trusted:
+- Casper runs no checks, page checks, services or smoke checks, whatever its `.casper/project.yaml`
+  says. The banner, `/status`, `/verify` and the receipt say why.
+- Where no sandbox runs, the AI asks before the project's scripts, builds, tests and installs
+  instead of running them as routine work. You can still read and edit.
+
+Your home folder and the top of a drive are never trusted and never asked about. Folders Casper had
+already opened before it asked count as trusted. A folder inside a trusted one is covered by it,
+unless it is a repository of its own (one you cloned there asks for itself). A worktree of a trusted
+repository counts as that repository. A project Casper made for you opens trusted. A run that can't
+ask (`-p`, `--json`, piped, `CI`) is trusted for that run, as Claude Code's `-p` is: starting it
+there is your choice. `--no-verify` still turns checks off.
+
+Since v0.2.17 checks run in the shell sandbox where it can run: they write only the project, temp and
+package caches, can't read your private folders and reach only listed hosts (see
+[SECURITY.md](SECURITY.md)). Where no sandbox runs (Windows, bubblewrap missing, `--no-sandbox`) a
+trusted folder's checks run with your permissions. A flag wins over every configuration file.
 
 **When the sandbox, not your code, fails a check.** Real test suites sometimes need what the sandbox
 refuses: unix sockets, a loopback address like `127.0.0.2`, `/dev/fd`, or a browser or terminal

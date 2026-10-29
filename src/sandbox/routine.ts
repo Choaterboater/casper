@@ -16,15 +16,17 @@ import { lineCommands, readOnlyCommand, timeoutCommand, type ReadPlace } from ".
  * ~, substitution or subshell).
  */
 
-interface Here { root: string; realRoot: string; cwd: string; where: ReadPlace }
+interface Here { root: string; realRoot: string; cwd: string; where: ReadPlace; projectCommands: boolean }
 
-/** True when every command on the line is a plain read or routine work (see above). */
-export function routineCommand(command: string, where: ReadPlace | string): boolean {
+/** True when every command on the line is a plain read or routine work (see above). `projectCommands: false` (a folder
+ * you haven't trusted): the project's installs, builds, tests and scripts are not routine; git, gh and file work are. */
+export function routineCommand(command: string, where: ReadPlace | string, options: { projectCommands?: boolean } = {}): boolean {
   const line = lineCommands(command, where);
   if (!line) return false;
   const place: ReadPlace = typeof where === "string" ? { root: where } : where;
+  const projectCommands = options.projectCommands !== false;
   return line.commands.every((part) => part.reads || part.plumbing || (!part.globs && part.folders.every((cwd) =>
-    routinePart(part.words, { root: line.root, realRoot: line.realRoot, cwd, where: place }))));
+    routinePart(part.words, { root: line.root, realRoot: line.realRoot, cwd, where: place, projectCommands }))));
 }
 
 function routinePart(words: readonly string[], here: Here): boolean {
@@ -36,7 +38,7 @@ function routinePart(words: readonly string[], here: Here): boolean {
   if (!argsInside(args, here)) return false;
   if (name === "git") return gitWork(args, here);
   if (name === "gh") return ghWork(args, here);
-  return installs(name, args, here) || builds(name, args, here);
+  return here.projectCommands && (installs(name, args, here) || builds(name, args, here));
 }
 
 /** Option values that are plain text (a commit message, a PR title), never a path to check. */

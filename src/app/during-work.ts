@@ -19,6 +19,7 @@ import { askSideQuestion, BTW_USAGE, btwQuestion, sideQuestionsOn, sideQuestionT
 import { duringTask } from "../tui/give-way";
 import { chooseModel, handledHere, modelChangeRequest, namesModel, severalModelsMessage } from "./model-words";
 import { exportHandledHere, exportRequest, exportWordsLine } from "./export-words";
+import { trustHandledHere, trustLine, trustRequest } from "./trust-words";
 
 /** After a task: lines the AI never read join the queue. A stopped task runs nothing more: its queued lines go
  * back into the prompt (the rich terminal) for you to send or clear. */
@@ -131,6 +132,12 @@ export function submitDuringWork(app: CasperApp, line: string, plain = false): t
       app.output.write(handledHere(target));
       return duringTask(() => setModelDuringWork(app, target));
     });
+    return true;
+  }
+  // "trust this folder": done now, as /trust would be, and never sent to the AI.
+  const trust = trustRequest(line, pasted);
+  if (trust) {
+    queueMicrotask(() => { app.output.write(trustHandledHere(trustLine(trust))); duringTask(() => runCommandDuringWork(app, trustLine(trust))); });
     return true;
   }
   // "export this session to the desktop": saved now, as /export would be, and never sent to the AI.

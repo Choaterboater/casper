@@ -338,10 +338,11 @@ Notes on this example:
 - The flags used in this CI example ship in v0.2.13 and later, so pin the installer to v0.2.13
   or newer. The
   receipt's `verdict` and `proofSkipped` fields and a check's `ended` field ship in v0.2.14.
-- Checks run the repository's own configured commands without asking. They run in the shell
-  sandbox where it can run (Linux with bubblewrap, macOS); on a runner without it they run with
-  the job's permissions. Either way, run Casper only on code you trust, or pass
-  `--no-verify`. With the sandbox, a host a check wants that is not listed is blocked in a script
+- Checks run the repository's own configured commands without asking. A run that can't ask
+  (`-p`, `--json`, piped, `CI`) treats the folder as trusted, as Claude Code's `-p` does: the
+  "Trust this folder?" question is only asked in a session. They run in the shell sandbox where it
+  can run (Linux with bubblewrap, macOS); on a runner without it they run with the job's
+  permissions. Either way, run Casper only on code you trust, or pass `--no-verify`. With the sandbox, a host a check wants that is not listed is blocked in a script
   (nobody can answer); add it to `sandbox.allowedDomains` in the runner's `~/.casper/config.yaml`.
   The receipt's `sandbox` field says whether the run was held.
 - Configure the checks in `.casper/project.yaml` (see [VERIFICATION.md](VERIFICATION.md#configuration));

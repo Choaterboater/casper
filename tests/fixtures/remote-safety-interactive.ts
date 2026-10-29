@@ -3,6 +3,7 @@ import { PassThrough } from "node:stream";
 import { CasperApp } from "../../src/app";
 import { passThroughEngine } from "../../src/sandbox/runtime";
 import { askDefaults } from "../../src/tui/surface";
+import { folderTrustDefaults } from "../../src/project/trust";
 
 /**
  * An interactive Casper session on a fake terminal, answered by a script: SCENARIO_ANSWERS is a JSON list of
@@ -33,7 +34,9 @@ const writer = Object.assign(new EventEmitter(), { isTTY: true, columns: 120, ro
   }
   return true;
 } });
-// As in the test preload: exercise host approvals and redaction, not this machine's OS sandbox tools.
+// As in the test preload: the folder counts as one you trusted (no "Trust this folder?" box), and the scenario
+// exercises host approvals and redaction, not this machine's OS sandbox tools.
+folderTrustDefaults.lookup = async (info) => ({ trusted: true, from: info.root });
 const app = new CasperApp({ input, output: writer, verificationMode: "auto",
   sandboxSeams: { engine: passThroughEngine(), problem: () => undefined } });
 const watchdog = setTimeout(() => { console.log("SCENARIO_SCREEN=" + JSON.stringify(Bun.stripANSI(screen).replace(/\r\n?/g, "\n"))); console.log("SCENARIO_STUCK waiting for " + JSON.stringify(answers[0])); process.exit(3); }, 60_000);

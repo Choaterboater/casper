@@ -1,4 +1,5 @@
 import type { ProjectCommand } from "../project/model";
+import { untrustedReason } from "../project/trust";
 import { CHECK_NAMES, type CheckName } from "./evidence";
 import { autoNamedChecks, modelNamedChecks, type NamedCheckSpec } from "./named";
 import type { VerificationScope } from "./scope";
@@ -60,6 +61,8 @@ export function resolveVerificationMode(input: {
  * mode is `offer` only because the checks were timed at a minute or more (not a flag or configuration). */
 export interface ChecksPlan {
   mode: VerificationMode; checks: CheckName[]; slow?: boolean;
+  /** Off because you haven't trusted the folder (src/app/folder-trust.ts), or it is your home folder or a drive. */
+  untrusted?: "new" | "home" | "drive";
   /** Named checks that run only with /verify <name> (set to "ask", and reports). */
   manual?: string[];
   /** Lab checks: they reach the user's lab devices and run only when the user starts them (/verify <name>). */
@@ -83,6 +86,7 @@ export const TESTS_WITHOUT_COMMAND = "Casper found tests but no command that run
 
 /** The banner's and /status's plain line for a ChecksPlan. */
 export function describeChecksPlan(plan: ChecksPlan): string {
+  if (plan.untrusted) return `off: ${untrustedReason(plan.untrusted)}`;
   if (plan.mode === "off") return "off for this session (--no-verify or verification.mode: off)";
   const manual = (plan.manual?.length ? ` · with /verify <name> only: ${plan.manual.join(", ")}` : "")
     + (plan.lab?.length ? ` · lab: ${plan.lab.join(", ")} (device checks: Casper asks before each one)` : "")

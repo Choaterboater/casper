@@ -31,6 +31,8 @@ import { applyWeb } from "./wiring";
 import { typedDuringTask } from "../tui/give-way";
 import { checkSignIn, ensureRuntime } from "./runtime-start";
 import { handledHere, modelChangeRequest, namesModel } from "./model-words";
+import { trustCommand } from "./folder-trust";
+import { trustHandledHere, trustLine, trustRequest } from "./trust-words";
 import { exportHandledHere, exportRequest, exportWordsLine } from "./export-words";
 import { reloadProject } from "./project-file";
 import { pagesCommand } from "./pages";
@@ -208,6 +210,12 @@ export async function handlePrompt(app: CasperApp, prompt: string, typed?: { pas
       app.output.write(exportHandledHere(line));
       return report = await handleSlashCommand(app, line);
     }
+    // "trust this folder" or "stop trusting this folder": /trust, as if typed, with no model call (src/app/trust-words.ts).
+    const trust = typed && !app.pastedImages?.size ? trustRequest(prompt, typed.pasted) : undefined;
+    if (trust) {
+      app.output.write(trustHandledHere(trustLine(trust)));
+      return report = await handleSlashCommand(app, trustLine(trust));
+    }
     // "look adapt", typed without the slash: /look adapt (src/look/commands.ts lookWords). Only a line typed here; when
     // /look can't run, the line goes on to the AI below.
     const look = typed && !app.pastedImages?.size ? lookWords(prompt, typed.pasted) : undefined;
@@ -249,6 +257,7 @@ export function handleSlashCommand(app: CasperApp, typed: string): Promise<Verif
   // The handlers below match command names: an alias (/cost, /config, /new) runs as its command.
   const prompt = canonicalLine(typed);
   if (/^\/pane(?:\s|$)/.test(prompt)) return paneCommand(app, prompt.slice(5).trim()).then(() => undefined);
+  if (/^\/trust(?:\s|$)/.test(prompt)) return trustCommand(app, prompt.slice(6).trim()).then(() => undefined);
   if (/^\/details(?:\s|$)/.test(prompt)) return detailsCommand(app, prompt.slice(8).trim()).then(() => undefined);
   if (/^\/settings(?:\s|$)/.test(prompt)) return settingsCommand(app, prompt.slice(9).trim() || undefined).then(() => undefined);
   if (prompt.trim() === "/theme") return settingsCommand(app, "Theme").then(() => undefined);

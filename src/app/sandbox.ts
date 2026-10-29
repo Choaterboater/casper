@@ -52,6 +52,9 @@ export interface SandboxHost {
   /** Routine commands (routine_commands, on unless turned off): with no sandbox, routine work (see routineCommand) runs
    * without the box. Unset: off, every command that is not a read asks. */
   routineCommands?(): boolean;
+  /** False in a folder you haven't trusted: its installs, builds, tests and scripts are not routine there, so they ask.
+   * Everyday git, gh's look-and-open commands and file work in the project stay routine. Unset: routine. */
+  projectCommandsRoutine?(): boolean;
   /** Text snapshotted before this tool call; its last nonempty line titles the approval box. */
   precedingText?(): string | undefined;
   /** The private ssh login: Casper's own hidden box for a password or passphrase ssh asks for. Unset: a run that can't ask. */
@@ -383,7 +386,7 @@ export function runtimeShell(host: SandboxHost, sandbox: ShellSandbox, given: Sa
       const where = { root: sandbox.root, home: sandbox.home, denyRead: sandbox.policy().denyRead };
       if (readOnlyCommand(command, where)) return undefined;
       // So does routine work (git commit, npm test, bun install, rm -rf dist), as in Claude Code's auto mode, unless you turned it off.
-      if (host.routineCommands?.() && routineCommand(command, where)) return undefined;
+      if (host.routineCommands?.() && routineCommand(command, where, { projectCommands: host.projectCommandsRoutine?.() !== false })) return undefined;
       // Test-run session answers may vary project files and log tails; all other answers stay exact. In
       // `cd app && npm test 2>&1 | tail -25` that is `cd app && npm test` (answerKey), so a later line of that kind
       // matches it too, and the same words in another folder, or fed another script (`cat a.sh | sh`), ask again.
