@@ -526,7 +526,10 @@ terminal, `4 Show the details` is offered when there are details; it lists them 
 cannot ask lists everything and stops.
 
 Casper saves Markdown in `.casper/plans/date-slug.md`, gitignored. This host-owned save does not let the
-model write during planning. `/plan` alone lists recent saved plans; selecting one reopens it for the same
+model write during planning. Because the save leaves `.casper` behind, a folder that held nothing else is no
+longer empty, and `git clone <url> .` refuses it. While a folder holds only Casper's own entries, each request
+tells the model to fetch a repository in place instead (`git init`, `git remote add`, `git fetch`,
+`git checkout -t`) rather than clone it into a subfolder. `/plan` alone lists recent saved plans; selecting one reopens it for the same
 Stop/Build/Change choices, not an automatic build.
 
 Build gives the model the whole revised plan, including its Details and Done means checklist. While working,

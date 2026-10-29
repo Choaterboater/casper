@@ -208,3 +208,14 @@ test("plan first: the task plans before it builds, like /plan", async () => {
     expect(f.prompts[0]!.text).not.toContain("plan first");
   } finally { await f.cleanup(); }
 });
+
+test("a folder holding only .casper: the request says how to put a repository here; once it has files, it doesn't", async () => {
+  const f = await fixture();
+  try {
+    await f.send("clone the repo here");
+    expect(f.prompts[0]!.text).toContain("git checkout -t origin/");
+    await writeFile(path.join(f.app.activeWorkspaceRoot(), "README.md"), "x\n");
+    await f.send("list the files");
+    expect(f.prompts[1]!.text).not.toContain("git checkout -t origin/");
+  } finally { await f.cleanup(); }
+});

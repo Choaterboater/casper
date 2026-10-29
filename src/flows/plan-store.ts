@@ -68,6 +68,17 @@ export function planQuestions(text: string): PlanQuestion[] | undefined {
     return data.questions;
   } catch { return undefined; }
 }
+const OWN_ENTRIES = [".casper", ".pi", ".DS_Store", "Thumbs.db"];
+
+/** A saved plan leaves `.casper` in an empty folder, and then `git clone <url> .` refuses it: say how to put a repository there anyway. */
+export async function emptyFolderNote(root: string): Promise<string> {
+  const names: string[] = await readdir(root).catch(() => []);
+  if (!names.includes(".casper") || !names.every(name => OWN_ENTRIES.includes(name))) return "";
+  return "This folder is empty except for Casper's own .casper folder (keep it). `git clone <url> .` refuses a folder that isn't empty, "
+    + "so to put a repository here: git init, git remote add origin <url>, git fetch origin, then git checkout -t origin/<its default branch> "
+    + "(git remote show origin names it). Don't clone into a subfolder unless the user asks.";
+}
+
 export async function wantsSpec(root: string, request: string): Promise<boolean> {
   if (/\b(?:make|build|create|design)\b[^.!?\n]{0,80}\b(?:app|application|site|website|game)\b/i.test(request)) return true;
   const names = await readdir(root);
