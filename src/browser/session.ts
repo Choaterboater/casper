@@ -13,7 +13,7 @@ import path from "node:path";
 import type { Browser, ElementHandle, HTTPRequest, JSHandle, Page } from "puppeteer-core";
 import type { ArtifactDirectory } from "../visualize/artifacts";
 import { isolatedEnvironment } from "../platform/environment";
-import { discoverBrowser } from "./discovery";
+import { browserUnavailable, discoverBrowser } from "./discovery";
 import { MetadataGuard, type Lookup } from "./metadata";
 import { actionUsage, browserArguments, text, webURL, type BrowserAction } from "./arguments";
 import { ownSpawnedTree, type OwnedProcesses, ProcessCleanupError, terminateTree } from "../platform/processes";
@@ -1999,7 +1999,7 @@ export class BrowserSession {
       let executablePath: string, puppeteer: typeof import("puppeteer-core").default;
       try {
         const found = await discoverBrowser(this.options.executablePath ?? process.env.CASPER_BROWSER_EXECUTABLE);
-        if (!found || !path.isAbsolute(found)) throw new Error("Browser unavailable: install Chrome yourself or set CASPER_BROWSER_EXECUTABLE to an absolute executable path");
+        if (!found || !path.isAbsolute(found)) throw new Error(browserUnavailable());
         executablePath = found;
         ({ default: puppeteer } = await import("puppeteer-core"));
       } catch (error) { this.startup = undefined; throw error; }
@@ -2107,7 +2107,7 @@ export class BrowserSession {
   private async signInWindow(url: string, signal: AbortSignal, wrote: Promise<"person wrote">): Promise<SignInEnd> {
     const supplied = this.options.executablePath ?? process.env.CASPER_BROWSER_EXECUTABLE;
     const executablePath = await discoverBrowser(supplied);
-    if (!executablePath || !path.isAbsolute(executablePath)) throw new Error("Browser unavailable: install Chrome yourself or set CASPER_BROWSER_EXECUTABLE to an absolute executable path");
+    if (!executablePath || !path.isAbsolute(executablePath)) throw new Error(browserUnavailable());
     const { default: puppeteer } = await import("puppeteer-core");
     // The headless Chrome gives the profile up for the window; its cookies stay.
     await this.startup?.catch(() => {});

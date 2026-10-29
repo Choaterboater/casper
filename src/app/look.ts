@@ -2,7 +2,7 @@
  * chosen command's instructions go into that one request. */
 
 import type { CasperApp } from "../app";
-import { browserDefaults } from "../browser/discovery";
+import { browserDefaults, wslBrowserHint } from "../browser/discovery";
 import { findLookCommand, findLookPage, formatLookPrompt, LOOK_COMMANDS, LOOK_USAGE, lookList, lookNames, lookRequest, lookWhere, parseLookArgs, type LookCommand, type LookPage, type LookWords } from "../look/commands";
 import { terminalText } from "../tui/format";
 import type { VerificationReport } from "../verify/evidence";
@@ -60,7 +60,7 @@ async function runLook(app: CasperApp, chosen: { commands: readonly LookCommand[
   }
   app.browserInstalled ??= browserDefaults.installed().catch(() => false);
   if (!await app.browserInstalled) {
-    write(`[look] /look needs Chrome, Chromium or Edge on this computer, or CASPER_BROWSER_EXECUTABLE set to one.${instead}\n`);
+    write(`[look] /look needs Chrome, Chromium or Edge on this computer, or CASPER_BROWSER_EXECUTABLE set to one.${wslBrowserHint()}${instead}\n`);
     return undefined;
   }
   // A follow-up ("look adapt" after "/look critique http://127.0.0.1:8000/") stays on the page already looked at.

@@ -114,6 +114,9 @@ curl -fsSL https://github.com/Choaterboater/casper/releases/download/v0.3.8/inst
 - It works with nothing else to install. It asks before shell commands that change
   things.
 - `/sandbox` shows how to add the full sandbox if you want it.
+- The AI's browser and `/look` need a Chrome inside WSL; the Windows Chrome can't be used from
+  there. To install it:
+  `wget https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb && sudo apt install -y ./google-chrome-stable_current_amd64.deb`.
 
 ## 2. Automated checks (CI)
 

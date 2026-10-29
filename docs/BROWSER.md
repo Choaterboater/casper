@@ -16,8 +16,12 @@ browser you have open.
 It looks in these places, in order:
 
 - macOS: `/Applications/Google Chrome.app/…`, then `/Applications/Microsoft Edge.app/…`
-- Linux: `/usr/bin/google-chrome`, `/usr/bin/google-chrome-stable`,
-  `/usr/bin/chromium`, `/usr/bin/chromium-browser`, `/snap/bin/chromium`
+- Linux: `/usr/bin/google-chrome`, `/usr/bin/google-chrome-stable`, `/opt/google/chrome/chrome`,
+  `/usr/bin/chromium`, `/usr/bin/chromium-browser`, `/snap/bin/chromium`, `/usr/bin/microsoft-edge`,
+  then any of those names on `PATH`
+- WSL: the same as Linux, never the Windows Chrome under `/mnt/c`. Casper drives Chrome over
+  pipes, which a Windows program can't use from WSL, and Chrome there can't keep its profile on
+  WSL's disk. With none found, the message says how to install Chrome inside WSL.
 - Windows: Chrome under `ProgramFiles`, `ProgramFiles(x86)` and `LOCALAPPDATA`,
   then Edge under `ProgramFiles` and `ProgramFiles(x86)`
 
