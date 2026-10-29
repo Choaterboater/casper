@@ -93,7 +93,7 @@ export async function ghToken(signal: AbortSignal, env: Env = process.env): Prom
   } catch { return undefined; }
 }
 
-const COPILOT_HEADERS = { "User-Agent": "GitHubCopilotChat/0.35.0", "Editor-Version": "vscode/1.107.0",
+export const COPILOT_HEADERS = { "User-Agent": "GitHubCopilotChat/0.35.0", "Editor-Version": "vscode/1.107.0",
   "Editor-Plugin-Version": "copilot-chat/0.35.0", "Copilot-Integration-Id": "vscode-chat" };
 
 /** Shown beside the GitHub CLI row: what Pi's own Copilot sign-in says before it turns models on. */
@@ -101,7 +101,7 @@ export const COPILOT_POLICIES = "Using it may turn on model policies on your Git
 
 /** Pi's reading of Copilot's model list: usable models (picker on, not disabled; on the Individual plan, when no
  * model has the picker on, those with policy enabled) and models Pi knows whose policy is still "unconfigured". */
-function copilotCatalog(raw: unknown, individual: boolean): { available: string[]; policy: string[] } {
+export function copilotCatalog(raw: unknown, individual: boolean): { available: string[]; policy: string[] } {
   const data = (raw as { data?: unknown } | null)?.data;
   if (!Array.isArray(data)) return { available: [], policy: [] };
   const models = data.flatMap((item: { id?: unknown; model_picker_enabled?: unknown; policy?: { state?: unknown }; capabilities?: { supports?: { tool_calls?: unknown } } } | null) =>

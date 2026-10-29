@@ -1,8 +1,8 @@
 diff --git a/dist/api/openai-completions.js b/dist/api/openai-completions.js
-index a60f39352b776d71497e55b33b3334bacfbeb2f5..9d4f4a18e513d3d408617721758eba5e4db82d40 100644
+index 793ed0a6060e5d2e61b09e2d93514610527873df..635cb51032d8e5c2b04113dff73785dd2222acd0 100644
 --- a/dist/api/openai-completions.js
 +++ b/dist/api/openai-completions.js
-@@ -1188,6 +1188,13 @@ function parseChunkUsage(rawUsage, model) {
+@@ -1196,6 +1196,13 @@ function parseChunkUsage(rawUsage, model) {
          cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
      };
      calculateCost(model, usage);

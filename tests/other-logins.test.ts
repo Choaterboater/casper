@@ -125,13 +125,13 @@ test("turning on Copilot models stops at the first rate limit, as Pi's sign-in d
     globalThis.fetch = (async (input: string | URL | Request, _init?: RequestInit) => {
       const url = String(input);
       if (url.endsWith("/v2/token")) return Response.json({ token: "tid=synthetic", expires_at: 2_000_000_000 });
-      if (url.endsWith("/models")) return Response.json({ data: ["claude-haiku-4.5", "gpt-5.4", "gpt-5.5"].map((id) => ({ id, model_picker_enabled: true, policy: { state: "unconfigured" } })) });
+      if (url.endsWith("/models")) return Response.json({ data: ["claude-haiku-4.5", "gpt-6.1-sol", "gpt-5.5"].map((id) => ({ id, model_picker_enabled: true, policy: { state: "unconfigured" } })) });
       posts.push(url);
-      return url.includes("gpt-5.4/") ? new Response("", { status: 429 }) : Response.json({});
+      return url.includes("gpt-6.1-sol/") ? new Response("", { status: 429 }) : Response.json({});
     }) as typeof fetch;
     const result = await copilotFromGithub("gho_synthetic", AbortSignal.timeout(5_000));
-    expect(posts).toEqual(["https://api.individual.githubcopilot.com/models/claude-haiku-4.5/policy", "https://api.individual.githubcopilot.com/models/gpt-5.4/policy"]);
-    expect(result.ok && result.credential.availableModelIds).toEqual(["claude-haiku-4.5", "gpt-5.4", "gpt-5.5"]);
+    expect(posts).toEqual(["https://api.individual.githubcopilot.com/models/claude-haiku-4.5/policy", "https://api.individual.githubcopilot.com/models/gpt-6.1-sol/policy"]);
+    expect(result.ok && result.credential.availableModelIds).toEqual(["claude-haiku-4.5", "gpt-6.1-sol", "gpt-5.5"]);
   } finally { globalThis.fetch = real; }
 });
 

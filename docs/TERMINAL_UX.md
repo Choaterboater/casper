@@ -587,7 +587,7 @@ of those rows again in place. Scrollback is kept; a terminal that neither kept n
 restored those rows may show a few of them twice in scrollback
 (`tests/daily-terminal.test.ts` asserts no `ESC[3J` and a rewrite of every visible
 row for a rows change, and a repaint for a columns change; the field access is
-pinned to `@earendil-works/pi-tui` 1.1.0).
+pinned to `@earendil-works/pi-tui` 1.4.0).
 `tests/fixtures/layout-pty.py` drives the offline demo (steps ticking in, then folding into a row, an edit
 box and a failure box) through a bounded 24x80
 VT emulator that scrolls, and fails on footer creep, scrollback wipes from
@@ -622,12 +622,19 @@ live rows, popups or pickers, or a duplicated prompt box (`bun test tests/termin
   when it answered with no models yet); Ctrl+X on its row asks `1 Keep · 2 Forget` and forgets it (while an MCP server
   has writes on, Ctrl+X turns writes off instead; press it again once they are off), and
   what an add or forget said shows at the top of the right side when the picker opens again.
-  It refreshes the provider lists in the background and keeps the saved rows when that fails,
+  It looks for your model servers first and then refreshes the provider lists in the background (a server found
+  while a refresh runs would cancel it), and keeps the saved rows when that fails,
   saying why in a few words: `Your anthropic sign-in expired. Run /login to sign in again; showing
   saved models.`, or `Could not refresh openrouter (HTTP 503); showing saved models.`, never the
   provider's URL or stack. With an OpenRouter sign-in it also reads OpenRouter's own model list, so a
   model OpenRouter added today is listed before the engine's catalog has it
-  ([OpenRouter's model list](CONFIGURATION.md#provider-credentials)).
+  ([OpenRouter's model list](CONFIGURATION.md#provider-credentials)). With a ChatGPT or Copilot plan sign-in it reads
+  your plan's own list too ([Your plan's own model list](CONFIGURATION.md#provider-credentials)). A provider's header
+  says where its list comes from and its date (`openai-codex (8) · your account's list, Oct 29`). When the refresh is
+  done the header says `Model catalogs refreshed.` only if no signed-in provider's list is out of date; otherwise it
+  names them (`openai-codex list out of date`) with a line each saying why, for example `openai-codex: list from
+  Oct 15; pi.dev's is from Oct 29, but this Casper's engine (version 1.4.0) is given the older one. Update Casper.`, or
+  `Your github-copilot plan also offers gpt-9, which this Casper can't call yet. Update Casper.`
   **Enter remembers globally** in Casper's settings; **Ctrl+S selects for this session
   only** (from the providers too: it picks the list's marked model). Esc cancels from either side. `/effort` with no level is the same numbered list as every other
   choice: press a level's number (or Up/Down and Enter) to remember it; Ctrl+S picks it for
