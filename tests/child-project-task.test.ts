@@ -7,7 +7,7 @@ import { PassThrough } from "node:stream";
 import { CasperApp } from "../src/app";
 import { offerWorkFolder } from "../src/app/workspace";
 import { loadProjectContext, type ProjectContext } from "../src/project/context";
-import type { AgentRuntime, RuntimeEventListener, RuntimeSession } from "../src/runtime/types";
+import type { AgentRuntime, RuntimeConversation, RuntimeEventListener, RuntimeSession } from "../src/runtime/types";
 import { SkillRegistry } from "../src/skills/registry";
 import { childProjectOf } from "../src/project/child";
 import { removeTempDir } from "./support/temp-dir";
@@ -33,11 +33,28 @@ async function lab() {
   await writeFile(path.join(docs, "notes.md"), "lab notes\n");
   const starts: string[] = [];
   let disposed = 0;
+  /** Conversations by folder, as Pi keeps them, and what forks and resumes did. */
+  const saved = new Map<string, RuntimeConversation[]>();
+  const forks: Array<{ cwd: string; context?: string }> = [];
+  const resumed: Array<{ cwd: string; id: string }> = [];
   const runtime: AgentRuntime = {
     async start(options): Promise<RuntimeSession> {
       starts.push(options.cwd);
       const listeners = new Set<RuntimeEventListener>();
+      let id = `conv-${starts.length}`;
+      let cwd = options.cwd;
+      const file = path.join(root, `${id}.jsonl`);
       return {
+        getSessionInfo: () => ({ cwd, sessionId: id, sessionFile: file }),
+        forkSession: async (fork) => {
+          forks.push({ cwd: fork.cwd, ...(fork.context ? { context: fork.context } : {}) });
+          id = `fork-of-${id}`; cwd = fork.cwd;
+          saved.set(fork.cwd, [...saved.get(fork.cwd) ?? [], { id, modified: "2026-10-28T12:00:00Z", messages: 4 }]);
+          return { cwd, sessionId: id, sessionFile: file };
+        },
+        switchSession: async (target) => ({ cwd: target.cwd, sessionId: id, sessionFile: target.sessionFile }),
+        listConversations: async () => saved.get(options.cwd) ?? [],
+        resumeConversation: async (target) => { resumed.push({ cwd: options.cwd, id: target }); id = target; },
         getStatus: () => ({ provider: "fixture", model: "demo", auth: "configured" }),
         getState: () => ({ cwd: options.cwd, isStreaming: false }),
         subscribe: (listener: RuntimeEventListener) => { listeners.add(listener); return () => listeners.delete(listener); },
@@ -54,7 +71,7 @@ async function lab() {
     },
     async dispose() { disposed++; },
   };
-  return { root, home, docs, runtime, starts, disposed: () => disposed };
+  return { root, home, docs, runtime, starts, forks, resumed, disposed: () => disposed };
 }
 
 function options(home: string, runtime: AgentRuntime) {
@@ -101,8 +118,8 @@ function interactive(home: string, runtime: AgentRuntime) {
   return { app, input, until, output: () => Bun.stripANSI(output) };
 }
 
-test.skipIf(!python)("after the receipt: 1 Stay here · 2 Switch there; Enter stays, 2 moves the next request there", async () => {
-  const { root, home, docs, runtime, starts, disposed } = await lab();
+test.skipIf(!python)("after the receipt: 1 Stay here · 2 Switch there; 2 moves there and the conversation goes with it", async () => {
+  const { root, home, docs, runtime, starts, forks, resumed, disposed } = await lab();
   const harness = interactive(home, runtime);
   const running = harness.app.runInteractive(docs);
   try {
@@ -111,14 +128,21 @@ test.skipIf(!python)("after the receipt: 1 Stay here · 2 Switch there; Enter st
     await harness.until((text) => Bun.stripANSI(text).includes("The work is in ~/Documents/sample-tools."));
     expect(harness.output()).toContain("❯ 1. Stay here");
     expect(harness.output()).toContain("  2. Switch there");
+    expect(harness.output()).toContain("this conversation goes with you");
     harness.input.write("2");
     await harness.until((text) => Bun.stripANSI(text).includes("[folder] Working in ~/Documents/sample-tools"));
-    await harness.until((text) => Bun.stripANSI(text).includes("Your next request starts a new conversation there"));
+    await harness.until((text) => Bun.stripANSI(text).includes("[folder] This conversation came with you: your next request continues it there"));
+    expect(harness.output()).not.toContain("starts a new conversation there");
     expect(disposed()).toBe(1);
-    await harness.until((text) => /\bidle\b/.test(Bun.stripANSI(text).split("Your next request")[1] ?? ""));
+    // Copied into the new folder (so /resume there lists it), and told where it is now.
+    const there = path.join(docs, "sample-tools");
+    expect(forks).toEqual([{ cwd: there, context: expect.stringContaining(`Casper moved this conversation to ${there}`) }]);
+    await harness.until((text) => /\bidle\b/.test(Bun.stripANSI(text).split("came with you")[1] ?? ""));
     harness.input.write("add a test\r");
     await harness.until((text) => /\bidle\b/.test(Bun.stripANSI(text).split("add a test")[1] ?? ""));
-    expect(starts).toEqual([docs, path.join(docs, "sample-tools")]);
+    expect(starts).toEqual([docs, there]);
+    // The next request runs in the same conversation, there.
+    expect(resumed).toEqual([{ cwd: there, id: "fork-of-conv-1" }]);
   } finally {
     harness.input.write("/exit\r");
     await running;
