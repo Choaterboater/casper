@@ -47,7 +47,7 @@ import { buildNextRow, type NextItem } from "../tui/next-row";
 import { noteLookFixes } from "./look-fixes";
 import { findFlow, formatFlowPrompt, loadFlowCatalog, type Flow, type FlowRule } from "../flows/catalog";
 import { suggestBeforeWork } from "../flows/suggest";
-import { extractPlan, formatPlanBlock, formatPlanChangePrompt, formatPlanQuestionPrompt, isSpecPlan, openQuestions, planDetailsText, planMarkdown, planScreenRows, type ParsedPlan } from "../flows/plan";
+import { extractPlan, firstVersionSteps, formatPlanBlock, formatPlanChangePrompt, formatPlanQuestionPrompt, isSpecPlan, openQuestions, planDetailsText, planMarkdown, planScreenRows, type ParsedPlan } from "../flows/plan";
 import { planChanges } from "../flows/plan-changes";
 import { emptyFolderNote, planQuestions, readPlan, savePlan, updatePlan, wantsSpec, type SavedPlan } from "../flows/plan-store";
 import { PlanBuild } from "../flows/plan-build";
@@ -868,7 +868,9 @@ export async function runPlanTurn(app: CasperApp, session: RuntimeSession, reque
     showAgain(plan === before ? undefined : before);
   }
   if (answer !== "Build" || app.closing || signal?.aborted) { app.output.write("[plan] Stopped without building.\n"); return "stop"; }
-  const counts = `${plan.steps.length} ${plan.steps.length === 1 ? "step" : "steps"}, ${plan.tests.length} ${plan.tests.length === 1 ? "case" : "cases"}`;
+  // A spec plan has no Steps: its First version items are the build's checklist (PlanBuild), so they are counted here too.
+  const steps = (plan.steps.length ? plan.steps : firstVersionSteps(plan.firstVersion)).length;
+  const counts = `${steps} ${steps === 1 ? "step" : "steps"}, ${plan.tests.length} ${plan.tests.length === 1 ? "case" : "cases"}`;
   app.output.write(`Building the plan (${counts}).\n`);
   return { plan, ...(saved ? { file: saved.file } : {}), ...(changed.size ? { changed: [...changed].sort() } : {}) };
 }

@@ -703,6 +703,19 @@ test("an empty project gets a spec without forced steps and nothing is created b
   } finally { await f.close(); }
 }, 60_000);
 
+test("a spec plan's build line counts its First version items as steps, as the build's checklist does", async () => {
+  const spec = SPEC.replace("First version:\n- Add and move tasks\n", "First version:\n- Add and move tasks\n- Show a calendar\n");
+  const f = await fixture(true, { empty: true, answer: spec });
+  try {
+    f.input.write("/plan a task board\r");
+    await f.screen.until(waiting("Build this plan?"));
+    f.input.write("2");
+    await f.screen.until(idleAfter("Built."));
+    expect(f.screen.output).toContain("Building the plan (2 steps, 1 case).");
+    expect(f.screen.output).not.toContain("(0 steps");
+  } finally { await f.close(); }
+}, 60_000);
+
 test("Ctrl+G edits the saved Markdown, rereads it, shows it again, and Build uses the edit", async () => {
   const f = await fixture();
   let edited = "";

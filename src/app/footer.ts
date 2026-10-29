@@ -182,8 +182,10 @@ export async function detailsCommand(app: CasperApp, argument: string): Promise<
     app.output.write(`[details] ${now}: ${words[now]}. /details ${DISPLAY_LEVELS.filter(other => other !== now).join(" or ")} changes it (saved; --session for this session only).\n`);
     return;
   }
-  if (!DISPLAY_LEVELS.some(known => known === level)) throw new Error("Usage: /details [quiet|normal|detailed] [--session]");
-  app.displayChoice = level as DisplayLevel;
+  // The words people reach for: /details all shows everything.
+  const chosen = ["all", "everything", "full", "verbose"].includes(level) ? "detailed" : level;
+  if (!DISPLAY_LEVELS.some(known => known === chosen)) throw new Error("Usage: /details [quiet|normal|detailed] [--session]");
+  app.displayChoice = chosen as DisplayLevel;
   let saved = false;
   if (!session) {
     try { await editUserConfig(app.homeDir(), ["display"], app.displayChoice); saved = true; }

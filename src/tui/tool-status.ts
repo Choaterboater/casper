@@ -168,6 +168,8 @@ export function outcomeNote(event: ToolEnd): string | undefined {
   if (emptyLookup(event.toolName, text)) return "nothing found";
   if (event.toolName === "read" && event.isError && /\bENOENT\b|no such file or directory|file not found/i.test(text)) return "path not found";
   if (["read", "grep", "find", "ls"].includes(event.toolName) && /^Skipped as a repeat\b/.test(text.trim())) return "skipped repeated lookup";
+  // The AI's own pattern didn't parse (ripgrep's "regex parse error"): it rewrites it; nothing on your side failed.
+  if (event.toolName === "grep" && event.isError && /\bregex parse error\b/i.test(text)) return "pattern not valid";
   if (event.toolName === "casper_check") {
     try { if (JSON.parse(text).status === "skip") return "skipped"; } catch { /* Not a check result. */ }
   }

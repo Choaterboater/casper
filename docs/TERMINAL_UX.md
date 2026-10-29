@@ -55,7 +55,7 @@ over the network, and `/references add` downloads files after asking you.
 | `/plan [request]` | Optional plan or first-version spec; at most one round of questions; alone, reopen a recent saved plan |
 | `/btw <question>` | A side question, idle or during a task: your fast model answers with no tools, and the conversation never sees it (like a line you start with `?`; works with side questions off) |
 | `/suggestions [on\|off]` | List the suggested next steps, or turn them on or off |
-| `/details [quiet\|normal\|detailed]` | How much work shows, remembered like `/effort` (`--session` for this session only); alone, the level now; Ctrl+T shows the last step in full |
+| `/details [quiet\|normal\|detailed]` | How much work shows, remembered like `/effort` (`--session` for this session only); alone, the level now; `all` or `everything` means detailed; Ctrl+T shows the last step in full |
 | `/settings [name]`, `/config [name]` | Seven areas, aligned values and help for the highlighted row. Up/Down moves; Enter/Space changes; Left/Right or Tab switches areas; type to search; Esc closes. A name opens one setting. Plain terminals keep grouped numbered choices ([CONFIGURATION.md](CONFIGURATION.md#settings)) |
 | `/theme` | The Theme row of `/settings` on its own: pick the screen's colours |
 | `/hotkeys` | The keys Casper uses, one a line |
@@ -247,7 +247,8 @@ also after `Yes to everything`, is a row with what was sent, masked as in its bo
 site-1`. Setup on this computer gets named rows when the command worked: `◆ installed left-pad`,
 `◆ committed "fix port" (a1b2c3d)`, `◆ pushed main to origin`, `◆ switched to fix-port`, `◆ deleted 3 files: a, b, c`.
 At `/details quiet` they are rows without their boxes. The old Windows console draws `◆` as `#`.
-A missing guessed path, an empty search, a designed refusal or skip, and a confirmed recovered timeout,
+A missing guessed path, an empty search, a search pattern that didn't parse (`– grep · foo( — pattern not valid`; the AI
+still gets the error and rewrites it), a designed refusal or skip, and a confirmed recovered timeout,
 service hiccup, merge conflict or test-first failure are dim `–` notes, not failure boxes. A failure that was not
 recovered keeps its `✗`, its amber box and Ctrl+T.
 A shell command whose exit 1 is its answer is a note too, when the line runs only that kind of program (after a
