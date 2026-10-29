@@ -857,7 +857,9 @@ only. See [platform support](PLATFORM_SUPPORT.md) for host-validation limits.
   `Enter to choose · Esc to skip`; specialized actions such as Ctrl+S remain available.
   Approvals, plan choices, `/model`, `/settings` choices, sign-in and startup questions share these rows.
 - A question from the AI's `ask` tool starts with a muted `The AI asks:` line. Casper's own
-  questions and approvals never do, so the AI can't pass off a question as a Casper approval.
+  questions and approvals never do, so the AI can't pass off a question as a Casper approval. Markdown escapes in its
+  words come off (`\`GET\`` shows as `` `GET` ``), and its `code` shows bold without backticks (with them under
+  `NO_COLOR`); `tests/ai-ask-render.test.ts` checks this.
 - A closed box leaves one line and nothing else: `<question> → <answer>` (`Pick a server → network`,
   `network → Connect`, `Make this change? → Yes, this once`), or `<question> — skipped` after Esc
   (`… — skipped (No)` for an approval). The question is its first line; the choices, the hint and the

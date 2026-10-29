@@ -481,6 +481,14 @@ say that no files changed (no check ran, nothing changed in the project, outside
 needs you), there is no card at all: the AI's message is the whole result, as with a plain question. `--verbose` always prints the full receipt (the line follows it), and one-shot runs and `--json` are
 unchanged.
 
+**The request's next step.** Some models finish one step of a pasted list and stop with nothing open and nothing
+asked, so there is nothing to keep going on. When the request lists several steps (numbered or bulleted, also run
+together on one line) and the AI's last words name nothing open and ask nothing, one small call to your fast model reads
+the request and those words and names the first step not done yet (about 2–5k tokens; never for other requests). The
+row under the card offers it first: `3 Continue: Publish ha.example.org as a public hostname (uses tokens)` with
+`Why 3: the request has more steps, and the AI didn't say what is left`; after a code fix, its test comes first. Only
+your key sends it, as the next request. `tests/request-next-step-app.test.ts` covers this.
+
 Casper reads only the closing words of the AI's last message: its last paragraph, past a code block, the open items and
 a list of options under it, and only when no tool ran after them. A guess the wrong way shows the line after a
 finished task (its card follows your next request, and `/receipt` has it now) or the card as before. The AI is told

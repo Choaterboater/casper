@@ -34,11 +34,12 @@ import { PLAN_ANSWER, PLAN_ANSWER_HINT, PLAN_ANSWERS, PLAN_CHANGE_HINT, PLAN_CHA
 import { DEFAULT_SPEND_LIMITS, SpendGuard, requestSpendLimit } from "../task/spend";
 import { VerificationTask } from "../verify/task";
 import { evidenceForModel } from "../verify/model-output";
-import { ChangeBaseline, changesCode, isTestPath, proofRepairPrompt, type ChangeProof } from "../verify/proof";
+import { ChangeBaseline, changesCode, isCodePath, isTestPath, proofRepairPrompt, type ChangeProof } from "../verify/proof";
 import { independentAcceptance } from "../verify/acceptance";
 import { definitionChangedReason, definitionChanges, testDefinition } from "../verify/test-definition";
 import { parseChecklist, parseReview, requirementsReviewPrompt, ROUND_MAX_TURNS, type RequirementsReview } from "../task/review";
 import { KEEP_GOING_ROUNDS, keepGoingNeed, keepGoingPrompt, openPlanNote } from "../task/keep-going";
+import { findNextStep, requestStepCount } from "../task/next-step";
 import { extractChecklist, formatChecklistPrompt, normalizeCases } from "../task/checklist";
 import { isOutside } from "../platform/inside";
 import { ProcessCleanupError } from "../platform/processes";
@@ -1179,11 +1180,41 @@ export async function offerNextSteps(app: CasperApp, task: TaskResult, request?:
     more.push(...suggested.items);
     hint = suggested.hint;
   }
+  // The request's next step when the AI stopped without saying what is open: first, unless the task was a code fix (then
+  // its test comes first).
+  const step = request !== undefined ? await requestNextStepItem(app, task, request) : undefined;
+  if (step) {
+    const codeFix = classification?.intent === "fix" && Boolean(task.changedPaths?.some(isCodePath));
+    if (codeFix) more.push(step); else more.unshift(step);
+  }
   if (app.closing) return;
   // Undo and Show diff of this task, unless a source offered its own.
   const own = app.taskUndo.nextItems(task);
   undo ??= own.undo; diff ??= own.diff;
   app.terminal.offerNext(buildNextRow({ undo, diff, more, ...(hint ? { hint } : {}) }));
+}
+
+/**
+ * "Continue: <step>" when the request lists several steps and the AI's last words name nothing open and ask nothing
+ * (src/task/next-step.ts). The requirements review's open item when one is on record; otherwise one small model call,
+ * counted in the session's spend. Its key sends the step as the next request; nothing runs on its own.
+ */
+async function requestNextStepItem(app: CasperApp, task: TaskResult, request: string): Promise<NextItem | undefined> {
+  if (task.execution !== "completed" || task.turnLimit !== undefined || task.spendLimit !== undefined || app.closing) return undefined;
+  const answer = app.lastAnswer;
+  if (!answer.trim() || keepGoingNeed(answer) || taskEnding(answer) || requestStepCount(request) < 2) return undefined;
+  const open = task.review && "open" in task.review ? task.review.open[0]?.replace(/\s+—\s+.*$/, "") : undefined;
+  let step = open;
+  if (!step) {
+    const complete = app.session?.complete?.bind(app.session);
+    if (!complete) return undefined;
+    const found = await findNextStep({ complete, request, answer, ...(app.commandAbort ? { signal: app.commandAbort.signal } : {}) });
+    if (found.usage) app.observations.recordModelCall(found.usage); else app.observations.recordUntrackedModelUse();
+    step = found.step;
+  }
+  if (!step || app.closing) return undefined;
+  return { label: `Continue: ${step}`, command: `Continue with the next step of the request: ${step}`, note: "uses tokens",
+    why: "the request has more steps, and the AI didn't say what is left" };
 }
 
 /** A bundled flow, or the user's own trusted replacement. Warnings about a user flow are said once. */

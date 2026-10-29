@@ -259,6 +259,11 @@ export type AskOrigin = "ai" | "casper" | "approval";
 /** Keys pressed this soon after a box opens are ignored: they were typed before it appeared (mid-sentence), so they
  * never answer it. tests/support/preload.ts sets 0 for the suite; tests/one-input-style.test.ts checks the real wait. */
 export const askDefaults = { guardMs: 300 };
+/** Markdown's backslash escapes taken off: "\\`code\\`" is "`code`", "I\\'ll" is "I'll". A backslash before anything else stays. */
+export function unescapeMarkdown(text: string): string {
+  return text.replace(/\\([`*_'"\\[\](){}#+\-.!|<>~])/g, "$1");
+}
+
 /** The muted first line of every question the AI asks, so it never looks like a Casper approval. */
 export const AI_ASKS_LABEL = "The AI asks:";
 
@@ -1045,10 +1050,12 @@ export class TerminalSurface {
     const draft = this.editor.getExpandedText();
     const draftPastes = this.editor.pasted;
     this.editor.setText(""); // Pretyped drafts never answer a question.
-    const safeQuestion = terminalText(question);
+    // The AI writes Markdown, and some models escape its marks even in a question ("\`GET /api\`"): shown as meant.
+    const words = (text: string) => from === "ai" ? unescapeMarkdown(text) : text;
+    const safeQuestion = terminalText(words(question));
     const shown = options.map(option => ({
-      label: terminalText(option.label).replace(/\s+/g, " ").trim(),
-      description: option.description ? terminalText(option.description).replace(/\s+/g, " ").trim() : undefined,
+      label: terminalText(words(option.label)).replace(/\s+/g, " ").trim(),
+      description: option.description ? terminalText(words(option.description)).replace(/\s+/g, " ").trim() : undefined,
     }));
     // A closed box leaves one line, "<question> → <answer>" or "<question> — skipped", re-fitted per width; the
     // choices and the hint go with the box. It commits after any open tail line.
@@ -1176,7 +1183,9 @@ export class TerminalSurface {
     const shell = SHELL_QUESTION.test(question[0] ?? "");
     const inline = shell ? (/^(.*?\?)  ([\s\S]+)$/.exec(question[0]!) ?? /^(Builder \d+ wants to run:) ([\s\S]+)$/.exec(question[0]!)) : null;
     const title = inline?.[1] ?? question[0] ?? "Choose";
-    const wrappedTitle = wrapTextWithAnsi(this.accent(title), width);
+    // The AI's `code` in its question is code: bold, without its backticks (they stay where there is no colour).
+    const coded = this.askFrom === "ai" && this.io.color ? title.replace(/`([^`\n]+)`/g, (_, code: string) => `\x1b[1m${code}\x1b[22m`) : title;
+    const wrappedTitle = wrapTextWithAnsi(this.accent(coded), width);
     const titleRows = shell && wrappedTitle.length > 3 ? [...wrappedTitle.slice(0, 2), this.muted("…")] : wrappedTitle;
     const context = shell ? [...(inline ? [inline[2]!] : []), ...question.slice(reason ? 2 : 1)] : question.slice(reason ? 2 : 1);
     let tail = wrapTextWithAnsi(dim(hint, this.io.color), width);
