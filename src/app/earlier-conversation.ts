@@ -1,7 +1,7 @@
 /** The start's way back: a plain start in a folder's main session begins a new conversation, and when the folder has an
  * earlier one it offers one row, "Next: 1 Continue the Oct 21 conversation (…)". A lone 1 on the empty prompt runs
- * /continue, which opens what --continue would, even when typed before the row shows; anything typed starts the new
- * conversation; Enter runs nothing. */
+ * /continue, which opens what --continue would, even when typed before the row shows, and so does a first line that only
+ * asks to go back ("continue session", continueWords); anything else typed starts the new conversation; Enter runs nothing. */
 
 import type { CasperApp } from "../app";
 import { conversationLabel } from "../sessions/resume";
@@ -46,3 +46,16 @@ export async function offerEarlierConversation(app: CasperApp): Promise<boolean>
 
 /** How long a lone 1 typed before the row shows waits for it. */
 export const EARLY_ONE_WAIT_MS = 3_000;
+
+const WHICH = String.raw`(?:\s+(?:the|my|our|that))?(?:\s+(?:last|previous|earlier|prior|old|yesterday'?s))?`;
+const SESSION = String.raw`\s+(?:session|conversation|chat)`;
+/** A first line that only asks to go back to the last conversation: "continue", "continue session", "resume my last
+ * session", "pick up where we left off". Short, typed (not pasted), and nothing else in it: "continue the refactor" or
+ * "continue session and fix the bug" is a request. Asked only at the start, while the continue row is offered; later in
+ * a conversation "continue" means keep going. */
+const BACK = new RegExp(String.raw`^(?:please\s+)?(?:(?:continue|resume)${WHICH}(?:${SESSION})?|(?:go\s+back\s+to|back\s+to|reopen|open)${WHICH}${SESSION}`
+  + String.raw`|(?:let'?s\s+)?pick\s+up\s+where\s+(?:we|i|you)\s+left\s+off)\s*[.!]*$`, "i");
+export function continueWords(line: string, pasted: readonly string[] = []): boolean {
+  const text = line.trim();
+  return !pasted.some(Boolean) && text.length <= 60 && !/[\r\n]/.test(text) && BACK.test(text);
+}

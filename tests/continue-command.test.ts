@@ -4,7 +4,7 @@ import { mkdir, mkdtemp, readFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { CasperApp } from "../src/app";
-import { conversationDay, EARLY_ONE_WAIT_MS, NEW_CONVERSATION_HINT } from "../src/app/earlier-conversation";
+import { continueWords, conversationDay, EARLY_ONE_WAIT_MS, NEW_CONVERSATION_HINT } from "../src/app/earlier-conversation";
 import { loadProjectContext } from "../src/project/context";
 import { SkillRegistry } from "../src/skills/registry";
 import { removeTempDir } from "./support/temp-dir";
@@ -324,4 +324,71 @@ test("the docs say a 1 sent before the row shows still continues", async () => {
   const read = async (file: string) => (await readFile(path.join(import.meta.dir, "..", "docs", file), "utf8")).replace(/\s+/g, " ");
   expect(await read("SESSIONS.md")).toContain("even when typed and sent before the row shows: Casper waits a moment for the row first.");
   expect(await read("TERMINAL_UX.md")).toContain(`a lone \`1\` on the empty prompt runs \`/continue\` (sent before the row shows, it waits up to ${EARLY_ONE_WAIT_MS / 1000} s for it)`);
+});
+
+test("at the start, a short line asking to go back runs /continue; anything longer, pasted or later is a request", () => {
+  for (const line of ["continue", "Continue session", "continue the last conversation", "resume", "resume my last session",
+    "pick up where we left off", "go back to the previous conversation", "please continue the last session.", "continue last chat!"]) {
+    expect({ line, back: continueWords(line) }).toEqual({ line, back: true });
+  }
+  for (const line of ["continue the refactor", "continue fixing the tests", "resume the download", "continue session and fix the bug",
+    "continue session, then add tests", "go back", "open", "1", "what did we do last session?"]) {
+    expect({ line, back: continueWords(line) }).toEqual({ line, back: false });
+  }
+  // A pasted line is not one the person typed.
+  expect(continueWords("continue session", ["continue session"])).toBe(false);
+});
+
+for (const words of ["continue session", "pick up where we left off"]) {
+  test(`"${words}" as the first line, while the continue row is offered, continues the last conversation`, async () => {
+    const resumed: Array<[string, unknown]> = [];
+    const prompts: string[] = [];
+    await withEnv({ TERM: "xterm-256color" }, async () => {
+      const app = await richApp(project => withPrompts(runtime(() => EARLIER, resumed, project), prompts), { savedConversations: async () => EARLIER });
+      try {
+        await app.until(text => text.includes(ROW));
+        app.input.write(`${words}\r`);
+        await app.until(text => text.includes("Back in \"Fix the login bug\""));
+        expect(app.screen()).toContain(`[session] "${words}" at the start: continuing that conversation, as 1 does.`);
+        expect(resumed).toEqual([["b0b0b0b0-0000", { keepUnwritten: false }]]);
+        expect(prompts).toEqual([]);
+      } finally { await app.close(); }
+    });
+  }, 30_000);
+}
+
+test("later in a conversation, or with no earlier conversation, \"continue\" is an ordinary request", async () => {
+  const resumed: Array<[string, unknown]> = [];
+  const prompts: string[] = [];
+  await withEnv({ TERM: "xterm-256color" }, async () => {
+    const app = await richApp(project => withPrompts(runtime(() => EARLIER, resumed, project), prompts), { savedConversations: async () => EARLIER });
+    try {
+      await app.until(text => text.includes(ROW));
+      app.input.write("explain the notes\r");
+      await app.until(() => prompts.length === 1);
+      app.input.write("continue\r");
+      await app.until(() => prompts.length === 2);
+      expect(prompts[1]).toContain("continue");
+      expect(resumed).toEqual([]);
+      // Idle again before closing: on Windows a request still writing keeps the test home busy for its cleanup.
+      await app.until(text => text.lastIndexOf("idle") > text.lastIndexOf("continue"));
+    } finally { await app.close(); }
+  });
+  await withEnv({ TERM: "xterm-256color" }, async () => {
+    const empty: string[] = [];
+    const app = await richApp(project => withPrompts(runtime(() => [], resumed, project), empty), { savedConversations: async () => [] });
+    try {
+      await app.until(text => text.includes("idle"));
+      app.input.write("continue session\r");
+      const deadline = Date.now() + 15_000;
+      while (!empty.length && Date.now() < deadline) await Bun.sleep(25);
+      expect(empty.length).toBe(1);
+      expect(resumed).toEqual([]);
+      await app.until(text => text.lastIndexOf("idle") > text.lastIndexOf("continue session"));
+    } finally { await app.close(); }
+  });
+}, 45_000);
+
+test("a request to continue a session, even in two words, tells the AI it can't switch and what the person types", () => {
+  for (const request of ["continue session", "resume the conversation", "continue our chat"]) expect({ request, named: continueNamed(request) }).toEqual({ request, named: true });
 });

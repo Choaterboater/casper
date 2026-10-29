@@ -115,6 +115,8 @@ export const MCP_TYPED = "MCP servers: to add one, call casper_mcp_add (it asks 
 /** A request to pick up an earlier session ("continue last session", "pick up where we left off"), typos included.
  * Not "continue the last task": that is usually this conversation's own work. */
 export function continueNamed(text: string): boolean {
+  // "continue session", "resume the conversation": a session named right after the verb, with nothing between.
+  if (/^\s*(?:please\s+)?(?:continue|resume|reopen)(?:\s+(?:the|my|our|that))?\s+(?:session|conversation|chat)\b/i.test(text)) return true;
   return /(?:continue|resume|pick\s+up|carry\s+on|go\s+back\s+to|get\s+back\s+to)\W.{0,40}\b(?:last|previous|earlier|prior|old|yesterday'?s?)\b.{0,30}\b(?:session|conversation|chat|thread)s?\b|\bwhere\s+(?:we|you|i)\s+left\s+off\b/i.test(text);
 }
 

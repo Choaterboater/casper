@@ -105,6 +105,11 @@ function mcpPart(source: SessionToolSource): Array<Record<string, unknown>> {
   return (safely(() => source.mcp()) ?? []).map((server) => ({ name: clean(server.name, 80), connected: server.state === "ready", writes: server.writes }));
 }
 
+/** Said in the whole snapshot. Asked to continue an earlier conversation, the AI found it named here and went searching
+ * files to rebuild it; only the person can open one. */
+export const CONVERSATION_NOTE = "This conversation only. You can't open or read an earlier one, and searching files won't find it: "
+  + "tell the user to type /continue for the most recent conversation in this folder, or /resume to pick one.";
+
 /** The whole snapshot, or one part of it. */
 export function sessionSnapshot(source: SessionToolSource, part?: SessionPart): Record<string, unknown> {
   const parts: Record<SessionPart, () => unknown> = {
@@ -112,7 +117,7 @@ export function sessionSnapshot(source: SessionToolSource, part?: SessionPart): 
     lastTask: () => lastTaskPart(source), tasks: () => tasksPart(source), mcp: () => mcpPart(source),
   };
   if (part) return { [part]: parts[part]() };
-  return Object.fromEntries(SESSION_PARTS.map((name) => [name, parts[name]()]));
+  return { ...Object.fromEntries(SESSION_PARTS.map((name) => [name, parts[name]()])), conversation: CONVERSATION_NOTE };
 }
 
 export function casperSessionTool(source: SessionToolSource): RuntimeTool {
