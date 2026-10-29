@@ -888,7 +888,8 @@ smoke runs inside the same check-and-repair loop as the command checks, after th
 - A model check counts only when its baseline failed and it now passes.
 - A baseline that got no HTTP response (a timeout, a reset connection) says nothing about the
   endpoint: it is recorded as `incomplete` ("could not run before the change"), never as a
-  failure.
+  failure. The exception is a request that crashed the service: when the service exits on its own
+  during the baseline request, the baseline is `fail`, so a fix that makes the check pass is evidence.
 - A model check whose baseline passed is shown as an observation and never makes the outcome
   verified. With no command checks and only such observations, the outcome is `not_verified`.
 - Casper does not take the model's word that it recorded before editing. A check recorded after

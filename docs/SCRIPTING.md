@@ -245,7 +245,7 @@ reported it, with at most 2048 characters of log tail. Each check has:
 - `id`, `name`, `service`, `source` (`config`, or `model` for one the model recorded),
   `request` (`method`, `path`), `status`;
 - `baseline` (model checks: the result when recorded, before the change; `incomplete` when it got
-  no HTTP response);
+  no HTTP response, `fail` when that request crashed the service);
 - `baselineAfterEdits` (`true` for a model check recorded after edits in the task or during a
   repair round, whose baseline is therefore not "before the change");
 - `evidence` (whether it counts as verification: a configured pass, or a model check that failed
