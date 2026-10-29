@@ -198,7 +198,7 @@ export class InteractiveTerminal {
     this.surface?.setWork(view);
   }
   /** Live crew rows stay on the main screen even when the optional steps pane is open. */
-  updateCrew(activity: HelperActivity): void { this.surface?.updateCrew(activity); }
+  updateCrew(activity: HelperActivity, root?: string): void { this.surface?.updateCrew(activity, root); }
   setCrewWaiting(name: string, waiting: boolean): void { this.surface?.setCrewWaiting(name, waiting); }
   crewRows(width: number, height: number): string[] { return this.surface?.crewRows(width, height) ?? []; }
   /** Crew chatter stays plain on pipes; the rich transcript keeps applied-change and retained-copy outcomes. */

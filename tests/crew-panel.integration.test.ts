@@ -46,7 +46,7 @@ for (const rich of [true, false]) test(`app lifecycle renders crew updates and r
     while (!children.length) await Promise.resolve();
     await children[0]!.ready.promise;
     const rows = app.terminal.crewRows(100, 10).join("\n");
-    if (rich) expect(rows).toContain("Builder 3 · read…");
+    if (rich) expect(rows).toContain("Builder 3 · read · ");
     else expect(rows).toBe("");
     children[0]!.release.resolve();
     await builder;
@@ -59,7 +59,7 @@ for (const rich of [true, false]) test(`app lifecycle renders crew updates and r
     const review = app.subagents.run({ role: "reviewer", cwd: process.cwd(), goal: "Review the selected part", projectContext: "Test project" });
     while (children.length < 2) await Promise.resolve();
     await children[1]!.ready.promise;
-    if (rich) expect(app.terminal.crewRows(100, 10).join("\n")).toContain("Reviewer 2 · read…");
+    if (rich) expect(app.terminal.crewRows(100, 10).join("\n")).toContain("Reviewer 2 · read · ");
     children[1]!.release.resolve();
     await review;
     const outcomes = written.join("");

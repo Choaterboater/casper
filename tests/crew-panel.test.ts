@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { PassThrough } from "node:stream";
 import { visibleWidth } from "@earendil-works/pi-tui";
 import type { HelperRun } from "../src/agents/manager";
-import { CREW_EXPIRE_MS, CREW_FADE_MS, CrewPanel, crewTranscriptLine } from "../src/tui/crew-panel";
+import { CREW_EXPIRE_MS, CREW_FADE_MS, CREW_STEP_CAP, CrewPanel, crewTranscriptLine } from "../src/tui/crew-panel";
 import { TerminalSurface } from "../src/tui/surface";
 import { InteractiveTerminal } from "../src/tui/terminal";
 
@@ -19,7 +19,7 @@ test("crew rows start, show tool activity and tokens, finish, fade, then expire"
   now = 2000;
   helper.spent = { tokens: 1500, estimatedCost: 0.02 };
   panel.update({ kind: "tool", run: helper, event: { type: "tool_start", toolName: "read", toolCallId: "read-1", input: { path: "src/a.ts" } } });
-  expect(panel.render(100, 8).join("\n")).toContain("read… · 2s · 1.5k tokens");
+  expect(panel.render(100, 8).join("\n")).toContain("read · src/a.ts · 2s · 1.5k tokens");
   panel.update({ kind: "tool", run: helper, event: { type: "tool_end", toolName: "read", toolCallId: "read-1", isError: false } });
   expect(panel.render(100, 8).join("\n")).toContain("Thinking");
   panel.update({ kind: "end", run: helper, status: "completed" });
@@ -56,11 +56,12 @@ test("four crew helpers plus +N more; running rows precede completions; full lis
   expect(panel.render(100, 3, { details: true, offset: 4 }).join("\n")).toContain("Builder 1");
 });
 
-test("crew rows bound narrow widths and heights, sanitize untrusted labels, and ignore explorers", () => {
+test("crew rows bound narrow widths and heights and sanitize untrusted labels, goals and step targets", () => {
   const panel = new CrewPanel(() => 0);
   panel.update({ kind: "start", run: { ...run(1), label: "Builder 1\n\u001b[2J\u202e", goal: "API_KEY=hidden-value" } });
   panel.update({ kind: "start", run: run(2, "explorer") });
-  expect(panel.size).toBe(1);
+  panel.update({ kind: "tool", run: run(2, "explorer"), event: { type: "tool_start", toolName: "bash", toolCallId: "b", input: { command: "echo TOKEN=hidden-value\u001b[2J" } } });
+  expect(panel.size).toBe(2);
   for (const width of [0, 1, 2, 5, 12, 24, 40, 80]) for (const height of [0, 1, 2, 4, 8]) {
     const rows = panel.render(width, height, { details: true });
     expect(rows.length).toBeLessThanOrEqual(height);
@@ -164,4 +165,42 @@ test("surface keeps Ctrl+O crew details and approval keys; Alt+O toggles raw ste
     await new Promise(resolve => setTimeout(resolve, 160));
     expect(chunks.join("")).toContain("Builder");
   } finally { surface.close(); }
+});
+
+test("explorers get rows too, and each row names what its helper is working on", () => {
+  const panel = new CrewPanel(() => 0);
+  const explorer = run(3, "explorer");
+  panel.update({ kind: "start", run: explorer });
+  panel.update({ kind: "tool", run: explorer, event: { type: "tool_start", toolName: "grep", toolCallId: "g", input: { pattern: "stale", path: "/work/cad" } } }, "/work");
+  expect(panel.render(120, 8)[0]).toContain("Explorer 1 · grep · stale · cad ·");
+  panel.update({ kind: "tool", run: explorer, event: { type: "tool_end", toolName: "grep", toolCallId: "g", isError: false } }, "/work");
+  panel.update({ kind: "tool", run: explorer, event: { type: "tool_start", toolName: "read", toolCallId: "r", input: { path: "/work/cad/otto.js" } } }, "/work");
+  expect(panel.render(120, 8)[0]).toContain("Explorer 1 · read · cad/otto.js ·");
+  panel.update({ kind: "end", run: explorer, status: "completed" });
+  expect(panel.render(120, 8)[0]).toStartWith("✓ Explorer 1 · Done");
+});
+
+test("crew details list each helper's recent steps under its row, newest last, and scroll by line", () => {
+  const panel = new CrewPanel(() => 0);
+  const builder = run(1);
+  const reviewer = run(2, "reviewer");
+  panel.update({ kind: "start", run: builder });
+  panel.update({ kind: "start", run: reviewer });
+  for (let index = 1; index <= 8; index++) {
+    panel.update({ kind: "tool", run: builder, event: { type: "tool_start", toolName: "read", toolCallId: `r${index}`, input: { path: `/work/f${index}.ts` } } }, "/work");
+    panel.update({ kind: "tool", run: builder, event: { type: "tool_end", toolName: "read", toolCallId: `r${index}`, isError: index === 8 } }, "/work");
+  }
+  panel.update({ kind: "tool", run: reviewer, event: { type: "tool_start", toolName: "bash", toolCallId: "t", input: { command: "bun test" } } }, "/work");
+  // The compact panel stays one row a helper.
+  expect(panel.render(120, 8)).toHaveLength(3);
+  const all = panel.render(120, 30, { details: true });
+  expect(CREW_STEP_CAP).toBe(5);
+  expect(all[0]).toContain("Builder 1 · Thinking");
+  expect(all.slice(1, 6)).toEqual(["    ✓ read · f4.ts", "    ✓ read · f5.ts", "    ✓ read · f6.ts", "    ✓ read · f7.ts", "    ✗ read · f8.ts"]);
+  expect(all[6]).toContain("Reviewer 2 · bash · bun test");
+  expect(all[7]).toBe("    • bash · bun test");
+  expect(all[8]).toContain("Crew details · 2 helpers · ↑↓ scroll · Ctrl+O closes");
+  expect(panel.detailSize).toBe(8);
+  const scrolled = panel.render(120, 4, { details: true, offset: panel.detailSize - 3 });
+  expect(scrolled.slice(0, 3).join("\n")).toContain("bash · bun test");
 });
