@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import { readFile } from "node:fs/promises";
 import { classifyTask } from "../src/task/classify";
 
 test("a build verb beats a configuration, docs or refactor word elsewhere in the request", () => {
@@ -41,4 +42,31 @@ test("a stated requirement asks for a change; a question about one is still a qu
   }
   // A fix or test word keeps its own kind of work.
   expect(classifyTask("The login should not fail with an error").intent).toBe("fix");
+});
+
+test("a request for a report, review or audit, or one that says not to change anything, is read-only: debug or change in it doesn't make it a fix", () => {
+  // From a real session: "debug" made this audit a fix task, and verification and repair rounds were forced onto it.
+  for (const request of [
+    "run a crew debug and report back to one and review it - ux, uxi, debug, audit, interface, backend,frontend, optimization,code, deadcode",
+    "look for issues and report back, don't change anything",
+    "audit the code and report back",
+    "review the app for bugs and report",
+    "why does the login fail? do not modify any files",
+    "find the dead code and report it without changing anything",
+  ]) expect({ request, ...classifyTask(request) }).toEqual({ request, intent: classifyTask(request).intent, mode: "read", verification: [] });
+  // A request that also asks for the change is still one.
+  for (const [request, intent] of [
+    ["fix the debug output", "fix"],
+    ["debug why the export fails and fix it", "fix"],
+    ["review the PR feedback and fix it", "fix"],
+    ["audit the dependencies and update the outdated ones", "implement"],
+    ["don't change the API, but fix the login bug", "fix"],
+    ["debug the login flow", "fix"],
+  ] as const) expect({ request, intent: classifyTask(request).intent, mode: classifyTask(request).mode }).toEqual({ request, intent, mode: "modify" });
+});
+
+test("the verification guide says a report, review or audit request is read-only", async () => {
+  const doc = (await readFile(new URL("../docs/VERIFICATION.md", import.meta.url), "utf8")).replace(/\s+/g, " ");
+  expect(doc).toContain("A request for a report, review or audit, or one that says not to change anything");
+  expect(doc).toContain("is read-only even when it names debugging or changes: the AI is told so, and it gets no checklist or proof step, unless it also asks for a change");
 });
