@@ -949,7 +949,9 @@ only. See [platform support](PLATFORM_SUPPORT.md) for host-validation limits.
   the receipt, the line is queued and runs as the next request (`↳ queued · runs when this task
   ends`). Until the AI reads it, each line shows above the prompt as `↳ waiting: …` (the newest 3),
   and the row goes when the AI has read it. ↑ on an empty prompt (or Alt+Up) takes the newest
-  waiting line back into the prompt, unsent. The line is echoed once (`❯ …`, after the words
+  waiting line back into the prompt, unsent. A line sent to the AI stays part of the task: a repair, proof or acceptance
+  round restates the request with it, under `Later instructions the user typed during this task, oldest first:`, and a
+  line taken back is left out. The line is echoed once (`❯ …`, after the words
   shown so far) when you type it, not again when it runs. A line the AI never got to read runs next too. Esc
   stops the task and puts every waiting line back in the prompt instead of running it: Casper
   takes them out before it stops anything, so a stopped step never adds them to the conversation.

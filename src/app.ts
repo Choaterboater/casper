@@ -282,6 +282,9 @@ export class CasperApp {
   readonly queuedLines: string[] = [];
   /** Lines steered to the AI that it hasn't read yet (the runtime's "waiting" event), shown until it reads them. */
   steering: string[] = [];
+  /** Every line sent to the AI during this task, oldest first, read or not; a line taken back leaves it. A repair or
+   * proof round restates the request with them, as later instructions. */
+  steeredInTask: string[] = [];
   /** What was pasted into a line typed during work, by the line, until it runs (words count only where typed). */
   readonly linePastes = new Map<string, readonly string[]>();
   /** Pictures pasted (Ctrl+V) into a line typed during work that was queued, by the line, until it runs. */

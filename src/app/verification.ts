@@ -36,6 +36,7 @@ import { followTheme, reloadProject, writeProjectFile } from "./project-file";
 import { crewSweepStart, rememberCrewSweep } from "./crew-checks";
 import { applySessionCheckOverrides } from "./check-changes";
 import { finishAppSmoke, type AppSmokeTask } from "./try-it";
+import { requestAsItStands } from "./steered-request";
 
 /** Iteration checks are not the final test contract. Run that unchanged once, without a green-rerun repair loop. */
 export async function finishConfiguredTest(app: CasperApp, previous?: VerificationReport): Promise<VerificationReport | undefined> {
@@ -97,6 +98,7 @@ export async function runVerification(app: CasperApp, checks: readonly CheckName
       checks,
       cwd: app.activeWorkspaceRoot(),
       request,
+      restate: () => requestAsItStands(app, request),
       constraints: [context.rules.profile, context.rules.project, ...context.model.conventions].filter(Boolean).join("\n"),
       maxAttempts: maxAttempts ?? context.repair.maxAttempts,
       signal: controller.signal,
