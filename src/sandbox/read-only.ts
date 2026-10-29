@@ -17,7 +17,10 @@ import { isOutside } from "../platform/inside";
  */
 
 /** Where a read runs: the project, your home folder and the private places (the sandbox's denyRead). */
-export interface ReadPlace { root: string; home?: string; denyRead?: readonly string[] }
+/** `homeReads`: a plain read in your own folders under `home` (Documents, Projects…: not hidden ones, app data or home
+ * itself) counts as a read too, as the AI's read tool reads there. Only the no-sandbox shell box sets it
+ * (docs/adr/0002/46-home-reads.md); the reader, checks and routine work keep to the project. */
+export interface ReadPlace { root: string; home?: string; denyRead?: readonly string[]; homeReads?: boolean }
 
 interface Spec {
   /** Option letters with no value; they may be grouped (-la). */
@@ -201,8 +204,30 @@ const GIT_READERS: Record<string, Spec> = {
  * *.properties or a plain *.pem (CA bundles): most repos have those, and every search of the project would ask. */
 const PRIVATE_NAME = /(?:^|\/)(?:\.env(?:\..*)?|[^/]*\.env|\.envrc|id_(?:rsa|dsa|ecdsa|ed25519)(?:\.pub)?|\.netrc|_netrc|\.npmrc|\.pypirc|\.pgpass|\.dockercfg|\.git-credentials|[^/]*credentials(?:\.\w+)?|\.?secrets?\.(?:ya?ml|json|toml|env|txt)|[^/]*\.(?:key|p12|pfx|ppk|tfvars|tfstate(?:\.backup)?|ovpn)|[^/]*key[^/]*\.pem)$/i;
 
-/** `cwd`: the folder the command runs in (the project, or a folder in it a `cd` on the line moved to). */
-interface Place { root: string; realRoot: string; private: string[]; cwd: string }
+/** `cwd`: the folder the command runs in (the project, or a folder in it a `cd` on the line moved to). `home` and
+ * `realHome`: set when reads in your own folders count (ReadPlace.homeReads). */
+interface Place { root: string; realRoot: string; private: string[]; cwd: string; home?: string; realHome?: string }
+
+/** Folders under home that hold apps' data, not your own files: a read there still asks. */
+const APP_DATA = new Set(["library", "appdata", "application data"]);
+
+/** True when `absolute` (and `real`, where its links lead) is in one of your own folders under home: below home, its
+ * first folder neither hidden (.ssh, .config) nor app data (Library, AppData). */
+function inOwnFolders(place: Place, absolute: string, real: string): boolean {
+  if (!place.home || !place.realHome) return false;
+  const own = (base: string, name: string) => {
+    const relative = path.relative(base, name);
+    if (!relative || isOutside(relative)) return false;
+    const first = relative.split(path.sep)[0]!;
+    return !first.startsWith(".") && !APP_DATA.has(first.toLowerCase());
+  };
+  return own(place.home, absolute) && own(place.realHome, real);
+}
+
+/** Where a read may be: the project, or (homeReads) your own folders. */
+function inReadArea(place: Place, absolute: string, real: string): boolean {
+  return (within(place.root, absolute) && within(place.realRoot, real)) || inOwnFolders(place, absolute, real);
+}
 
 function placeOf(where: ReadPlace | string | undefined): Place {
   const given = typeof where === "string" ? { root: where } : where;
@@ -214,7 +239,8 @@ function placeOf(where: ReadPlace | string | undefined): Place {
   const inCrewCopy = within(crewCopies, root) && root !== crewCopies && within(realpathLongest(crewCopies), realpathLongest(root));
   const deny = [...(given?.denyRead ?? []), ...(inCrewCopy ? [] : [path.join(home, ".casper")])];
   const places = privatePlaces({ root, home, denyRead: deny }).flatMap((place) => place.paths);
-  return { root, realRoot: realpathLongest(root), private: [...new Set(places)], cwd: root };
+  return { root, realRoot: realpathLongest(root), private: [...new Set(places)], cwd: root,
+    ...(given && typeof given === "object" && given.homeReads ? { home: path.resolve(home), realHome: realpathLongest(path.resolve(home)) } : {}) };
 }
 
 /** A ".." is only plain text when nothing before it can be a link: leading ../ steps (with a root that is not itself
@@ -257,7 +283,7 @@ function fileOk(word: string, place: Place, folder: boolean, contents = false, w
   const absolute = resolveWord(word, place);
   if (absolute === undefined) return false;
   const real = realpathLongest(absolute);
-  if (!within(place.root, absolute) || !within(place.realRoot, real)) return false;
+  if (!inReadArea(place, absolute, real)) return false;
   for (const candidate of [absolute, real]) {
     if (PRIVATE_NAME.test(candidate.split(path.sep).join("/"))) return false;
     if (place.private.some((entry) => within(entry, candidate) || (folder && within(candidate, entry)))) return false;
@@ -750,7 +776,10 @@ function cdTarget(word: string, place: Place): string | undefined {
   if (absolute === undefined) return undefined;
   // No link on the way (`cd link && cat ../x` would read next to where the link leads): every later word is read from a
   // folder in the project, and a leading .. means what it says.
-  const plain = path.join(place.realRoot, path.relative(place.root, absolute));
+  const inProject = within(place.root, absolute);
+  const plain = inProject ? path.join(place.realRoot, path.relative(place.root, absolute))
+    : place.home && place.realHome ? path.join(place.realHome, path.relative(place.home, absolute)) : undefined;
+  if (plain === undefined) return undefined;
   const real = realpathLongest(absolute);
   return within(plain, real) && within(real, plain) ? absolute : undefined;
 }
@@ -844,8 +873,29 @@ function partReads(parts: readonly Part[], place: Place): { reads: boolean[]; fo
  * between readers are fine, and so is a leading `cd` to a folder in the project. A * or ? is expanded here, and each
  * file it picks is checked. `where`: the project folder, or the project, your home and the private places. */
 export function readOnlyCommand(command: string, where?: ReadPlace | string): boolean {
-  const parts = lineParts(command);
-  return parts !== undefined && parts.every((part) => part.redirects.length === 0 && part.envPaths.length === 0) && partReads(parts, placeOf(where)).reads.every(Boolean);
+  const place = placeOf(where);
+  const parts = lineParts(place.home ? homeTilde(command, place.home) : command);
+  return parts !== undefined && parts.every((part) => part.redirects.length === 0 && part.envPaths.length === 0) && partReads(parts, place).reads.every(Boolean);
+}
+
+/** The line with each unquoted `~` that starts a word and is followed by `/` or the word's end written as your home
+ * folder, as bash expands it: so `cd ~/Documents/x` is checked where it goes. A quoted "~/x", `~user`, a `~` after = or :,
+ * or a home folder with a character the check doesn't take, are left as they are, and the line asks. */
+function homeTilde(command: string, home: string): string {
+  const shown = home.split(path.sep).join("/");
+  if (!/^[A-Za-z0-9._\-/:@%+,=]+$/.test(shown)) return command;
+  let out = "";
+  let quote: string | undefined;
+  let wordStart = true;
+  for (let index = 0; index < command.length; index++) {
+    const char = command[index]!;
+    if (quote) { if (char === quote) quote = undefined; out += char; wordStart = false; continue; }
+    if (char === "'" || char === "\"") { quote = char; out += char; wordStart = false; continue; }
+    if (char === "~" && wordStart && /^(?:\/|[\s|&;]|$)/.test(command.slice(index + 1))) { out += shown; wordStart = false; continue; }
+    out += char;
+    wordStart = " \t|&;".includes(char);
+  }
+  return out;
 }
 
 /** The line's commands as this check reads them, each with whether it only reads and the folders it may run in (a cd in

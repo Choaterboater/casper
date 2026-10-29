@@ -358,7 +358,7 @@ a narrow window keeps `Casper update ready`. A quiet failure says `update failed
 Plain terminals print one `[update] …` line instead, once per session. **Updates: off** in `/settings`
 (`updates: off`, also legacy `updates: false`) hides the row
 ([Configuration](CONFIGURATION.md)). The footer uses one plain phase word, `working`, not the internal checklist/build/check/repair rail. Working time excludes questions and pickers. When the AI reads, lists or searches a folder outside the project (temp aside), one line under its
-steps says where, once per folder: `[read] outside this project: ~/Projects`. Tool lines print paths relative to the project and fit one row:
+steps says where, once per folder: `[read] outside this project: ~/Projects`. With no sandbox, a plain shell read in your own folders (`cat ~/Documents/notes.txt`) runs without the box and leaves `[read] outside this project, no box (a plain read in your own folders): cat ~/Documents/notes.txt` ([decision 46](adr/0002/46-home-reads.md)). Tool lines print paths relative to the project and fit one row:
 narrow, the words go and a path is shortened from the front (`✓ edit · …st_calc.py · +9 -1 · 2.5s`). Each check Casper runs prints one line
 as it finishes (`✓ typecheck · 5.9s`, `✗ test · exit 1 · 2.3s`, `✗ test · timed out after 10m`; a check
 under a second shows no time; every time on screen reads the same way: `0.4s` and `5.9s` under ten seconds, then
@@ -1029,7 +1029,7 @@ tree digest), or how many past three. The per-file table (a bounded `git diff --
 with `--verbose`; `/diff` shows the task's full changes.
 `/permissions details` explains actual boundaries from the state Casper is in: whether the shell
 sandbox holds shell commands and checks here, or (without it) that the AI's shell asks
-before commands beyond reads and routine work. Reads include individual public config lookups (`git config <key>`, `--get`, `--global`),
+before commands beyond reads and routine work. Reads are in the project or in your own folders under home (not hidden ones, app data or private places). Reads include individual public config lookups (`git config <key>`, `--get`, `--global`),
 `command -v`/`type`/`which`, `ps`, `date`, and `uname`. Config `--list`/`-l` and keys naming credential/token/password/extraheader
 or `url.*.insteadof`/`pushinsteadof` ask. So do `ps` environment-output groups containing `E` or BSD bare words containing `e`;
 Linux `ps -e` remains a read. Routine work includes project tests, `git commit`, safe `git fetch`

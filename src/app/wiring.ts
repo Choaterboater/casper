@@ -52,6 +52,8 @@ export function sandboxHost(app: CasperApp): SandboxHost {
     planning: () => app.planning,
     // Only while a person can answer: a one-shot or --json run never stops asking this way (it refuses, or takes --no-sandbox).
     stopAsking: () => app.stopAsking && app.interactive && app.terminal.canAsk && !app.closing,
+    // The session's own shell only (a builder's keeps to its copy): plain reads in your own folders don't ask.
+    homeReads: () => true,
     // The shell box's "Yes to everything this session": the same switch, and the same line, as /permissions all.
     askNoMore: () => { if (!app.closing) stopAsking(app); },
     labHosts: () => app.projectContext?.lab?.hosts ?? [],

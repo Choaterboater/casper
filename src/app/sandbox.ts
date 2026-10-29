@@ -47,6 +47,9 @@ export interface SandboxHost {
   planning(): boolean;
   /** /permissions all is on: the questions below are answered "Yes, for this session" without being shown. */
   stopAsking?(): boolean;
+  /** A plain read in your own folders under home runs without the box (docs/adr/0002/46-home-reads.md). Only the main
+   * session's shell sets it; a builder's shell keeps to its copy. */
+  homeReads?(): boolean;
   /** "Yes to everything this session" in the shell box: turns that on, as /permissions all does. */
   askNoMore?(): void;
   /** Your lab list (names or addresses): ssh to these doesn't ask, unless /lab ssh off. */
@@ -391,6 +394,12 @@ export function runtimeShell(host: SandboxHost, sandbox: ShellSandbox, given: Sa
       // Commands that only read run without a box, like they would in the sandbox.
       const where = { root: sandbox.root, home: sandbox.home, denyRead: sandbox.policy().denyRead };
       if (readOnlyCommand(command, where)) return undefined;
+      // A plain read in your own folders (~/Documents, ~/Projects…), as the AI's read tool reads there: no box, one line
+      // saying so. Private places, hidden folders, app data and anything that is not a plain read still ask.
+      if (host.homeReads?.() && host.canAsk() && readOnlyCommand(command, { ...where, homeReads: true })) {
+        host.write(`[read] outside this project, no box (a plain read in your own folders): ${shortCommand(command)}\n`);
+        return undefined;
+      }
       // So does routine work (git commit, npm test, bun install, rm -rf dist), as in Claude Code's auto mode, unless you turned it off.
       if (host.routineCommands?.() && routineCommand(command, where, { projectCommands: host.projectCommandsRoutine?.() !== false })) return undefined;
       // Test-run session answers may vary project files and log tails; all other answers stay exact. In
