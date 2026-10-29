@@ -155,10 +155,20 @@ export async function openProjectCommand(app: CasperApp, name: string): Promise<
 }
 
 /** Moves Casper to another folder. Before the model starts it just opens it. After, the conversation here ends
- * (it stays in /resume in this folder) and the next request starts a new one there. */
-export async function moveWorkspace(app: CasperApp, dir: string): Promise<void> {
+ * (it stays in /resume in this folder) and the next request starts a new one there; with `carry`, the conversation is
+ * copied into the new folder (so /resume there lists it) and the next request continues it there. */
+export async function moveWorkspace(app: CasperApp, dir: string, options: { carry?: boolean } = {}): Promise<void> {
   if (!canMoveWorkspace(app)) {
     if (app.subagents.isBusy) { app.output.write("[folder] Helpers are still working; nothing moved.\n"); return; }
+    // The work is in that folder: the conversation about it goes too. A copy there, so the one here stays as it was.
+    let carried: string | undefined;
+    if (options.carry && app.session?.forkSession) {
+      try {
+        const name = app.session.getSessionInfo?.().name ?? path.basename(dir);
+        carried = (await app.session.forkSession({ cwd: dir, name,
+          context: `Casper moved this conversation to ${dir}, the folder the work is in. Paths are relative to it from here on.` })).sessionId;
+      } catch { carried = undefined; }
+    }
     await revokeWorkspaceCapabilities(app);
     app.unsubscribe?.();
     app.unsubscribe = undefined;
@@ -171,6 +181,12 @@ export async function moveWorkspace(app: CasperApp, dir: string): Promise<void> 
     app.runConversation = undefined;
     await runtime?.dispose().catch(() => {});
     await openWorkspaceBeforeRuntime(app, dir);
+    if (carried) {
+      // Picked up when the model starts there, as --resume would.
+      app.runConversation = { resume: carried };
+      app.output.write("[folder] This conversation came with you: your next request continues it there.\n");
+      return;
+    }
     app.output.write("[folder] Your next request starts a new conversation there; the one here stays in /resume in the old folder.\n");
     return;
   }
@@ -358,5 +374,5 @@ export async function offerWorkFolder(app: CasperApp, child: ChildProject): Prom
   const picked = await app.terminal.pick(`The work is in ${display}.`, choices, app.commandAbort?.signal);
   if (app.closing) return;
   if (picked?.trim() !== choices[1]!.label) { app.stayedOutOf.add(child.dir); return; }
-  await moveWorkspace(app, child.dir);
+  await moveWorkspace(app, child.dir, { carry: true });
 }
