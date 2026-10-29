@@ -1,7 +1,6 @@
 /** Opening a workspace: the project, its skills, the shell sandbox, MCP servers with their approval broker, LSP,
  * references, web lookups and the startup notes. No connection or model starts here. Moved from src/app.ts. */
 
-import { stopAsking } from "./commands";
 import { decideFolderTrust } from "./folder-trust";
 import { migrateFolderTrust } from "../project/trust";
 import type { CasperApp } from "../app";
@@ -36,6 +35,7 @@ import { mcpServerSandbox } from "../mcp/sandbox";
 import { trustProjectFile } from "./project-file";
 import { addToPath, keepEngineFromFetchingRipgrep } from "../security/ripgrep";
 import { toolReason } from "../runtime/tool-reason";
+import { judgeForApp } from "./auto-mode";
 
 /** What the sandbox asks through: Casper's own numbered question, only while someone can answer it. Its questions
  * wait their turn in the approval queue, so two at once are both asked and a question nobody saw is never a No. */
@@ -51,13 +51,13 @@ export function sandboxHost(app: CasperApp): SandboxHost {
     planning: () => app.planning,
     // Only while a person can answer: a one-shot or --json run never stops asking this way (it refuses, or takes --no-sandbox).
     stopAsking: () => app.stopAsking && app.interactive && app.terminal.canAsk && !app.closing,
-    // The shell box's "Yes to everything this session": the same switch, and the same line, as /permissions all.
-    askNoMore: () => { if (!app.closing) stopAsking(app); },
     labHosts: () => app.projectContext?.lab?.hosts ?? [],
     routineCommands: () => app.projectContext?.routineCommands !== false,
     // In a folder you haven't trusted, the project's own installs, builds, tests and scripts ask (src/app/folder-trust.ts).
     projectCommandsRoutine: () => app.folderTrust?.trusted !== false,
     precedingText: toolReason,
+    // Auto mode's judge: it lets ordinary build work run and asks about the rest (src/app/auto-mode.ts).
+    judge: (command, signal) => judgeForApp(app, command, signal),
     // ssh asks for a password: Casper's own numbered question, then its own hidden box (never "The AI asks"). Both in
     // the one turn of the approval queue, so nothing slips in between.
     ssh: {

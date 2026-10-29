@@ -122,6 +122,18 @@ outside the project, a new package (`npm install left-pad`) and copying or commi
 `/settings` (it writes `routine_commands: false`) and every command that is not a plain read asks.
 A project file can't set it. See [SECURITY.md](SECURITY.md) for the full list.
 
+### Auto mode
+
+With the sandbox off, in a folder you trust, a command that would still ask `Run this command?` goes to a
+model judge first: your current model, at low effort, in a short separate call whose tokens join the task's.
+Ordinary build work runs, with a dim `✓ judge: …` line saying what it does; anything doubtful asks you, with
+the judge's reason. The judge never refuses on its own, and a failure or timeout asks. A fixed list (sudo, a
+download run through a shell, a force push, changes outside the project, publishing and the like; see
+[SECURITY.md](SECURITY.md)) always asks, whatever the judge would say. A check is about 360 tokens in and 50 out. It is on. Turn it off
+by typing `auto mode off`, in `/settings` (**Auto mode**), or with `auto_mode: off` in `~/.casper/config.yaml`.
+A project file can't set it. One-shot and `--json` runs never use it. See
+[decision 47](adr/0002/47-auto-mode-judge.md).
+
 ### Slow commands
 
 A shell command the AI runs without its own time limit gets 2 minutes. If it is still running then,

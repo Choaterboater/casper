@@ -115,6 +115,7 @@ export async function runModelTask(app: CasperApp, prompt: string, options: { fl
   if (app.serverSeen) { app.offeredTools.add("service"); app.serverSeen = false; }
   app.lastAnswer = "";
   app.steeredInTask = [];
+  app.judgeSteps = [];
   // A limit said in the request ("keep it under $2") is this task's pause, whatever the config says.
   const said = requestSpendLimit(prompt);
   const limits = app.projectContext?.spend ?? DEFAULT_SPEND_LIMITS;

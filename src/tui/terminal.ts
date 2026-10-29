@@ -12,7 +12,7 @@ import type { MenuCommand } from "./commands";
 import type { NextRow } from "./next-row";
 import { bellSequence, hostCommand, prepareTmuxPane, titleSequence, TITLE_RESTORE, TITLE_SAVE, type HostCommand, type HostTerminal } from "./host-terminal";
 import { SidePane, type ActivityPane } from "./side-pane";
-import { answerRecordText, MODEL_REASON_PREFIX, numberPrompt, OTHER_CHOICE, type PickRecord } from "./choices";
+import { answerRecordText, numberPrompt, OTHER_CHOICE, reasonPrefix, type PickRecord } from "./choices";
 import { editPlanFile } from "./plan-editor";
 import type { HelperActivity } from "../agents/manager";
 import { crewTranscriptLine } from "./crew-panel";
@@ -22,11 +22,11 @@ import type { ReceiptView } from "../task/result";
 
 export { numberPrompt } from "./choices";
 
-/** One transcript line colored by how it starts: ✓ success; a note (–) muted; a step that failed (✗) or did not run (○)
+/** One transcript line colored by how it starts: ✓ success, but auto mode's `✓ judge: …` muted; a note (–) muted; a step that failed (✗) or did not run (○)
  * and a warning (⚠) warning, since the work goes on; `[error]`, and ✗ in a `result` (the receipt), error. A running
  * step (•) muted (the theme's colours); a detailed diff line added or removed. */
 export function styleLine(line: string, color: boolean, result = false): string {
-  const role: ThemeRole | undefined = line.startsWith(MODEL_REASON_PREFIX) || line.startsWith("– ") ? "muted"
+  const role: ThemeRole | undefined = reasonPrefix(line) !== undefined || line.startsWith("– ") || line.startsWith("✓ judge: ") ? "muted"
     : /^\[error\]/.test(line) || (result && /^✗/.test(line)) ? "error" : /^✓/.test(line) ? "success" : /^◆ /.test(line) ? "accent"
     : /^(?:✗|– |○ |⚠ |\[skills\]|\[cancel|\[approval\]|\[ask\]|\[effort\])/.test(line) ? "warning" : /^CASPER/.test(line) ? "accent" : /^(?: \/help · |…|• )/.test(line) ? "muted"
     : /^ {4}\+ /.test(line) ? "diffAdded" : /^ {4}- /.test(line) ? "diffRemoved" : undefined;
@@ -343,7 +343,7 @@ export class InteractiveTerminal {
   }
 
   private styleLine(line: string, result = false): string {
-    return styleLine(line.startsWith(MODEL_REASON_PREFIX) ? modelReasonLine(line, this.output.columns ?? 80) : line, this.color, result);
+    return styleLine(reasonPrefix(line) !== undefined ? modelReasonLine(line, this.output.columns ?? 80) : line, this.color, result);
   }
 
   /** A task's result (the receipt) on the rich terminal: a colored edge down its left side, success for a pass,

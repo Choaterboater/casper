@@ -13,7 +13,9 @@ import { SandboxStore } from "../sandbox/store";
 import { seccompHelper } from "../sandbox/seccomp";
 import type { TaskResult } from "../task/result";
 import { terminalText } from "../tui/format";
-import { MODEL_REASON_PREFIX } from "../tui/choices";
+import { JUDGE_REASON_PREFIX, MODEL_REASON_PREFIX } from "../tui/choices";
+import { stepLine, type JudgeResult } from "../sandbox/judge";
+import { alwaysAsks } from "../sandbox/always-asks";
 import { modelReasonSummary } from "../tui/model-reason";
 import { blockedBySandbox } from "../verify/command";
 import { hideCommandSecrets } from "../secrets/files";
@@ -21,7 +23,7 @@ import { remoteTargets, runsAlone, segmentTargets, splitShell, sshNameLine, targ
 import { startAskpass } from "../ssh/askpass";
 import { forgetSshSecrets, sshLoginHandler, sshSessionMemory, type SshLoginHost } from "../ssh/login";
 import { forgetOnceSecrets } from "../secrets/typed";
-import { githubLoginChoices, HOST_CHOICES, NO, REACH_CHOICES, SHELL_COMMAND_CHOICES, writeChoices, YES_ALWAYS, YES_EVERYTHING, YES_ONCE, YES_SESSION } from "./safe-choices";
+import { githubLoginChoices, HOST_CHOICES, NO, REACH_CHOICES, SHELL_COMMAND_CHOICES, writeChoices, YES_ALWAYS, YES_ONCE, YES_SESSION } from "./safe-choices";
 import { githubLoginCommand, githubRunEnv, LOGIN_FAILED, startsGitOrGh, type GithubLoginCommand } from "../sandbox/github-login";
 import { answerKey, readOnlyCommand, testRunKey } from "../sandbox/read-only";
 import { routineCommand } from "../sandbox/routine";
@@ -45,8 +47,6 @@ export interface SandboxHost {
   planning(): boolean;
   /** /permissions all is on: the questions below are answered "Yes, for this session" without being shown. */
   stopAsking?(): boolean;
-  /** "Yes to everything this session" in the shell box: turns that on, as /permissions all does. */
-  askNoMore?(): void;
   /** Your lab list (names or addresses): ssh to these doesn't ask, unless /lab ssh off. */
   labHosts?(): readonly string[];
   /** Routine commands (routine_commands, on unless turned off): with no sandbox, routine work (see routineCommand) runs
@@ -55,6 +55,9 @@ export interface SandboxHost {
   /** False in a folder you haven't trusted: its installs, builds, tests and scripts are not routine there, so they ask.
    * Everyday git, gh's look-and-open commands and file work in the project stay routine. Unset: routine. */
   projectCommandsRoutine?(): boolean;
+  /** Auto mode's judge (docs/adr/0002/47-auto-mode-judge.md), only for a command that would show the box while someone
+   * can answer it: undefined while auto mode is off or the folder isn't trusted. It only allows or asks. */
+  judge?(command: string, signal?: AbortSignal): Promise<JudgeResult | undefined>;
   /** Text snapshotted before this tool call; its last nonempty line titles the approval box. */
   precedingText?(): string | undefined;
   /** The private ssh login: Casper's own hidden box for a password or passphrase ssh asks for. Unset: a run that can't ask. */
@@ -102,13 +105,16 @@ export const shownCommand = (command: string) => {
 };
 /** The model's last sentence, bounded for display, never terminal controls or a typed secret. */
 const commandReason = (text?: string) => modelReasonSummary(terminalText(hideCommandSecrets(text ?? "").text));
-const commandQuestion = (question: string, command: string, preceding?: string) => {
+const commandQuestion = (question: string, command: string, preceding?: string, judged?: string) => {
   const reason = commandReason(preceding);
   const shown = shownCommand(command);
+  // The judge asked: its reason takes the dim line, since it is why you are being asked.
+  if (judged) return `${question}\n${JUDGE_REASON_PREFIX}${commandReason(judged)}\n${shown}`;
   if (reason) return `${question}\n${MODEL_REASON_PREFIX}${reason}\n${shown}`;
   return `${question}${shown.includes("\n") ? "\n" : "  "}${shown}`;
 };
-export const shellQuestion = (command: string, preceding?: string) => commandQuestion("Run this command?", command, preceding);
+/** `judged`: auto mode's judge asked you, and this is why. */
+export const shellQuestion = (command: string, preceding?: string, judged?: string) => commandQuestion("Run this command?", command, preceding, judged);
 /** The target stays explicit even when the model supplied a reason. */
 export const reachQuestion = (target: RemoteTarget, command: string, preceding?: string) => commandQuestion(`Reach ${terminalText(targetLabel(target))}?`, command, preceding);
 /** The AI reads these when a command to another machine does not run. */
@@ -395,12 +401,18 @@ export function runtimeShell(host: SandboxHost, sandbox: ShellSandbox, given: Sa
       if (sessionCommands.has(command) || sessionCommands.has(exact) || (testRun && sessionTestRuns.has(testRun))) return undefined;
       if (await store.allowsCommand(command, exact)) return undefined;
       if (!host.canAsk()) { sayOnce(SHELL_CANT_ASK_NOTE); return SHELL_CANT_ASK; }
+      // Auto mode: the judge lets ordinary build work run, and asks you about the rest (with its reason). Not while
+      // /permissions all is on, which answers the box itself.
+      // A fixed list always shows the box, whatever the judge would say (src/sandbox/always-asks.ts): sudo, a download run
+      // through a shell, a force push, deleting or changing files outside the project, publishing, and the like.
+      const judged = host.stopAsking?.() || !host.judge || alwaysAsks(command, { root: sandbox.root, home: sandbox.home }) ? undefined
+        : await host.judge(command, signal);
+      if (judged?.verdict === "allow") { host.write(`${stepLine(judged.reason)}\n`); return undefined; }
       const kept = testRun ? "bun test (project test files)" : shortCommand(exact);
       // A yes leaves no line of its own (the command's own line shows it ran); a remembered one leaves one short line.
       const record = (answer: string) => answer === YES_ONCE ? "" : answer === YES_SESSION ? `✓ allowed until you quit: ${kept}`
-        : answer === YES_ALWAYS ? `✓ allowed always in this project: ${kept}` : answer === YES_EVERYTHING ? "" : undefined;
-      const answer = await sessionYesOr(host, shellQuestion(command, preceding), [...SHELL_COMMAND_CHOICES], signal, { record });
-      if (answer === YES_EVERYTHING) { host.askNoMore?.(); return undefined; }
+        : answer === YES_ALWAYS ? `✓ allowed always in this project: ${kept}` : undefined;
+      const answer = await sessionYesOr(host, shellQuestion(command, preceding, judged?.reason), [...SHELL_COMMAND_CHOICES], signal, { record });
       if (answer !== undefined && answer !== NO && !host.stopAsking?.() && ++shellYeses === 3) sayOnce(STOP_ASKING_HINT);
       if (answer === YES_ONCE) return undefined;
       if (answer === YES_SESSION) { (testRun ? sessionTestRuns : sessionCommands).add(testRun ?? exact); return undefined; }

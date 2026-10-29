@@ -7,7 +7,7 @@ import { imageLabel, imageMimeType, MAX_IMAGE_BYTES, MAX_IMAGES, promptPath } fr
 import { readClipboardFiles } from "./clipboard-files";
 import { commandMenu, COMMANDS, findCommand, fitDescriptions, type MenuCommand, menuRunsDuringWork } from "./commands";
 import { BUSY_GLYPH, dim, formatElapsed, hasLineControls, hasTerminalControls, lineText, markdownTheme, PROMPT_GLYPH, terminalText, tint } from "./format";
-import { answerRecord, answerRecordText, choiceHint, choiceNumber, KEY_PICK_MAX, keyChoice, MODEL_REASON_PREFIX, NOTE_CHOICE, OTHER_CHOICE, pickKeysHint, typedChoice, type PickRecord } from "./choices";
+import { answerRecord, answerRecordText, choiceHint, choiceNumber, KEY_PICK_MAX, keyChoice, NOTE_CHOICE, OTHER_CHOICE, pickKeysHint, reasonPrefix, typedChoice, type PickRecord } from "./choices";
 import { typedDuringTask } from "./give-way";
 import { GLYPHS } from "./glyphs";
 import { StreamingMarkdown } from "./markdown-stream";
@@ -1171,7 +1171,7 @@ export class TerminalSurface {
     const active = typing ? choices : this.askActiveIndex;
     const hint = typing ? (this.askFrom === "approval" ? "Enter to send No with this note · Esc to go back" : "Enter to send · Esc to go back") : choiceHint(count);
     const question = (this.askQuestion ?? "").split("\n");
-    const reason = question[1]?.startsWith(MODEL_REASON_PREFIX) ? question[1] : undefined;
+    const reason = reasonPrefix(question[1]) !== undefined ? question[1] : undefined;
     // Casper's question stays first; the model's last sentence is dim context on one row.
     const shell = SHELL_QUESTION.test(question[0] ?? "");
     const inline = shell ? (/^(.*?\?)  ([\s\S]+)$/.exec(question[0]!) ?? /^(Builder \d+ wants to run:) ([\s\S]+)$/.exec(question[0]!)) : null;

@@ -219,9 +219,9 @@ the operating system, not a list of words:
 | `--no-sandbox`, or `sandbox: off` in `~/.casper/config.yaml` | Off, your choice | Nothing asks; the receipt says `Shell commands and checks were not sandboxed (--no-sandbox)` |
 
 With no sandbox, each command the AI's shell (and the service tool's own start command) wants to run, but
-plain reads and routine work (below), asks `Run this command?  npm test` (with **Routine commands** off) with `1 No · 2 Yes, this once · 3 Yes, for this session · 4 Yes, always for this project · 5 Yes to everything this session`.
-5 turns on what `/permissions all` does (below, Until you quit) in one key, without its second question; it also runs this
-command and is never saved ([decision 27](adr/0002/27-yes-to-everything.md)). 3 covers `bun test` across different test files inside the same project folder and different log tails;
+plain reads and routine work (below), asks `Run this command?  npm test` (with **Routine commands** off) with `1 No · 2 Yes, this once · 3 Yes, for this session · 4 Yes, always for this project`. In a folder you trust, auto mode's judge (below) decides first whether to show the box
+at all. Decision 27's `5 Yes to everything this session` row went with it ([decision 47](adr/0002/47-auto-mode-judge.md));
+`/permissions all` (below, Until you quit) still stops the questions. 3 covers `bun test` across different test files inside the same project folder and different log tails;
 only read/status plumbing may accompany that runner, never another changing command, outside/private files or another folder.
 4 and all non-test approvals keep exact-command matching: a yes to `rm -rf /tmp/old-build` never covers `rm -rf ~`, a yes
 to `git push upstream feature` never covers `git push --force origin main`, and other options or files ask again. A
@@ -260,6 +260,25 @@ scripts are for computation, not printing a log or file size.
 
 Configured check rewrites have a separate old → new approval, or a command-only session override that
 leaves the file untouched. See [Changing configured checks](VERIFICATION.md#changing-configured-checks).
+
+**Auto mode.** With the sandbox off, in a folder you trust, a command that would still show `Run this command?` (not a
+read, not routine work, not one you already answered) goes to a model judge first ([decision 47](adr/0002/47-auto-mode-judge.md)).
+It reads the command, your request with the lines you typed during the task, the task's last few steps (`edited package.json`,
+`ran npm test`) and whether the folder is trusted, with secrets hidden. It answers only **allow** (the command runs, with a dim
+`✓ judge: …` line) or **ask** (the usual box, with `The judge says: …` on its dim line). It never refuses on its own, and a failure,
+timeout or unclear answer asks. It never sees a hard refusal, a host, a write outside the project, another machine, a GitHub login,
+a check change, an MCP change or a device write: those keep their own boxes. A fixed list always shows the box too, whatever the
+judge would say, checked in code before it (`src/sandbox/always-asks.ts`): sudo and other users (`doas`, `su`); a download run through a shell or interpreter (`curl … | sh`, `bash -c "$(curl …)"`,
+`bash <(curl …)`, `iex (irm …)`); a force push or a deleted remote branch; `git reset --hard`, `git clean -f`, a dropped stash,
+`git branch -D`, files restored over changes, a changed remote or global git config; deleting, moving or changing files
+outside the project, in home, or the project folder itself or its `.git`, or where Casper can't tell (`$DIR`, a `cd` it
+can't follow), and a redirect `>` outside the project; disks, the machine and its services (`dd`, `mkfs`, `diskutil`,
+`shutdown`, `systemctl`, `crontab`, `pkill`, system package managers); shared infrastructure and cloud accounts (`aws`,
+`gcloud`, `az`, `terraform`, `kubectl`, `helm`, `vercel`, `fly` and the like); publishing (`npm`/`cargo` publish, `twine
+upload`, `docker push`, GitHub releases, repositories, secrets, and merging a pull request); another machine; `eval`; and a
+line Casper can't read (an open quote, process substitution). A check costs about 360 tokens in and 50 out
+(on a Claude plan through Claude Code, about 2,500 counted, almost all of it Claude Code's cached context). It is on; `auto mode off`, **Auto mode** in `/settings`
+or `auto_mode: off` in your own config turns it off, and a project file can't set it. One-shot and `--json` runs never use it.
 
 Routine work doesn't ask either, as in Claude Code's auto mode (**Routine commands** in `/settings`, on; it writes
 `routine_commands: false` when you turn it off, and a project file can't set it): `git add` (not `-f`), `commit` (`--amend` too),
@@ -561,8 +580,7 @@ is every fact and the exact way to be asked less for each kind. A mistyped word 
 - **Until you quit.** `/permissions` (in a terminal, not during a task) and `/permissions all` ask `1 Keep asking · 2 Stop asking until I quit`; typed during a task, `/permissions all` is itself the answer and takes effect at once, from the task's next question. On 2, the shell's own questions (a command, a host, a write outside the
   project, another machine) are answered `Yes, for this session` without showing them, builders' included (a host while a builder's command runs too); the footer says `asking off` in warning colour, with `/permissions ask` only the first time. It lives in memory only, is
   never saved or read from a project file, only your typed command and your answer set it, and `/permissions ask` or quitting ends it. A one-shot or `--json` run
-  refuses it (`--no-sandbox` is the flag for one run). `5 Yes to everything this session` in the no-sandbox `Run this command?` box turns on the same
-  switch in one key, with the same limits: only a person answering a shown box can pick it (Enter and a note on the last row stay No; letters typed on the list answer nothing), and it runs that command too.
+  refuses it (`--no-sandbox` is the flag for one run).
 - **For good.** `sandbox: allowedDomains`, `allowWrite` and `off` in `~/.casper/config.yaml`; `--allow-host`, `--allow-write`, `--allow-reach` and `--no-sandbox` for one run.
 
 What stays protected whatever you pick: `~/.ssh`, `~/.casper`, cloud logins, shell start-up files and git's own files (the AI's tools never read or write them, and no

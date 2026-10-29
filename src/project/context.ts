@@ -86,6 +86,8 @@ export interface ProjectContext {
   browserClicks?: boolean;
   /** `routine_commands: off` in the user's config: with no sandbox, routine shell commands ask too. Unset: on. */
   routineCommands?: boolean;
+  /** `auto_mode: off` in the user's config: no judge, every command that would show the box asks. Unset: on. */
+  autoMode?: boolean;
   /** `hide_tool_output: off` stops new history masks. Unset: on. */
   hideToolOutput?: boolean;
   /** `reasoning_headline: off` in the user's config: no reasoning headline in the status row. Unset: on. */
@@ -222,6 +224,7 @@ export async function loadProjectContext(
     ...(configuration.pictureModels ? { pictureModels: configuration.pictureModels } : {}),
     ...(configuration.browserClicks !== undefined ? { browserClicks: configuration.browserClicks } : {}),
     ...(configuration.routineCommands !== undefined ? { routineCommands: configuration.routineCommands } : {}),
+    ...(configuration.autoMode !== undefined ? { autoMode: configuration.autoMode } : {}),
     ...(configuration.hideToolOutput !== undefined ? { hideToolOutput: configuration.hideToolOutput } : {}),
     ...(configuration.reasoningHeadline !== undefined ? { reasoningHeadline: configuration.reasoningHeadline } : {}),
     ...(configuration.leanGuidance !== undefined ? { leanGuidance: configuration.leanGuidance } : {}),

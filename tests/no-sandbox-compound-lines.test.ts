@@ -227,7 +227,7 @@ test("with no sandbox: those reads never ask, and 'always' for the test run cove
   expect(terminal.asked).toEqual([]);
   expect(await shell.approve!(TEST_RUN(project))).toBeUndefined();
   expect(terminal.asked).toHaveLength(1);
-  expect(terminal.asked[0]!.options).toEqual(["No", "Yes, this once", "Yes, for this session", "Yes, always for this project", "Yes to everything this session"]);
+  expect(terminal.asked[0]!.options).toEqual(["No", "Yes, this once", "Yes, for this session", "Yes, always for this project"]);
   const saved = JSON.parse(await readFile(path.join(context.stateDirectory, "sandbox.json"), "utf8"));
   expect(saved.commands).toEqual(["cd webapp && ./.venv/Scripts/python.exe -m pytest -q"]);
   expect(saved.prefixes).toBeUndefined();

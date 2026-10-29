@@ -296,6 +296,8 @@ export class CasperApp {
   sideAbort?: AbortController;
   /** The tool names the AI used lately, for a side question's short summary. */
   recentTools: string[] = [];
+  /** This task's steps as auto mode's judge sees them ("edited package.json", "ran npm test"), newest last. */
+  judgeSteps: string[] = [];
   /** /details for this session; unset follows display: in the config. */
   displayChoice?: DisplayLevel;
   closing = false;

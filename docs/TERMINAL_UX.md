@@ -874,6 +874,11 @@ only. See [platform support](PLATFORM_SUPPORT.md) for host-validation limits.
   nine rows is still typed), and the footer says `waiting for you`. A paste waits as the draft for
   after the box closes, so a 60-line paste never lands in the box. Typing and pastes go in only on the line a last
   row opens once it is picked: Other on a question that takes a typed answer, or an approval's note row.
+- Auto mode (on in a folder you trust, with the sandbox off): before `Run this command?` shows, a model judge looks at the
+  command. When it lets the command run, one dim line says what it does (`✓ judge: runs the project's tests`); when it
+  wants you to decide, the box shows as usual with `The judge says: …` on its dim line instead of the model's. Type
+  `auto mode off` (or use `/settings`) to go back to the box for every such command
+  ([decision 47](adr/0002/47-auto-mode-judge.md)).
 - Every box takes the same input: approvals (an MCP change, a host, a shell command, a device
   check, `/mcp writes`) are the same numbered panel as any question. Use Up/Down and Enter, or a digit shortcut
   (no Enter); Esc skips without approval. Letters typed on the list go nowhere and never answer it: a short hint names

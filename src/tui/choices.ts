@@ -7,6 +7,12 @@ export const KEY_PICK_MAX = 9;
 
 /** A model's explanation is attributed context, never the approval's authority. */
 export const MODEL_REASON_PREFIX = "The model says: ";
+/** Auto mode's judge, when it asks you about a command, says why on the same dim line (docs/adr/0002/47-auto-mode-judge.md). */
+export const JUDGE_REASON_PREFIX = "The judge says: ";
+/** The prefix of a box's dim reason line, the model's or the judge's, or undefined for any other line. */
+export function reasonPrefix(line: string | undefined): string | undefined {
+  return line?.startsWith(MODEL_REASON_PREFIX) ? MODEL_REASON_PREFIX : line?.startsWith(JUDGE_REASON_PREFIX) ? JUDGE_REASON_PREFIX : undefined;
+}
 
 /** "3. " in front of row 3, padded so a list past nine rows lines up. */
 export function choiceNumber(index: number, count: number): string {

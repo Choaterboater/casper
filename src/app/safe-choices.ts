@@ -19,7 +19,6 @@ export const YES_ONCE = "Yes, this once";
 export const YES_SESSION = "Yes, for this session";
 export const YES_ALWAYS = "Yes, always for this project";
 /** The shell box's fifth choice: what /permissions all does, in one key. Session only, never saved. */
-export const YES_EVERYTHING = "Yes to everything this session";
 /** The yes-words of every approval box, in order: choice 1, 2, 3 and 4 wherever they appear. */
 export const YES_WORDS = [NO, YES_ONCE, YES_SESSION, YES_ALWAYS] as const;
 
@@ -274,14 +273,13 @@ export function githubLoginChoices(action: string, remember = true): Choice[] {
 }
 
 /** "Run this command?  npm test --watch" when no sandbox can run (Windows, bubblewrap missing). Enter runs nothing.
- * 3 and 4 cover this exact command only, so a yes to `rm -rf build` never covers `rm -rf ~`. 5 is /permissions all
- * without typing it: nothing that /permissions all covers asks until you quit (docs/adr/0002/27-yes-to-everything.md). */
+ * 3 and 4 cover this exact command only, so a yes to `rm -rf build` never covers `rm -rf ~`. Decision 27's "Yes to
+ * everything this session" row went when auto mode's judge came (docs/adr/0002/47-auto-mode-judge.md); /permissions all stays. */
 export const SHELL_COMMAND_CHOICES = [
   { label: NO, description: "the command does not run" },
   { label: YES_ONCE, description: "only this time" },
   { label: YES_SESSION, description: "until you quit" },
   { label: YES_ALWAYS, description: "always in this project" },
-  { label: YES_EVERYTHING, description: "every command and question; /permissions ask undoes it" },
 ] as const satisfies readonly Choice[];
 
 /** "Next: the AI can read the 12 changed files for security problems …" after /security-review's tools. Enter spends nothing. */
