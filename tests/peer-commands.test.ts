@@ -157,6 +157,59 @@ test("/copy, /export, /rename and /logout work on the conversation, the clipboar
   expect(moved).toContain("For a new project type /project new my-tool");
 });
 
+test("/export saves the whole conversation: turns before a compaction, the compaction marked, and Casper's own prompts as Casper's", async () => {
+  const f = await oneShot();
+  await f.run("add a ping check");
+  const repair = "Casper verification repair 1/3.\nRepair the failures below.\nFailure evidence (JSON):\n```json\n{}\n```";
+  const session = f.app.session!;
+  session.conversationRecord = () => [
+    { kind: "you", text: "build the scraper\n\nwith two paragraphs" },
+    { kind: "answer", text: "Built it." },
+    { kind: "compaction", summary: "A scraper was built." },
+    { kind: "you", text: "MakerWorld is still showing Cloudflare verification" },
+    { kind: "casper", label: "verification repair 1/3", text: repair },
+    { kind: "answer", text: "Repaired." },
+  ];
+  expect(await f.run("/export whole.md")).toContain("[export] Saved 5 messages to");
+  const markdown = await readFile(path.join(f.project, "whole.md"), "utf8");
+  expect(markdown).toBe([
+    "# add a ping check", "",
+    "## You", "", "build the scraper", "", "with two paragraphs", "",
+    "## Casper", "", "Built it.", "",
+    "---", "", "_Casper compacted the conversation here: the AI went on from the summary below. Everything above is still in this file._", "",
+    "<details><summary>Summary the AI kept</summary>", "", "A scraper was built.", "", "</details>", "",
+    "## You", "", "MakerWorld is still showing Cloudflare verification", "",
+    "## Casper (verification repair 1/3)", "", "_Casper sent this to the AI; you didn't type it._", "",
+    "<details><summary>What Casper sent</summary>", "", "````text", repair, "````", "", "</details>", "",
+    "## Casper", "", "Repaired.", "",
+  ].join("\n"));
+});
+
+test("/export hides secrets in everything it writes: your words, Casper's prompts, answers, the summary and every .jsonl message", async () => {
+  const f = await oneShot();
+  await f.run("add a ping check");
+  const token = "ghp_0123456789abcdefghijklmnopqrstuvwxyzAB";
+  const session = f.app.session!;
+  session.conversationRecord = () => [
+    { kind: "you", text: `push it with my token ${token}` },
+    { kind: "casper", label: "verification repair 1/3", text: `Casper verification repair 1/3.\nFailure evidence (JSON):\n{"stdout": "API_TOKEN=abcd1234efgh5678ijkl"}` },
+    { kind: "answer", text: "The password is Hunter2-Correct-Horse, I set it." },
+    { kind: "compaction", summary: `The user gave the token ${token}.` },
+  ];
+  const said = await f.run("/export secrets.md");
+  expect(said).toContain("[export] Saved 3 messages to");
+  expect(said).toContain("4 secrets in it are hidden (<secret hidden>)");
+  const markdown = await readFile(path.join(f.project, "secrets.md"), "utf8");
+  for (const secret of [token, "abcd1234efgh5678ijkl", "Hunter2-Correct-Horse"]) expect(markdown).not.toContain(secret);
+  expect(markdown).toContain("push it with my token <secret hidden>");
+  expect(markdown).toContain("API_TOKEN=<secret hidden>");
+  // Every message: each line is still the same JSON, with its secrets hidden.
+  session.exportJsonl = (file) => { require("node:fs").writeFileSync(file, `${JSON.stringify({ type: "session", id: "x" })}\n${JSON.stringify({ type: "message", message: { role: "user", content: [{ type: "text", text: `token ${token}` }] } })}\n`); };
+  expect(await f.run("/export every.jsonl")).toContain("1 secret in it is hidden (<secret hidden>)");
+  const lines = (await readFile(path.join(f.project, "every.jsonl"), "utf8")).trimEnd().split("\n").map((line) => JSON.parse(line));
+  expect(lines).toEqual([{ type: "session", id: "x" }, { type: "message", message: { role: "user", content: [{ type: "text", text: "token <secret hidden>" }] } }]);
+});
+
 test("on the screen: /new starts a new conversation, never the new-project questions; /theme opens the Theme question", () => withEnv({ TERM: "xterm-256color" }, async () => {
   const app = await richApp((project) => fakeRuntime({ names: [], exported: [], signedIn: [] }, project));
   try {

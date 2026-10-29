@@ -61,6 +61,7 @@ import { cacheRetentionFor, type PromptCacheSetting } from "./cache";
 import { LoopGuard } from "./loop-guard";
 import { ToolHistory, TOOL_HISTORY_ENTRY } from "./tool-history";
 import { SteeredLines, STEERED_LINE_ENTRY, steeredAt } from "./steered-lines";
+import { CASPER_SAID_ENTRY, conversationRecord, saidBy } from "../sessions/record";
 import { ELISION_NOTE, elisionTexts, newElisions } from "./elision";
 import { addsSecret } from "../secrets/files";
 import { ToolArgumentRepair } from "./tool-repair";
@@ -91,6 +92,7 @@ import type {
   RuntimeModelWordsMatch,
   RuntimeModelWordsOptions,
   RuntimeConversation,
+  ConversationItem,
   RuntimeEvent,
 } from "./types";
 import { isOutside } from "../platform/inside";
@@ -356,6 +358,25 @@ class PiRuntimeSession implements RuntimeSession {
     return turns.slice(-Math.max(0, count));
   }
 
+  conversationRecord(): ConversationItem[] {
+    return conversationRecord(this.runtime.session.sessionManager.getBranch());
+  }
+
+  /** Who wrote the message a prompt added after `from` (the leaf before it): the person (`typed`, their words) or
+   * Casper, for /export. Recorded just after the message, never between turns: there it would move Pi's compaction cut
+   * (a turn would read as split) and stand between a /rewind mark and the turn after it. */
+  private recordAuthor(from: string | null, typed: string | undefined): void {
+    try {
+      const manager = this.runtime.session.sessionManager;
+      const branch = manager.getBranch();
+      const start = from === null ? 0 : branch.findIndex((entry) => entry.id === from) + 1;
+      if (from !== null && start === 0) return;
+      const message = branch.slice(start).find((entry) => entry.type === "message" && entry.message.role === "user");
+      const at = message?.type === "message" ? message.message.timestamp : undefined;
+      if (typeof at === "number" && Number.isSafeInteger(at)) manager.appendCustomEntry(CASPER_SAID_ENTRY, saidBy(at, typed));
+    } catch { /* a conversation that can't take the record: /export reads its prompts by their openings */ }
+  }
+
   private persistUnwrittenConversation(): void {
     const session = this.runtime.session;
     if (session.sessionFile && !existsSync(session.sessionFile)) {
@@ -396,7 +417,7 @@ class PiRuntimeSession implements RuntimeSession {
     return this.models.status(this.runtime.session);
   }
 
-  async prompt(text: string, signal?: AbortSignal, options?: { request: string; maxTurns?: number; images?: readonly RuntimeImage[] }): Promise<void> {
+  async prompt(text: string, signal?: AbortSignal, options?: { request: string; typed?: string; maxTurns?: number; images?: readonly RuntimeImage[] }): Promise<void> {
     if (this.promptActive) throw new Error("A prompt is already active.");
     this.promptActive = true;
     this.agentShellGuard?.task(options?.request ?? text, signal ?? options?.request ?? text);
@@ -427,10 +448,13 @@ class PiRuntimeSession implements RuntimeSession {
       limited = turns >= maxTurns && turn.message.content.some((part) => part.type === "toolCall");
       return limited ? { action: "end" } : previous ?? undefined;
     };
+    // Who wrote this prompt's message, recorded at the first request after it is in the conversation.
+    let author: { from: string | null; typed?: string } | undefined;
     // Pi can resolve auth before its agent has an AbortController. Keep the
     // preparation signal linked at the last seam before provider execution.
     agent.streamFunction = (model, context, streamOptions) => {
       promptSignal.throwIfAborted();
+      if (author) { this.recordAuthor(author.from, author.typed); author = undefined; }
       const history = new ToolHistory();
       const typed = new Set<number>();
       // Only custom records on this branch count: rewind, resume and forks cannot share mutable masks.
@@ -461,6 +485,7 @@ class PiRuntimeSession implements RuntimeSession {
       if (status.configuredEffort === "auto") this.emit({ type: "model_controls_changed", status });
       promptSignal.throwIfAborted();
       const images = options?.images?.map(({ data, mimeType }) => ({ type: "image" as const, data, mimeType }));
+      author = { from: session.sessionManager.getLeafId(), ...(options?.typed !== undefined ? { typed: options.typed } : {}) };
       await session.prompt(text, { expandPromptTemplates: !this.readOnly, ...(images?.length ? { images } : {}) });
       promptSignal.throwIfAborted();
       const limitReason = this.readOnly?.limitReason();

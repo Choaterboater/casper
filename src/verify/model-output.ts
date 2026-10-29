@@ -27,6 +27,6 @@ export function evidenceForModel<T>(value: T, env: NodeJS.ProcessEnv = process.e
 }
 
 /** The keys in Casper's login file and the saved network logins (~/.casper/network-logins.json). */
-function ownValues(home: string): string[] {
+export function ownValues(home: string): string[] {
   return [...loginFileValues(path.join(casperAgentDir(), "auth.json")), ...networkLoginValues(loginFile(home))];
 }

@@ -60,7 +60,7 @@ over the network, and `/references add` downloads files after asking you.
 | `/theme` | The Theme row of `/settings` on its own: pick the screen's colours |
 | `/hotkeys` | The keys Casper uses, one a line |
 | `/copy [n]` | Copy the last answer, or its code block n, to the clipboard |
-| `/export [file]` | Save this conversation (Markdown; a `.jsonl` name saves every message): to `~/.casper/exports` with Casper's other per-user files, or to `file` from the project folder; it says the whole path; never over a file that is there |
+| `/export [file]` | Save this conversation (Markdown; a `.jsonl` name saves every message): to `~/.casper/exports` with Casper's other per-user files, or to `file` from the project folder; it says the whole path; never over a file that is there. The Markdown has the whole conversation, also what a compaction took out of the AI's context (marked where it happened, with the summary the AI kept); a prompt Casper sent the AI itself (a repair or review round) is under Casper, folded, never under You. Both formats hide secrets as `<secret hidden>` with the pass bash output gets (secret-named environment values, Casper's own login keys, `KEY=VALUE` secrets, address passwords, private keys, secrets named in prose); a `.jsonl` keeps its format, with only those strings changed, and the line says how many were hidden |
 | `/rename <title>` | Name this conversation (the window title and `/resume`) |
 | `/output [n\|all]` | Full command and output of a recent tool call from the last task |
 | `/receipt [n\|list]` | The last task's receipt in detail, a saved one, or the last 10; here a card with every line under plain labels |

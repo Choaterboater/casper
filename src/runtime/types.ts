@@ -295,6 +295,13 @@ export interface RuntimeUsage {
   messages: number;
 }
 
+/** One part of a saved conversation: the person's words, a prompt Casper sent the AI itself, an answer, or a compaction. */
+export type ConversationItem =
+  | { kind: "you"; text: string }
+  | { kind: "casper"; label: string; text: string }
+  | { kind: "answer"; text: string }
+  | { kind: "compaction"; summary: string };
+
 export interface RuntimeConversation {
   id: string; name?: string; modified: string;
   /** The first message sent (Casper's wrapper included; see requestOf) and how many messages it has. */
@@ -438,11 +445,14 @@ export interface RuntimeSession {
   resumeConversation?(id: string, options?: { keepUnwritten?: boolean }): Promise<void>;
   /** The conversation's last messages with text, oldest first (shown after /resume). */
   recentTurns?(count: number): Array<{ role: "user" | "assistant"; text: string }>;
+  /** The whole conversation as saved, oldest first: also what a compaction took out of the AI's context (for /export). */
+  conversationRecord?(): ConversationItem[];
   compact?(instructions?: string, signal?: AbortSignal): Promise<void>;
   /** `maxTurns` stops the request gracefully after that many model turns (tools of the last turn
    * still finish) and emits turn_limit; unset means no Casper turn limit. `images` go with the text (a model
-   * that can't see them gets a placeholder from the runtime). */
-  prompt(text: string, signal?: AbortSignal, options?: { request: string; maxTurns?: number; images?: readonly RuntimeImage[] }): Promise<void>;
+   * that can't see them gets a placeholder from the runtime). `typed`: the person's own words when this message is
+   * theirs; without it the saved conversation records the message as Casper's own (a repair or review round). */
+  prompt(text: string, signal?: AbortSignal, options?: { request: string; typed?: string; maxTurns?: number; images?: readonly RuntimeImage[] }): Promise<void>;
   /** A line the user typed while the model works, with its pictures: the model reads it at its next step. False, with nothing sent,
    * when no prompt is running (the caller keeps it as the next request). */
   steer?(text: string, images?: readonly RuntimeImage[]): Promise<boolean>;
