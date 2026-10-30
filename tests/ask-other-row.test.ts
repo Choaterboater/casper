@@ -150,9 +150,13 @@ test("a typed Casper picker has the row; approvals and key-only pickers never do
     expect(await picker).toBe("lab");
 
     const approval = session.terminal.approve("", "Make this change?", [NO, YES_ONCE]);
-    await waitFor(() => box(session.screen.output, "Make this change?").endsWith("Enter to choose · Esc to skip"));
-    expect(box(session.screen.output, "Make this change?")).not.toContain("Other");
-    session.input.write("1");
+    // An approval has no hint under its rows and no extra row: 1 (No) opens its note line, and an empty Enter is a plain No.
+    const shown = () => { const text = screenText(session.screen.output); return text.slice(text.lastIndexOf("Make this change?")); };
+    await waitFor(() => shown().includes("2. Yes, this once"));
+    expect(shown()).not.toContain("Other");
+    expect(shown()).not.toContain("3.");
+    expect(shown()).not.toContain("Esc to skip");
+    session.input.write("1"); session.input.write("\r");
     expect(await approval).toBe(NO);
   } finally { session.close(); }
 });

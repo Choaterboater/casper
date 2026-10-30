@@ -3,14 +3,15 @@ import { readdirSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
 import {
   APPROVE_CHOICES, APPROVE_ONCE_CHOICES, APPROVE_ONCE_PREVIEW_CHOICES, APPROVE_PREVIEW_CHOICES, HOST_CHOICES, kindAllowChoices, NO, REACH_CHOICES,
-  SHELL_COMMAND_CHOICES, writeChoices, githubLoginChoices, YES_ALWAYS, YES_ONCE, YES_SESSION, YES_WORDS,
+  SHELL_COMMAND_CHOICES, writeChoices, githubLoginChoices, YES_ALWAYS, YES_EVERYTHING, YES_ONCE, YES_SESSION, YES_WORDS,
 } from "../src/app/safe-choices";
 import { labAskFor } from "../src/network/checks";
 
 /**
- * One set of yes-words in every approval box: 1 No · 2 Yes, this once · 3 Yes, for this session · 4 Yes, always for
- * this project. A box offers only the ones that make sense, but the ones it offers come first, in that order, so a
- * number means the same thing wherever it appears. What the yes is about goes in the question, never in the answer.
+ * One set of yes-words in every approval box: 1 No · 2 Yes, this once · 3 Yes, for this session (4 Yes, always for
+ * this project only in the lab checks box; elsewhere a session yes is kept from the Next row). A box offers only the
+ * ones that make sense, but the ones it offers come first, in that order, so a number means the same thing wherever it
+ * appears. What the yes is about goes in the question, never in the answer.
  */
 
 test("the yes-words are these four, in this order", () => {
@@ -45,6 +46,13 @@ test.each(boxes)("%s: the yes-words it offers come first, in order, with the sam
   for (const label of choices) if (/^yes\b/i.test(label) && !/^Yes(?: to everything|, show commands on)/.test(label)) expect(YES_WORDS as readonly string[]).toContain(label);
   // 2 is "Yes, this once" and 3 "Yes, for this session" wherever a box offers them.
   for (const word of [YES_ONCE, YES_SESSION]) if (offered.includes(word)) expect(choices.indexOf(word)).toBe((YES_WORDS as readonly string[]).indexOf(word));
+});
+
+test("the sandbox and GitHub boxes offer three rows and never 'always' (the shell box adds Yes to everything as row 4)", () => {
+  const three = [NO, YES_ONCE, YES_SESSION];
+  for (const choices of [HOST_CHOICES, REACH_CHOICES, writeChoices("~/apps/x"), githubLoginChoices("git push")]) expect(labels(choices)).toEqual(three);
+  expect(labels(githubLoginChoices("git clone", false))).toEqual([NO, YES_ONCE]);
+  expect(labels(SHELL_COMMAND_CHOICES)).toEqual([...three, YES_EVERYTHING]);
 });
 
 /** Every source file (TypeScript and Markdown skills), the network server batch aside. */

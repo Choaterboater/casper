@@ -45,15 +45,16 @@ test("an approval box is the numbered panel: one key answers it, no Enter", asyn
   } finally { session.close(); }
 });
 
-test("letters typed in an approval box go nowhere: they never answer it, and a hint names the keys and the note row", async () => {
+test("letters typed in an approval box go nowhere: they never answer it, and a hint names the keys and No's note", async () => {
   const session = interactiveTerminal();
   try {
     session.terminal.setStatus("fixture"); session.terminal.start();
     const typed = session.terminal.approve("", "Make this change?", ["No", "Yes, this once"]);
-    await session.screen.until((output) => output.includes("3. No, and tell the AI what to do instead"));
+    await session.screen.until((output) => output.includes("2. Yes, this once"));
+    expect(Bun.stripANSI(session.screen.output)).not.toContain("3.");
     // "go" meant yes: it is not typed into a field, the highlight doesn't move, and the box stays open.
     session.input.write("go");
-    await session.screen.until((output) => Bun.stripANSI(output).includes("Pick with 1-3 or ↑↓ Enter · 3 to tell the AI what to do instead"));
+    await session.screen.until((output) => Bun.stripANSI(output).includes("Pick with 1-2 or ↑↓ Enter · 1 to tell the AI what to do instead"));
     expect(Bun.stripANSI(session.screen.output)).not.toContain("— go");
     // The number keys work at once: no Backspace needed.
     session.input.write("2");
@@ -61,31 +62,33 @@ test("letters typed in an approval box go nowhere: they never answer it, and a h
   } finally { session.close(); }
 });
 
-test("the note row opens a line: Enter sends No with the note, Esc goes back to the list, and Ctrl+X denies an open box", async () => {
+test("No opens a note line: Enter sends No with the note (empty: a plain No), Esc goes back to the list, and Ctrl+X denies an open box", async () => {
   const session = interactiveTerminal();
   try {
     session.terminal.setStatus("fixture"); session.terminal.start();
     const noted = session.terminal.approve("", "Make this change?", ["No", "Yes, this once"]);
-    await session.screen.until((output) => output.includes("3. No, and tell the AI what to do instead"));
-    session.input.write("3");
-    await session.screen.until((output) => Bun.stripANSI(output).includes("Enter to send No with this note · Esc to go back"));
+    await session.screen.until((output) => output.includes("2. Yes, this once"));
+    session.input.write("1");
+    await session.screen.until((output) => Bun.stripANSI(output).includes("Enter sends No · type to tell the AI what to do instead · Esc goes back"));
     // Words that spell a granting label are still a note on a No.
     session.input.write("yes please");
-    await session.screen.until((output) => Bun.stripANSI(output).includes("No, and tell the AI what to do instead — yes please"));
+    await session.screen.until((output) => Bun.stripANSI(output).includes("1. No — yes please"));
     session.input.write("\r");
     expect(await noted).toBe("No");
     await session.screen.until((output) => Bun.stripANSI(output).includes("Make this change? → No (yes please)"));
 
-    // Esc on the line goes back to the list, its words gone; Enter on the list is No.
+    // Esc on the line goes back to the list, its words gone; Enter on No, then an empty Enter, is a plain No.
     const back = session.terminal.approve("", "Make this second change?", ["No", "Yes, this once"]);
     await session.screen.until((output) => output.includes("Make this second change?"));
-    session.input.write("3");
-    await session.screen.until((output) => Bun.stripANSI(output).split("Make this second change?").at(-1)!.includes("Esc to go back"));
+    session.input.write("1");
+    await session.screen.until((output) => Bun.stripANSI(output).split("Make this second change?").at(-1)!.includes("Esc goes back"));
     session.input.write("use bun");
-    await session.screen.until((output) => Bun.stripANSI(output).includes("what to do instead — use bun"));
+    await session.screen.until((output) => Bun.stripANSI(output).includes("1. No — use bun"));
     session.input.write("\x1b");
-    await session.screen.until((output) => Bun.stripANSI(output).split("Make this second change?").at(-1)!.includes("Enter to choose · Esc to skip"));
+    await settle(60);
     session.input.write("\x1b[A\x1b[A\r");
+    await session.screen.until((output) => Bun.stripANSI(output).split("Make this second change?").at(-1)!.includes("Esc goes back"));
+    session.input.write("\r");
     expect(await back).toBe("No");
     await session.screen.until((output) => Bun.stripANSI(output).includes("Make this second change? → No"));
     expect(Bun.stripANSI(session.screen.output)).not.toContain("Make this second change? → No (use bun)");
@@ -103,11 +106,11 @@ test("keys a terminal sends as escape codes (kitty keypad digits, Shift+letters)
   try {
     session.terminal.setStatus("fixture"); session.terminal.start();
     const answer = session.terminal.approve("", "Run this tool?", ["No", "Yes", "Yes to everything this session"]);
-    await session.screen.until((output) => output.includes("4. No, and tell the AI what to do instead"));
+    await session.screen.until((output) => output.includes("3. Yes to everything this session"));
     // Shift+G as kitty and as modifyOtherKeys send: nothing is typed, and the hint shows.
     session.input.write("\x1b[71;2u");
     session.input.write("\x1b[27;2;71~");
-    await session.screen.until((output) => Bun.stripANSI(output).includes("Pick with 1-4 or ↑↓ Enter · 4 to tell the AI what to do instead"));
+    await session.screen.until((output) => Bun.stripANSI(output).includes("Pick with 1-3 or ↑↓ Enter · 1 to tell the AI what to do instead"));
     expect(Bun.stripANSI(session.screen.output)).not.toContain("Number:");
     // The keypad's 2 (kitty KP_2) picks row 2 at once.
     session.input.write("\x1b[57401u");

@@ -15,6 +15,8 @@ interface StoreFile { version: 1; hosts: string[]; commands: string[]; prefixes?
 
 /** One thing you said yes to: exactly that command (`prefix`: one an older Casper kept as a prefix, now exact too). */
 export interface AllowedEntry { kind: "prefix" | "command" | "checks" | "github"; value: string; session: boolean }
+/** A session yes /allowed keep can save for the project. */
+export interface KeepOffer { what: string; keep: () => Promise<void>; kept: boolean; offered: boolean }
 
 /** The /allowed line for "Yes, always for this project" to running its checks outside the sandbox. */
 export const CHECKS_OUTSIDE_ENTRY = "run this project's checks outside the sandbox";
@@ -123,6 +125,14 @@ export class SandboxStore {
   readonly sessionTestRuns = new Set<string>();
   /** The same for git and gh commands with your GitHub login (`git push`). */
   readonly sessionGithub = new Set<string>();
+  /** Session yeses you may still keep for this project, in the order given: the Next row offers each once (src/app/keep-next.ts)
+   * and /allowed keep <n> saves exactly what that yes covered. Memory only; filled only by your own "Yes, for this session". */
+  readonly keepable: KeepOffer[] = [];
+  /** A session yes that could be kept: `what` as the Next row names it, `keep` saving it as the old "always" answer did. */
+  offerKeep(what: string, keep: () => Promise<void>): void {
+    if (this.keepable.some((offer) => offer.what === what && !offer.kept)) return;
+    this.keepable.push({ what, keep, kept: false, offered: false });
+  }
   /** Everything allowed for this project, in the order /allowed numbers it: saved prefixes, saved commands, then the
    * session ones that are not also saved. */
   async allowed(): Promise<AllowedEntry[]> {

@@ -1,6 +1,7 @@
 /** Opening a workspace: the project, its skills, the shell sandbox, MCP servers with their approval broker, LSP,
  * references, web lookups and the startup notes. No connection or model starts here. Moved from src/app.ts. */
 
+import { stopAsking } from "./commands";
 import { decideFolderTrust } from "./folder-trust";
 import { migrateFolderTrust } from "../project/trust";
 import type { CasperApp } from "../app";
@@ -51,6 +52,8 @@ export function sandboxHost(app: CasperApp): SandboxHost {
     planning: () => app.planning,
     // Only while a person can answer: a one-shot or --json run never stops asking this way (it refuses, or takes --no-sandbox).
     stopAsking: () => app.stopAsking && app.interactive && app.terminal.canAsk && !app.closing,
+    // The shell box's "Yes to everything this session": the same switch, and the same line, as /permissions all.
+    askNoMore: () => { if (!app.closing) stopAsking(app); },
     labHosts: () => app.projectContext?.lab?.hosts ?? [],
     routineCommands: () => app.projectContext?.routineCommands !== false,
     // In a folder you haven't trusted, the project's own installs, builds, tests and scripts ask (src/app/folder-trust.ts).

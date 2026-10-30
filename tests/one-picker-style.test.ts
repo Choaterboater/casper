@@ -99,27 +99,29 @@ test.each([80, 160])("NO_COLOR approvals have no input row, keep safe order, and
     session.terminal.start();
     const choices = [{ label: "No", description: "nothing runs" }, { label: "Yes, this once", description: "run once" }];
     const answer = session.terminal.approve("", "Make this change?", choices);
-    await wait(() => screen().includes(PICKER_HINT));
+    // An approval has no hint under its rows.
+    await wait(() => screen().includes("2. Yes, this once"));
+    expect(screen()).not.toContain(PICKER_HINT);
     expect(screen()).toContain("❯ 1. No");
     expect(screen()).toContain("  2. Yes, this once");
     expect(screen()).not.toMatch(/^\?\s*$/m);
     expect(session.screen.output).not.toMatch(/\x1b\[(?!0m)[0-9;]*m/);
     session.input.write("\x1b[B");
     await wait(() => screen().includes("❯ 2. Yes, this once"));
-    // Letters on the list go nowhere; the note row opens a line, and even the granting label typed there is a note on a No.
+    // Letters on the list go nowhere; No opens a line, and even the granting label typed there is a note on a No.
     session.input.write("Yes, this once");
-    await wait(() => screen().includes("3 to tell the AI what to do instead"));
+    await wait(() => screen().includes("1 to tell the AI what to do instead"));
     expect(screen()).toContain("❯ 2. Yes, this once");
-    session.input.write("3");
+    session.input.write("1");
     session.input.write("Yes, this once");
-    await wait(() => screen().includes("❯ 3. No, and tell the AI what to do instead — Yes, this once"));
+    await wait(() => screen().includes("❯ 1. No — Yes, this once"));
     expect(screen()).not.toContain("? Yes, this once");
     session.input.write("\r");
     expect(await answer).toBe("No");
     await wait(() => screen().includes("Make this change? → No (Yes, this once)"));
     const safe = session.terminal.approve("", "Try again?", choices);
     await wait(() => screen().includes("Try again?"));
-    session.input.write("\r"); expect(await safe).toBe("No");
+    session.input.write("\r"); session.input.write("\r"); expect(await safe).toBe("No");
     const yes = session.terminal.approve("", "Deliberate choice?", choices);
     await wait(() => screen().includes("Deliberate choice?"));
     session.input.write("\x1b[B\r"); expect(await yes).toBe("Yes, this once");
@@ -133,9 +135,9 @@ test.each([80, 160])("NO_COLOR approvals have no input row, keep safe order, and
     const command = session.terminal.pick("Run this command?  custom-tool build", choices);
     await wait(() => screen().includes("custom-tool build"));
     expect(screen()).toContain("Run this command?");
-    session.input.write("3");
+    session.input.write("1");
     session.input.write("not that command");
-    await wait(() => screen().includes("❯ 3. No, and tell the AI what to do instead — not that command"));
+    await wait(() => screen().includes("❯ 1. No — not that command"));
     session.input.write("\r"); expect(await command).toBe("No");
     const skipped = session.terminal.approve("", "Skip this?", choices);
     await wait(() => screen().includes("Skip this?"));

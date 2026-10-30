@@ -24,7 +24,7 @@ test("a pasted draft sitting in the prompt when an approval opens is still paste
     input.write(`\x1b[200~${block}\x1b[201~`);
     await tick();
     const answer = surface.approve("Run it?\n", "Make this change?", [{ label: "No" }, { label: "Yes, this once" }]);
-    input.write("1");
+    input.write("1"); input.write("\r");
     expect(await answer).toBe("No");
     input.write("\r");
     expect(await line).toBe(block);

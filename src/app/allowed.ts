@@ -1,9 +1,10 @@
 import type { AllowedEntry, SandboxStore } from "../sandbox/store";
 import { shownCommand } from "./sandbox";
 
-/** /allowed: the shell commands you said yes to for this project (saved, and for this session), and taking them back. */
+/** /allowed: the shell commands you said yes to for this project (saved, and for this session), taking them back, and
+ * keeping a session yes for the project (/allowed keep <n>, the Next row's "Always allow …"). */
 
-const USAGE = "Usage: /allowed | /allowed forget <number, command or all>";
+const USAGE = "Usage: /allowed | /allowed forget <number, command or all> | /allowed keep <number>";
 const words = (text: string) => text.trim().split(/\s+/).join(" ");
 const keyOf = (entry: AllowedEntry) => `${entry.kind}\u0000${entry.value}\u0000${entry.session}`;
 
@@ -17,7 +18,7 @@ function describe(entry: AllowedEntry): string {
 }
 
 function listText(entries: readonly AllowedEntry[]): string {
-  if (!entries.length) return "Nothing is allowed yet. When Casper asks before a shell command, 3 allows it for this session and 4 for this project; they show up here. /permissions details shows everything Casper may do here.\n";
+  if (!entries.length) return "Nothing is allowed yet. When Casper asks before a shell command, 3 allows it for this session, and the Next row after the task offers to keep it for this project; they show up here. /permissions details shows everything Casper may do here.\n";
   return [
     "Shell commands you said yes to, for this project:",
     ...entries.map((entry, index) => `  ${index + 1}. ${describe(entry)}`),
@@ -40,6 +41,19 @@ export async function allowedCommand(prompt: string, store: SandboxStore, write:
     write(`${before}${listText(entries)}`);
   };
   if (!rest) return show();
+  const keep = /^keep\s+(\d+)$/.exec(rest);
+  if (keep) {
+    const number = Number(keep[1]);
+    const offer = store.keepable[number - 1];
+    if (!offer) { write(`There is no ${number} to keep (${store.keepable.length ? `1 to ${store.keepable.length}` : "nothing was allowed for this session yet"}).\n`); return; }
+    if (offer.kept) { write(`${offer.what} is already allowed always in this project. /allowed shows it.\n`); return; }
+    try { await offer.keep(); }
+    catch (error) { write(`Not kept (${error instanceof Error ? error.message : String(error)}); ${offer.what} stays allowed until you quit.\n`); return; }
+    offer.kept = true;
+    shown.delete(store);
+    write(`✓ allowed always in this project: ${offer.what} (kept in ~/.casper, never in the repo; /allowed forget takes it back)\n`);
+    return;
+  }
   const forget = /^forget(?:\s+(.+))?$/.exec(rest);
   if (!forget?.[1]) throw new Error(USAGE);
   const what = words(forget[1]);

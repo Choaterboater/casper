@@ -114,12 +114,13 @@ Ctrl+D on an empty prompt exits. [Keys and commands](docs/TERMINAL_UX.md#quick-r
   change. [Receipts](docs/VERIFICATION.md#receipts)
 - **Checks and repair.** After an edit, Casper runs the checks and sends real failures back for
   three repair tries by default. Web pages are opened and checked too. [Verification](docs/VERIFICATION.md)
-- **One numbered box for every yes.** `1 No · 2 Yes, this once · 3 Yes, for this session ·
-  4 Yes, always for this project`, and network boxes add `Yes to everything on <product> this session`;
-  each box shows only the answers that fit. Nothing asks you to type `yes`. For a shell command, 3 and 4 remember
-  that exact command, never a prefix: a yes to `rm -rf build` never covers `rm -rf ~`. With no sandbox, in a folder you
-  trust, auto mode's judge lets ordinary build work run without the box and asks about the rest (`auto mode off` turns it
-  off). [Terminal guide](docs/TERMINAL_UX.md)
+- **One short numbered box for every yes.** `1 No · 2 Yes, this once · 3 Yes, for this session`, with nothing
+  beside the rows; network boxes add `Yes to everything on <product> this session`, and with no sandbox the shell box
+  adds `4 Yes to everything this session`. After the task, the row under it
+  offers to keep a session yes for the project (`Always allow npm test in this project`). Nothing asks you to type
+  `yes`. For a shell command, 3 and the kept answer cover that exact command, never a prefix: a yes to `rm -rf build`
+  never covers `rm -rf ~`. With no sandbox, in a folder you trust, auto mode's judge lets ordinary build work run
+  without the box and asks about the rest (`auto mode off` turns it off). [Terminal guide](docs/TERMINAL_UX.md)
 - **Plans you change in words.** `/plan <request>` is optional: a clear request gets a plan directly;
   only choices that change the build get up to 3 questions in one round. Existing projects get numbered steps
   and Done means checks; new apps, sites and games get a first-version spec, not forced steps. Then

@@ -103,7 +103,7 @@ posixOnly("'Yes, this once' covers only the rerun; the next check is back in the
   expect(engine.wrapped.length).toBe(1);
 });
 
-posixOnly("'for this session' is not saved; 'always for this project' is kept privately and /allowed lists and forgets it", async () => {
+posixOnly("'for this session' is not saved; kept for the project (the Next row's keep), it is kept privately and /allowed lists and forgets it", async () => {
   const first = await session();
   first.sandbox.allowChecksOutsideForSession();
   expect(await first.sandbox.checksOutside()).toBe(true);

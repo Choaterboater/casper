@@ -5,8 +5,9 @@
  * 2 or 3. The AI's own ask tool never uses these. tests/safe-first-choice.test.ts keeps it that way.
  *
  * Every approval box says yes in the same words, with the same numbers: 1 No · 2 Yes, this once · 3 Yes, for this
- * session · 4 Yes, always for this project. A box offers only the ones that make sense, first and in that order; what
- * the yes is about goes in the question. tests/yes-words.test.ts keeps it that way.
+ * session, and nothing beside them. A box offers only the ones that make sense, first and in that order; what the yes
+ * is about goes in the question. Keeping a yes for this project is offered after a session yes, on the Next row
+ * (src/app/keep-next.ts); the lab checks box still asks it itself. tests/yes-words.test.ts keeps it that way.
  */
 import { KIND_TEXT, RISKY_KINDS, type ChangeKind } from "../capabilities/kinds";
 import { formatDuration } from "../tui/format";
@@ -18,9 +19,13 @@ export const NO = "No";
 export const YES_ONCE = "Yes, this once";
 export const YES_SESSION = "Yes, for this session";
 export const YES_ALWAYS = "Yes, always for this project";
-/** The shell box's fifth choice: what /permissions all does, in one key. Session only, never saved. */
-/** The yes-words of every approval box, in order: choice 1, 2, 3 and 4 wherever they appear. */
+/** The shell box's fourth row: what /permissions all does, in one key. Session only, never saved. The owner kept it
+ * beside auto mode's judge on purpose (docs/adr/0002/45-three-row-approvals.md). */
+export const YES_EVERYTHING = "Yes to everything this session";
+/** The yes-words of every approval box, in order: choice 1, 2 and 3 wherever they appear (4 only in the lab checks box). */
 export const YES_WORDS = [NO, YES_ONCE, YES_SESSION, YES_ALWAYS] as const;
+/** The rows of a yes-word approval box: the labels say it all, so no explanation goes beside them. */
+const APPROVAL_ROWS = [{ label: NO }, { label: YES_ONCE }, { label: YES_SESSION }] as const satisfies readonly Choice[];
 
 /** Asked after each plan on both terminals. */
 export const PLAN_QUESTION = "Build this plan?";
@@ -220,12 +225,7 @@ export function undoUnsureChoices(count: number): Choice[] {
 }
 
 /** "A shell command wants to reach api.mist.com." (the shell sandbox's host question). Enter keeps it blocked. */
-export const HOST_CHOICES = [
-  { label: NO, description: "the command can't reach it" },
-  { label: YES_ONCE, description: "this connection only" },
-  { label: YES_SESSION, description: "until Casper exits" },
-  { label: YES_ALWAYS, description: "kept in ~/.casper, never in the repo; /sandbox forget <host> undoes it" },
-] as const satisfies readonly Choice[];
+export const HOST_CHOICES = APPROVAL_ROWS;
 
 /** /permissions all: the person's own box. Keep asking is first, so Enter changes nothing. */
 export const PERMISSIONS_ALL_QUESTION = "Stop asking until you quit?";
@@ -237,59 +237,33 @@ export const PERMISSIONS_ALL_CHOICES = [
 /** "test failed because the sandbox blocked something." Enter keeps the sandbox. */
 export const checksOutsideQuestion = (names: string[]) =>
   `${names.join(", ")} failed because Casper's sandbox blocked something, not because of a bug in your code. Run this project's checks outside the sandbox?`;
-export const CHECKS_OUTSIDE_CHOICES = [
-  { label: NO, description: "the check stays could-not-check; run it yourself with !<command>" },
-  { label: YES_ONCE, description: "run the blocked checks again now, outside the sandbox" },
-  { label: YES_SESSION, description: "this project's checks run outside the sandbox until Casper exits" },
-  { label: YES_ALWAYS, description: "kept in ~/.casper, never in the repo; /allowed forget undoes it" },
-] as const satisfies readonly Choice[];
+export const CHECKS_OUTSIDE_CHOICES = APPROVAL_ROWS;
 
 /** "The AI wants to write to ~/Library/Application Support/SomeApp. Allow it?" (a write outside the project, by the
- * AI's shell or its edit and write tools). Enter writes nothing; nothing is kept past the session. */
-export function writeChoices(_folder: string, always = true): Choice[] {
-  return [
-    { label: NO, description: "nothing is written" },
-    { label: YES_ONCE, description: "this write only (for a shell command, the next command); Casper keeps no undo copy there" },
-    { label: YES_SESSION, description: "until Casper exits; Casper keeps no undo copy there" },
-    // Only where a whole folder is offered (not one file), and never for a protected place: those are not asked about at all.
-    ...(always ? [{ label: YES_ALWAYS, description: "this folder and below, for this project; kept in ~/.casper, never in the repo; /permissions forget <folder> undoes it" }] : []),
-  ];
+ * AI's shell or its edit and write tools). Enter writes nothing; nothing is kept past the session unless you keep it
+ * from the Next row (a folder only, never one file). */
+export function writeChoices(_folder: string): Choice[] {
+  return APPROVAL_ROWS.map((row) => ({ ...row }));
 }
 
 /** "Reach 10.0.0.5 (build-server)?  ssh root@build-server uptime" before the AI's shell runs ssh, scp, sftp, rsync, nc, telnet or
  * socat to another machine, sandbox or not. Enter runs nothing. */
-export const REACH_CHOICES = [
-  { label: NO, description: "the command does not run" },
-  { label: YES_ONCE, description: "this command only" },
-  { label: YES_SESSION, description: "commands to this host don't ask again until Casper exits" },
-  { label: YES_ALWAYS, description: "kept in ~/.casper, never in the repo; /sandbox forget <host> undoes it" },
-] as const satisfies readonly Choice[];
+export const REACH_CHOICES = APPROVAL_ROWS;
 
 /** "Run outside the sandbox with your GitHub login?  git push -u origin main": a plain git push, pull, fetch, clone or
  * ls-remote, or gh pr, issue, run, repo, api (GET) or auth status, that the sandbox would run without your login. Enter
- * runs nothing. 3 and 4 cover that kind of command (`git push`); a command that types its own address, or changes things
+ * runs nothing. 3 covers that kind of command (`git push`); a command that types its own address, or changes things
  * on GitHub or your checkout (gh pr merge, close, reopen, ready, review, checkout; gh issue close, reopen; gh run rerun,
  * cancel), gets 1 and 2 only, every time. */
-export function githubLoginChoices(action: string, remember = true): Choice[] {
-  return [
-    { label: NO, description: "the command does not run" },
-    { label: YES_ONCE, description: "this command only; the AI reads its output, never your login" },
-    ...(remember ? [
-      { label: YES_SESSION, description: `${action} commands don't ask again until Casper exits` },
-      { label: YES_ALWAYS, description: `${action} commands; kept in ~/.casper, never in the repo; /allowed forget undoes it` },
-    ] : []),
-  ];
+export function githubLoginChoices(_action: string, remember = true): Choice[] {
+  return APPROVAL_ROWS.slice(0, remember ? 3 : 2).map((row) => ({ ...row }));
 }
 
 /** "Run this command?  npm test --watch" when no sandbox can run (Windows, bubblewrap missing). Enter runs nothing.
- * 3 and 4 cover this exact command only, so a yes to `rm -rf build` never covers `rm -rf ~`. Decision 27's "Yes to
- * everything this session" row went when auto mode's judge came (docs/adr/0002/47-auto-mode-judge.md); /permissions all stays. */
-export const SHELL_COMMAND_CHOICES = [
-  { label: NO, description: "the command does not run" },
-  { label: YES_ONCE, description: "only this time" },
-  { label: YES_SESSION, description: "until you quit" },
-  { label: YES_ALWAYS, description: "always in this project" },
-] as const satisfies readonly Choice[];
+ * 3 covers this exact command only, so a yes to `rm -rf build` never covers `rm -rf ~`. 4 is /permissions all without
+ * typing it: the one-key way out when auto mode's judge asks, or auto mode is off. "stop asking" in plain words does
+ * the same (docs/adr/0002/45-three-row-approvals.md). */
+export const SHELL_COMMAND_CHOICES = [...APPROVAL_ROWS, { label: YES_EVERYTHING }] as const satisfies readonly Choice[];
 
 /** "Next: the AI can read the 12 changed files for security problems …" after /security-review's tools. Enter spends nothing. */
 export const AI_REVIEW_CHOICES = [

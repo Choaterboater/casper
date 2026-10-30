@@ -2,6 +2,7 @@
  * the review and the proof that the tests fail without the change, then the receipt and the row of next steps.
  * Moved from src/app.ts. */
 
+import { keepNextItems } from "./keep-next";
 import { builderSteer, builderSteerLine } from "../crew/auto";
 import { finishCrewChecks } from "./crew-checks";
 import { finishTaskCleanup } from "./cleanup";
@@ -1172,6 +1173,8 @@ export async function offerNextSteps(app: CasperApp, task: TaskResult, request?:
     undo ??= offered?.undo; diff ??= offered?.diff;
     more.push(...offered?.more ?? []);
   }
+  // What you said "Yes, for this session" to during the task: keep it for this project (src/app/keep-next.ts).
+  if (app.sandbox?.store) more.push(...keepNextItems(app.sandbox.store));
   // Suggested flows follow the other steps; nothing about them waits or asks.
   let hint: string | undefined;
   if (request !== undefined && classification && app.projectContext) {

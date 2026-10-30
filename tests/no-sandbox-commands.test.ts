@@ -2,6 +2,7 @@ import { afterEach, expect, test } from "bun:test";
 import { mkdir, mkdtemp, readFile, realpath, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { allowedCommand } from "../src/app/allowed";
 import { createSessionSandbox, runtimeShell, SHELL_DECLINED, type SandboxHost } from "../src/app/sandbox";
 import { loadProjectContext } from "../src/project/context";
 import { inspectProject } from "../src/project/inspect";
@@ -262,7 +263,7 @@ test("the box offers the yes-words; Yes, for this session covers that exact comm
   const sandbox = createSessionSandbox(terminal.value, context, { root: () => project, home, seams: { engine: fakeEngine(), platform: "win32" } });
   const shell = runtimeShell(terminal.value, sandbox, new SandboxStore(context.stateDirectory));
   expect(await shell.approve!("npm test")).toBeUndefined();
-  expect(terminal.asked).toEqual([{ question: "Run this command?  npm test", options: ["No", "Yes, this once", "Yes, for this session", "Yes, always for this project"] }]);
+  expect(terminal.asked).toEqual([{ question: "Run this command?  npm test", options: ["No", "Yes, this once", "Yes, for this session", "Yes to everything this session"] }]);
   expect(await shell.approve!("npm test")).toBeUndefined();
   expect(terminal.asked).toHaveLength(1);
   // More options, more in it, or another command: it asks.
@@ -273,11 +274,13 @@ test("the box offers the yes-words; Yes, for this session covers that exact comm
 
 test("a yes to rm -rf /tmp/old-build never covers rm -rf ~, and a yes to a push never covers a force push", async () => {
   const { home, project, context } = await fixture();
-  const terminal = host(["Yes, for this session", "Yes, always for this project"]);
+  const terminal = host(["Yes, for this session", "Yes, for this session"]);
   const sandbox = createSessionSandbox(terminal.value, context, { root: () => project, home, seams: { engine: fakeEngine(), platform: "win32" } });
   const shell = runtimeShell(terminal.value, sandbox, new SandboxStore(context.stateDirectory));
   expect(await shell.approve!("rm -rf /tmp/old-build")).toBeUndefined();
   expect(await shell.approve!("git push upstream feature")).toBeUndefined();
+  // The push is kept for the project from the Next row; the rm stays a session yes.
+  await allowedCommand("/allowed keep 2", sandbox.store!, () => {});
   for (const command of ["rm -rf ~", "rm -rf /tmp/old-build ~", "git push --force origin main", "git push origin :main", "git push upstream feature --force"]) {
     expect({ command, answer: await shell.approve!(command) }).toEqual({ command, answer: SHELL_DECLINED });
   }
@@ -290,12 +293,13 @@ test("a yes to rm -rf /tmp/old-build never covers rm -rf ~, and a yes to a push 
   expect(saved.prefixes).toBeUndefined();
 });
 
-test("Yes, always for this project keeps that exact command in ~/.casper; the next session doesn't ask for it", async () => {
+test("a session yes kept from the Next row (/allowed keep) keeps that exact command in ~/.casper; the next session doesn't ask for it", async () => {
   const { home, project, context } = await fixture();
-  const terminal = host(["Yes, always for this project"]);
+  const terminal = host(["Yes, for this session"]);
   const sandbox = createSessionSandbox(terminal.value, context, { root: () => project, home, seams: { engine: fakeEngine(), platform: "win32" } });
   const shell = runtimeShell(terminal.value, sandbox, new SandboxStore(context.stateDirectory));
   expect(await shell.approve!("cargo build --release")).toBeUndefined();
+  await allowedCommand("/allowed keep 1", sandbox.store!, () => {});
   const saved = JSON.parse(await readFile(path.join(context.stateDirectory, "sandbox.json"), "utf8"));
   expect(saved.commands).toEqual(["cargo build --release"]);
   expect(saved.prefixes).toBeUndefined();

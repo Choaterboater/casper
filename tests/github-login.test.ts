@@ -70,7 +70,7 @@ test("plain git and gh commands that use your GitHub login are recognised", asyn
   expect(githubLoginCommand("gh api repos/example/app/pulls", places(root))?.once).toBe(false);
 });
 
-test("gh subcommands that change state on GitHub or the checkout are once-only; reads and writes you can edit keep all four answers", async () => {
+test("gh subcommands that change state on GitHub or the checkout are once-only; reads and writes you can edit keep all three answers", async () => {
   const { root } = await project();
   for (const command of [
     "gh pr merge 12 --squash", "gh pr close 12", "gh pr reopen 12", "gh pr ready 12", "gh pr review 12 --approve", "gh pr checkout 12",
@@ -180,7 +180,7 @@ const PUSH = "git push -u origin fix/tool-ergonomics";
 test("the box asks first, No first; Enter or No runs nothing", async () => {
   const { terminal, shell, engine, sandbox } = await shellFor([undefined, "No"]);
   expect(await shell.approve!(PUSH)).toBe(GITHUB_LOGIN_DECLINED);
-  expect(terminal.asked).toEqual([{ question: "Run outside the sandbox with your GitHub login?  git push -u origin fix/tool-ergonomics", options: ["No", "Yes, this once", "Yes, for this session", "Yes, always for this project"] }]);
+  expect(terminal.asked).toEqual([{ question: "Run outside the sandbox with your GitHub login?  git push -u origin fix/tool-ergonomics", options: ["No", "Yes, this once", "Yes, for this session"] }]);
   expect(await shell.approve!(PUSH)).toBe(GITHUB_LOGIN_DECLINED);
   expect(engine.wrapped).toEqual([]);
   expect(githubLoginQuestion(PUSH)).toBe(terminal.asked[0]!.question);
@@ -209,7 +209,7 @@ test("a command that types its own address offers this once only; a session yes 
   const clone = "git clone https://github.com/example/lib.git";
   expect(await shell.approve!(clone)).toBeUndefined();
   expect(terminal.asked.map((entry) => entry.options)).toEqual([
-    ["No", "Yes, this once", "Yes, for this session", "Yes, always for this project"],
+    ["No", "Yes, this once", "Yes, for this session"],
     ["No", "Yes, this once"],
   ]);
   expect(githubLoginChoices("git clone", false).map((choice) => choice.label)).toEqual(["No", "Yes, this once"]);
@@ -219,9 +219,11 @@ test("a command that types its own address offers this once only; a session yes 
   await sandbox.close();
 });
 
-test("Yes, always for this project is kept in ~/.casper, listed by /allowed and /permissions, and /allowed forget takes it back", async () => {
-  const { shell, sandbox, context, root, home } = await shellFor(["Yes, always for this project"]);
+test("a session yes kept from the Next row (/allowed keep) is kept in ~/.casper, listed by /allowed and /permissions, and /allowed forget takes it back", async () => {
+  const { shell, sandbox, context, root, home } = await shellFor(["Yes, for this session"]);
   expect(await shell.approve!(PUSH)).toBeUndefined();
+  expect(sandbox.store!.keepable.map((offer) => offer.what)).toEqual(["git push with your GitHub login"]);
+  await allowedCommand("/allowed keep 1", sandbox.store!, () => {});
   expect(JSON.parse(await readFile(path.join(context.stateDirectory, "sandbox.json"), "utf8")).github).toEqual(["git push"]);
   expect((await readdir(root)).sort()).toEqual([".git"]);
   // A new session doesn't ask.
@@ -247,8 +249,9 @@ test("Yes, always for this project is kept in ~/.casper, listed by /allowed and 
 });
 
 test("gh pr merge and the like offer No and Yes, this once only, and a remembered answer for another kind never skips their box", async () => {
-  const { shell, sandbox, context, root, terminal } = await shellFor(["Yes, always for this project", "Yes, for this session", "Yes, this once", undefined, undefined]);
+  const { shell, sandbox, context, root, terminal } = await shellFor(["Yes, for this session", "Yes, for this session", "Yes, this once", undefined, undefined]);
   expect(await shell.approve!("gh pr create -t Fix")).toBeUndefined();
+  await allowedCommand("/allowed keep 1", sandbox.store!, () => {});
   expect(await shell.approve!("gh pr comment 12 --body ok")).toBeUndefined();
   expect(JSON.parse(await readFile(path.join(context.stateDirectory, "sandbox.json"), "utf8")).github).toEqual(["gh pr create"]);
   // Already answered: gh pr create and gh pr comment don't ask again.
@@ -259,8 +262,10 @@ test("gh pr merge and the like offer No and Yes, this once only, and a remembere
   // The yes covered that one command: the same merge asks again, and so does a close.
   expect(await shell.approve!("gh pr merge 12 --squash")).toBe(GITHUB_LOGIN_DECLINED);
   expect(await shell.approve!("gh pr close 12")).toBe(GITHUB_LOGIN_DECLINED);
-  const twoAnswers = ["No", "Yes, this once"], four = ["No", "Yes, this once", "Yes, for this session", "Yes, always for this project"];
-  expect(terminal.asked.map((entry) => entry.options)).toEqual([four, four, twoAnswers, twoAnswers, twoAnswers]);
+  const twoAnswers = ["No", "Yes, this once"], three = ["No", "Yes, this once", "Yes, for this session"];
+  expect(terminal.asked.map((entry) => entry.options)).toEqual([three, three, twoAnswers, twoAnswers, twoAnswers]);
+  // A once-only kind is never offered to keep.
+  expect(sandbox.store!.keepable.map((offer) => offer.what)).toEqual(["gh pr create with your GitHub login", "gh pr comment with your GitHub login"]);
   // A saved answer for a once-only kind (an older Casper, or a hand-edited file) does not skip the box either.
   await sandbox.store!.addGithub("gh pr merge");
   expect(await shell.approve!("gh pr merge 12 --squash")).toBe(GITHUB_LOGIN_DECLINED);

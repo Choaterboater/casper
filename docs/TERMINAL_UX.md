@@ -72,7 +72,7 @@ over the network, and `/references add` downloads files after asking you.
 | `/project <name>`, `/project new [name]` | Open a project folder inside this one; start a new project in ~/Projects (no model; [NEW.md](NEW.md)); `/project` alone is `/status` |
 | `/permissions` | A short screen: whether Casper is asking, one line per kind (state · how to change it) and what stays protected, then the box `Stop asking until you quit?` (`1 Keep asking · 2 Stop asking until I quit`; Enter keeps asking; no box during a task). `details` is the full screen. `all` (or `allowall`, `allow-all`) is the same box on its own (during a task, no box: it takes effect at once), `ask` turns the questions back on, `write <folder>` allows a folder outside the project, `forget <folder>` takes it back. A mistyped word gets `Did you mean /permissions all (it asks first)?` and runs nothing |
 | `/sandbox`, `/sandbox forget <host>` | What the shell sandbox holds; forget a host you allowed |
-| `/allowed`, `/allowed forget <n, command or all>` | The shell commands you said yes to for this project (saved, and for this session); take one back |
+| `/allowed`, `/allowed forget <n, command or all>`, `/allowed keep <n>` | The shell commands you said yes to for this project (saved, and for this session); take one back, or keep a session yes for the project (the Next row's `Always allow …`) |
 | `/lab`, `/lab import <file>` | Your lab devices; add more from a file ([NETWORK-CHECKS.md](NETWORK-CHECKS.md)) |
 | `/skills` | Skills and whether you trust them ([SKILLS.md](SKILLS.md)) |
 | `/pack add <folder or link>`, `/pack list`, `/pack remove <name>` | Skill packs: add one after a box that shows it, list them, take one out ([PACKS.md](PACKS.md)) |
@@ -340,7 +340,7 @@ remaining uncertainty stay explicit. This is guidance to the model; a provider's
 ([decision 25](adr/0002/25-visibility-over-a-smaller-prompt.md)).
 
 The prompt box keeps a fixed two-column gutter: `❯` while idle (also for the first command-line request), a dim `type to queue a message` on an empty working prompt (a draft keeps its gutter), `?` while an exclusive line input waits for you. An open choice box replaces the prompt entirely:
-there is no empty `?` input row. Typed answers appear inline in the Other row once it is picked; an approval's note appears in its note row. An open question's
+there is no empty `?` input row. Typed answers appear inline in the Other row once it is picked; an approval's note appears in its No row. An open question's
 top rule names who asks, in the box's colour: `── Approval ──` (amber) for Casper's approvals,
 `── Question ──` for the AI's questions and `── Choose ──` for Casper's own pickers. The box never shifts
 horizontally between states, so a draft keeps its wrapping. The footer shows a
@@ -841,7 +841,7 @@ only. See [platform support](PLATFORM_SUPPORT.md) for host-validation limits.
   `Other —`. Enter sends all of it, and Esc (or Up/Down on an empty answer) goes back to the list; the hint there is
   `Enter to send · Esc to go back`. Letters typed on the list go nowhere: they never start an answer, and a short hint
   names the keys and the Other row's number (`Pick with 1-5 or ↑↓ Enter · 5 to type your own answer`), as in Copilot
-  CLI, Claude Code and Codex. Pickers that take keys only have no Other row; an approval's last row is its note row
+  CLI, Claude Code and Codex. Pickers that take keys only have no Other row; an approval's No row takes its note
   (below). On the answer line numbers are words, so an answer can start with one; on the list a digit past the last
   row picks nothing. A list longer than nine numbers every row: type the number and press Enter; a plain terminal says `Type 1-16:`.
 - `/settings` on a rich terminal is a screen, not a numbered list: seven tabs at 80 columns or more,
@@ -851,10 +851,11 @@ only. See [platform support](PLATFORM_SUPPORT.md) for host-validation limits.
   Enter changes the match. Values update at once; colours follow
   Theme, with no colours under `NO_COLOR`.
 - Every numbered list uses the same component: accent `❯`, `1.` numbering and aligned dim descriptions.
-  Choice descriptions, the approval's Command frame and its keyboard hint stay explicitly faint even with the
+  Choice descriptions and the approval's Command frame stay explicitly faint even with the
   high-contrast theme; `NO_COLOR` leaves them plain.
   Arrows and Enter are primary; digits are immediate shortcuts up to nine choices. The hint is
-  `Enter to choose · Esc to skip`; specialized actions such as Ctrl+S remain available.
+  `Enter to choose · Esc to skip`; specialized actions such as Ctrl+S remain available. An approval has no hint under
+  its rows: its numbers are the keys.
   Approvals, plan choices, `/model`, `/settings` choices, sign-in and startup questions share these rows.
 - A question from the AI's `ask` tool starts with a muted `The AI asks:` line. Casper's own
   questions and approvals never do, so the AI can't pass off a question as a Casper approval. Markdown escapes in its
@@ -865,8 +866,9 @@ only. See [platform support](PLATFORM_SUPPORT.md) for host-validation limits.
   (`… — skipped (No)` for an approval). The question is its first line; the choices, the hint and the
   lines under the question go with the box. The rich `/settings` screen leaves only its save notes, not its rows. A
   long question is cut with `…` so the answer always shows. One exception: the no-sandbox `Run this command?` box
-  leaves nothing after a yes (the command's own line shows it ran), one muted `✓ allowed until you quit: npm test` or
-  `✓ allowed always in this project: npm test` line after 3 or 4, and the usual line after a No or Esc. That line is the only record: no `[ask]`,
+  leaves nothing after a yes (the command's own line shows it ran), one muted `✓ allowed until you quit: npm test` line
+  after 3, and the usual line after a No or Esc. `/allowed keep` (the Next row's `Always allow …`) prints
+  `✓ allowed always in this project: npm test`. That line is the only record: no `[ask]`,
   `[approval]` or `[server question]` line and no `✓ ask` step under it. The plain terminal prints the
   same line after its numbered lines.
 - A command approval always starts with Casper's own question (`Run this command?`). Only the last sentence of the model's reason
@@ -874,12 +876,19 @@ only. See [platform support](PLATFORM_SUPPORT.md) for host-validation limits.
   Multi-line commands sit in a dim frame with a head/gap/tail preview: about eight head lines, `… N more lines`, then the final three. Consequential middle lines (push, remove, download, sudo, install and redirects) stay below the gap; the count includes only omitted command lines. Secrets stay hidden. The activity list remains above the box.
   A session yes for `bun test` covers different project test files and log tails in the same folder; other commands
   and permanent approvals keep exact matching.
+- Approval boxes for a shell command, a host, another machine, a write outside the project, your GitHub login and
+  checks outside the sandbox have the same short rows and nothing beside them: `1 No · 2 Yes, this once · 3 Yes, for
+  this session` (the no-sandbox `Run this command?` box adds `4 Yes to everything this session`, which does what
+  `/permissions all` does: the one-key way out when auto mode's judge asks). After a task in which you answered 3, the Next row offers to keep it for this project:
+  `Next: 3 Always allow npm test in this project`, which runs `/allowed keep <n>`. Each is offered once; `/allowed`
+  lists what is kept and `/allowed forget` takes it back ([decision 45](adr/0002/45-three-row-approvals.md)).
+  `stop asking` (or `don't ask again`) typed alone at the prompt opens the `/permissions all` box, as if typed.
 - A list taller than the window shows the rows around the highlighted one, with `… 12 more below`
   (and above), so the box never scrolls its own top away.
 - While a picker or approval is open, there is no prompt input row: keys go to the box (a number past
   nine rows is still typed), and the footer says `waiting for you`. A paste waits as the draft for
-  after the box closes, so a 60-line paste never lands in the box. Typing and pastes go in only on the line a last
-  row opens once it is picked: Other on a question that takes a typed answer, or an approval's note row.
+  after the box closes, so a 60-line paste never lands in the box. Typing and pastes go in only on the line a row
+  opens once it is picked: Other on a question that takes a typed answer, or an approval's No.
 - Auto mode (on in a folder you trust, with the sandbox off): before `Run this command?` shows, a model judge looks at the
   command. When it lets the command run, one dim line says what it does (`✓ judge: runs the project's tests`); when it
   wants you to decide, the box shows as usual with `The judge says: …` on its dim line instead of the model's. Type
@@ -888,11 +897,10 @@ only. See [platform support](PLATFORM_SUPPORT.md) for host-validation limits.
 - Every box takes the same input: approvals (an MCP change, a host, a shell command, a device
   check, `/mcp writes`) are the same numbered panel as any question. Use Up/Down and Enter, or a digit shortcut
   (no Enter); Esc skips without approval. Letters typed on the list go nowhere and never answer it: a short hint names
-  the keys and the note row's number. The approval's last row, `No, and tell the AI what to do instead`, opens a line
-  for a note, shown like a typed answer (in full, or the part where the cursor is; `No —` when the row is too narrow);
-  Enter declines and sends the note as direction for Casper (or keeps it in the draft when no task can take it), and
-  Esc goes back to the list. Even a note that spells a granting choice is a No
-  ([decision 43](adr/0002/43-boxes-take-keys.md)). Keys pressed in the first moment after a box opens (about 0.3 s) are ignored, so a key
+  the keys and that 1 takes a note. An approval's No (`1`, or Enter on it) opens a line for a note, shown like a typed answer (in full, or the part where
+  the cursor is); an empty Enter there is a plain No, and Enter with words declines and sends the note as direction for Casper (or keeps it in the draft when no task can take it); the hint
+  there is `Enter sends No · type to tell the AI what to do instead · Esc goes back`, and Esc goes back to the list. Even a note that spells a granting choice is a No
+  ([decision 43](adr/0002/43-boxes-take-keys.md), [decision 45](adr/0002/45-three-row-approvals.md)). Keys pressed in the first moment after a box opens (about 0.3 s) are ignored, so a key
   typed mid-sentence never answers a box that just appeared. Ctrl+X still denies an open approval.
 - Casper's own numbered questions and approvals also work on the plain terminal: it prints the
   choices as numbered lines and reads `Type 1, 2 or 3:` (`Type 1-24:` past nine); a number or
@@ -1029,8 +1037,8 @@ Linux `ps -e` remains a read. Routine work includes project tests, `git commit`,
 Outside/private/`.git` redirects, substitutions, scripts, `sudo`, `curl … | sh`, force pushes and new packages still ask.
 Builder reads and checks use the builder's own copy as the project root. `/sandbox` lists what it holds and `/allowed` the commands you said yes to.
 With the sandbox on, a plain `git push` or `gh pr create` the AI runs asks `Run outside the sandbox with your GitHub
-login?  git push -u origin main` (1 No · 2 Yes, this once · 3 Yes, for this session · 4 Yes, always for this project;
-Enter or Esc is No; a `gh pr merge`, `close`, `reopen`, `ready`, `review` or `checkout`, `gh issue close` or `reopen`,
+login?  git push -u origin main` (1 No · 2 Yes, this once · 3 Yes, for this session, which the Next row offers to keep;
+Esc is No; a `gh pr merge`, `close`, `reopen`, `ready`, `review` or `checkout`, `gh issue close` or `reopen`,
 `gh run rerun` or `cancel`, or a command that types its own address, offers 1 and 2 only, every time), and
 `/permissions details` shows that rule in one line. Existing integration-specific
 approvals remain in force. Verification is still separate from tool completion.

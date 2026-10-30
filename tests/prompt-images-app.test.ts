@@ -541,7 +541,8 @@ test.skipIf(process.platform !== "win32")(`Windows: ${PASTE_IMAGE_KEY} with a pi
     f.input.write("\r");
     await f.screen.until(waiting("Attach this picture?"));
     expect(f.screen.output).toContain("is on another computer, nas.");
-    f.input.write("1");
+    // 1 (No) opens its note line; an empty Enter is a plain No.
+    f.input.write("1"); f.input.write("\r");
     await f.screen.until(idleAfter("Looked."));
     expect(f.screen.output).toContain("not opened, so not attached");
     expect(f.prompts[0]!.text).toEndWith('User request:\n"\\\\nas\\shots\\pic.png"');

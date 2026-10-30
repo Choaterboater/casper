@@ -120,11 +120,12 @@ test("a box with its own record: a yes once leaves nothing, a remembered yes one
   const choices = [{ label: NO }, { label: YES_ONCE }, { label: "Yes, for this session" }];
   try {
     session.terminal.setStatus("fixture"); session.terminal.start();
-    for (const [key, name] of [["2", "a"], ["3", "b"], ["1", "c"], ["\x1b", "d"]] as const) {
+    // 1 opens No's note line; an empty Enter there is a plain No.
+    for (const [key, name] of [["2", "a"], ["3", "b"], ["1\r", "c"], ["\x1b", "d"]] as const) {
       const before = Bun.stripANSI(session.screen.output).length;
       const box = session.terminal.pick(`Run this command?  cd app && make ${name} 2>&1 | tail`, choices, undefined, { record });
       await session.screen.until((output) => output.slice(before).includes(`make ${name} 2>&1`));
-      session.input.write(key);
+      for (const one of key.split(/(?=\r)/)) session.input.write(one);
       await box;
     }
     await settle(30);

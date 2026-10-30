@@ -140,9 +140,10 @@ Local commands:
   /permissions write|forget <folder>  Allow a folder outside the project for this project, or take it back (remove is the same as forget)
   /sandbox, /sandbox list           What the shell sandbox holds: write folders, private folders, hosts
   /sandbox on, /sandbox off         Turn the shell sandbox on for this session (it is off unless sandbox: on), or off again
-  /sandbox forget <host>            Forget a host or machine you allowed for this project (Yes, always); remove is the same
+  /sandbox forget <host>            Forget a host or machine you kept for this project (Always allow); remove is the same
   /allowed, /allowed list           The shell commands you said yes to for this project (saved, and for this session), numbered
   /allowed forget <n>               Forget one by its number, its words (git log) or all of them; Casper asks before running it again; remove is the same
+  /allowed keep <n>                 Keep a "Yes, for this session" for this project: what the Next row's Always allow … runs
   /lab                              Your lab devices: lab checks and the lab list use them
   /lab import <file>                Add devices to your lab list from a file (GreenCLI's lab export, or one host per line); asks first
   /lab ssh on|off                   Whether ssh and scp to your lab devices ask first (kept for this project)

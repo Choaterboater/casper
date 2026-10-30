@@ -19,7 +19,10 @@ const quote = (s: string) => `'${s.replaceAll("'", "'\\''")}'`;
       const fixture = path.join(import.meta.dir, "fixtures/box-polish-tmux.ts");
       const command = `${color ? "env -u NO_COLOR" : "env NO_COLOR=1"} ${quote(process.execPath)} ${quote(fixture)}${highContrast ? " --high-contrast" : ""}`;
       await run("new-session", "-d", "-s", "screen", "-x", "202", "-y", "40", command);
-      const wide = await until("Enter to choose · Esc to skip");
+      const wide = await until("4. Yes to everything this session");
+      // Short rows: nothing beside them, and no hint under an approval.
+      expect(Bun.stripANSI(wide)).not.toContain("the command does not run");
+      expect(Bun.stripANSI(wide)).not.toContain("Enter to choose");
       expect(Bun.stripANSI(wide)).toContain("❯ 1. No");
       expect(Bun.stripANSI(wide)).toContain("✗ 1 of 130 tests failed");
       expect(Bun.stripANSI(wide)).toContain("(fail) validates input");
@@ -35,7 +38,7 @@ const quote = (s: string) => `'${s.replaceAll("'", "'\\''")}'`;
           expect(wide).toMatch(/\x1b\[2m[^\n]*The model says: Check the result/);
           expect(wide).toMatch(/\x1b\[2m[^\n]*path not found/);
         }
-        for (const region of ["the command does not run", "only this time", "╭─ Command", "Enter to choose · Esc to skip"]) {
+        for (const region of ["╭─ Command"]) {
           expect(wide).toMatch(new RegExp(`\\x1b\\[(?:0;)?2m[^\\n\\x1b]*${region}`));
         }
         expect(wide).toMatch(/\x1b\[(?:36|96)m❯/);
@@ -45,7 +48,7 @@ const quote = (s: string) => `'${s.replaceAll("'", "'\\''")}'`;
       } else expect(wide).not.toMatch(/\x1b\[[\d;]*m/);
       await run("resize-window", "-t", "screen:0", "-x", "160", "-y", "40");
       await Bun.sleep(350);
-      const medium = await until("Enter to choose · Esc to skip");
+      const medium = await until("4. Yes to everything this session");
       expect(Bun.stripANSI(medium).split("\n").every(row => visibleWidth(row) <= 160)).toBe(true);
       await run("resize-window", "-t", "screen:0", "-x", "80", "-y", "40");
       await Bun.sleep(350);

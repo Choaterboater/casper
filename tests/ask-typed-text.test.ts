@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { readFile } from "node:fs/promises";
 import { NO, YES_ONCE } from "../src/app/safe-choices";
-import { NOTE_CHOICE, OTHER_CHOICE } from "../src/tui/choices";
+import { OTHER_CHOICE } from "../src/tui/choices";
 import { Screen } from "./support/conpty";
 import { withEnv } from "./support/env";
 import { interactiveTerminal } from "./support/tty";
@@ -148,20 +148,20 @@ test("a long comment on an approval shows in full as it wraps, its end on a shor
       session.terminal.setBusySubmit(line => { sent.push(line); return true; });
       try {
         const answer = session.terminal.approve("", "Make this change?", [NO, YES_ONCE]);
-        await waitFor(() => visible(session).includes("Esc to skip"), () => visible(session));
-        // The note row (3) opens the line the words go on.
-        session.input.write("3");
-        await waitFor(() => visible(session).includes("Esc to go back"), () => visible(session));
-        await typeWords(session, NOTE_CHOICE, WORDS);
+        await waitFor(() => visible(session).includes("2. Yes, this once"), () => visible(session));
+        // No (1) opens the line the words go on.
+        session.input.write("1");
+        await waitFor(() => visible(session).includes("Esc goes back"), () => visible(session));
+        await typeWords(session, NO, WORDS);
         const screen = visible(session);
-        const shown = typedRow(screen, NOTE_CHOICE);
+        const shown = typedRow(screen, NO);
         if (rows === 30) expect(shown).toBe(LONG);
         else {
           expect(shown).toStartWith("…");
           expect(shown).toEndWith("step39 step40");
         }
         expect(screen).toContain("Make this change?");
-        expect(screen).toContain("Esc to go back");
+        expect(screen).toContain("Esc goes back");
         session.input.write("\r");
         // The note is a No, with the words as direction for the task.
         expect(await answer).toBe(NO);
@@ -176,11 +176,11 @@ test("the terminal guide says how a long typed answer and an approval's note sho
   expect(doc).toContain("the answer appears inline beside Other, in full as it wraps. When the box can't hold all of it, the part where the "
     + "cursor is shows (the end, while you type on) with `…` for the rest, and a box too small for the words after the whole label keeps only "
     + "`Other —`. Enter sends all of it");
-  expect(doc).toContain("The approval's last row, `No, and tell the AI what to do instead`, opens a line for a note, shown like a typed answer "
-    + "(in full, or the part where the cursor is; `No —` when the row is too narrow); Enter declines and sends the note as direction for Casper");
+  expect(doc).toContain("An approval's No (`1`, or Enter on it) opens a line for a note, shown like a typed answer (in full, or the part where "
+    + "the cursor is); an empty Enter there is a plain No, and Enter with words declines and sends the note as direction for Casper");
   expect(doc).toContain("Letters typed on the list go nowhere: they never start an answer, and a short hint names the keys and the Other row's number");
-  expect(doc).toContain("Letters typed on the list go nowhere and never answer it: a short hint names the keys and the note row's number.");
-  expect(doc).toContain("Even a note that spells a granting choice is a No ([decision 43](adr/0002/43-boxes-take-keys.md))");
+  expect(doc).toContain("Letters typed on the list go nowhere and never answer it: a short hint names the keys and that 1 takes a note.");
+  expect(doc).toContain("Even a note that spells a granting choice is a No ([decision 43](adr/0002/43-boxes-take-keys.md), [decision 45](adr/0002/45-three-row-approvals.md))");
   const decision = await readFile(new URL("../docs/adr/0002/43-boxes-take-keys.md", import.meta.url), "utf8");
   for (const heading of ["# 43. Boxes take keys", "**What:**", "**Why:**", "**Guard rails:**", "**A finding:**"]) expect(decision).toContain(heading);
 });

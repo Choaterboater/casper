@@ -131,7 +131,7 @@ posix("interactive: each ssh asks first (No first), ~/.ssh stays private, secret
   const run = await scenario();
   const answers: Array<[string, string]> = [
     ["idle", `${PROMPT}\r`],
-    ...Array.from({ length: SSH_STEPS }, (): [string, string] => ["Enter to choose · Esc to skip", "2"]),
+    ...Array.from({ length: SSH_STEPS }, (): [string, string] => ["3. Yes, for this session", "2"]),
     ["2. Switch there", "\r"],
     ["→ Stay here", ""],
     ["idle", "/exit\r"],
@@ -143,12 +143,13 @@ posix("interactive: each ssh asks first (No first), ~/.ssh stays private, secret
 
   // Asked before each ssh, naming the real address and the alias, with No first.
   for (const command of ["ssh deploy@build-server hostname", "ssh deploy@build-server 'sampleapp-admin create api-token ci'", "ssh deploy@198.51.100.20 'apt-get install -y nginx'"]) {
-    expect(screen.replace(/[│╭╮╰╯─]/g, "").replace(/\s+/g, " ")).toContain(`${command} ❯ 1. No the command does not run 2. Yes, this once`);
+    expect(screen.replace(/[│╭╮╰╯─]/g, "").replace(/\s+/g, " ")).toContain(`${command} ❯ 1. No 2. Yes, this once 3. Yes, for this session`);
   }
   expect(screen).toContain("Reach 198.51.100.20 (build-server)?");
   expect(screen.indexOf("ssh deploy@build-server hostname", screen.indexOf("Reach 198.51.100.20 (build-server)?"))).toBeGreaterThan(0);
   expect(screen.split("❯ 1. No").length - 1).toBe(SSH_STEPS);
-  expect(screen.split("Enter to choose · Esc to skip").length - 1).toBe(SSH_STEPS + 1);
+  // Approvals have no hint under their rows; only the Switch there picker shows one.
+  expect(screen.split("Enter to choose · Esc to skip").length - 1).toBe(1);
   // Only what you said yes to ran on the host.
   expect(await run.sshRan()).toEqual([
     "ssh deploy@build-server hostname",

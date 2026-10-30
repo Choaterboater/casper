@@ -362,7 +362,7 @@ start. A project file can't set them.
 `Stop asking until you quit?` (`1 Keep asking` first, so Enter changes nothing). `/permissions details` is the full screen: where each permission came from (this
 session, remembered for this project, your config) and every way to be asked less. `/permissions all` (also `allowall` or `allow-all`) is the same box on its own (typed during a task it opens none and takes effect at once);
 2 stops the shell's own questions until you quit and shows `asking off` in the footer. `/permissions ask` turns asking back on. A mistyped word is suggested, never run. `/permissions write <folder>` allows a folder outside the project for this project ahead of time, `/permissions forget <folder>`
-takes it back, and the write box's `4 Yes, always for this project` does the same. Protected places (`~/.ssh`, `~/.casper`, shell start-up files, git's files, your
+takes it back, and `Always allow writes to … in this project` on the Next row (after the write box's `3 Yes, for this session`) does the same. Protected places (`~/.ssh`, `~/.casper`, shell start-up files, git's files, your
 home folder itself, system folders) are never offered and never allowed. See [SECURITY.md](SECURITY.md#asking-less).
 
 ### Private ssh passwords
@@ -610,8 +610,8 @@ and never asks. A project file cannot set it.
 Your GitHub login (`~/.config/gh`, `~/.git-credentials` and the like) stays hidden from sandboxed commands, and there is no
 setting that opens it. Instead the AI's plain `git push`, `pull`, `fetch`, `clone` or `ls-remote`, or `gh pr`, `issue`,
 `run`, `repo view|clone`, `api` (GET) or `auth status`, asks `Run outside the sandbox with your GitHub login?` and, after
-your yes, runs as typed outside the sandbox with your own login; the AI reads only its output. 3 and 4 at that box cover
-that kind of command (`git push`) for the session or for this project; `/allowed` lists a saved one and
+your yes, runs as typed outside the sandbox with your own login; the AI reads only its output. 3 at that box covers
+that kind of command (`git push`) for the session, and the Next row after the task offers to keep it for this project; `/allowed` lists a saved one and
 `/allowed forget <n>` takes it back. A command that types its own address, and `gh pr merge`, `close`, `reopen`, `ready`,
 `review` or `checkout`, `gh issue close` or `reopen`, and `gh run rerun` or `cancel`, offer only No and Yes, this once,
 every time. Nothing to configure; see [SECURITY.md](SECURITY.md) for what counts as plain.

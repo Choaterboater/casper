@@ -41,7 +41,8 @@ test.each([24, 40, 80, 160])("the rich approval keeps the last sentence dim and 
     expect(rows.join("\n")).not.toContain("Earlier context");
     const commandRows = renderPanel("Command", ["custom-tool --check"], width, false, "muted");
     expect(rows.slice(2, 2 + commandRows.length)).toEqual(commandRows.map(row => tint(row, "muted", true)));
-    input.write("\r"); expect(await answer).toBe("No");
+    // Enter on No opens its note line; an empty Enter there is a plain No.
+    input.write("\r"); input.write("\r"); expect(await answer).toBe("No");
   } finally { surface.close(); input.destroy(); }
 });
 

@@ -62,8 +62,9 @@ task ends incomplete (exit 2), not failed (exit 1): exit 1 means a check ran aga
 does a check that passed but left something running (a server or browser its tests started kept its output open):
 it never counts as a pass, it is not repaired, and `/verify <check>` runs it again.
 In a session Casper then asks `Run this project's checks outside the sandbox?` with `1 No · 2 Yes, this once ·
-3 Yes, for this session · 4 Yes, always for this project`; Enter is No. "This once" runs only the blocked
-checks again outside the sandbox. "Always" is kept privately in `~/.casper` (never in the repo), is listed
+3 Yes, for this session`; Esc is No. "This once" runs only the blocked
+checks again outside the sandbox. After a 3, the Next row offers `Always allow checks outside the sandbox in this
+project` (`/allowed keep <n>`); kept, it is kept privately in `~/.casper` (never in the repo), is listed
 by `/allowed` and taken back with `/allowed forget`. A result that ran outside shows `outside the sandbox`.
 You can decide ahead of time in your own `~/.casper/config.yaml`: `sandbox: { checks: outside }` always
 runs the checks outside, `inside` never does and never asks; the default is `ask`. A repository's
