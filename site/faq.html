@@ -274,6 +274,9 @@ Make this change? → No
           (<code>/sandbox</code> shows what it holds, <code>/allowed</code> the commands you said yes to). Checks run your project's own commands, so they run only in a folder you trusted: the first time Casper opens a folder it asks <em>Trust this folder?</em> and names what would run. In one you haven't trusted, no check runs and the project's scripts, builds, tests and installs ask like any other command. If the sandbox blocks a check (an <code>EPERM</code> from a test that opens a socket, say), Casper says so, does not try to fix your code, and asks whether to run the checks outside the sandbox.</p>
           <p>When an <code>ssh</code> you allowed asks for a password, Casper shows its own hidden box and the password goes to
           ssh only; the AI never sees it (<code>ssh_login: off</code> turns it off).</p>
+          <p>When <code>sudo</code> on your computer asks for its password, Casper asks the same way, only when sudo really
+          asks. A command that needs you (an editor, a login, <code>docker exec -it</code>, a y/n prompt) gets Casper's
+          terminal and Casper comes back when it exits; type <code>!command</code> or "let me run …" to run one yourself.</p>
           <p>Say "trust this folder" to change your answer later; your home folder is never trusted. A script
           or CI run can't ask, so it treats the folder as trusted: start it with <code>--no-verify</code> (no
           Casper-run checks) for code you don't trust. <code>/permissions</code> shows what Casper can and cannot do.</p>
@@ -355,7 +358,7 @@ Make this change? → No
             <li>a picture in your request when the model can't see pictures: send without it, or switch for that request;</li>
             <li>a public link for <code>/preview</code> (your network needs no question);</li>
             <li>each fix <code>casper doctor</code> offers;</li>
-            <li>an <code>ssh</code> password, in Casper's own hidden box (the AI never sees it);</li>
+            <li>an <code>ssh</code> or <code>sudo</code> password, in Casper's own hidden box (the AI never sees it);</li>
             <li>a key or token the AI asks you for, in the same hidden box (the AI learns only where it went and its length);</li>
             <li>a secret in a terminal screen you paste: <code>1 Remove it · 2 Send anyway</code> before the AI gets it;</li>
             <li>adding a skill the AI wrote for you, after it shows the whole text (<code>1 No · 2 Yes, add it</code>);</li>

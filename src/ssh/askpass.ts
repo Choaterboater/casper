@@ -25,6 +25,10 @@ export interface AskpassRun {
   endpoint: string;
   /** The private folder, when there is one. */
   dir?: string;
+  /** The program that asks Casper (Casper itself, or its launcher): sudo's SUDO_ASKPASS too. */
+  program: string;
+  /** Where Casper listens and the run's token, for another program's askpass (sudo's). */
+  pointer: Record<string, string>;
 }
 
 export interface AskpassOptions {
@@ -124,7 +128,7 @@ export async function startAskpass(handler: AskpassHandler, options: AskpassOpti
     const folder = dir;
     const listening = server;
     return {
-      endpoint, dir: folder,
+      endpoint, dir: folder, program, pointer: { [ASKPASS_ENDPOINT_ENV]: endpoint, [ASKPASS_TOKEN_ENV]: token },
       env: {
         SSH_ASKPASS: program,
         // OpenSSH 8.4+ uses the program even with a terminal; older ones need a display set and no terminal.

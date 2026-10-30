@@ -160,6 +160,11 @@ through. Check what a tool returns before you share it.
   Enter and Esc remove it. A run that can't ask, and a line you send while a task runs, have it removed with one line:
   `[paste] Removed a secret from the copied screen; the AI gets <secret hidden> in its place.` What you type yourself
   is never changed.
+- **A password you type for sudo: the same.** When sudo on this computer asks (only then: a signed-in sudo or a
+  `NOPASSWD` rule shows nothing), you type it into Casper's hidden box and it goes to sudo through sudo's own askpass
+  call (Casper itself, over the same private socket). It is hidden and forgotten exactly as an ssh password is; 3 Yes,
+  for this session keeps it in memory until you quit. A command handed the terminal (decision 48) gets what you type
+  directly: that is never recorded, and the AI reads only the scrubbed last lines the screen showed.
 - **Command and grep output: only when it looks like a config.** Output from
   `bash`, `powershell` or `grep` (failed commands too) is scrubbed when it has two
   config lines such as `hostname`, `version 23.4;`, `## Last commit` or

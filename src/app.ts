@@ -174,7 +174,7 @@ export interface CasperAppOptions {
   pageSeams?: { desktop?: () => boolean; open?: (url: string) => boolean };
   /** Tests: where make_picture finds codex (PATH) and how it reaches the image services. */
   pictureSeams?: { env?: NodeJS.ProcessEnv; fetch?: typeof fetch; urls?: { openrouter?: string; openai?: string } };
-  /** Tests: casper_secret's hidden box on a terminal without Casper's full screen (the value "typed", or undefined for Esc). */
+  /** Tests: Casper's hidden box (casper_secret's, or an ssh or sudo password) on a terminal without Casper's full screen (the value "typed", or undefined for Esc). */
   secretInput?: (box: { label: string; title: string; hint: string }) => Promise<string | undefined>;
   /** Opens pages for the page check: Chrome when installed, else HTTP only. Tests pass a fake. */
   pageOpener?: (options: { projectRoot: string; stateDirectory: string }) => Promise<PageOpener>;

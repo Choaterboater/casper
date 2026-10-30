@@ -503,6 +503,11 @@ export class InteractiveTerminal {
     try { return await this.pick(question, options, signal); }
     finally { this.surface?.setPlanEdit(undefined); }
   }
+  /** Casper's full screen is here and free, so a command can have the whole terminal (see TerminalSurface.handOver). */
+  get canHandOver(): boolean { return this.surface?.canLend ?? false; }
+  handOver<T>(run: () => Promise<T>): Promise<T> {
+    return this.surface ? this.surface.handOver(run) : Promise.reject(new Error("Terminal input is unavailable."));
+  }
   async editPlan(file: string): Promise<void> {
     if (this.surface) await this.surface.externalEditor(() => editPlanFile(file));
     else await editPlanFile(file);

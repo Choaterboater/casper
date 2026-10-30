@@ -389,7 +389,8 @@ Only a plain `ssh` or `scp` that runs on its own gets it: the same commands that
 with your keys, typed as the bare word `ssh` or `scp` and found outside every place a sandboxed command may write (not `./ssh`, and
 not a script in the project). From a source checkout on Windows there is no box; the installed Casper has it. A command with a pipe, `;`, `&&`, `sudo`, `sshpass`, `-L` or `-o ProxyCommand` does not. Only
 password and passphrase questions are answered; "Are you sure you want to continue connecting" (a new host key) and
-one-time codes are not, and ssh fails with a line saying so. A command that sets `-o BatchMode=yes` tells ssh never to
+one-time codes are not, and ssh fails with a line saying so; sent again, that command gets Casper's terminal and you
+answer ssh's own question there (see below). A command that sets `-o BatchMode=yes` tells ssh never to
 ask, and Casper leaves that alone: the AI is told to run it again without it. A run that can't show the box (a
 one-shot run, piped input, a helper) refuses with a plain line instead of asking.
 
@@ -403,6 +404,35 @@ command whose box was offered gets only the "never in chat" part. On Windows `ss
 Turn it off with `ssh_login: off` in `~/.casper/config.yaml` (or a profile you chose), or **Private ssh passwords** in
 `/settings`; ssh then gets no box and a login that needs a password fails as it always did. A project file can't
 change `ssh_login:`. See [SECURITY.md](SECURITY.md) and [SECRETS.md](SECRETS.md).
+
+### sudo passwords and commands that need you
+
+When the AI's command uses `sudo` on this computer (with no sandbox; not on Windows) and sudo asks for your password,
+Casper asks the same way, after the command's usual box:
+
+```text
+sudo on this computer asks for your password. Type it in Casper's hidden box? The AI never sees it.
+  1 No
+  2 Yes, this once
+  3 Yes, for this session
+```
+
+then shows its own hidden box, `Enter sudo password`. The question appears only when sudo really asks: a sudo that is
+still signed in, or a `NOPASSWD` rule, shows nothing. 3 keeps the password in memory until you quit, so sudo doesn't ask
+again. The password goes to sudo only, through sudo's own `SUDO_ASKPASS` call; Casper hides it from then on and never
+saves it. A run that can't show the box refuses with a plain line.
+
+A command that needs you at the terminal (an editor, `less` or `man` on its own, `python3` with nothing to run,
+`docker exec -it`, `gh auth login`, `apt install` without `-y`, `ssh -t`, `passwd`, …) gets Casper's terminal right after
+its usual box, with no question of its own. One line says what starts, Casper's screen pauses, and it comes back when
+the command exits; the AI reads the exit code and the last lines the screen showed (scrubbed; what you type is never
+recorded). A command that failed because it had no terminal gets one when the AI sends it again. `ssh host sudo …` is
+handed over with `-t`, and sudo on that machine asks at its own prompt.
+
+To run something yourself, type `!` and the command (`!sudo apt update`) or say it (`let me run sudo apt update`,
+`I'll run make deploy`): it runs at once in Casper's terminal, with no box, and the AI reads how it ended with your next
+request. Only typed lines count (a paste is an ordinary request), and "let me run" needs a program's name after it.
+Nothing to turn on. See [decision 48](adr/0002/48-sudo-box-and-terminal-hand-over.md).
 
 ### ripgrep
 

@@ -1,5 +1,6 @@
 import { forgetTypedSecrets, rememberTypedSecret } from "../secrets/typed";
 import { terminalText } from "../tui/format";
+import { sudoSessionMemory } from "./sudo";
 import type { AskpassHandler, AskpassReply } from "./askpass";
 
 /**
@@ -74,14 +75,15 @@ export const sshSessionMemory = new SshSessionMemory();
 /** Forget every typed secret (Casper is closing, the conversation was cleared, the workspace changed). */
 export function forgetSshSecrets(): void {
   sshSessionMemory.clear();
+  sudoSessionMemory.clear();
   forgetTypedSecrets();
 }
 
 const MOST_PER_RUN = 4;
 
-export const notSshQuestion = "Casper answers only password and passphrase questions from ssh, not this one. Nothing was typed. A new host key has to be accepted by the user in their own terminal.";
+export const notSshQuestion = "Casper's box answers only password and passphrase questions from ssh, not this one. Nothing was typed.";
 
-export const sshCantAsk = (machine: string) => `ssh to ${machine} asked for a password, and this run can't ask you (it needs Casper's full terminal, where what you type stays hidden). Nothing was typed. Use a key or ssh-agent for ${machine}, or run it yourself in a Casper session.`;
+export const sshCantAsk = (machine: string) => `ssh to ${machine} asked for a password, and this run can't ask you (it needs Casper's full terminal, where what you type stays hidden). Nothing was typed. Use a key or ssh-agent for ${machine}; an interactive Casper session asks the person in its own box.`;
 export const sshDeclined = (machine: string) => `The user chose not to type a password for ${machine}. Don't ask for it in chat and don't try to get it another way; ask the user what to do instead.`;
 export const sshUnanswered = (machine: string) => `Nobody answered the password question for ${machine}, so nothing was typed. Don't ask for it in chat.`;
 export const sshWrongMachine = (machine: string) => `ssh asked for a password for a machine other than ${machine}, the one the user allowed. Nothing was typed.`;
@@ -98,14 +100,16 @@ export function sshQuestion(machine: string, kind: PromptKind): string {
  */
 export function sshLoginHandler(host: SshLoginHost, memory: SshSessionMemory, machine: string, approved: readonly ApprovedMachine[],
   /** Told when a password (not a key's passphrase) is handed to ssh. */
-  onPassword?: () => void): AskpassHandler {
+  onPassword?: () => void,
+  /** ssh asked something the box doesn't answer (a new host key): a line to add to the refusal. */
+  onOther?: () => string | undefined): AskpassHandler {
   const triedFromMemory = new Set<string>();
   let asked = 0;
   // ssh asks up to three times per login: after a No (or no answer), the rest of this command's asks get the same reply.
   let declined: AskpassReply | undefined;
   return async (text, signal) => {
     const prompt = parsePrompt(text);
-    if (!prompt) return { refuse: notSshQuestion };
+    if (!prompt) return { refuse: [notSshQuestion, onOther?.()].filter(Boolean).join(" ") };
     // A prompt that names a machine must name one this command was allowed to reach.
     if (prompt.host && !namesApproved(prompt, approved)) return { refuse: sshWrongMachine(machine) };
     const keepable = prompt.kind === "password" && prompt.host !== undefined;

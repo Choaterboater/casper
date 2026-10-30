@@ -199,6 +199,10 @@ Ctrl+D on an empty prompt exits. [Keys and commands](docs/TERMINAL_UX.md#quick-r
   the value goes to a project file (mode 600, kept out of git) or to the AI's next command, and the AI only learns where
   it went and its length. A token in a terminal screen you paste is caught before it is sent: 1 Remove it · 2 Send
   anyway. [Secrets](docs/SECRETS.md)
+- **sudo and interactive commands, in place.** sudo asks for its password in the same hidden box (only when it really
+  asks), and a command that needs you (an editor, a login, `docker exec -it`, a y/n prompt) gets Casper's terminal and
+  comes back when it exits. Type `!command` or "let me run …" to run one yourself. No need to leave Casper.
+  [sudo and commands that need you](docs/CONFIGURATION.md#sudo-passwords-and-commands-that-need-you)
 - **Secrets hidden, best effort.** Known device secrets (passwords, keys, SNMP communities) are
   swapped for `<secret hidden>` before the AI sees them. Known formats only. [Secrets](docs/SECRETS.md)
 - **Untrusted text, read at arm's length.** The AI can read a log, an email or a web form through

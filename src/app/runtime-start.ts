@@ -257,6 +257,9 @@ export function currentShell(app: CasperApp): RuntimeShell {
     // refused() is followed by finished() for the same command, so only finished() forgets which shell wrapped it.
     refused: async (id, output) => wrappedBy.get(id)?.refused?.(id, output),
     approve: async (command, signal, options) => app.shell?.approve?.(command, signal, options),
+    handOver: async (command, cwd, env, signal) => app.shell?.handOver ? app.shell.handOver(command, cwd, env, signal)
+      : { exitCode: 1, text: "Not run: Casper's shell closed before the command started." },
+    neededTerminal: (command) => app.shell?.neededTerminal?.(command),
     outsideWrite: async (absolute) => {
       const refused = await app.shell?.outsideWrite?.(absolute);
       if (!refused) await app.outsideWork?.beforeWrite(absolute).catch(() => {});

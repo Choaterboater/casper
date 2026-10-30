@@ -828,6 +828,10 @@ Ctrl+T shows the last step in full. Ctrl+V pastes a picture. Ctrl+C twice on an 
             <h3>Private ssh passwords</h3>
             <p>When an <code>ssh</code> or <code>scp</code> you allowed asks for a password, Casper shows its own hidden box. The password goes to ssh only, never to the AI. <code>ssh_login: off</code> turns it off. A key or token the AI asks you for uses the same box and goes to a file or the next command, never to the AI.</p>
           </a>
+          <a class="card" href="https://github.com/Choaterboater/casper/blob/main/docs/CONFIGURATION.md#sudo-passwords-and-commands-that-need-you">
+            <h3>sudo and commands that need you</h3>
+            <p>sudo asks for its password in the same hidden box, only when it really asks. An editor, a login or a y/n prompt gets Casper's terminal, and Casper comes back when it exits. <code>!command</code> runs one yourself.</p>
+          </a>
           <a class="card" href="https://github.com/Choaterboater/casper/blob/main/docs/TERMINAL_UX.md">
             <h3>Plans and live steps</h3>
             <p><code>/plan &lt;request&gt;</code> is optional. A clear request gets a plan directly; only choices that change the build get up to 3 questions in one round. Existing projects get numbered steps and Done means checks; new apps, sites and games get a first-version spec without forced steps. <code>1 Stop · 2 Build · 3 Change the plan</code>: say what to change in plain words and the model rewrites it; Enter never builds.</p>
