@@ -1,6 +1,7 @@
 /** Typing while a task runs: lines the AI reads at its next step or that queue as the next request, commands that
  * run now, side questions, and the model and effort (/model, Shift+Tab, /effort). Moved from src/app.ts. */
 
+import { removePastedSecrets } from "./pasted-secrets";
 import type { CasperApp } from "../app";
 import { effortProblem, nextEffort } from "../tui/effort";
 import { formatEffort, terminalText } from "../tui/format";
@@ -112,12 +113,15 @@ export function submitDuringWork(app: CasperApp, line: string, plain = false): t
   if (line.startsWith("/") && !picture) return `${terminalText(line.split(/\s+/)[0]!)} waits until this task ends${plain ? "; type it again then" : " · draft kept · Esc stops the task"}`;
   const pictures = app.terminal.takePastedImages();
   // A line with a picture (pasted, or a file's path) goes to the AI with it, as at the prompt.
+  // A token in what was pasted goes no further: the AI reads this line at its next step, so it is removed, not asked.
+  const cleaned = removePastedSecrets(app, line, app.terminal.takeSubmittedPastes());
+  line = cleaned.line;
   if (picture || pictures.size || mayNamePicture(line)) {
-    const typedPastes = app.terminal.takeSubmittedPastes();
+    const typedPastes = cleaned.pasted;
     inOrder(app, () => steerWithPictures(app, line, pictures, typedPastes));
     return true;
   }
-  const pasted = app.terminal.takeSubmittedPastes();
+  const pasted = cleaned.pasted;
   // A side question gets its own answer now; the working AI never sees it.
   const side = sideQuestionsOn(app) ? sideQuestionText(line, pasted) : undefined;
   if (side !== undefined) { void askSideQuestion(app, side); return true; }

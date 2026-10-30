@@ -12,6 +12,7 @@ import { visualizationTools } from "../visualize/tools";
 import { MCP_ADD_TOOL } from "../mcp/add-tool";
 import { SKILL_ADD_TOOL, skillNamed } from "../skills/add-tool";
 import { mcpNamed } from "../task/classify";
+import { SECRET_TOOL } from "../secrets/secret-tool";
 
 /** What one task's tool surface is assembled from. Tool factories close over live app state,
  * so they are constructed by the owner and passed in; assembly only decides membership. */
@@ -66,6 +67,9 @@ export interface TaskCapabilitySource {
   /** casper_skill_add: the AI adds a skill after the person has seen it and said yes. Offered from the first task that
    * names a skill. */
   skillAdd?: RuntimeTool;
+  /** casper_secret: the person types a password, token or key in Casper's hidden box. Offered from the first task that
+   * names one. */
+  secret?: RuntimeTool;
   /** Tool names already offered in this session. They stay offered, so the tool list, and with it
    * the provider's prompt cache, does not change from one turn to the next. */
   offered?: ReadonlySet<string>;
@@ -88,8 +92,14 @@ export function picturesRequested(task: string): boolean {
     || /\b(build|make|create|design|generate|write|start)\b.*\b(website|webpage|portfolio|(?:landing|home|web) ?(?:page|site))\b/i.test(task);
 }
 
+/** A password, token, key, secret or credential in the request pulls in casper_secret ("prompt me for the token"). Once
+ * offered it stays for the session. */
+export function secretRequested(task: string): boolean {
+  return /\b(?:passwords?|passphrases?|passcodes?|tokens?|secrets?|credentials?|creds|(?:api|access|secret|auth|license|private|ssh|deploy)[ _-]?keys?|apikeys?)\b/i.test(task);
+}
+
 /** The complete custom tool surface for one task, in the established order: MCP capabilities,
- * delegation, clarification, Casper's own state, managed checks, LSP, references, web lookups, the untrusted-text reader, pages, pictures, browser, services, visualization.
+ * delegation, clarification, Casper's own state, managed checks, LSP, references, web lookups, the untrusted-text reader, pages, pictures, browser, services, visualization, the secret box.
  * Casper's own tools, once offered, stay offered for the session: a changed tool list throws away
  * the provider's prompt cache. The direct MCP tools are picked once per session (again when a server
  * connects or disconnects); find_capability reaches the rest. */
@@ -102,6 +112,7 @@ export async function assembleTaskTools(task: string, source: TaskCapabilitySour
   const diagram = !source.diagramOff && (diagramRequested(task) || kept("visualize"));
   const mcpAdd = source.mcpAdd !== undefined && (mcpNamed(task) || kept(MCP_ADD_TOOL));
   const skillAdd = source.skillAdd !== undefined && (skillNamed(task) || kept(SKILL_ADD_TOOL));
+  const secret = source.secret !== undefined && (secretRequested(task) || kept(SECRET_TOOL));
   return [
     ...await source.broker.prepare(task),
     source.delegate,
@@ -120,5 +131,6 @@ export async function assembleTaskTools(task: string, source: TaskCapabilitySour
     ...(diagram ? visualizationTools({ router: source.visualization, projectRoot: source.projectRoot, privatePaths: source.privatePaths ?? [], ...(source.showDiagram ? { show: source.showDiagram } : {}) }) : []),
     ...(mcpAdd ? [source.mcpAdd!] : []),
     ...(skillAdd ? [source.skillAdd!] : []),
+    ...(secret ? [source.secret!] : []),
   ];
 }

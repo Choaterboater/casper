@@ -23,6 +23,7 @@ import { remoteTargets, runsAlone, segmentTargets, splitShell, sshNameLine, targ
 import { startAskpass } from "../ssh/askpass";
 import { forgetSshSecrets, sshLoginHandler, sshSessionMemory, type SshLoginHost } from "../ssh/login";
 import { forgetOnceSecrets } from "../secrets/typed";
+import { takeNextCommandEnv } from "../secrets/next-command";
 import { githubLoginChoices, HOST_CHOICES, NO, REACH_CHOICES, SHELL_COMMAND_CHOICES, writeChoices, YES_EVERYTHING, YES_ONCE, YES_SESSION } from "./safe-choices";
 import { githubLoginCommand, githubRunEnv, LOGIN_FAILED, startsGitOrGh, type GithubLoginCommand } from "../sandbox/github-login";
 import { answerKey, readOnlyCommand, testRunKey } from "../sandbox/read-only";
@@ -438,6 +439,13 @@ export function runtimeShell(host: SandboxHost, sandbox: ShellSandbox, given: Sa
       return logs.then((dir) => dir || undefined);
     },
     async close() { forgetSshSecrets(); const dir = await logs; if (dir) await rm(dir, { recursive: true, force: true }).catch(() => {}); },
+  };
+  // A value the person typed in casper_secret's box for the AI's next command: that command's environment, then gone.
+  const wrapOne = shell.wrap.bind(shell);
+  shell.wrap = async (command, cwd) => {
+    const typed = takeNextCommandEnv();
+    const wrapped = await wrapOne(command, cwd);
+    return Object.keys(typed).length ? { ...wrapped, env: { ...wrapped.env, ...typed } } : wrapped;
   };
   return shell;
 }

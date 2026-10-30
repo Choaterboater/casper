@@ -1,6 +1,7 @@
 /** The prompt loop: read a line, run it as a local command or a model task, and stop work on Ctrl+C or Esc.
  * Moved from src/app.ts. */
 
+import { checkPastedSecrets } from "./pasted-secrets";
 import type { CasperApp } from "../app";
 import os from "node:os";
 import { modelPreference } from "../tui/model-preference";
@@ -89,7 +90,7 @@ export async function runInteractive(app: CasperApp, cwd = process.cwd(), firstR
     const line = queued ?? await app.terminal.readCommand();
     if (line === undefined) break;
     // What was pasted into the line: words Casper reads ("big model:") count only where the person typed.
-    const pasted = queued === undefined ? app.terminal.takeSubmittedPastes() : app.linePastes.get(queued) ?? [];
+    let pasted = queued === undefined ? app.terminal.takeSubmittedPastes() : app.linePastes.get(queued) ?? [];
     if (queued !== undefined) app.linePastes.delete(queued);
     if (app.cancelBeforeCommand) {
       app.output.write("[cancel] Stopped before it started; nothing ran.\n");
@@ -114,6 +115,12 @@ export async function runInteractive(app: CasperApp, cwd = process.cwd(), firstR
     // Only the command leaves: "exit" or "quit" typed without the "/" is a request like any other.
     if (prompt.startsWith("/") && findCommand(prompt)?.name === "exit") {
       break;
+    }
+
+    // A token in a pasted screen: asked about (1 Remove it · 2 Send anyway) before a model can read the line.
+    if ((!prompt.startsWith("/") || /^\/btw\b/.test(prompt)) && pasted.length) {
+      try { ({ line: prompt, pasted } = await checkPastedSecrets(app, prompt, pasted)); }
+      catch { if (app.closing) break; continue; }
     }
 
     // A side question ("? what does ECONNRESET mean"): a separate answer, never part of the conversation.
