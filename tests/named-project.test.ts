@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { mkdir, realpath, utimes, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { namedProject } from "../src/app/workspace";
+import { namedProject, projectWords } from "../src/app/workspace";
 import type { AgentRuntime, RuntimeEventListener, RuntimeSession } from "../src/runtime/types";
 import { richApp } from "./support/app";
 import { withEnv } from "./support/env";
@@ -134,5 +134,39 @@ test("a project used long ago, behind more than 30 newer ones, is still offered 
     }
     f.input.write("what is the folder casper-tools about\r");
     await f.until(screen => screen.includes("This request names casper-tools, in ~/Documents/casper-tools."));
+  } finally { await f.close(); }
+}), 30_000);
+
+/** A whole terminal screen pasted into a request: zsh history and Casper's own folder line, which names projects. */
+const PASTED_SCREEN = [
+  "Last login: Tue Oct 28 09:12:44 on ttys003",
+  "user@mac ~ % cd ~/Documents",
+  "user@mac Documents % casper",
+  "[folder] This folder holds 64 projects (photo-site, notes-sync, casper-tools, lab-b3 and 60 more). To work in one: casper photo-site",
+  "user@mac Documents % cd casper-tools && git status",
+  "On branch main",
+  "user@mac Documents % docker ps",
+].join("\n");
+
+test("a project is named only in typed words: a pasted screen and Casper's own folder line never name one; a one-line paste does", () => {
+  // Resolved, as the folders are: on Windows "/home/me" is on the current drive.
+  const folders = [path.resolve("/home/me/Documents/casper-tools")];
+  const request = `${PASTED_SCREEN}\nwhy is the tunnel container not starting`;
+  expect(namedProject(projectWords(request, [PASTED_SCREEN]), folders, "/home/me/Documents")).toBeUndefined();
+  // Casper's own folder line, even when the paste was not seen as one.
+  expect(projectWords("[folder] This folder holds 3 projects (a, casper-tools, b). To work in one: casper a\nhi")).toBe("hi");
+  expect(projectWords("To work in one: casper casper-tools")).toBe("");
+  // A pasted link or path of one line is still the person's own pointer.
+  expect(namedProject(projectWords("fix the readme in ~/Documents/casper-tools", ["~/Documents/casper-tools"]), folders, "/home/me/Documents")).toBe(folders[0]);
+});
+
+test("a pasted terminal screen that names another project runs here with no question", () => withEnv({ TERM: "xterm-256color" }, async () => {
+  const f = await namedFixture();
+  try {
+    f.input.write(`\x1b[200~${PASTED_SCREEN}\x1b[201~ why is the tunnel container not starting\r`);
+    await f.until(() => f.prompts.length === 1);
+    expect(f.prompts[0]).toContain("why is the tunnel container not starting");
+    expect(f.screen()).not.toContain("This request names");
+    expect(await Promise.all(f.starts.map(dir => realpath(dir)))).toEqual([await realpath(f.project)]);
   } finally { await f.close(); }
 }), 30_000);

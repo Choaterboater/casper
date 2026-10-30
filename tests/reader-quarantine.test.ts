@@ -56,11 +56,19 @@ describe("schema guard", () => {
     expect(prepared.ok && (prepared.schema as any).additionalProperties).toBe(false);
   });
 
-  test("refuses long free text unless it is marked quoted", () => {
-    const refused = prepareReaderSchema({ type: "object", properties: { body: { type: "string", maxLength: 5000 } } });
-    expect(refused).toEqual({ ok: false, reason: expect.stringContaining('"x-casper-quoted": true') });
+  test("long free text that is not marked quoted is capped to 500 with a note; quoted text keeps its own limit", () => {
+    const capped = prepareReaderSchema({ type: "object", properties: { body: { type: "string", maxLength: 5000 }, list: { type: "array", items: { type: "string", maxLength: 900 } } } });
+    if (!capped.ok) throw new Error(capped.reason);
+    expect((capped.schema as any).properties.body.maxLength).toBe(500);
+    expect((capped.schema as any).properties.list.items.maxLength).toBe(500);
+    expect(capped.notes).toEqual([
+      'body.maxLength capped to 500; set "x-casper-quoted": true for longer text',
+      'list[].maxLength capped to 500; set "x-casper-quoted": true for longer text',
+    ]);
     const quoted = prepareReaderSchema({ type: "object", properties: { body: { type: "string", maxLength: 5000, "x-casper-quoted": true } } });
-    expect(quoted.ok).toBe(true);
+    expect(quoted.ok && quoted.notes).toEqual([]);
+    expect(prepareReaderSchema({ type: "object", properties: { body: { type: "string", maxLength: 9000, "x-casper-quoted": true } } }).ok).toBe(false);
+    expect(prepareReaderSchema({ type: "object", properties: { body: { type: "string", maxLength: "long" } } }).ok).toBe(false);
   });
 
   test("refuses a root that is not an object, refs, composition and odd types", () => {

@@ -125,10 +125,11 @@ For Mist, Central and ClearPass, Casper sets up its own server
 ([casper-network-mcp](https://github.com/Choaterboater/casper-network-mcp)). You edit no
 file and set no variable.
 
-1. Ask about Mist, Marvis, Central, GreenLake, ClearPass, an SSID, a WLAN, a switch port
-   or an access point, or type `/mcp setup network`. Everyday words such as "central",
-   "mist", "aruba" or "Wi-Fi" count only next to a network word (site, AP, switch,
-   device, VLAN …), so "central logging" or "a wifi icon" in a web app never brings it up.
+1. Name a product you type: Mist, Marvis, Central, GreenLake, ClearPass, UXI or OpsRamp, or
+   type `/mcp setup network`. Everyday words such as "central", "mist" or "aruba" count only
+   next to a network word (site, AP, switch, device, VLAN …), so "central logging" in a web app
+   never brings it up. Wi-Fi, an SSID, a switch port or an access point alone never does (a home
+   network has them too), and only words you type count: a pasted screen or log never does.
    Casper asks once:
 
    ```text

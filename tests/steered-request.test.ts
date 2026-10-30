@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { CasperApp } from "../src/app";
-import { steerOrQueue, takeBackNewest } from "../src/app/during-work";
+import { settleQueuedLines, steerOrQueue, takeBackNewest } from "../src/app/during-work";
 import { requestAsItStands } from "../src/app/steered-request";
 import { loadProjectContext } from "../src/project/context";
 import type { AgentRuntime, RuntimeSession } from "../src/runtime/types";
@@ -15,7 +15,7 @@ const dirs: string[] = [];
 afterEach(async () => { await Promise.all(dirs.splice(0).map(removeTempDir)); });
 
 /** A project whose check passes once `fixed` exists, and a runtime that takes lines typed during work. */
-async function setup(respond: (prompt: string, app: CasperApp) => Promise<void>) {
+async function setup(respond: (prompt: string, app: CasperApp) => Promise<void>, options: { streamsOnlyInPrompt?: boolean } = {}) {
   const root = await mkdtemp(path.join(os.tmpdir(), "casper-steered-request-"));
   dirs.push(root);
   await mkdir(path.join(root, ".casper"));
@@ -23,14 +23,17 @@ async function setup(respond: (prompt: string, app: CasperApp) => Promise<void>)
   await writeFile(path.join(root, ".casper/project.yaml"), 'verify:\n  test: "test -f fixed"\nverification:\n  mode: auto\nrepair:\n  maxAttempts: 1\n');
   const prompts: string[] = [];
   const steered: string[] = [];
+  const output: string[] = [];
+  // A real runtime takes a line only while the model is working (src/runtime/pi.ts steer).
+  let streaming = !options.streamsOnlyInPrompt;
   let app!: CasperApp;
   const runtime: AgentRuntime = {
     async start(): Promise<RuntimeSession> {
       return {
         setTools() {},
         getStatus: () => ({ provider: "fixture", model: "demo", auth: "configured" as const }),
-        async prompt(text) { prompts.push(text); await respond(text, app); },
-        async steer(text) { steered.push(text); return true; },
+        async prompt(text) { prompts.push(text); streaming = true; try { await respond(text, app); } finally { streaming = !options.streamsOnlyInPrompt; } },
+        async steer(text) { if (!streaming) return false; steered.push(text); return true; },
         unsteer(newest) { return newest ? steered.splice(-1) : steered.splice(0); },
         async abort() {}, subscribe: () => () => {},
         getState: () => ({ cwd: root, isStreaming: false }),
@@ -43,9 +46,9 @@ async function setup(respond: (prompt: string, app: CasperApp) => Promise<void>)
     sessionHomeDir: homeDir, runtimeFactory: () => runtime,
     loadProjectContext: (project) => loadProjectContext(project, { homeDir }),
     loadSkillRegistry: (context) => SkillRegistry.discover({ projectRoot: context.info.root, homeDir }),
-    output: { write() {} },
+    output: { write(text) { output.push(text); } },
   });
-  return { root, app, prompts };
+  return { root, app, prompts, output };
 }
 
 posixOnly("a line typed during the task reaches the repair round as a later instruction, after the original request", async () => {
@@ -83,4 +86,48 @@ test("the terminal guide says a line sent during the task is restated in repair,
   const doc = (await readFile(new URL("../docs/TERMINAL_UX.md", import.meta.url), "utf8")).replace(/\s+/g, " ");
   expect(doc).toContain("A line sent to the AI stays part of the task: a repair, proof or acceptance round restates the request with it, "
     + "under `Later instructions the user typed during this task, oldest first:`, and a line taken back is left out.");
+});
+
+test("a line typed while Casper sets up, before the model's first step, joins the first prompt and is not queued", async () => {
+  const { root, app, prompts, output } = await setup(async (_prompt, app) => { await writeFile(path.join(app.activeWorkspaceRoot(), "fixed"), ""); },
+    { streamsOnlyInPrompt: true });
+  try {
+    // While Casper reads the workspace before the model starts (as it would while it installs a server).
+    const snapshot = app.snapshotWorkspace.bind(app);
+    let typed = false;
+    app.snapshotWorkspace = async (...args: Parameters<typeof snapshot>) => {
+      if (!typed) { typed = true; await steerOrQueue(app, "not sure the ip is right, prob just an example"); }
+      return snapshot(...args);
+    };
+    await app.runOnce("set up the tunnel container", root);
+    expect(typed).toBe(true);
+    expect(prompts[0]).toContain("set up the tunnel container");
+    expect(prompts[0]).toContain("Later instructions the user typed during this task, oldest first:\n- not sure the ip is right, prob just an example");
+    expect(output.join("")).toContain("↳ added to your request · the AI reads it with it");
+    expect(output.join("")).not.toContain("queued");
+    expect(app.queuedLines).toEqual([]);
+    // It never ran as a task of its own.
+    expect(prompts.filter(prompt => prompt.includes("not sure the ip is right") && !prompt.includes("set up the tunnel container"))).toEqual([]);
+  } finally { await app.close(); }
+}, 60_000);
+
+test("a line typed before the model starts can be taken back; if the task stops before the model starts, it is queued as before", async () => {
+  const { root, app, output } = await setup(async () => {}, { streamsOnlyInPrompt: true });
+  try {
+    await app.start(root);
+    app.commandActive = true;
+    app.beforeFirstModelTurn = true;
+    app.terminal.canTakeBack = () => true;
+    await steerOrQueue(app, "use port 8443");
+    await steerOrQueue(app, "and the docker network");
+    expect(output.join("")).toContain("↳ added to your request · the AI reads it with it · ↑ takes it back");
+    expect(app.steeredInTask).toEqual(["use port 8443", "and the docker network"]);
+    expect(takeBackNewest(app)).toBe(true);
+    expect(app.steeredInTask).toEqual(["use port 8443"]);
+    // The model never started: the line runs next, as it did before.
+    app.commandActive = false;
+    settleQueuedLines(app);
+    expect(app.queuedLines).toEqual(["use port 8443"]);
+    expect(app.beforeFirstModelTurn).toBe(false);
+  } finally { await app.close(); }
 });

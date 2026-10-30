@@ -27,9 +27,12 @@ import { trustHandledHere, trustLine, trustRequest } from "./trust-words";
 export function settleQueuedLines(app: CasperApp): void {
   app.steering = [];
   app.steeredInTask = [];
+  // The task stopped before its model started: lines typed for it run next, as queued lines do.
+  app.beforeFirstModelTurn = false;
+  const early = app.linesBeforeModel.splice(0);
   let unsent: string[] = [];
   try { unsent = app.session?.takeUnsent?.() ?? []; } catch { /* nothing left to take */ }
-  app.queuedLines.unshift(...unsent);
+  app.queuedLines.unshift(...early, ...unsent);
   // Lines the AI read are done with: only lines still waiting keep their record of what was pasted.
   for (const line of app.linePastes.keys()) if (!app.queuedLines.includes(line)) app.linePastes.delete(line);
   showWaiting(app);
@@ -47,7 +50,7 @@ export function settleQueuedLines(app: CasperApp): void {
 /** The lines typed during this task that wait for the AI, on screen until it reads them: steered ones first, then the
  * queued ones that run when the task ends. */
 export function showWaiting(app: CasperApp): void {
-  if (!app.closing) app.terminal.setWaiting([...app.steering, ...app.queuedLines]);
+  if (!app.closing) app.terminal.setWaiting([...app.linesBeforeModel, ...app.steering, ...app.queuedLines]);
 }
 
 /** Before anything is aborted: the lines the AI hasn't read come out of the runtime, so a stopped step never adds them
@@ -63,6 +66,10 @@ export function holdBackSteered(app: CasperApp): void {
 /** ↑ on an empty prompt during a task: the newest line still waiting comes back into the prompt, unsent. */
 export function takeBackNewest(app: CasperApp): boolean {
   let line = app.queuedLines.pop();
+  if (line === undefined) {
+    line = app.linesBeforeModel.pop();
+    if (line !== undefined) forgetSteered(app, [line]);
+  }
   if (line === undefined) {
     // The runtime's "waiting" event then shows the lines still waiting.
     try { line = app.session?.unsteer?.(true)[0]; } catch { line = undefined; }
@@ -242,6 +249,15 @@ export async function steerOrQueue(app: CasperApp, line: string): Promise<void> 
   const back = app.terminal.canTakeBack() ? " · ↑ takes it back" : "";
   // A step that only waits (a sign-in window, a slow command, a service start) ends now, so the AI reads the line now.
   if (sent) { app.output.write(`  ↳ sent to Casper · it reads this when its current step ends${back}\n`); app.steerWaits.steered(); return; }
+  // Before the model's first step (Casper still sets up): the line joins the request, not a task of its own. A line
+  // with a picture is queued with it, as before.
+  if (app.commandActive && app.beforeFirstModelTurn && !app.lineImages.has(line)) {
+    app.linesBeforeModel.push(line);
+    app.steeredInTask.push(line);
+    showWaiting(app);
+    app.output.write(`  ↳ added to your request · the AI reads it with it${back}\n`);
+    return;
+  }
   // The task ended while Casper asked the AI: nothing would run the queue now, so the line goes back in the prompt.
   if (!app.commandActive) {
     if (app.terminal.restoreDraft(line, takeLinePastes(app, [line]))) app.output.write("  ↳ the task had just ended · your line is back in the prompt\n");

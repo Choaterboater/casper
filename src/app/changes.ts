@@ -21,6 +21,37 @@ function names(list: readonly string[], shown = 3): string {
   return list.length > shown ? `${list.slice(0, shown).join(", ")} +${list.length - shown} more` : list.join(", ");
 }
 
+/** Programs that only read a Linux server, and the words that make one of them set or write something instead. */
+const SERVER_READS: Readonly<Record<string, RegExp | undefined>> = {
+  hostname: /^[^-]/, uname: undefined, uptime: undefined, df: undefined, du: undefined, free: undefined,
+  whoami: undefined, id: undefined, ls: undefined, cat: undefined, ps: undefined, date: /^(?:-s|--set\b|[^-+])/,
+  echo: undefined, pwd: undefined, lsblk: undefined, ss: /^(?:-K|--kill)$/, journalctl: /^--(?:vacuum|rotate|flush|sync|relinquish|setup-keys)/,
+};
+const PIPE_READS = new Set(["head", "tail", "grep", "egrep", "fgrep", "wc", "sort"]);
+/** `2>&1`, `2>/dev/null`, `>/dev/null`, `&>/dev/null`, `>&2`. */
+const HARMLESS_REDIRECT = /^(?:&|[12])?>>?(?:&[12]|\/dev\/null)$/;
+
+/** Whether one line sent to a machine is a plain server read (`hostname`, `df -h 2>/dev/null`, `docker ps | grep x`):
+ * no line a device takes as a change, and not a config line. Anything else, or a write, fails closed. */
+function serverRead(line: string): boolean {
+  if (/[`$(){}<]/.test(line)) return false;
+  const parts = line.replace(/((?:&|[12])?>>?)\s+/g, "$1").split("|").map(part => part.trim().split(/\s+/).filter(Boolean));
+  if (parts.some(words => !words.length || words.some(word => /[>&]/.test(word) && !HARMLESS_REDIRECT.test(word)))) return false;
+  const [first, ...piped] = parts.map(words => words.filter(word => !HARMLESS_REDIRECT.test(word)));
+  if (piped.some(([program, ...args]) => !PIPE_READS.has(program!) || (program === "sort" && args.some(arg => /^(?:-o|--output)/.test(arg))))) return false;
+  const [program, ...args] = first![0] === "sudo" ? first!.slice(1) : first!;
+  if (!program) return false;
+  if (program === "ip") {
+    const sub = args.filter(arg => !arg.startsWith("-"));
+    return /^(?:a|addr|address|r|ro|route|l|link|n|neigh)$/.test(sub[0] ?? "") && sub.slice(1).every(arg => !/^(?:add|del|delete|change|replace|set|flush|append|prepend)$/.test(arg));
+  }
+  if (program === "docker") return ["ps", "logs", "inspect", "images"].includes(args[0] ?? "");
+  if (program === "systemctl") return args.filter(arg => !arg.startsWith("-"))[0] === "status";
+  if (!Object.hasOwn(SERVER_READS, program)) return false;
+  const writes = SERVER_READS[program];
+  return !writes || !args.some(arg => writes.test(arg));
+}
+
 /**
  * What a finished shell command changed beyond this project's files, from its words and output only (display only,
  * never evidence): another machine or a device (the receipt's remote-change rules, or lines the device check calls a
@@ -30,7 +61,7 @@ function names(list: readonly string[], shown = 3): string {
 export function shellChanges(command: string, output: string, ok: boolean, home?: string): StepChange[] {
   const changes: StepChange[] = [];
   // What was sent to each machine by ssh, and how many of those lines a device takes as a change.
-  const sent = new Map<string, { lines: string[]; device: boolean }>();
+  const sent = new Map<string, { lines: string[]; config: number; device: boolean }>();
   for (const segment of commandSegments(command)) {
     const parsed = segmentTargets(segment.words);
     const destination = parsed.targets.at(-1);
@@ -39,15 +70,17 @@ export function shellChanges(command: string, output: string, ok: boolean, home?
     const lines = `${parsed.remote.join(" ")}\n${heredoc}`.split(LINE_BREAK).flatMap(line => line.split(/;|&&|\|\|/))
       .map(line => line.trim()).filter(Boolean);
     const { address } = remoteMachine(destination, home);
-    const entry = sent.get(address) ?? { lines: [], device: false };
+    const entry = sent.get(address) ?? { lines: [], config: 0, device: false };
     entry.lines.push(...lines);
-    entry.device ||= lines.some(line => ["change", "dangerous"].includes(classifyLine(line).kind));
+    const config = lines.filter(line => !serverRead(line));
+    entry.config += config.length;
+    entry.device ||= config.some(line => ["change", "dangerous"].includes(classifyLine(line).kind));
     sent.set(address, entry);
   }
   for (const { host, address, changes: found } of remoteChanges(command, home)) {
     const entry = sent.get(address);
     const what = found.length ? found.map(change => short(change, 80)).join(", ")
-      : entry?.device ? `sent ${entry.lines.length} config ${entry.lines.length === 1 ? "line" : "lines"}` : undefined;
+      : entry?.device ? `sent ${entry.config} config ${entry.config === 1 ? "line" : "lines"}` : undefined;
     if (!what) continue;
     changes.push({ row: `Changed on ${short(host)}: ${what}`, sent: (entry?.lines.length ? entry.lines : [command]).slice(0, MAX_SENT).map(line => redactPreview(line)) });
   }

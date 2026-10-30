@@ -94,25 +94,25 @@ function updateQuestion(from: string, to: string): NumberedQuestion {
   };
 }
 
-/** Words that name a network product or thing on their own (the network skills' strong triggers, plus a few more). */
+/** Words that name a network product on their own (the network skills' strong triggers, plus UXI and OpsRamp). */
 const STRONG_NETWORK_WORDS = [
   "mist api", "juniper mist", "mistapi", "mist org", "mist site", "mist sites", "marvis", "clearpass", "cppm", "pyclearpass",
   "aruba central", "aruba networking central", "new central", "classic central", "central classic", "central api", "pycentral",
-  "greenlake", "glp", "wlan", "wlans", "ssid", "ssids", "switch port", "switch ports", "switchport", "switchports",
-  "access point", "access points",
+  "greenlake", "glp", "uxi", "opsramp",
 ];
-/** Words that are also everyday web and code words ("central store", "mist effect", "wifi icon"): they count only
- * next to a network word. */
-const LOOSE_NETWORK_WORDS = ["mist", "central", "aruba", "wifi", "wi fi", "wireless"];
+/** Product names that are also everyday web and code words ("central store", "mist effect"): they count only next to
+ * a network word. */
+const LOOSE_NETWORK_WORDS = ["mist", "central", "aruba"];
 /** The network words a loose word needs in the same request. */
 const NETWORK_NOUNS = new Set([
   "ap", "aps", "site", "sites", "switch", "switches", "gateway", "gateways", "clients", "device", "devices", "org", "vlan", "vlans",
   "radio", "radios", "rf", "roaming", "controller", "controllers", "inventory", "firmware", "network", "networks", "sitegroup",
 ]);
 
-/** A request that names a network product: Mist, Marvis, Central, GreenLake, ClearPass, Aruba, Wi-Fi, a WLAN, an SSID,
- * a switch port or an access point. Strong words count on their own (as in the network skills' matcher); loose ones
- * only next to a network word, so "central logging" or "a wifi icon" in a web app never brings up the offer. */
+/** A request that names a network product: Mist, Marvis, Central, GreenLake, ClearPass, UXI, OpsRamp or Aruba. Strong
+ * words count on their own (as in the network skills' matcher); loose ones only next to a network word, so "central
+ * logging" in a web app never brings up the offer. Wi-Fi, an SSID, a switch port or an access point alone is a home
+ * network as often as a product's, so they never do. Callers pass only what the person typed, never a paste. */
 export function namesNetworkProduct(prompt: string): boolean {
   const words = normaliseWords(prompt);
   const text = ` ${words.join(" ")} `;

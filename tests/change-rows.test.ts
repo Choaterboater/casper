@@ -26,6 +26,16 @@ test("a device: lines it takes as a change (config mode, commit, delete) are a r
   expect(rows("ssh admin@sw1 'show interfaces terse; show route'")).toEqual([]);
 });
 
+test("plain server reads over ssh (with harmless redirects and pipes) are not config lines; a device change still is", () => {
+  expect(rows("ssh admin@192.0.2.31 'hostname; uname -a; uptime; df -h' 2>&1")).toEqual([]);
+  expect(rows("ssh admin@192.0.2.31 'df -h /volume1 2>/dev/null'")).toEqual([]);
+  expect(rows("ssh nas 'docker ps -a | grep tunnel; docker logs --tail 50 app 2>&1 | tail -n 20; ip addr; systemctl status app >/dev/null'")).toEqual([]);
+  expect(rows("ssh nas 'free -m; whoami; id; ls -la /opt; cat /etc/os-release | head -3; ps aux | sort | wc -l; journalctl -u app -n 20; date; pwd; lsblk; ss -tlnp; du -sh /opt'")).toEqual([]);
+  // Reads that write or set something stay a change.
+  expect(rows("ssh admin@sw1 'uptime; configure; set system host-name lab1; commit'")).toEqual(["Changed on sw1: sent 3 config lines"]);
+  expect(rows("ssh nas 'df -h > /tmp/disk.txt'")).toEqual(["Changed on nas: sent 1 config line"]);
+});
+
 test("what was sent keeps secrets hidden", () => {
   const [change] = shellChanges("ssh build-server 'echo password=hunter2 > /etc/app.conf'", "", true, home);
   expect(change!.sent!.join("\n")).not.toContain("hunter2");

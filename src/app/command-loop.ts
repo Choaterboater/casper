@@ -245,6 +245,7 @@ export async function handlePrompt(app: CasperApp, prompt: string, typed?: { pas
     const words = typed ? parseRequestWords(prompt, typed.pasted) : undefined;
     const asked = typed ? withoutTranscripts(prompt, typed.pasted) : undefined;
     return report = await runModelTask(app, words?.text ?? prompt, { ...(words ? { words } : {}), ...(asked !== undefined ? { asked } : {}),
+      ...(typed ? { pasted: typed.pasted } : {}),
       ...(app.planMode ? { planFirst: true } : {}) });
   } catch (error) {
     if (error instanceof ProcessCleanupError) app.cleanupRecovery.queue(error);
