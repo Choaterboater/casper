@@ -98,9 +98,10 @@ test("fences inside list items and blockquotes keep the language title and the c
   expect(first[0]).toMatch(/^- ── sh ─+$/);
   expect(first[1]).toBe("  ls");
   const quoted = plain(once("> ```sh\n> ls\n> ```", 40, false));
-  expect(quoted[0]).toMatch(/^│ ── sh ─+$/);
-  expect(quoted[1]).toBe("│ ls");
-  expect(quoted[2]).toMatch(/^│ ─+$/);
+  // A quote is indented, with no "│" gutter to come along in a copy.
+  expect(quoted[0]).toMatch(/^ {2}── sh ─+$/);
+  expect(quoted[1]).toBe("  ls");
+  expect(quoted[2]).toMatch(/^ {2}─+$/);
   for (const lines of [listed, first, quoted]) for (const line of lines) expect(line.length).toBeLessThanOrEqual(40);
   // Colour keeps the container's own styling outside the box.
   const colored = once("> ```sh\n> ls\n> ```", 40, true).map(line => line.replace(/\x1b\[[0-9;]*m/g, ""));
@@ -185,4 +186,12 @@ test("a star between words or digits prints as a star, while emphasis still work
   expect(text).toContain("x*y");
   expect(text).not.toContain("*this*");
   expect(text).not.toContain("**that**");
+});
+
+test("a quoted prompt to paste later is indented with no gutter, so a mouse copy takes only its words", () => {
+  const message = new StreamingMarkdown(false, markdownTheme(false), { hang: true });
+  message.setText("Paste this later:\n\n> Upgrade my Home Assistant\n> to 2026.10 safely\n");
+  const rows = message.render(60);
+  expect(rows.join("\n")).not.toContain("│");
+  expect(rows).toContain("    Upgrade my Home Assistant");
 });

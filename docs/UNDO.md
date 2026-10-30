@@ -130,6 +130,9 @@ a file changed only by a shell command that git ignores is not named:
 - Casper's `.casper` folder, except `.casper/project.yaml`, which is copied and goes back like any project file;
 - secret files (`.env`, keys, credentials, the list in [SECRETS.md](SECRETS.md)): Casper keeps no copy of them;
 - files over 8 MB;
+- a file that kept changing while Casper copied it (a running app's database being written): Casper tries once
+  more, then leaves that file out and names it (`it changed while Casper copied it`), and the rest of the copy
+  stands. If no copy can be saved at all, the receipt says why in plain words, never git's own error text;
 - the contents of nested repositories and submodules (a repository with more than 8 changed files is named once);
 - files outside this folder (the receipt lists the repositories and folders the task changed there,
   `Changed outside this folder: …`);

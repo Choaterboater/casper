@@ -167,7 +167,9 @@ file and set no variable.
    login and checks what it can do with `access_check`, for example
    `Mist login: can change Branch-12 (checked)`. Mist and ClearPass logins are checked;
    casper-network-mcp can't check a Central login yet, so it shows
-   `Central login: saved (not checked)`. The last Mist cloud and Central region choice is
+   `Central login: saved (not checked)`. When the AI's call is what asked for the login, its step is a grey note,
+   `login added · calling it again`, not a red failure, and the AI calls the tool again; a call that got no login
+   (you chose Not now) is the grey note `no login yet`. The last Mist cloud and Central region choice is
    `Other — type the address`, for a cluster that isn't listed (Central also lists its internal cluster).
    `/mcp login mist` adds or replaces it any time; `/mcp login mist forget` removes it.
    `/mcp login` on its own shows each login and asks which to add or replace

@@ -3,7 +3,8 @@
  * difference as the task's: a file another program saved meanwhile (a second AI tool, an editor) was checked as the
  * task's work and deleted by its undo. The task's tools that can write (any tool but reads, searches and a plain ssh)
  * are timed while they run; a file whose time of change falls while none of them ran is another program's. A file the
- * task's own edit and write tools named is always the task's. A deleted file, an unreadable time, or anything while a
+ * task's own edit and write tools named is always the task's. A running app's database and log files (serviceFile) are
+ * the app's whenever they changed, unless the AI's tools or commands named them. A deleted file, an unreadable time, or anything while a
  * command or service the task left running could still write, is one Casper can't tell: it stays the task's on the
  * receipt, and undo asks before touching it.
  */
@@ -74,12 +75,19 @@ export interface AttributionInput {
   toolFiles?: ReadonlySet<string>;
   /** A command or service the task left running may have written at any time. */
   unsure?: boolean;
+  /** The AI's shell commands this task: a service's own file (serviceFile) they name stays theirs. */
+  commands?: readonly string[];
   /** The time a file or folder last changed, or undefined when it can't be read. */
   changedAt?: (absolute: string) => Promise<number | undefined>;
   slackMs?: number;
 }
 
 const modified = async (absolute: string) => (await lstat(absolute).catch(() => undefined))?.mtimeMs;
+
+/** Files a running app rewrites by itself: SQLite databases with their -wal, -shm and -journal files, and logs
+ * (app.log, app.log.1, app.log.gz). */
+const SERVICE_FILE = /\.(?:db|sqlite3?)(?:-(?:wal|shm|journal))?$|\.log(?:\.\d+)?(?:\.gz)?$/i;
+export function serviceFile(file: string): boolean { return SERVICE_FILE.test(file); }
 
 export async function attributeChanges(input: AttributionInput): Promise<Attribution> {
   const slack = input.slackMs ?? ATTRIBUTION_SLACK_MS;
@@ -93,13 +101,20 @@ export async function attributeChanges(input: AttributionInput): Promise<Attribu
     if (time < input.since - slack || time > input.until + slack || during(time)) { result.task.push(file); return; }
     (input.unsure ? result.unsure : result.others).push(file);
   };
+  // A running app rewrites its database and log by itself, also while one of the AI's commands runs: unless the AI's
+  // edit tools or its commands named the file, it is the app's.
+  const theApps = (file: string) => serviceFile(file) && !input.toolFiles?.has(file)
+    && !(input.commands ?? []).some((command) => command.includes(path.posix.basename(file).replace(/-(?:wal|shm|journal)$/, "")));
+  for (const file of [...input.changes.added, ...input.changes.modified, ...input.changes.removed]) if (theApps(file)) result.others.push(file);
   for (const file of [...input.changes.added, ...input.changes.modified]) {
+    if (result.others.includes(file)) continue;
     if (input.toolFiles?.has(file)) { result.task.push(file); continue; }
     await place(file, await changedAt(absolute(file)));
   }
   // A deleted file has no time of its own: its folder's (or the nearest one left) says when an entry last went or came.
   // Inside a tool's run it is the task's; otherwise Casper can't tell.
   for (const file of input.changes.removed) {
+    if (result.others.includes(file)) continue;
     if (input.toolFiles?.has(file)) { result.task.push(file); continue; }
     let folder = path.posix.dirname(file);
     let time: number | undefined;

@@ -162,8 +162,15 @@ function shellAnswer(event: ToolEnd, text: string): string | undefined {
 }
 
 /** Expected lookup misses and designed skips are notes. Permission and parse errors are not. */
+/** A network login Casper just asked for (src/mcp/network/ask-login.ts): the call didn't fail, the AI calls it again. */
+const LOGIN_ADDED = /\blogin (?:added|replaced)(?: \([^)\n]*\))?\. Call the tool again\./;
+/** No login yet, and the person didn't add one now (or can't be asked here): nothing went wrong either. */
+const NO_LOGIN = /\bhas no login yet\b|\bthe person didn't (?:add|replace) (?:one|it) now\b/;
+
 export function outcomeNote(event: ToolEnd): string | undefined {
   const text = event.output?.text ?? "";
+  if (LOGIN_ADDED.test(text)) return "login added · calling it again";
+  if (NO_LOGIN.test(text)) return "no login yet";
   if (event.sessionOnlyCheck) return "session-only check in use";
   if (emptyLookup(event.toolName, text)) return "nothing found";
   if (event.toolName === "read" && event.isError && /\bENOENT\b|no such file or directory|file not found/i.test(text)) return "path not found";

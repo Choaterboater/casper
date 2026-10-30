@@ -63,8 +63,21 @@ export function fallbackEffort(request: string, previous: string | undefined, su
   return BUILD_OR_RELEASE.test(read) ? resolveAutoEffort("medium", supported) : undefined;
 }
 
-function classificationError(): Error {
-  return new Error("Automatic effort classification unavailable.");
+/** Why a classification fell back, in plain words for the [effort] line and /status; never the provider's own text. */
+export type FallbackReason = "no answer within 4 s" | "the provider returned an error" | "the answer was cut off" | "the answer wasn't a level"
+  | "couldn't reach the provider" | "the classifier model isn't signed in" | "this model has no effort levels";
+
+export class ClassificationError extends Error {
+  constructor(readonly reason: FallbackReason) { super(`Automatic effort classification unavailable: ${reason}.`); }
+}
+
+function classificationError(reason: FallbackReason = "the answer wasn't a level"): Error {
+  return new ClassificationError(reason);
+}
+
+/** The reason in a classifier failure, or a general one. */
+export function fallbackReason(error: unknown): FallbackReason {
+  return error instanceof ClassificationError ? error.reason : "couldn't reach the provider";
 }
 
 /**
@@ -82,7 +95,7 @@ export async function classifyEffort(options: {
   onUsage?: (usage: Pick<RuntimeUsage, "tokens" | "estimatedCost">) => void;
 }): Promise<{ level: ThinkingLevel; tokens: RuntimeUsage["tokens"]; estimatedCost?: number }> {
   options.signal?.throwIfAborted();
-  if (resolveAutoEffort("high", options.supported) === undefined) throw classificationError();
+  if (resolveAutoEffort("high", options.supported) === undefined) throw classificationError("this model has no effort levels");
 
   const controller = new AbortController();
   const cancel = () => controller.abort(options.signal?.reason);
@@ -90,7 +103,7 @@ export async function classifyEffort(options: {
   const { promise: aborted, reject } = Promise.withResolvers<never>();
   const rejectAborted = () => reject(controller.signal.reason);
   controller.signal.addEventListener("abort", rejectAborted, { once: true });
-  const timer = setTimeout(() => controller.abort(classificationError()), TIMEOUT_MS);
+  const timer = setTimeout(() => controller.abort(classificationError("no answer within 4 s")), TIMEOUT_MS);
   try {
     // Slice before encoding to bound allocation as well as wire input. Streaming
     // decode drops any partial trailing UTF-8 code point at the byte limit.
@@ -124,19 +137,24 @@ export async function classifyEffort(options: {
       estimatedCost: Number.isFinite(cost) && cost >= 0 ? cost : undefined,
     };
     options.onUsage?.(observed);
+    if (response.stopReason === "error" || response.stopReason === "aborted") throw classificationError("the provider returned an error");
+    if (response.stopReason === "length") throw classificationError("the answer was cut off");
     if (response.stopReason !== "stop" || response.content.some(part => part.type === "toolCall")) throw classificationError();
     const text = response.content.filter(part => part.type === "text").map(part => part.text).join("");
     if (text.length > 1024) throw classificationError();
-    const parsed: unknown = JSON.parse(text);
+    let parsed: unknown;
+    try { parsed = JSON.parse(text); } catch { throw classificationError(); }
     if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)
       || Object.keys(parsed).length !== 1 || !("effort" in parsed)
       || typeof parsed.effort !== "string" || !LEVELS.some(level => level === parsed.effort)) throw classificationError();
     const level = resolveAutoEffort(parsed.effort, options.supported);
     if (level === undefined) throw classificationError();
     return { level, ...observed };
-  } catch {
+  } catch (error) {
     options.signal?.throwIfAborted();
-    throw classificationError();
+    if (error instanceof ClassificationError) throw error;
+    if (controller.signal.reason instanceof ClassificationError) throw controller.signal.reason;
+    throw classificationError("couldn't reach the provider");
   } finally {
     clearTimeout(timer);
     options.signal?.removeEventListener("abort", cancel);

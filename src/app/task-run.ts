@@ -41,6 +41,7 @@ import { definitionChangedReason, definitionChanges, testDefinition } from "../v
 import { parseChecklist, parseReview, requirementsReviewPrompt, ROUND_MAX_TURNS, type RequirementsReview } from "../task/review";
 import { KEEP_GOING_ROUNDS, keepGoingNeed, keepGoingPrompt, openPlanNote } from "../task/keep-going";
 import { findNextStep, requestStepCount } from "../task/next-step";
+import { copyStep } from "./copy-words";
 import { extractChecklist, formatChecklistPrompt, normalizeCases } from "../task/checklist";
 import { isOutside } from "../platform/inside";
 import { ProcessCleanupError } from "../platform/processes";
@@ -363,7 +364,8 @@ export async function runModelTask(app: CasperApp, prompt: string, options: { fl
     if (before && afterModel && edits.tools && edits.windows) {
       const split = await attributeChanges({ root: workspaceRoot, changes: diffSnapshots(before, afterModel), windows: edits.windows.windows(),
         since: edits.windows.since, until: Date.now(), toolFiles: new Set(toolFiles(workspaceRoot, app.observations.edited(), "inside")),
-        unsure: Boolean(edits.windows.unsure || app.backgroundCommands?.list().length || app.services?.live() || app.subagents.runs().length) }).catch(() => undefined);
+        unsure: Boolean(edits.windows.unsure || app.backgroundCommands?.list().length || app.services?.live() || app.subagents.runs().length),
+        commands: app.observations.toolCalls.flatMap((call) => typeof call.input?.command === "string" ? [call.input.command] : []) }).catch(() => undefined);
       if (split?.others.length) {
         changedNotByModel = split.others;
         othersAsFound = afterModel;
@@ -651,6 +653,9 @@ export async function runModelTask(app: CasperApp, prompt: string, options: { fl
       const ending = app.interactive && !app.toolAfterAnswer ? taskEnding(app.lastAnswer) : undefined;
       // After a /look report, or your reply to one: the fixes it named, for /look fix, and "Fix all of it" on the row.
       const lookFix = noteLookFixes(app, ending);
+      // An answer that is mostly one block to paste (a command, a prompt for later): "Copy the prompt" on the row, free.
+      const copy = app.interactive && !ending && !app.toolAfterAnswer ? copyStep(app.lastAnswer) : undefined;
+      const extras = [lookFix, copy].filter((item): item is NextItem => item !== undefined);
       // Work held in another folder (a switch since) is not this work.
       app.heldCards = app.heldCards.filter((held) => held.root === workspaceRoot);
       const options = () => receiptOptions(app, workspaceRoot);
@@ -673,7 +678,7 @@ export async function runModelTask(app: CasperApp, prompt: string, options: { fl
           writeEnding(app, endingLine(ending, task));
         } else if (quiet && !app.heldCards.length) {
           // Nothing ran and nothing changed: the AI's message is the whole result, as with a plain answer.
-          app.terminal.offerNext(lookFix ? buildNextRow({ more: [lookFix] }) : undefined);
+          app.terminal.offerNext(extras.length ? buildNextRow({ more: extras }) : undefined);
         } else {
           // This task's card, or, when it changed nothing, the card of the work held before your answer.
           const held = quiet ? app.heldCards.pop() : undefined;
@@ -684,7 +689,7 @@ export async function runModelTask(app: CasperApp, prompt: string, options: { fl
           if (app.verbose && stat.trim()) app.output.write(stat.endsWith("\n") ? stat : `${stat}\n`);
           // A result that must stand (a failure, a stop) shows under a question too: then the line, and no keys.
           if (ending) { app.terminal.offerNext(undefined); writeEnding(app, endingLine(ending, task)); }
-          else if (app.interactive) await offerNextSteps(app, shown, held?.request ?? prompt, held?.classification ?? classification, lookFix);
+          else if (app.interactive) await offerNextSteps(app, shown, held?.request ?? prompt, held?.classification ?? classification, extras);
           receiptShown = true;
         }
       } else if (!ending && app.heldCards.length) {
@@ -692,11 +697,12 @@ export async function runModelTask(app: CasperApp, prompt: string, options: { fl
         const held = app.heldCards.pop()!;
         const view = app.verbose ? undefined : receiptView(held.task, options());
         showReceipt(app, held.task, view && withEarlierChanges(view, app.heldCards.splice(0).map((entry) => entry.task)));
-        if (app.interactive) await offerNextSteps(app, held.task, held.request, held.classification, lookFix);
+        if (app.interactive) await offerNextSteps(app, held.task, held.request, held.classification, extras);
         receiptShown = true;
-      } else if (lookFix) {
-        // A plain answer has no receipt; after a look report it still gets the step that fixes what it found.
-        app.terminal.offerNext(buildNextRow({ more: [lookFix] }));
+      } else if (extras.length) {
+        // A plain answer has no receipt; after a look report it still gets the step that fixes what it found, and an
+        // answer that is one block to paste gets its copy step.
+        app.terminal.offerNext(buildNextRow({ more: extras }));
       }
     }
     clearSteps(app);
@@ -1178,9 +1184,9 @@ export async function recordTaskOutcome(app: CasperApp, input: { task: string; s
 }
 
 /** The row under the receipt: numbered, plain, and never waited on. A source that throws offers nothing. */
-export async function offerNextSteps(app: CasperApp, task: TaskResult, request?: string, classification?: TaskClassification, lookFix?: NextItem): Promise<void> {
+export async function offerNextSteps(app: CasperApp, task: TaskResult, request?: string, classification?: TaskClassification, extras: readonly NextItem[] = []): Promise<void> {
   let undo: NextItem | undefined, diff: NextItem | undefined;
-  const more: NextItem[] = lookFix ? [lookFix] : [];
+  const more: NextItem[] = [...extras];
   for (const source of app.nextSteps) {
     let offered;
     try { offered = source(task); } catch { continue; }

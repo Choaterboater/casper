@@ -571,7 +571,7 @@ export class RuntimeEventView {
         if (degraded || (!this.terminal.rich && event.status.configuredEffort === "auto" && state === "classified")) {
           this.ensureLineBreak();
           this.output.write(degraded
-            ? `[effort] automatic classification ${state}; using ${event.status.thinkingLevel ?? "the previous level"}${event.status.autoEffort?.raised ? " (build or release work)" : ""}.\n`
+            ? `[effort] automatic classification ${state}${event.status.autoEffort?.reason ? ` (${terminalText(event.status.autoEffort.reason)})` : ""}; using ${event.status.thinkingLevel ?? "the previous level"}${event.status.autoEffort?.raised ? " (build or release work)" : ""}.\n`
             : `[effort] auto → ${event.status.thinkingLevel ?? "—"}\n`);
           this.endedWithNewline = true;
         }

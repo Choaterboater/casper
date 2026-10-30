@@ -98,7 +98,7 @@ export const COMMAND_REGISTRY: readonly CommandSpec[] = [
   { name: "settings", description: "Browse or search settings by area; change one, saved for you", argumentHint: "[name]", aliases: ["config"] },
   { name: "theme", description: "Pick the screen's colours (the Theme row of /settings)" },
   { name: "hotkeys", description: "The keys Casper uses (Esc, Ctrl+T, Shift+Tab ...)", afterCleanupError: NONE },
-  { name: "copy", description: "Copy the last answer, or its code block n, to the clipboard", argumentHint: "[n]" },
+  { name: "copy", description: "Copy the last answer, or its code or quote block n, to the clipboard", argumentHint: "[n]" },
   { name: "export", description: "Save this conversation to a file (.md, or .jsonl for every message)", argumentHint: "[file]" },
   { name: "rename", description: "Name this conversation (the window title and /resume)", argumentHint: "<title>" },
   { name: "trust", description: "Trust this folder: its checks and the project's scripts run (/trust off takes it back)", argumentHint: "[off]",

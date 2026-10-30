@@ -147,6 +147,15 @@ test("native bash guard refuses agents before approval/execution, including buil
   expect(AGENT_SHELL_GUIDANCE).toContain("Builders too");
 });
 
+test("looking an agent up is not starting it: command -v, which, type, --version and --help run", () => {
+  const guard = new AgentShellGuard(false, () => false);
+  guard.task("Check what is installed");
+  for (const command of ["command -v casper; command -v bash", "command -V claude", "which codex", "type -a casper", "whereis claude",
+    "casper --version", "casper -v", "claude --help", "codex -h", "hash casper 2>/dev/null"]) expect([command, guard.reason(command)]).toEqual([command, undefined]);
+  // Running it is still refused, even after a lookup on the same line.
+  for (const command of ["command -v casper && casper task", "command casper task"]) expect(guard.reason(command)).toContain("does not start another coding agent");
+});
+
 test("tmux guard owns only successfully created named servers in the current task", () => {
   const guard = new AgentShellGuard(false, name => name === "existing");
   guard.task("Check terminal screens");
