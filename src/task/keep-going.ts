@@ -33,7 +33,7 @@ export function keepGoingPrompt(need: KeepGoingNeed, steps: ReadonlyArray<{ step
     open.length ? "Casper: you stopped with work still open." : "Casper: you stopped before the work was done.",
     ...(need.next ? ["You said what you do next and stopped: do it now."] : []),
     ...(open.length ? ["Still open:", ...shown] : []),
-    "Do now what you can do yourself (edits, commands, tests, fixes to data). Leave only what needs the person (their device, account or a choice only they can make) and say why; for a choice, use the ask tool. End as before, with only what is still not done.",
+    "Do now what you can do yourself (edits, commands, tests, fixes to data; sudo and prompts too: Casper asks the person in place, so never send them out of Casper to run one). Leave only what needs the person (their device, account or a choice only they can make) and say why; for a choice, use the ask tool. End as before, with only what is still not done.",
   ].join("\n");
 }
 

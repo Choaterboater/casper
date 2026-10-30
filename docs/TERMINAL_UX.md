@@ -140,11 +140,21 @@ line, and again when it goes back. Several can lead (`big model, think hard: …
 | `plan first` | Plan first, like `/plan` |
 | `ultrathink` (anywhere in your line) | The model's top effort |
 | `? <question>` (start of a line) | A side question: a separate answer that is not added to the conversation (see [Input and commands](#input-and-commands)) |
+| `!<command>`, `let me run <command>`, `I'll run <command>` (the whole line) | Runs it yourself, now, in Casper's terminal (see below) |
 
 Only what you type counts: text you paste (and files, tool output and the AI's own words) is never
 read as a word. A role you have not set up gets one line on how to set it (`/model role reason
 <provider/id>`), and the task runs as normal. Automatic effort does not change a word's effort.
 Words never grant permission: approvals still ask as always.
+
+**Commands that need you.** A line you type as `!sudo apt update`, or `let me run sudo apt update` (a program's name
+after the words), runs at once with no box: one line says it has the terminal, Casper's screen pauses, the command has
+your keyboard and screen, and Casper comes back when it exits (`[run] … exited with code 0`). The AI reads its exit
+code and last lines with your next request. A paste never counts. The AI's own commands that need you (an editor, a
+login, `docker exec -it`, a y/n prompt, `ssh -t`) get the terminal the same way, right after their usual box and with no
+other question: `[terminal] vim notes.txt has the terminal now; Casper comes back when it exits.` Ctrl+C goes to the
+command, not to the task. When sudo on this computer asks for a password, Casper's numbered question and its hidden box
+`Enter sudo password` come instead ([decision 48](adr/0002/48-sudo-box-and-terminal-hand-over.md)).
 
 ## Current interface
 

@@ -27,6 +27,7 @@ import { newProjectFlowWithAbort, openProjectFolder, newProjectCommand, initialP
 import { rebindWorkspace } from "./session-branches";
 import { runModelTask, runSuggestion } from "./task-run";
 import { parseRequestWords, withoutTranscripts } from "./request-words";
+import { runTypedCommand, typedRunRequest } from "./run-words";
 import { askSideQuestion, BTW_USAGE, btwQuestion, sideQuestionsOn, sideQuestionText } from "./side-question";
 import { applyWeb } from "./wiring";
 import { typedDuringTask } from "../tui/give-way";
@@ -206,6 +207,10 @@ export async function handlePrompt(app: CasperApp, prompt: string, typed?: { pas
       return report = await runModelTask(app, mine.text);
     }
     if (command) return report = await handleSlashCommand(app, prompt);
+    // "!sudo apt update" or "let me run sudo apt update": the person's own command, in Casper's terminal now, no box
+    // (src/app/run-words.ts). Only typed; a paste is an ordinary request.
+    const own = typed && !app.pastedImages?.size ? typedRunRequest(prompt, typed.pasted, app.activeWorkspaceRoot()) : undefined;
+    if (own) { command = true; await runTypedCommand(app, own); return report; }
     // "change model to opus 5.5": Casper changes it as /model would, with no model call (src/app/model-words.ts).
     const target = typed && !app.pastedImages?.size ? modelChangeRequest(prompt, typed.pasted) : undefined;
     if (target && await namesModel(await ensureRuntime(app), target)) {

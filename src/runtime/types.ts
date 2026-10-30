@@ -84,13 +84,21 @@ export interface SshRun {
   afterAuthFail?: string;
   /** Asked once the command has ended and its login was not refused: a line to add (the login used a typed password). */
   afterSuccess?(): string | undefined;
+  /** A folder put first on this command's PATH (sudo's: its `sudo` asks through Casper's box). */
+  pathFirst?: string;
 }
 
 /** The AI's shell, as Casper holds it (see src/sandbox/manager.ts). */
 export interface RuntimeShell {
   /** The command as the sandbox runs it (`id` set), or as it is when nothing holds it. `env` is added to this command's
    * environment only (a git or gh command you allowed to use your GitHub login, outside the sandbox). */
-  wrap(command: string, cwd: string): Promise<{ command: string; id?: string; ssh?: SshRun; env?: Record<string, string> }>;
+  wrap(command: string, cwd: string): Promise<{ command: string; id?: string; ssh?: SshRun; sudo?: SshRun; env?: Record<string, string>; handOver?: boolean }>;
+  /** A command wrap marked `handOver`: it runs with Casper's terminal handed to it (src/terminal/hand-over.ts), and the
+   * text is what the AI reads (its exit code and a short tail of its output). */
+  handOver?(command: string, cwd: string, env: NodeJS.ProcessEnv, signal?: AbortSignal): Promise<{ exitCode: number; text: string }>;
+  /** A command failed for want of a terminal: the line the AI reads (send it again to have it handed over, or why this
+   * run can't). */
+  neededTerminal?(command: string): string | undefined;
   /** An owned command could not be confirmed stopped; let the host offer Stop/Leave. */
   onCleanupFailure?(error?: ProcessCleanupError): void;
   /** A held command has ended (the sandbox cleans up after it). */

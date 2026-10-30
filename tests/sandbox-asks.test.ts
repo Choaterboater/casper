@@ -494,7 +494,7 @@ test("a run that can't ask refuses ssh with a plain line and never waits, with t
     const terminal = host([], false);
     const sandbox = createSessionSandbox(terminal.value, context, { root: () => project, home, seams: { engine: fakeEngine(), ...seams } });
     const shell = runtimeShell(terminal.value, sandbox, new SandboxStore(context.stateDirectory));
-    expect(await shell.approve!("ssh root@build-server 'pveum user token add root@pam sampleapp'")).toBe("Not run: this command reaches 198.51.100.20 (build-server), another machine, and this run can't ask you first. Casper doesn't let the AI reach other machines without your OK. Tell the user; they can run it themselves, in a Casper session, or with --allow-reach build-server for one run.");
+    expect(await shell.approve!("ssh root@build-server 'pveum user token add root@pam sampleapp'")).toBe("Not run: this command reaches 198.51.100.20 (build-server), another machine, and this run can't ask you first. Casper doesn't let the AI reach other machines without your OK. Tell the user an interactive Casper session asks first, or --allow-reach build-server allows it for one run.");
     expect(terminal.written).toEqual(["[shell] Not run: the AI's command reaches 198.51.100.20 (build-server), and this run can't ask you. Nothing was sent.\n"]);
     expect(terminal.asked).toEqual([]);
     await sandbox.close();
@@ -557,7 +557,7 @@ test("ssh with the host in a variable or wrapped in bash -c still asks, even wit
   const oneShot = host([], false);
   const offSandbox = createSessionSandbox(oneShot.value, context, { root: () => project, home, seams: { engine: fakeEngine(), problem: () => undefined, platform: "linux", noSandboxFlag: true } });
   expect(await runtimeShell(oneShot.value, offSandbox, new SandboxStore(context.stateDirectory)).approve!(variable))
-    .toBe("Not run: this command reaches another machine ($H) and this run can't ask you first. Casper doesn't let the AI reach other machines without your OK. Tell the user; they can run it themselves or in a Casper session.");
+    .toBe("Not run: this command reaches another machine ($H) and this run can't ask you first. Casper doesn't let the AI reach other machines without your OK. Tell the user an interactive Casper session asks first.");
   expect(oneShot.asked).toEqual([]);
   await offSandbox.close();
 });

@@ -24,6 +24,9 @@ import { startAskpass } from "../ssh/askpass";
 import { forgetSshSecrets, sshLoginHandler, sshSessionMemory, type SshLoginHost } from "../ssh/login";
 import { forgetOnceSecrets } from "../secrets/typed";
 import { takeNextCommandEnv } from "../secrets/next-command";
+import { sudoLoginHandler, sudoSessionMemory, sudoShim, usesLocalSudo } from "../ssh/sudo";
+import { terminalNeed } from "../terminal/needs-terminal";
+import { runAttached, type AttachedRun } from "../terminal/hand-over";
 import { githubLoginChoices, HOST_CHOICES, NO, REACH_CHOICES, SHELL_COMMAND_CHOICES, writeChoices, YES_EVERYTHING, YES_ONCE, YES_SESSION } from "./safe-choices";
 import { githubLoginCommand, githubRunEnv, LOGIN_FAILED, startsGitOrGh, type GithubLoginCommand } from "../sandbox/github-login";
 import { answerKey, readOnlyCommand, testRunKey } from "../sandbox/read-only";
@@ -68,14 +71,26 @@ export interface SandboxHost {
   precedingText?(): string | undefined;
   /** The private ssh login: Casper's own hidden box for a password or passphrase ssh asks for. Unset: a run that can't ask. */
   ssh?: SshLoginHost;
+  /** The same box for sudo on this computer, shown only when sudo asks. Unset: a run that can't ask. */
+  sudo?: SshLoginHost;
+  /** Casper's terminal, lent to a command that needs the person (src/terminal/hand-over.ts). Unset: no person at a terminal. */
+  handOver?: TerminalLender;
+}
+
+/** Lends Casper's terminal: `note` is written, the screen pauses, `run` has the terminal, and the screen comes back. */
+export interface TerminalLender {
+  /** A person is at Casper's full screen (an interactive session, not closing). `lend` throws when the screen is busy. */
+  can(): boolean;
+  lend<T>(note: string, run: () => Promise<T>): Promise<T>;
 }
 
 export interface PickSettings { record?: (answer: string) => string | undefined }
 
-/** The private ssh login for one run: `on` reads the user's `ssh_login` setting each time; `start` is a test seam. */
+/** The private ssh login for one run: `on` reads the user's `ssh_login` setting each time; `start` and `attach` are test seams. */
 export interface SshLoginSettings {
   on?: () => boolean;
   start?: typeof startAskpass;
+  attach?: typeof runAttached;
 }
 
 /** One of the shell's own questions (a host, a write outside the project, another machine, a command): shown as a numbered
@@ -100,6 +115,21 @@ export const SSH_NOT_PLAIN_LINE = `[ssh] The login was refused. Casper can only 
 export const SSH_REFUSED_LINE = `[ssh] The login was refused. Casper's hidden password box was offered for this command; if the person said no or the password was wrong, ask them what to do. ${SSH_NEVER}`;
 /** After a login that worked with a password the person typed (or gave for the session): the AI must not call it a key login. */
 export const SSH_PASSWORD_LINE = "[ssh] This login used the password the person typed in Casper's box, not a key.";
+/** The AI reads these about a command that needs the person at the terminal (an editor, a prompt, a login, docker -it). */
+export const HAND_OVER_CANT = "Not run: this command needs the person at the terminal, and this run has none to hand it to (a one-shot or --json run, piped input, or a builder). Tell the user an interactive Casper session hands it the terminal; don't suggest another terminal or a script.";
+export const TERMINAL_RETRY_LINE = "[terminal] It needs the person at the terminal. Send the same command again: Casper hands them the terminal for it and gives you its exit code and last lines. Don't tell them to run it outside Casper.";
+export const TERMINAL_CANT_LINE = "[terminal] It needs the person at the terminal, and this run has none to hand it to (one-shot, --json, piped input or a builder). Tell the user an interactive Casper session hands it the terminal.";
+const SSH_HAND_OVER = "Send the same command again: Casper hands the person the terminal, and they answer ssh's question there.";
+export const HAND_OVER_BUSY = "Not run: Casper's screen was holding another question, so it couldn't hand over the terminal. Send the command again.";
+/** What the AI reads after a hand-over: the exit code and the last lines, never what the person typed. */
+export function handedOverText(ran: AttachedRun): string {
+  const head = `[terminal] The person had the terminal for this command; it exited with code ${ran.exitCode}.`;
+  if (ran.tail === undefined) return `${head} Its output went to their screen and was not kept.\n`;
+  return ran.tail ? `${head} Its last lines, as the screen showed them:\n${ran.tail}\n` : `${head} It printed nothing.\n`;
+}
+/** `ssh nas sudo …` handed over: ssh gets -t, so sudo there asks at its own prompt. */
+const withTty = (command: string) => command.replace(/^(\s*\S+)/, "$1 -t");
+
 /** A refusal note, with the name the ssh config gives the machine when the AI typed its address (with any user). */
 const withName = (line: string, targets: RemoteTarget[], home: string) => [line, sshNameLine(targets, home, true)].filter(Boolean).join("\n");
 
@@ -124,7 +154,7 @@ export const shellQuestion = (command: string, preceding?: string, judged?: stri
 /** The target stays explicit even when the model supplied a reason. */
 export const reachQuestion = (target: RemoteTarget, command: string, preceding?: string) => commandQuestion(`Reach ${terminalText(targetLabel(target))}?`, command, preceding);
 /** The AI reads these when a command to another machine does not run. */
-export const reachCantAsk = (target: RemoteTarget) => `Not run: this command reaches ${targetLabel(target)}${target.unclear ? "" : ", another machine,"} and this run can't ask you first. Casper doesn't let the AI reach other machines without your OK. Tell the user; they can run it themselves${target.unclear ? " or in a Casper session" : `, in a Casper session, or with --allow-reach ${target.typed} for one run`}.`;
+export const reachCantAsk = (target: RemoteTarget) => `Not run: this command reaches ${targetLabel(target)}${target.unclear ? "" : ", another machine,"} and this run can't ask you first. Casper doesn't let the AI reach other machines without your OK. Tell the user an interactive Casper session asks first${target.unclear ? "" : `, or --allow-reach ${target.typed} allows it for one run`}.`;
 export const reachDeclined = (target: RemoteTarget) => `Not run: the user said no to reaching ${targetLabel(target)}. Don't try it again another way; ask the user what to do instead.`;
 /** "Run outside the sandbox with your GitHub login?  git push -u origin main" */
 export const githubLoginQuestion = (command: string, preceding?: string) => commandQuestion("Run outside the sandbox with your GitHub login?", command, preceding);
@@ -134,7 +164,7 @@ export const GITHUB_LOGIN_LINE = "[sandbox] Plain git and gh commands you allow 
  * opens ~/.config/gh to the sandbox: the AI is told so, so it doesn't offer one. */
 const GITHUB_HIDDEN = "Your GitHub login (~/.config/gh, git's saved logins) is hidden from commands in the sandbox, and no setting opens it: don't offer one.";
 export const GITHUB_LOGIN_HINT = `[sandbox] ${GITHUB_HIDDEN} A plain git push/pull/fetch or gh command runs outside the sandbox with the user's login after they say yes: send it as a command of its own (no cd, pipe, ;, &&, 2>&1, -c or VAR= in front).`;
-export const GITHUB_LOGIN_CANT_ASK = `[sandbox] ${GITHUB_HIDDEN} This run can't ask the user to use it: tell them, and they can run the command themselves.`;
+export const GITHUB_LOGIN_CANT_ASK = `[sandbox] ${GITHUB_HIDDEN} This run can't ask the user to use it: tell them an interactive Casper session asks first.`;
 // The AI's answer when a run can't ask: only what it can do. Told about --no-sandbox, small models put the flag in their
 // commands (bun test --no-sandbox), asked the user for it, or sent one command 76 times. The person reads the flag in
 // SHELL_CANT_ASK_NOTE and on the step's own line (SHELL_CANT_ASK_SCREEN), never the AI.
@@ -210,6 +240,11 @@ export function runtimeShell(host: SandboxHost, sandbox: ShellSandbox, given: Sa
   /** Held runs of git or gh: if one fails for want of the login, the AI is told how to run it with your yes. */
   const heldGithub = new Map<string, { unasked: boolean }>();
   const said = new Set<string>();
+  /** Commands that failed for want of a terminal (or a new host key ssh asked about): sent again, they are handed one. */
+  const handOverNext = new Set<string>();
+  /** What each hand-over's note shows (the command as the AI sent it, not the sandbox's wrapper), by what runs. */
+  const handOverShown = new Map<string, string>();
+  const canHandOver = () => Boolean(host.handOver?.can());
   /** --allow-reach: a machine allowed for this run, by the name the command typed or the address it resolves to. */
   // An alias from ~/.ssh/config counts by its real address too.
   const runReach = sandbox.allowedReach.flatMap((entry) => [entry.toLowerCase(), ...remoteTargets(`ssh ${entry}`, sandbox.home).map((target) => target.host)]);
@@ -291,11 +326,22 @@ export function runtimeShell(host: SandboxHost, sandbox: ShellSandbox, given: Sa
     if (batchMode(segmentTargets(words).values)) return { ssh: { afterFail: withName(SSH_BATCH_MODE_LINE, targets, sandbox.home) } };
     let password = false;
     const handler = sshLoginHandler(host.ssh ?? NO_TERMINAL, sshSessionMemory, targets.map(targetLabel).join(", "),
-      targets.map((target) => ({ typed: target.typed, host: target.host, ...(target.user ? { user: target.user } : {}) })), () => { password = true; });
+      targets.map((target) => ({ typed: target.typed, host: target.host, ...(target.user ? { user: target.user } : {}) })), () => { password = true; },
+      // A new host key: sent again, the command gets the terminal and the person answers ssh there.
+      () => { if (!canHandOver()) return undefined; handOverNext.add(command); return SSH_HAND_OVER; });
     const run = await (ssh.start ?? startAskpass)(handler, { home: sandbox.home });
     const named = sshNameLine(targets, sandbox.home);
     return run ? { ssh: { env: run.env, done: () => run.close(), afterAuthFail: withName(SSH_REFUSED_LINE, targets, sandbox.home),
       afterSuccess: () => password ? [SSH_PASSWORD_LINE, named].filter(Boolean).join("\n") : undefined } } : { ssh: { afterFail: SSH_NOT_STARTED_LINE } };
+  };
+  /** sudo on this computer, with no sandbox: its own `sudo` first on the PATH asks Casper's box, only when sudo asks. */
+  const sudoLogin = async (command: string): Promise<{ sudo?: SshRun }> => {
+    if (process.platform === "win32" || !usesLocalSudo(command)) return {};
+    const run = await (ssh.start ?? startAskpass)(sudoLoginHandler(host.sudo ?? NO_TERMINAL, sudoSessionMemory), { home: sandbox.home });
+    if (!run) return {};
+    const bin = run.dir ? await sudoShim(run.dir).catch(() => undefined) : undefined;
+    if (!bin) { await run.close(); return {}; }
+    return { sudo: { env: { SUDO_ASKPASS: run.program, ...run.pointer }, pathFirst: bin, done: () => run.close() } };
   };
   /** A command that reaches a machine but is not one plain ssh or scp gets no password box: if its login is refused, the AI is told
    * how to run it so that Casper can ask. Not when the person turned the box off (ssh_login: off). */
@@ -308,23 +354,36 @@ export function runtimeShell(host: SandboxHost, sandbox: ShellSandbox, given: Sa
       cleared.delete(command);
       // The password you typed for "Yes, this once" has done its job once the next command starts.
       forgetOnceSecrets();
+      // A command that needs the person gets Casper's terminal, right after its usual box (none of its own).
+      const need = terminalNeed(command) ?? (handOverNext.delete(command) ? "interactive" : undefined);
+      if (need === "interactive" && !canHandOver()) throw new Error(HAND_OVER_CANT);
+      const handed = (out: { command: string; id?: string; env?: Record<string, string> }) => {
+        handOverShown.set(out.command, command);
+        return { ...out, handOver: true };
+      };
       // You said yes to this git or gh command: it runs outside the sandbox, with your GitHub login (the sandbox hides
       // ~/.config/gh and git's saved logins). Checked again where it runs; anything else stays in the sandbox.
       if (githubCleared.delete(command) && sandbox.on && githubPlain(command, cwd)) {
         sayOnce(GITHUB_LOGIN_LINE);
-        return { command, env: githubRunEnv() };
+        return need === "interactive" ? handed({ command, env: githubRunEnv() }) : { command, env: githubRunEnv() };
       }
       const unasked = githubUnasked.delete(command);
       // Only the ssh or scp the PATH finds outside every place a sandboxed command may write counts as plain (see trustedProgram).
       const shape = targets !== undefined && runsAlone(command, sandbox.root, cwd, localPlaces());
       const plain = shape
         && trustedProgram(splitShell(command).segments[0]!.words[0]!, sandbox.searchPath, (place) => sandboxWrites(place, cwd), sandbox.ownBin) !== undefined;
-      if (!sandbox.on) return { command, ...(plain ? await sshLogin(command, targets) : shape ? {} : notPlain(targets)) };
+      // `ssh nas sudo …`: only a plain one is handed over (with -t); ssh then asks for its own login on the terminal too.
+      const lend = need === "interactive" || (need === "remote-sudo" && plain && canHandOver());
+      const run = need === "remote-sudo" && lend ? withTty(command) : command;
+      if (!sandbox.on) {
+        if (lend) return handed({ command: run });
+        return { command, ...(plain ? await sshLogin(command, targets) : shape ? {} : notPlain(targets)), ...await sudoLogin(command) };
+      }
       // You said yes to this ssh or scp: a plain one runs outside the sandbox, with your own keys (the sandbox hides
       // ~/.ssh), like lab checks. Anything more stays in the sandbox and may only reach the hosts you named.
       if (plain) {
         sayOnce(`[sandbox] ${targets.map(targetLabel).join(", ")}: plain ssh and scp you allow run outside the sandbox, with your own keys.`);
-        return { command, ...await sshLogin(command, targets) };
+        return lend ? handed({ command: run }) : { command, ...await sshLogin(command, targets) };
       }
       const unplain = shape ? {} : notPlain(targets);
       let wrapped;
@@ -335,7 +394,7 @@ export function runtimeShell(host: SandboxHost, sandbox: ShellSandbox, given: Sa
         // A plain ssh or scp was already asked; anything else (a ./ssh, a bin/scp) is asked as any command is.
         const refused = plain ? undefined : await shell.approve!(command);
         if (refused) throw new Error(refused);
-        return { command, ...unplain };
+        return lend ? handed({ command }) : { command, ...unplain };
       }
       if (wrapped.held && startsGitOrGh(command)) heldGithub.set(wrapped.id, { unasked });
       if (targets && wrapped.held) {
@@ -346,7 +405,23 @@ export function runtimeShell(host: SandboxHost, sandbox: ShellSandbox, given: Sa
           ? `[sandbox] ${targets.map(targetLabel).join(", ")}: this command runs in the sandbox, where your ~/.ssh keys and settings are hidden, so a login may fail. A plain ssh or scp command of its own runs with your keys.`
           : `[sandbox] ${targets.map(targetLabel).join(", ")}: direct connections like this are blocked in the sandbox, so this command can't reach it. A plain ssh or scp command of its own runs outside the sandbox with your keys.`);
       }
+      if (lend) return handed(wrapped.held ? { command: wrapped.command, id: wrapped.id } : { command });
       return wrapped.held ? { command: wrapped.command, id: wrapped.id, ...unplain } : { command, ...unplain };
+    },
+    async handOver(run, cwd, env, signal) {
+      const shown = handOverShown.get(run) ?? run;
+      handOverShown.delete(run);
+      if (!host.handOver?.can()) return { exitCode: 1, text: HAND_OVER_BUSY };
+      try {
+        const ran = await host.handOver.lend(`[terminal] ${shortCommand(shown)} has the terminal now; Casper comes back when it exits.`,
+          () => (ssh.attach ?? runAttached)(run, cwd, env, { home: sandbox.home, ...(signal ? { signal } : {}) }));
+        return { exitCode: ran.exitCode, text: handedOverText(ran) };
+      } catch { return { exitCode: 1, text: HAND_OVER_BUSY }; }
+    },
+    neededTerminal(command) {
+      if (!canHandOver()) return TERMINAL_CANT_LINE;
+      handOverNext.add(command);
+      return TERMINAL_RETRY_LINE;
     },
     finished(id) { heldGithub.delete(id); sandbox.finished(id); },
     async refused(id, output) {
@@ -381,6 +456,8 @@ export function runtimeShell(host: SandboxHost, sandbox: ShellSandbox, given: Sa
     },
     wroteOutside(absolute) { sandbox.noteOutsideWrite(absolute); },
     async approve(command, signal, options) {
+      // Refused before any box: nobody is at a terminal to hand it to.
+      if (terminalNeed(command) === "interactive" && !canHandOver()) return HAND_OVER_CANT;
       // The host question already showed this command and you said yes, like bash's own start after a failed sandbox.
       if (options?.reached) return remoteTargets(command, sandbox.home).length ? undefined : shell.approve!(command, signal);
       // Capture before waiting for another box: a later response must not retitle this command.

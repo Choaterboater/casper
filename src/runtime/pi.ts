@@ -57,6 +57,7 @@ import { classifyPath, displayPath, fileToolGate, gitInternalsCommand, privatePa
 const FILE_PATH_TOOLS = new Set(["read", "edit", "write", "grep", "find", "ls", "lsp"]);
 import { withoutProviderKeys } from "../platform/environment";
 import { createOwnedBashOperations } from "./local-bash";
+import { TERMINAL_NEEDED } from "../terminal/needs-terminal";
 import { ProcessCleanupError } from "../platform/processes";
 import { cacheRetentionFor, type PromptCacheSetting } from "./cache";
 import { LoopGuard } from "./loop-guard";
@@ -1400,6 +1401,13 @@ function readSmallText(file: string): string | undefined | null {
   } catch (error) { return (error as NodeJS.ErrnoException).code === "ENOENT" ? undefined : null; }
 }
 
+/** `env` with `folder` first on its PATH (whatever the key's case: Windows spells it Path). */
+function pathFirst(env: NodeJS.ProcessEnv, folder?: string): NodeJS.ProcessEnv {
+  if (!folder) return env;
+  const key = Object.keys(env).find((name) => name.toLowerCase() === "path") ?? "PATH";
+  return { ...env, [key]: env[key] ? `${folder}${path.delimiter}${env[key]}` : folder };
+}
+
 /** Added to a finished command's output when what it started could not be confirmed stopped. */
 export const CLEANUP_NOTE = "[The command finished, but Casper could not confirm that every process it started has stopped. Casper shows them to the person before the next task.]";
 
@@ -1425,14 +1433,26 @@ export function casperBashOperations(shell: RuntimeShell | undefined, local: Bas
       if (refused) throw new Error(refused);
       const logDir = process.platform === "win32" ? undefined : await shell?.logDir?.();
       const wrapped: Awaited<ReturnType<RuntimeShell["wrap"]>> = shell ? await shell.wrap(command, cwd) : { command };
+      const baseEnv = () => options.env ?? withoutProviderKeys(process.env, shell?.keepEnv ?? []);
+      // A command that needs the person gets Casper's terminal (src/terminal/hand-over.ts): no time limit, no background.
+      if (wrapped.handOver && shell?.handOver) {
+        try {
+          const ran = await shell.handOver(wrapped.command, cwd, wrapped.env ? { ...baseEnv(), ...wrapped.env } : baseEnv(), options.signal);
+          agentGuard.finished(command, ran.exitCode);
+          if (ran.text) options.onData(Buffer.from(ran.text));
+          return { exitCode: ran.exitCode };
+        } finally { if (wrapped.id) shell.finished?.(wrapped.id); }
+      }
+      /** ssh's or sudo's private login: it may wait on Casper's password box. */
+      const login = wrapped.ssh ?? wrapped.sudo;
       const background = options.timeout === undefined ? shell?.background?.() : undefined;
       const limit = options.timeout ?? background?.limitSeconds ?? DEFAULT_COMMAND_LIMIT_SECONDS;
       const startedAt = Date.now();
-      let tail = "", seen = "", recent = "", stalled: string | undefined;
+      let tail = "", seen = "", recent = "", last = "", stalled: string | undefined;
       /** Once in the background, its output goes there. */
       let moved: ((data: Buffer) => void) | undefined;
       // Not for a command given its own timeout, nor one on Casper's ssh login (the other machine's work can't be seen).
-      const stallSeconds = options.timeout === undefined && !wrapped.ssh ? shell?.stallSeconds?.() : undefined;
+      const stallSeconds = options.timeout === undefined && !login ? shell?.stallSeconds?.() : undefined;
       const pid = stallSeconds ? pidFile(logDir) : undefined;
       const watch = stallSeconds && pid ? watchStall({ seconds: stallSeconds, root: pid.root, onStall: () => {
         stalled = stalledMessage(command, recent, stallSeconds);
@@ -1440,6 +1460,7 @@ export function casperBashOperations(shell: RuntimeShell | undefined, local: Bas
       } }) : undefined;
       const onData = (data: Buffer) => {
         if (wrapped.id || wrapped.ssh?.afterAuthFail) tail = (tail + data.toString("utf8")).slice(-16_384);
+        if (shell?.neededTerminal) last = (last + data.toString("utf8")).slice(-4_096);
         if (watch) { watch.output(); recent = (recent + data.toString("utf8")).slice(-4_096); }
         if (moved) { moved(data); return; }
         if (background) seen = (seen + data.toString("utf8")).slice(-16_384);
@@ -1457,8 +1478,8 @@ export function casperBashOperations(shell: RuntimeShell | undefined, local: Bas
       const run = (async () => {
         try {
           // The private ssh login's pointer goes to this one command, after the shell's environment was cleaned.
-          const env = wrapped.ssh?.env || wrapped.env
-            ? { ...(options.env ?? withoutProviderKeys(process.env, shell?.keepEnv ?? [])), ...wrapped.env, ...wrapped.ssh?.env } : options.env;
+          const env = wrapped.ssh?.env || wrapped.env || wrapped.sudo?.env
+            ? pathFirst({ ...baseEnv(), ...wrapped.env, ...wrapped.ssh?.env, ...wrapped.sudo?.env }, wrapped.sudo?.pathFirst) : options.env;
           let result: { exitCode: number | null };
           try {
             result = await local.exec(pid ? pid.run(wrapped.command) : wrapped.command, cwd, { ...options, signal: stop.signal, timeout: background ? undefined : limit, ...(env ? { env } : {}), onData });
@@ -1482,6 +1503,10 @@ export function casperBashOperations(shell: RuntimeShell | undefined, local: Bas
             if (line) onData(Buffer.from(`\n${line}\n`));
           }
           if (wrapped.ssh?.afterFail && result.exitCode !== 0) onData(Buffer.from(`\n${wrapped.ssh.afterFail}\n`));
+          if (wrapped.sudo?.afterFail && result.exitCode !== 0) onData(Buffer.from(`\n${wrapped.sudo.afterFail}\n`));
+          // It needed a terminal: sent again, it gets one (or the AI reads why this run can't give it one).
+          const needed = result.exitCode !== 0 && TERMINAL_NEEDED.test(last) ? shell?.neededTerminal?.(command) : undefined;
+          if (needed) onData(Buffer.from(`\n${needed}\n`));
           // Not only on a failure: `ssh host cmd; echo done` ends 0 although the login was refused.
           const refusedLogin = Boolean(wrapped.ssh?.afterAuthFail) && looksLikeRefusedLogin(tail);
           if (refusedLogin) onData(Buffer.from(`\n${wrapped.ssh!.afterAuthFail}\n`));
@@ -1495,6 +1520,7 @@ export function casperBashOperations(shell: RuntimeShell | undefined, local: Bas
           options.signal?.removeEventListener("abort", forward);
           if (wrapped.id) shell?.finished?.(wrapped.id);
           await wrapped.ssh?.done?.().catch(() => {});
+          await wrapped.sudo?.done?.().catch(() => {});
         }
       })();
       if (!background) return await run;
@@ -1511,10 +1537,10 @@ export function casperBashOperations(shell: RuntimeShell | undefined, local: Bas
       let timer: ReturnType<typeof setTimeout> | undefined;
       const late = new Promise<"late">((resolve) => { timer = setTimeout(() => resolve("late"), limit * 1000); });
       // A line the person sends moves it to the background now, as the limit does, so the AI reads the line: Pi reads
-      // one only once every call of the step has ended. Not on Casper's ssh login, which may still ask for a password;
+      // one only once every call of the step has ended. Not on Casper's ssh or sudo login, which may still ask for a password;
       // with no room in the background the command runs on and the line waits, as before.
       const line = Promise.withResolvers<"line">();
-      const unlisten = wrapped.ssh ? undefined : shell?.whenSteered?.(() => line.resolve("line"));
+      const unlisten = login ? undefined : shell?.whenSteered?.(() => line.resolve("line"));
       let first: Awaited<typeof run> | "late" | "line";
       try {
         first = await Promise.race([run, late, line.promise]);

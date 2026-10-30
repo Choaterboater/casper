@@ -1340,6 +1340,25 @@ export class TerminalSurface {
     finally { this.lending = false; if (!this.closed) { this.tui.start(); this.tui.setFocus(this.editor); this.tui.requestRender(true); } }
   }
 
+  /** Whether a command can have the whole terminal now (nothing else holds it). */
+  get canLend(): boolean { return this.started && !this.closed && !this.pendingAsk && !this.pendingLine && !this.slot && !this.lending; }
+  private handingOver = false;
+  /** A command that needs the person (sudo's prompt, an editor, a login) gets the whole terminal, during a task too: the
+   * lines written so far are drawn, the screen pauses, and it comes back when `run` ends. Ctrl+C is the command's. */
+  async handOver<T>(run: () => Promise<T>): Promise<T> {
+    if (!this.canLend) throw new Error("Terminal input is unavailable.");
+    this.endAssistant();
+    this.tui.renderNow();
+    this.handingOver = this.lending = true;
+    this.terminal.suspendInput();
+    this.tui.stop();
+    try { return await run(); }
+    finally {
+      this.handingOver = this.lending = false;
+      if (!this.closed) { this.tui.start(); this.tui.setFocus(this.editor); this.tui.requestRender(true); }
+    }
+  }
+
   /** A picker that gives way: an approval or question that opens while it is mounted closes it first. So does a question
    * or input a command typed during a task opened, for any box but that command's own. */
   private yieldSlot(always = false): void {
@@ -1406,7 +1425,8 @@ export class TerminalSurface {
     };
   }
   interrupt(): void {
-    if (this.closed) return;
+    // The command that has the terminal got the same Ctrl+C; the task goes on when it ends.
+    if (this.closed || this.handingOver) return;
     if (this.pendingAsk) this.pendingAsk(undefined);
     if (this.pendingLine) this.pendingLine(undefined);
     if (this.busy) { this.cancel(); return; }

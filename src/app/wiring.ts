@@ -23,6 +23,7 @@ import { casperAgentDir } from "../runtime/agent-store";
 import { loginValuesFrom, WebLookup, webProvider } from "../web/lookup";
 import { backgroundUpdate, INSTALLED_NOTE, updateChecksOff, updateFooterNote, type NoticeOptions } from "../update/notice";
 import { createSessionSandbox, runtimeShell, type SandboxHost } from "./sandbox";
+import type { SshLoginHost } from "../ssh/login";
 import { withLoginDisplay } from "../tui/login";
 import { NO, YES_ONCE, YES_SESSION } from "./safe-choices";
 import { useSandbox, currentSandbox } from "../sandbox/manager";
@@ -63,29 +64,52 @@ export function sandboxHost(app: CasperApp): SandboxHost {
     precedingText: toolReason,
     // Auto mode's judge: it lets ordinary build work run and asks about the rest (src/app/auto-mode.ts).
     judge: (command, signal) => judgeForApp(app, command, signal),
-    // ssh asks for a password: Casper's own numbered question, then its own hidden box (never "The AI asks"). Both in
-    // the one turn of the approval queue, so nothing slips in between.
-    ssh: {
-      canTypePrivately: () => app.interactive && app.terminal.canAsk && !app.closing && !!app.terminal.exclusiveHost(),
-      write: (text) => { if (!app.closing) app.output.write(text); },
-      ask: ({ question, label, canKeep }, signal) => oneAtATime(app, async () => {
-        if (app.closing) return undefined;
-        const answer = await app.terminal.pick(question, [
-          { label: NO, description: "ssh gets no password and the login fails" },
-          { label: YES_ONCE, description: "type it now; Casper forgets it when this connection ends" },
-          ...(canKeep ? [{ label: YES_SESSION, description: "type it now; Casper keeps it in memory for this login until you quit" }] : []),
-        ], signal);
-        if (answer === undefined) return undefined;
-        if (answer !== YES_ONCE && answer !== YES_SESSION) return "no" as const;
-        const picker = app.terminal.exclusiveHost();
-        if (!picker) return undefined;
-        const secret = await picker.run((io) => withLoginDisplay(io, signal, (display) => display.privateInput(label, undefined, {
-          title: "Enter ssh password", password: true,
-          hint: "It goes to ssh only. The AI never sees it, and Casper never saves it." }))).catch(() => undefined);
-        // Esc or Ctrl+C in the hidden box is a No.
-        return secret === undefined ? "no" as const : { secret, keep: answer === YES_SESSION ? "session" as const : "once" as const };
+    // ssh, or sudo on this computer, asks for a password: Casper's own numbered question, then its own hidden box (never
+    // "The AI asks"). Both in the one turn of the approval queue, so nothing slips in between.
+    ssh: privateLogin(app, { title: "Enter ssh password", hint: "It goes to ssh only. The AI never sees it, and Casper never saves it.",
+      no: "ssh gets no password and the login fails", once: "type it now; Casper forgets it when this connection ends",
+      session: "type it now; Casper keeps it in memory for this login until you quit" }),
+    sudo: privateLogin(app, { title: "Enter sudo password", hint: "It goes to sudo only. The AI never sees it, and Casper never saves it.",
+      no: "sudo gets no password and the command fails", once: "type it now; Casper forgets it when this command ends",
+      session: "type it now; Casper keeps it in memory until you quit, so sudo doesn't ask again" }),
+    // A command that needs the person gets the terminal: one line says what starts, and Casper comes back when it ends.
+    handOver: {
+      // A person at Casper's full screen; whether the screen is free right now is checked in its turn of the queue.
+      can: () => app.interactive && !app.closing && app.terminal.rich,
+      lend: (note, run) => oneAtATime(app, async () => {
+        if (app.closing) throw new Error("Casper is closing");
+        app.output.write(`${note}\n`);
+        return app.terminal.handOver(run);
       }),
     },
+  };
+}
+
+/** The words of one private login box (ssh's or sudo's). */
+interface LoginWords { title: string; hint: string; no: string; once: string; session: string }
+
+/** Casper's numbered question, then its hidden box; `app.secretInput` stands in for the box in tests. */
+function privateLogin(app: CasperApp, words: LoginWords): SshLoginHost {
+  return {
+    canTypePrivately: () => app.interactive && app.terminal.canAsk && !app.closing && (!!app.secretInput || !!app.terminal.exclusiveHost()),
+    write: (text) => { if (!app.closing) app.output.write(text); },
+    ask: ({ question, label, canKeep }, signal) => oneAtATime(app, async () => {
+      if (app.closing) return undefined;
+      const answer = await app.terminal.pick(question, [
+        { label: NO, description: words.no },
+        { label: YES_ONCE, description: words.once },
+        ...(canKeep ? [{ label: YES_SESSION, description: words.session }] : []),
+      ], signal);
+      if (answer === undefined) return undefined;
+      if (answer !== YES_ONCE && answer !== YES_SESSION) return "no" as const;
+      const box = { label, title: words.title, hint: words.hint };
+      const picker = app.secretInput ? undefined : app.terminal.exclusiveHost();
+      if (!app.secretInput && !picker) return undefined;
+      const secret = await (app.secretInput ? app.secretInput(box) : picker!.run((io) => withLoginDisplay(io, signal, (display) =>
+        display.privateInput(label, undefined, { title: words.title, password: true, hint: words.hint })))).catch(() => undefined);
+      // Esc or Ctrl+C in the hidden box is a No.
+      return secret === undefined ? "no" as const : { secret, keep: answer === YES_SESSION ? "session" as const : "once" as const };
+    }),
   };
 }
 
