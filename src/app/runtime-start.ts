@@ -2,6 +2,7 @@
  * --resume, the --model and --effort of this run, and what each file edit tells the checks. Moved from src/app.ts. */
 
 import { rememberTool } from "./side-question";
+import { noteJudgeStep } from "./auto-mode";
 import type { CasperApp } from "../app";
 import path from "node:path";
 import { hasSignIn } from "../tui/model-preference";
@@ -102,7 +103,7 @@ export async function ensureRuntime(app: CasperApp): Promise<RuntimeSession> {
       await applyRunSelection(app, app.session);
       app.unsubscribe = app.session.subscribe(event => {
         if (event.type === "waiting") { app.steering = event.lines; showWaiting(app); return; }
-        if (event.type === "tool_start") rememberTool(app, event.toolName);
+        if (event.type === "tool_start") { rememberTool(app, event.toolName); noteJudgeStep(app, event); }
         if (event.type === "tool_start" && event.toolName === "casper_check") app.modelCheckCalls++;
         if (event.type === "tool_end" && event.toolName === "casper_check") app.modelCheckCalls = Math.max(0, app.modelCheckCalls - 1);
         app.observations.observeUsage(event);

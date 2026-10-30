@@ -262,7 +262,7 @@ test("the box offers the yes-words; Yes, for this session covers that exact comm
   const sandbox = createSessionSandbox(terminal.value, context, { root: () => project, home, seams: { engine: fakeEngine(), platform: "win32" } });
   const shell = runtimeShell(terminal.value, sandbox, new SandboxStore(context.stateDirectory));
   expect(await shell.approve!("npm test")).toBeUndefined();
-  expect(terminal.asked).toEqual([{ question: "Run this command?  npm test", options: ["No", "Yes, this once", "Yes, for this session", "Yes, always for this project", "Yes to everything this session"] }]);
+  expect(terminal.asked).toEqual([{ question: "Run this command?  npm test", options: ["No", "Yes, this once", "Yes, for this session", "Yes, always for this project"] }]);
   expect(await shell.approve!("npm test")).toBeUndefined();
   expect(terminal.asked).toHaveLength(1);
   // More options, more in it, or another command: it asks.

@@ -33,6 +33,7 @@ import { checkSignIn, ensureRuntime } from "./runtime-start";
 import { handledHere, modelChangeRequest, namesModel } from "./model-words";
 import { trustCommand } from "./folder-trust";
 import { trustHandledHere, trustLine, trustRequest } from "./trust-words";
+import { autoModeHandledHere, autoModeRequest, setAutoMode } from "./auto-mode";
 import { exportHandledHere, exportRequest, exportWordsLine } from "./export-words";
 import { reloadProject } from "./project-file";
 import { pagesCommand } from "./pages";
@@ -209,6 +210,13 @@ export async function handlePrompt(app: CasperApp, prompt: string, typed?: { pas
       const line = await exportWordsLine(app, exported);
       app.output.write(exportHandledHere(line));
       return report = await handleSlashCommand(app, line);
+    }
+    // "auto mode off" or "auto mode on": saved as /settings would, with no model call (src/app/auto-mode.ts).
+    const auto = typed && !app.pastedImages?.size ? autoModeRequest(prompt, typed.pasted) : undefined;
+    if (auto) {
+      app.output.write(autoModeHandledHere(auto));
+      await setAutoMode(app, auto === "on");
+      return report;
     }
     // "trust this folder" or "stop trusting this folder": /trust, as if typed, with no model call (src/app/trust-words.ts).
     const trust = typed && !app.pastedImages?.size ? trustRequest(prompt, typed.pasted) : undefined;

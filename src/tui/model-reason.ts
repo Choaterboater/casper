@@ -1,6 +1,6 @@
 import { truncateToWidth } from "@earendil-works/pi-tui";
 import { stripVTControlCharacters } from "node:util";
-import { MODEL_REASON_PREFIX } from "./choices";
+import { MODEL_REASON_PREFIX, reasonPrefix } from "./choices";
 import { lineText } from "./format";
 
 const sentences = new Intl.Segmenter("en", { granularity: "sentence" });
@@ -15,6 +15,7 @@ export function modelReasonSummary(text: string): string {
 
 /** Attribution and summary occupy exactly one terminal row, even in a narrow window. */
 export function modelReasonLine(text: string, width: number): string {
-  const reason = text.startsWith(MODEL_REASON_PREFIX) ? text.slice(MODEL_REASON_PREFIX.length) : text;
-  return stripVTControlCharacters(truncateToWidth(`${MODEL_REASON_PREFIX}${modelReasonSummary(reason)}`, Math.max(1, width), "…"));
+  const prefix = reasonPrefix(text) ?? MODEL_REASON_PREFIX;
+  const reason = text.startsWith(prefix) ? text.slice(prefix.length) : text;
+  return stripVTControlCharacters(truncateToWidth(`${prefix}${modelReasonSummary(reason)}`, Math.max(1, width), "…"));
 }
