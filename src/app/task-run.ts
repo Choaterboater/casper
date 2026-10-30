@@ -388,7 +388,13 @@ export async function runModelTask(app: CasperApp, prompt: string, options: { fl
         verification = await runVerification(app, failedChecks, false, prompt, app.checkTask);
       }
     }
-    if (!stopped && app.checkTask && verificationMode === "auto") {
+    // A folder Casper can't list (too big, or with a folder it can't read, as a NAS's docker folder): the files Casper's
+    // own edit and write tools changed say where the work is; not when they changed more files than Casper keeps, as one
+    // left out may be elsewhere. All in one app or project folder: that folder's checks are the task's, not every app's.
+    const edited = app.observations.edited();
+    const toolLanded = !before && app.snapshotFailure !== undefined && edited.length < OBSERVED_EDITS_LIMIT ? toolFiles(workspaceRoot, edited, "inside") : undefined;
+    if (!stopped && toolLanded?.length && !app.closing) workFolder = await childProjectOfTask(app, context, toolLanded, { unlisted: true });
+    if (!stopped && app.checkTask && verificationMode === "auto" && !workFolder) {
       const changedByModel = before && afterModel ? flatten(diffSnapshots(before, afterModel)) : undefined;
       autoChecks = planAutoChecks({
         selected: context.verification.checks, commands: context.model.commands, scopes: context.model.verificationScopes,
@@ -443,13 +449,9 @@ export async function runModelTask(app: CasperApp, prompt: string, options: { fl
       verification = await runVerification(app, app.checkTask.checks, true, prompt, app.checkTask);
     }
     // The work landed in a project inside this folder (sample-tools in Documents): its own checks run for this receipt.
-    // In a folder too big to compare (Documents holding many projects), the files Casper's edit and write tools changed
-    // inside it say where the work is; not when they changed more files than Casper keeps, as one left out may be elsewhere.
-    const edited = app.observations.edited();
-    const landed = before && afterModel ? flatten(diffSnapshots(before, afterModel))
-      : !before && app.snapshotFailure && tooManyFiles(app.snapshotFailure) && edited.length < OBSERVED_EDITS_LIMIT ? toolFiles(workspaceRoot, edited, "inside") : undefined;
+    const landed = before && afterModel ? flatten(diffSnapshots(before, afterModel)) : toolLanded;
     if (!stopped && landed && !app.closing) {
-      workFolder = await childProjectOfTask(app, context, landed);
+      workFolder ??= await childProjectOfTask(app, context, landed);
       if (workFolder && !verification && app.checkTask && verificationMode === "auto") {
         const child = await runChildChecks(app, workFolder, landed);
         if (child) {

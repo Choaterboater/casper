@@ -164,6 +164,30 @@ async function digestEntry(target: string, chunk: Buffer): Promise<string | unde
   }
 }
 
+/**
+ * Whether a task's change list would fail here, found cheaply when a folder opens: more than SNAPSHOT_FILE_LIMIT files
+ * (counted as the snapshot walks, without reading them) or a folder that can't be read. Undefined when the walk ran out
+ * of `budgetMs` first: Casper doesn't guess.
+ */
+export async function unlistable(root: string, budgetMs = 1_500): Promise<"too-many" | "unreadable" | undefined | false> {
+  const deadline = Date.now() + budgetMs;
+  const pending = [""];
+  let files = 0;
+  while (pending.length) {
+    if (Date.now() > deadline) return undefined;
+    const relative = pending.pop()!;
+    let entries;
+    try { entries = await readdir(path.join(root, relative), { withFileTypes: true }); }
+    catch (error) { if (VANISHED[errorCode(error) ?? ""]) continue; return "unreadable"; }
+    for (const entry of entries) {
+      const next = relative ? `${relative}/${entry.name}` : entry.name;
+      if (entry.isDirectory()) { if (!await skipped(root, next, entry.name)) pending.push(next); }
+      else if ((entry.isFile() || entry.isSymbolicLink()) && ++files > SNAPSHOT_FILE_LIMIT) return "too-many";
+    }
+  }
+  return false;
+}
+
 /** Why a snapshot failed, in plain words for the receipt. */
 export function snapshotFailureReason(error: unknown): string {
   const over = error instanceof RangeError ? /exceeds (\d+) files/.exec(error.message) : null;

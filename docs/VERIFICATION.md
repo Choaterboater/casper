@@ -264,9 +264,15 @@ folder name, or a link ending in it; a plain-word name such as `review` only whe
 "move to review", "the review project") asks `This request names casper-tools, in ~/Documents/casper-tools.` with
 `1 Stay here · 2 Move there`: Move runs the request there (in a new conversation when one had started here, which
 stays in /resume). Only the saved conversations' folders are matched; Casper never searches for the project. A one-shot run prints `[folder] The work is in ~/Documents/sample-tools. To work there: cd
-~/Documents/sample-tools && casper`. In a folder too big to compare (over 20,000 files, as a Documents folder
-holding many projects often is), the work folder is found from the files Casper's edit and write tools changed;
-what a shell command changed there is not counted.
+~/Documents/sample-tools && casper`. In a folder Casper can't compare (over 20,000 files, as a Documents folder
+holding many projects often is, or with a folder it can't read, as a NAS's `docker` folder of app folders is), the work
+folder is found from the files Casper's edit and write tools changed, even when the open folder is a project or
+repository itself; what a shell command changed there is not counted. An app folder with its own compose file counts as
+a project: only its compose file is checked (`• Casper checking: compose (checks from cloudflared)`), never every app's.
+When such a folder opens, one line says so and names the folder to open instead: `[folder] Casper can't read some
+folders in this folder, so undo and the list of changed files are off here. To have them for one app, open its folder:
+cd ~/docker/cloudflared && casper` (or `This folder has over 20,000 files, …`). `tests/big-folder-work.test.ts` covers
+this.
 
 **`/verify` with nothing to run (from v0.2.19)** prints one line instead of one line per check:
 `[verify] No checks found in Documents. Tests found in sample-tools: /project sample-tools`, or
@@ -416,9 +422,9 @@ copies, say) is compared without them: the receipt lists the changes to everythi
 and archives here are not tracked: with them this folder is over 20,000 files`. It still has no undo, since the undo
 copy counts every file ([UNDO.md](UNDO.md)).
 
-In a folder too big to compare, the receipt says `– Changes unknown: not a project folder (over 20,000 files)` and
-lists the files Casper's edit and write tools changed. When the ones inside the folder all sit in one project, that
-project's checks run and Casper says `The work is in ~/Documents/sample-tools.`, as above; not when the tools changed 32
+In a folder too big to compare, the receipt says `– Changes unknown: not a project folder (over 20,000 files)` (or
+`Casper could not read this folder (EACCES)`) and lists the files Casper's edit and write tools changed. When the ones
+inside the folder all sit in one project or app folder, that folder's checks run instead of the open folder's and Casper says `The work is in ~/Documents/sample-tools.`, as above; not when the tools changed 32
 files or more, since Casper keeps only the first 32 and a later one may sit elsewhere. In this list, as in any receipt
 that says `Changes unknown`, a file outside the folder is named in full, except scratch in the system temp folders,
 which is left out.

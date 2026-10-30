@@ -2,6 +2,7 @@ import { lstat } from "node:fs/promises";
 import path from "node:path";
 import { findProjectCandidates, hasProjectSignals, type ProjectInfo } from "./inspect";
 import { loadProjectModel, type ProjectModel } from "./model";
+import { COMPOSE_FILES } from "../verify/compose";
 
 /**
  * A project folder inside the open folder: the AI built sample-tools inside ~/Documents, so Documents has no
@@ -18,9 +19,15 @@ async function isDirectory(file: string): Promise<boolean> {
   return (await lstat(file).catch(() => undefined))?.isDirectory() ?? false;
 }
 
-/** Own project signs: a marker file (pyproject.toml, package.json, go.mod ...) or a tests folder. */
+/** Own project signs: a marker file (pyproject.toml, package.json, go.mod ...), a tests folder, or a compose file (an app
+ * folder in a home lab's docker folder). */
 export async function looksLikeProject(dir: string): Promise<boolean> {
-  return await hasProjectSignals(dir) || await isDirectory(path.join(dir, "tests")) || await isDirectory(path.join(dir, "test"));
+  return await hasProjectSignals(dir) || await isDirectory(path.join(dir, "tests")) || await isDirectory(path.join(dir, "test"))
+    || (await Promise.all(COMPOSE_FILES.map((name) => isFile(path.join(dir, name))))).some(Boolean);
+}
+
+async function isFile(file: string): Promise<boolean> {
+  return (await lstat(file).catch(() => undefined))?.isFile() ?? false;
 }
 
 async function childModel(dir: string, homeDir: string): Promise<ProjectModel> {

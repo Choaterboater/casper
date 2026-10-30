@@ -4,16 +4,19 @@
 import type { CasperApp } from "../app";
 import os from "node:os";
 import path from "node:path";
-import { stat } from "node:fs/promises";
+import { readdir, stat } from "node:fs/promises";
 import { terminalText } from "../tui/format";
 import type { ProjectContext } from "../project/context";
 import { broadFolder, findProjectCandidates, hasProjectSignals, inspectProject } from "../project/inspect";
-import { childProjectOf, type ChildProject } from "../project/child";
+import { childProjectOf, looksLikeProject, type ChildProject } from "../project/child";
+import { SNAPSHOT_FILE_LIMIT, unlistable } from "../task/changes";
 import { orderProjectChoices, recentlyUsedProjects } from "../project/recent";
 import { appAgentDir } from "./runtime-start";
 import type { VerificationReport, VerificationResult } from "../verify/evidence";
 import { VerifierRegistry } from "../verify/registry";
 import { namedProjectChoices, workFolderChoices } from "./safe-choices";
+import { autoDetectedChecks } from "../verify/migrations-check";
+import { detectCompose } from "../verify/compose";
 import { isOutside } from "../platform/inside";
 import { planAutoChecks } from "../verify/mode";
 import { NEW_USAGE, parseNewArgs, type NewCommand } from "../cli-args";
@@ -84,6 +87,27 @@ export function projectsHeldLine(cwd: string, candidates: readonly string[]): st
     + `To work in one: casper ${terminalText(path.relative(cwd, candidates[0]!))}\n`;
 }
 
+/** Said once when a folder Casper can't list opens: why undo and the change list are off, and the folder to open
+ * instead (an app or project folder inside, or an example). */
+export function unlistedLine(cwd: string, why: "too-many" | "unreadable", app: string | undefined, home: string, platform: NodeJS.Platform = process.platform): string {
+  const reason = why === "too-many" ? `This folder has over ${SNAPSHOT_FILE_LIMIT.toLocaleString("en-US")} files` : "Casper can't read some folders in this folder";
+  const target = terminalText(tildePath(app ?? path.join(cwd, "<app>"), home, platform));
+  return `[folder] ${reason}, so undo and the list of changed files are off here. To have them for one app, open its folder: cd ${target} && casper\n`;
+}
+
+/** An app or project folder directly inside `cwd`, for the line above: a found project first, else one with a compose file. */
+async function appFolderIn(cwd: string, candidates: readonly string[]): Promise<string | undefined> {
+  const child = candidates.find((candidate) => path.dirname(candidate) === cwd);
+  if (child) return child;
+  const entries = await readdir(cwd, { withFileTypes: true }).catch(() => []);
+  const folders = entries.filter((item) => item.isDirectory() && !item.name.startsWith(".") && !item.name.startsWith("#"))
+    .sort((a, b) => a.name.localeCompare(b.name)).slice(0, 200);
+  for (const entry of folders) {
+    if (await looksLikeProject(path.join(cwd, entry.name))) return path.join(cwd, entry.name);
+  }
+  return undefined;
+}
+
 /** Interactive startup opens the folder Casper was launched in, always, with no question. A folder that holds
  * projects gets one line naming them. The home folder or a drive root is broad (the sandbox lets the AI write
  * anywhere in the workspace and tasks scan it), so there one line says where Casper opened and the command that
@@ -105,6 +129,10 @@ export async function openProjectFolder(app: CasperApp, cwd: string, env: { plat
     if (candidates.length > 1) candidates = await orderProjectChoices(candidates, { base: cwd, agentDir: appAgentDir(app), noise });
     const line = projectsHeldLine(cwd, candidates);
     if (line) app.output.write(line);
+    // A folder Casper can't list (a NAS's docker folder: many apps, folders only root can read) has no change list
+    // or undo: said once now, with where they work.
+    const unlisted = await unlistable(cwd).catch(() => undefined);
+    if (unlisted) app.output.write(unlistedLine(cwd, unlisted, await appFolderIn(cwd, candidates), home, platform));
     return cwd;
   }
   // `casper <folder>` opens that folder, so the hint is one command, no cd and no restart. From home it names
@@ -329,10 +357,12 @@ export async function offerNamedProject(app: CasperApp, request: string, planFir
 }
 
 /** The one project folder inside the open folder that holds every file this task changed, when the open folder
- * is not a project itself (Documents, not a repository). */
-export async function childProjectOfTask(app: CasperApp, context: ProjectContext, changed: readonly string[]): Promise<ChildProject | undefined> {
+ * is not a project itself (Documents, not a repository) or can't be listed. */
+export async function childProjectOfTask(app: CasperApp, context: ProjectContext, changed: readonly string[], options: { unlisted?: boolean } = {}): Promise<ChildProject | undefined> {
   const root = context.info.root;
-  if (!changed.length || context.info.isGit || await hasProjectSignals(root)) return undefined;
+  // `unlisted`: Casper couldn't list the open folder (too big, or a folder it can't read), so even a project there has no
+  // change list or undo: the one folder inside it holding all the work is where those work.
+  if (!changed.length || (!options.unlisted && (context.info.isGit || await hasProjectSignals(root)))) return undefined;
   return childProjectOf(root, changed, app.sessionHomeDir ?? os.homedir()).catch(() => undefined);
 }
 
@@ -342,12 +372,17 @@ export async function childProjectOfTask(app: CasperApp, context: ProjectContext
 export async function runChildChecks(app: CasperApp, child: ChildProject, changed: readonly string[]): Promise<VerificationReport | undefined> {
   const prefix = `${child.relative}/`;
   const inside = changed.filter((file) => file.split(path.sep).join("/").startsWith(prefix)).map((file) => file.split(path.sep).join("/").slice(prefix.length));
-  const plan = planAutoChecks({ commands: child.model.commands, scopes: child.model.verificationScopes, changedPaths: inside, root: child.dir });
+  // Its found checks too (an app folder's own compose file), never the open folder's; verification.compose: false (here)
+  // keeps it off.
+  const composeOn = app.projectContext?.verification.compose !== false && !child.model.namedChecks?.compose;
+  const model = !child.model.compose && composeOn ? { ...child.model, ...await detectCompose(child.dir).then((compose) => compose ? { compose } : {}, () => ({})) } : child.model;
+  const plan = planAutoChecks({ commands: model.commands, scopes: model.verificationScopes, named: model.namedChecks,
+    detected: autoDetectedChecks(model), changedPaths: inside, root: child.dir });
   if (!plan.run.length) return undefined;
   const label = `checks from ${child.relative}`;
   app.events.ensureLineBreak();
   app.output.write(`• Casper checking: ${plan.run.join(", ")} (${terminalText(label)})\n`);
-  const registry = VerifierRegistry.forProject(child.model, app.projectContext!.verification.timeoutMs, app.blockOnCleanupFailure, networkOptions(app));
+  const registry = VerifierRegistry.forProject(model, app.projectContext!.verification.timeoutMs, app.blockOnCleanupFailure, networkOptions(app));
   phase(app, "checks", "start");
   try {
     const results: VerificationResult[] = [];
