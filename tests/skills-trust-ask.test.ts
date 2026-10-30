@@ -1,5 +1,5 @@
-import { afterEach, expect, test } from "bun:test";
-import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
+import { afterEach, expect } from "bun:test";
+import { mkdir, mkdtemp, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { PassThrough } from "node:stream";
@@ -7,8 +7,10 @@ import { CasperApp } from "../src/app";
 import { loadProjectContext } from "../src/project/context";
 import { SkillRegistry } from "../src/skills/registry";
 import { removeTempDir } from "./support/temp-dir";
+import { needsSymlinks } from "./support/platform";
 
-/** /skills trust <id> shows the skill and asks 1 No · 2 Trust it: no copied sha256. */
+/** /skills trust <id> shows the skill and asks 1 No · 2 Trust it: no copied sha256. It is for a skill linked into your
+ * folder from outside your folders; a project's own skills follow folder trust instead (tests/shared-skills.test.ts). */
 
 const dirs: string[] = [];
 afterEach(async () => { for (const dir of dirs.splice(0)) await removeTempDir(dir); });
@@ -17,9 +19,12 @@ async function session(commands: string[], answers: string[]) {
   const root = await mkdtemp(path.join(os.tmpdir(), "casper-trust-ask-"));
   dirs.push(root);
   const project = path.join(root, "project"), homeDir = path.join(root, "home");
-  await mkdir(path.join(project, ".casper/skills/deploy"), { recursive: true });
-  await mkdir(homeDir);
-  await writeFile(path.join(project, ".casper/skills/deploy/SKILL.md"), "---\nname: deploy\ndescription: Deploy steps.\n---\nDEPLOY_BODY");
+  const elsewhere = path.join(root, "elsewhere/deploy");
+  await mkdir(elsewhere, { recursive: true });
+  await mkdir(project);
+  await mkdir(path.join(homeDir, ".casper/skills"), { recursive: true });
+  await writeFile(path.join(elsewhere, "SKILL.md"), "---\nname: deploy\ndescription: Deploy steps.\n---\nDEPLOY_BODY");
+  await symlink(elsewhere, path.join(homeDir, ".casper/skills/deploy"));
   const input = new PassThrough();
   let output = "";
   const pending = [...commands];
@@ -37,7 +42,7 @@ async function session(commands: string[], answers: string[]) {
   return output;
 }
 
-test("/skills trust <id> shows the skill and its fingerprint, then 1 No · 2 Trust it; 1 trusts nothing", async () => {
+needsSymlinks("/skills trust <id> shows the skill and its fingerprint, then 1 No · 2 Trust it; 1 trusts nothing", async () => {
   const declined = await session(["/skills", "/skills trust <id>", "/skills"], ["1"]);
   expect(declined).toContain("DEPLOY_BODY");
   expect(declined).toContain("Trust deploy as shown?\n  1 No\n  2 Trust it\n");
@@ -45,7 +50,7 @@ test("/skills trust <id> shows the skill and its fingerprint, then 1 No · 2 Tru
   expect(declined.slice(declined.lastIndexOf("deploy@"))).toContain("untrusted");
 });
 
-test("2 trusts exactly what was shown", async () => {
+needsSymlinks("2 trusts exactly what was shown", async () => {
   const output = await session(["/skills", "/skills trust <id>", "/skills"], ["2"]);
   expect(output).toContain("Trusted reviewed content for deploy@");
   expect(output.slice(output.lastIndexOf("deploy@"))).not.toContain("untrusted");

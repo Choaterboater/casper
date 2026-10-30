@@ -1550,12 +1550,18 @@ async function handleLabCommand(host: CommandHost, prompt: string): Promise<void
 /** "8 indexed (6 bundled)", "10 indexed (6 bundled, 2 from packs)", or "2 indexed; bundled: off" when skills.bundled is false. */
 function skillCountLine(host: CommandHost): string {
   const skills = host.skillRegistry!.list();
-  const bundled = skills.filter((skill) => skill.source === "bundled").length;
-  const packs = skills.filter((skill) => skill.source === "pack").length;
+  const count = (source: string) => skills.filter((skill) => skill.source === source).length;
+  const bundled = count("bundled");
+  const packs = count("pack");
   const fromPacks = packs ? `${packs} from packs` : "";
-  if (host.projectContext!.skills.bundled === false) return `${skills.length} indexed${fromPacks ? ` (${fromPacks})` : ""}; bundled: off`;
-  const parts = [bundled ? `${bundled} bundled` : "", fromPacks].filter(Boolean);
-  return `${skills.length} indexed${parts.length ? ` (${parts.join(", ")})` : ""}`;
+  // Where they came from: yours (~/.casper), your other tools' folders (~/.agents, ~/.claude …), this folder's own.
+  const where = [count("user") ? `${count("user")} yours` : "", count("personal") ? `${count("personal")} from your other tools` : "",
+    count("project") ? `${count("project")} this folder's${host.folderTrust?.trusted === false ? " (not used: folder not trusted)" : ""}` : ""];
+  const notUsed = skills.filter((skill) => skill.shadowedBy).length;
+  const tail = notUsed ? `; ${notUsed} not used (same name as one that comes first)` : "";
+  if (host.projectContext!.skills.bundled === false) return `${skills.length} indexed${[...where, fromPacks].some(Boolean) ? ` (${[...where, fromPacks].filter(Boolean).join(", ")})` : ""}; bundled: off${tail}`;
+  const parts = [...where, bundled ? `${bundled} bundled` : "", fromPacks].filter(Boolean);
+  return `${skills.length} indexed${parts.length ? ` (${parts.join(", ")})` : ""}${tail}`;
 }
 
 async function handleSkillsCommand(host: CommandHost, prompt: string): Promise<void> {
@@ -1569,7 +1575,8 @@ async function handleSkillsCommand(host: CommandHost, prompt: string): Promise<v
         const skills = registry.list();
         host.output.write(`${skillCountLine(host)}; imports: ${host.projectContext!.skills.imports?.join(", ") || "none"}\n`);
         host.output.write(skills.length ? skills.map((skill) => [
-          `${skill.id} [${skill.source}; ${skill.trust}${skill.disableModelInvocation ? "; manual-only" : ""}]`,
+          `${skill.id} [${skill.source}; ${skill.trust}${skill.disableModelInvocation ? "; manual-only" : ""}${skill.shadowedBy ? `; not used: ${skill.shadowedBy} comes first` : ""}`
+            + `${skill.source === "project" && skill.trust === "untrusted" ? "; not used until you trust this folder" : ""}]`,
           `  ${JSON.stringify(skill.description)}`,
           `  ${skill.source === "bundled" ? `${skill.filePath.replace(/^bundled:/, "")} (inside Casper; /settings turns them off)` : skill.filePath}`,
         ].join("\n")).join("\n\n") + "\n" : "No skills discovered.\n");
@@ -1593,9 +1600,14 @@ async function handleSkillsCommand(host: CommandHost, prompt: string): Promise<v
             ? `Bundled with Casper and trusted. /skills block ${id} stops it; /settings turns them all off.`
             : inspected.skill.source === "pack"
               ? `Comes with pack ${inspected.skill.pack}, reviewed as a whole when you add it (/pack list). /skills block ${id} stops it.`
-              : `After reviewing: /skills trust ${id}${host.interactive ? "" : ` ${inspected.sha256}`}`,
+              : registry.followsFolder(id)
+                ? `This folder's own skill: used while you trust the folder ("trust this folder"). /skills block ${id} stops it.`
+                : `After reviewing: /skills trust ${id}${host.interactive ? "" : ` ${inspected.sha256}`}`,
           "",
         ].join("\n"));
+      } else if (action === "trust" && id && registry.followsFolder(id)) {
+        // A repository's own skills follow the folder, as Claude Code's do: no review of one skill trusts it.
+        host.output.write(`${id} is this folder's own skill: it is used while you trust the folder. Say "trust this folder" (/trust).\n`);
       } else if (action === "trust" && id && sha256 && !extra.length) {
         await registry.trust(id, sha256);
         host.output.write(`Trusted reviewed content for ${id}.\n`);

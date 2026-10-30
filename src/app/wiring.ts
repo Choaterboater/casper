@@ -130,6 +130,8 @@ export async function loadWorkspace(app: CasperApp, cwd: string) {
     await app.shell?.close(); await sandbox.close();
   } });
   app.skillRegistry = registry;
+  // The folder's own skills (.casper, .agents, .claude, .github …) are used only while you trust it.
+  registry.setFolderTrusted(app.folderTrust?.trusted === true);
   // Remembered approval (keyed hashes only). A damaged or missing file means Casper asks again.
   const consent = new ConsentStore(app.sessionHomeDir ?? os.homedir());
   await consent.load().catch(() => {});

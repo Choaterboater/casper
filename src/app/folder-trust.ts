@@ -58,6 +58,11 @@ export async function decideFolderTrust(app: CasperApp, context: ProjectContext)
   app.output.write(NOT_TRUSTED_LINE);
 }
 
+/** The folder's own skills follow its trust (src/skills/registry.ts setFolderTrusted). */
+function followTrust(app: CasperApp): void {
+  app.skillRegistry?.setFolderTrusted(app.folderTrust?.trusted === true);
+}
+
 /** /trust and /trust off, and the plain words for them ("trust this folder", "stop trusting this folder"). */
 export async function trustCommand(app: CasperApp, argument: string): Promise<void> {
   const context = app.projectContext;
@@ -70,6 +75,7 @@ export async function trustCommand(app: CasperApp, argument: string): Promise<vo
     await saveFolderTrust(root, home, false);
     const still = await folderTrustDefaults.lookup(context.info, home).catch((): FolderTrust => ({ trusted: false, why: "new" }));
     app.folderTrust = { trusted: false, why: still.trusted ? "new" : still.why };
+    followTrust(app);
     app.output.write(NOT_TRUSTED_LINE);
     if (still.trusted && still.from !== root) {
       app.output.write(`[trust] Not trusted for this session. ${terminalText(tildePath(still.from, home))} is trusted and covers this folder; `
@@ -83,6 +89,7 @@ export async function trustCommand(app: CasperApp, argument: string): Promise<vo
   }
   await saveFolderTrust(root, home, true);
   app.folderTrust = { trusted: true, from: root };
+  followTrust(app);
   app.output.write(`[trust] Trusted ${name}: Casper runs its checks after each change, and the project's scripts, builds and tests run as `
     + "routine. \"stop trusting this folder\" takes it back.\n");
 }

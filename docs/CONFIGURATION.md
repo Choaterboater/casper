@@ -1400,30 +1400,32 @@ A skill is a Markdown file of instructions (a `SKILL.md`) that Casper adds to th
 when a request matches it — for example "how we write MCP tools in this team". Casper chooses
 skills itself; Pi's own skill discovery is turned off inside Casper.
 
-**Where Casper looks** (at startup; only Casper's own folders are on by default):
+**Where Casper looks** (at startup). Your own folders come first, then the project's; when two
+folders hold a skill of the same name, the first one is used and `/skills` lists the others as not used:
 
-| Source | Locations | Trusted by default? |
+| Source | Locations, in order | Used |
 | --- | --- | --- |
-| User | `~/.casper/skills/` | Yes, when the real file is inside this folder |
+| User | `~/.casper/skills/` | Yes, when the real file is inside one of your folders |
 | Project (your copy) | `~/.casper/projects/<project>-<id>/skills/` (where `casper learn promote … project-skill` writes) | Yes, when the real file is inside this folder |
-| Project | `<project>/.casper/skills/` | No, until you review it |
+| Your other tools | `~/.agents/skills/` (the shared Agent Skills folder Copilot, Codex and Pi read), `~/.claude/skills/`, `~/.copilot/skills/`, `~/.pi/agent/skills/`, `~/.codex/skills/` | Yes, when the real file is inside one of your folders (a link from `~/.claude/skills` into `~/.agents/skills` counts once) |
+| Project | `<project>/.casper/skills/`, then `.agents/skills/`, `.claude/skills/`, `.github/skills/`, `.pi/skills/`, `.codex/skills/` | Only while you trust the folder ([VERIFICATION.md](VERIFICATION.md)); never in your home folder |
 | Bundled with Casper (since v0.2.18) | Inside the `casper` binary (source: `skills/network/*/SKILL.md`) | Yes; on unless `skills.bundled: false`. See [SKILLS.md](SKILLS.md) |
-| Other tools **(opt-in)** | `~/.pi/agent/skills/`, `~/.agents/skills/`, `~/.claude/skills/`, `~/.codex/skills/`; in the project `.pi/skills/`, `.agents/skills/`, `.claude/skills/`, `.codex/skills/` | No, until you review it |
 | Packs | `~/.casper/packs/<name>/`, added only by your `/pack add` | Yes, while every file is what the add box showed you; on unless `packs: off`. See [PACKS.md](PACKS.md) |
 
-To use other tools' skill folders, turn them on in `~/.casper/config.yaml` or
+Every tool's folders are read unless you list fewer, in `~/.casper/config.yaml` or
 `~/.casper/profiles/<profile>/config.yaml`:
 
 ```yaml
 skills:
-  imports: [pi, agents] # default []; supported names: pi, agents, claude, codex
+  imports: [agents, claude] # default: agents, claude, copilot, pi, codex; [] reads only Casper's own
 ```
 
-Each name adds its user and project folders from the table. A profile list replaces the global
-list; `[]` turns imports off. `skills.imports` in a project file is an error: a repository cannot
-turn imports on. (A project can still select one of your profiles; see
-[Profile trust](#profiles).) Importing only finds skills; it does not trust them, and review is
-still needed. Casper never changes skill files in those folders.
+Each name adds that tool's folder in your home folder and in the project (`copilot` reads the
+project's `.github/skills/`). A profile list replaces the global list. `skills.imports` in a project
+file is an error: a repository cannot turn sources on. Casper never changes skill files in those
+folders. A project's `.casper/skills/` is always read, and like the other project folders it is used
+only while you trust the folder: as in Claude Code, trusting the folder is the review, and
+`/skills block <id>` still stops one skill.
 
 **How files are found.**
 
@@ -1506,7 +1508,9 @@ bodies to the model:
 /skills block <id>
 ```
 
-Use the exact ID from `/skills`. `trust` prints the body and its SHA-256 hash, then asks
+Use the exact ID from `/skills`. `/skills trust` is for a skill linked into one of your folders from
+somewhere else; a project's own skills follow folder trust instead ("trust this folder"). `trust` prints
+the body and its SHA-256 hash, then asks
 `1 No · 2 Trust it`; 2 trusts exactly what it showed. `/skills trust <id> <sha256>` still works for
 scripts. Decisions are stored in `~/.casper/skills-trust.json`, keyed
 by the real file path. Trust is checked against the file's current content each time the skill

@@ -10,9 +10,22 @@ import { MAX_SKILL_BYTES, parseSkillMetadata, readSkillHeader, splitSkill, type 
 import { scoreSkill } from "./rank";
 import { allBundledSkills, bundledSkillFolder, MAX_BUNDLED_ACTIVE, parseSkillRule, safetyProblems, scoreBundledSkill, scoreSkillRule, type AnyBundledSkill, type BundledSkill } from "./bundled";
 
-export const SKILL_IMPORTS = ["pi", "agents", "claude", "codex"] as const;
+/** Other tools' skill folders Casper reads (`skills.imports`), in the order a name in two of them is used. */
+export const SKILL_IMPORTS = ["agents", "claude", "copilot", "pi", "codex"] as const;
 export type SkillImport = typeof SKILL_IMPORTS[number];
-export type SkillSource = "user" | "project" | "external" | "bundled" | "pack";
+/** Every tool's folders, unless your config lists fewer (`skills.imports: []` turns them off). */
+export const DEFAULT_SKILL_IMPORTS: readonly SkillImport[] = SKILL_IMPORTS;
+/** Your own folder for each tool, in your home folder (the shared Agent Skills folder first). */
+const PERSONAL_FOLDERS: Record<SkillImport, string> = {
+  agents: ".agents/skills", claude: ".claude/skills", copilot: ".copilot/skills", pi: ".pi/agent/skills", codex: ".codex/skills",
+};
+/** A repository's folder for each tool (Copilot reads .github/skills). */
+const PROJECT_FOLDERS: Record<SkillImport, string> = {
+  agents: ".agents/skills", claude: ".claude/skills", copilot: ".github/skills", pi: ".pi/skills", codex: ".codex/skills",
+};
+/** user: ~/.casper/skills. personal: another tool's folder of yours (~/.claude/skills). project: the repository's own
+ * folders, used only while you trust the folder (src/project/trust.ts). */
+export type SkillSource = "user" | "personal" | "project" | "bundled" | "pack";
 export type SkillTrust = "trusted" | "reviewed-external" | "untrusted" | "blocked";
 
 export interface SkillSummary extends SkillMetadata {
@@ -24,6 +37,8 @@ export interface SkillSummary extends SkillMetadata {
   trust: SkillTrust;
   /** The pack it came with (source "pack"). */
   pack?: string;
+  /** Not used: the id of the skill of the same name that is, from a folder that comes first (yours before the project's). */
+  shadowedBy?: string;
 }
 
 export interface LoadedSkill {
@@ -41,12 +56,19 @@ export interface SkillRegistryOptions {
   bundled?: boolean;
   /** Index the skills of the packs you added (the app passes `packs`, default on). */
   packs?: boolean;
+  /** Whether you trust the open folder: its own skill folders are used only then. Default: not trusted, until the
+   * session decides (setFolderTrusted). */
+  folderTrusted?: boolean;
 }
 
 interface SkillEntry {
   summary: SkillSummary;
   header: string;
   userOwned: boolean;
+  /** One of the repository's own skills: used only while you trust the folder. */
+  projectFolder?: boolean;
+  /** Its folder's place in the order a name found in two folders is used (lower first). */
+  rank?: number;
   /** Set for a skill shipped inside Casper: its text comes from the binary, never from a file. */
   bundled?: AnyBundledSkill;
   /** Set for a skill from a pack: the sha256 its SKILL.md had when you added the pack, and whether every file of
@@ -82,9 +104,11 @@ export class SkillRegistry {
   private readonly homeDir: string;
   private readonly trustPath: string;
   private readonly maxActive: number;
+  private folderTrusted: boolean;
 
   private constructor(private readonly options: SkillRegistryOptions) {
     this.homeDir = options.homeDir ?? os.homedir();
+    this.folderTrusted = options.folderTrusted === true;
     this.trustPath = path.join(this.homeDir, ".casper", "skills-trust.json");
     this.maxActive = options.maxActive ?? 6;
     if (!Number.isInteger(this.maxActive) || this.maxActive < 0 || this.maxActive > 32) {
@@ -132,21 +156,20 @@ export class SkillRegistry {
   private async scan(): Promise<void> {
     const canonicalHome = await realpath(this.homeDir).catch(() => path.resolve(this.homeDir));
     const canonicalProject = await realpath(this.options.projectRoot);
+    const imports = [...new Set(this.options.imports ?? DEFAULT_SKILL_IMPORTS)];
+    for (const imported of imports) if (!SKILL_IMPORTS.includes(imported)) throw new Error("Unknown skills.imports source");
+    // In the order a name found in two of them is used: yours first, then the repository's (as Claude Code does).
+    const enabled = SKILL_IMPORTS.filter((name) => imports.includes(name));
     const roots: Array<{ directory: string; source: SkillSource; projectScoped: boolean; userOwned: boolean }> = [
       { directory: path.join(canonicalHome, ".casper", "skills"), source: "user", projectScoped: false, userOwned: true },
-      { directory: path.join(canonicalProject, ".casper", "skills"), source: "project", projectScoped: true, userOwned: false },
       { directory: path.join(projectStateDirectory(canonicalProject, canonicalHome), "skills"), source: "project", projectScoped: false, userOwned: true },
+      ...enabled.map((name) => ({ directory: path.join(canonicalHome, PERSONAL_FOLDERS[name]), source: "personal" as const, projectScoped: false, userOwned: true })),
+      { directory: path.join(canonicalProject, ".casper", "skills"), source: "project", projectScoped: true, userOwned: false },
+      ...enabled.map((name) => ({ directory: path.join(canonicalProject, PROJECT_FOLDERS[name]), source: "project" as const, projectScoped: true, userOwned: false })),
     ];
-    for (const { base, pi, projectScoped } of [
-      { base: this.homeDir, pi: ".pi/agent/skills", projectScoped: false },
-      { base: this.options.projectRoot, pi: ".pi/skills", projectScoped: true },
-    ]) {
-      for (const imported of new Set(this.options.imports ?? [])) {
-        if (!SKILL_IMPORTS.includes(imported)) throw new Error("Unknown skills.imports source");
-        const relative = imported === "pi" ? pi : `.${imported}/skills`;
-        roots.push({ directory: path.join(base, relative), source: "external", projectScoped, userOwned: false });
-      }
-    }
+    // A skill is yours when its real file is in one of your own folders: a link from ~/.claude/skills into
+    // ~/.agents/skills is yours, a link out to a cloned repository is not.
+    const yours = await Promise.all(roots.filter((root) => root.userOwned).map((root) => realpath(root.directory).catch(() => path.resolve(root.directory))));
 
     const seenFiles = new Set<string>();
     for (const root of roots) {
@@ -189,8 +212,8 @@ export class SkillRegistry {
               const header = name === "SKILL.md" ? await readSkillHeader(filePath) : await readSkillHeader(filePath, true);
               if (header === undefined) continue;
               const metadata = parseSkillMetadata(header);
-              // A symlink out of the user skill directory cannot gain implicit trust.
-              const userOwned = root.userOwned && isWithin(path.resolve(root.directory), filePath);
+              // A symlink out of your own skill folders cannot gain implicit trust.
+              const userOwned = root.userOwned && yours.some((folder) => isWithin(folder, filePath));
               const record = this.records[filePath];
               const summary: SkillSummary = {
                 ...metadata,
@@ -202,7 +225,9 @@ export class SkillRegistry {
                 trust: record?.status ?? (userOwned ? "trusted" : "untrusted"),
               };
               seenFiles.add(filePath);
-              this.entries.push({ summary, header, userOwned });
+              const entry: SkillEntry = { summary, header, userOwned, rank: roots.indexOf(root), ...(root.projectScoped ? { projectFolder: true } : {}) };
+              entry.summary.trust = this.trustOf(entry);
+              this.entries.push(entry);
             }
           } catch (error) {
             this.warnings.add(`Skipped skill ${candidate}: ${String(error)}`);
@@ -239,11 +264,18 @@ export class SkillRegistry {
         ? `${summary.id} replaces the bundled ${summary.name} only while it keeps the bundled skill's section layout and stop-and-ask line`
         : `${summary.id} has the same name as a bundled Casper skill; the bundled one is used`);
     }
+    // The same name in two folders: the one from the folder that comes first is used (yours before the project's,
+    // ~/.casper/skills before the other tools'); the others are listed with the one that is.
     const names = new Set<string>();
-    for (const { summary, bundled, pack } of this.entries) {
+    const first = new Map<string, SkillEntry>();
+    for (const entry of [...this.entries].sort((left, right) => (left.rank ?? 99) - (right.rank ?? 99) || left.summary.id.localeCompare(right.summary.id))) {
+      const { summary, bundled, pack } = entry;
       if (bundled || pack || bundledNames.has(summary.name)) continue;
-      if (names.has(summary.name)) this.warnings.add(`Duplicate skill name ${summary.name}; use the full id to distinguish sources`);
       names.add(summary.name);
+      const used = first.get(summary.name);
+      if (!used) { first.set(summary.name, entry); continue; }
+      summary.shadowedBy = used.summary.id;
+      this.warnings.add(`${summary.id} isn't used: ${used.summary.id} (${used.summary.sourceDirectory}) has the same name and comes first`);
     }
     // A pack's skills come last: one with the name of any other skill is never used.
     for (const { summary, pack } of this.entries) {
@@ -287,12 +319,24 @@ export class SkillRegistry {
     }
   }
 
-  /** A skill's trust now: your block first; a pack's skill is reviewed while its pack matches what you were shown. */
+  /** A skill's trust now: your block first; a pack's skill is reviewed while its pack matches what you were shown; a
+   * repository's own skill follows whether you trust the folder (as Claude Code's do), with no review of its own. */
   private trustOf(entry: SkillEntry): SkillTrust {
     const record = this.records[entry.summary.filePath];
     if (entry.pack) return record?.status === "blocked" ? "blocked" : entry.pack.matches ? "reviewed-external" : "untrusted";
+    if (record?.status === "blocked") return "blocked";
+    if (entry.projectFolder) return this.folderTrusted ? "trusted" : "untrusted";
     return record?.status ?? (entry.userOwned ? "trusted" : "untrusted");
   }
+
+  /** You trusted the open folder, or took it back: its own skills are used, or stop being used, from the next request. */
+  setFolderTrusted(trusted: boolean): void {
+    this.folderTrusted = trusted;
+    for (const entry of this.entries) entry.summary.trust = this.trustOf(entry);
+  }
+
+  /** Whether a skill is one of the open folder's own (it follows folder trust, not a review). */
+  followsFolder(id: string): boolean { return this.find(id).projectFolder === true; }
 
   private find(id: string): SkillEntry {
     const entry = this.entries.find(({ summary }) => summary.id === id);
@@ -359,7 +403,7 @@ export class SkillRegistry {
     // A pack's skill never stands in for another skill of the same name, wherever that one comes from.
     const otherNames = new Set(this.entries.filter((entry) => !entry.pack).map((entry) => entry.summary.name));
     for (const entry of this.entries) {
-      if (entry.bundled || !usable(entry)) continue;
+      if (entry.bundled || !usable(entry) || entry.summary.shadowedBy) continue;
       if (entry.pack && otherNames.has(entry.summary.name)) continue;
       const replaces = bundledByName.get(entry.summary.name);
       // Only your own skills folder may stand in for a bundled skill; a project's copy never does.
@@ -381,7 +425,7 @@ export class SkillRegistry {
       if (replacedNames.has(entry.summary.name) || !usable(entry)) continue;
       candidates.push({ entry, score: scoreBundledSkill(entry.bundled!, request, project, classification) });
     }
-    const priority: Record<SkillSource, number> = { project: 0, user: 1, external: 2, bundled: 3, pack: 4 };
+    const priority: Record<SkillSource, number> = { project: 0, user: 1, personal: 2, bundled: 3, pack: 4 };
     const ranked = productsFirst(candidates
       .filter(({ score }) => score > 0)
       .sort((left, right) => right.score - left.score

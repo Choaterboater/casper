@@ -11,7 +11,7 @@ import { CHECK_NAMES, type CheckName } from "../verify/evidence";
 import { DEFAULT_CHECK_TIMEOUT_MS } from "../verify/command";
 import { labNamedChecks, parseNamedChecks } from "../verify/named";
 import { LAB_IN_PROJECT_ERROR, mergeLabSettings, parseLabSettings, type LabSettings } from "../network/spec";
-import { SKILL_IMPORTS, type SkillImport } from "../skills/registry";
+import { DEFAULT_SKILL_IMPORTS, SKILL_IMPORTS, type SkillImport } from "../skills/registry";
 import { isVerificationScope, type VerificationScope } from "../verify/scope";
 import { VERIFICATION_MODES, type VerificationMode, type VerificationSettings } from "../verify/mode";
 import { resolveVisualizationSettings, type VisualizationSettings } from "../visualize/router";
@@ -732,14 +732,15 @@ export async function loadConfiguration(
   const profileNotes = pickedByProject && Object.keys(profileDocument).length
     ? [`.casper/project.yaml picked profile ${selectedProfile}: its rules, servers and project settings apply; your own settings (sandbox, shell, web, lab, spend …) stay ${ownProfile === "default" ? "yours" : `those of profile ${ownProfile}`}. CASPER_PROFILE=${selectedProfile} uses all of it.`]
     : [];
-  let imports: SkillImport[] = [];
+  // Every tool's skill folders unless you list fewer: [] reads only Casper's own.
+  let imports: SkillImport[] = [...DEFAULT_SKILL_IMPORTS];
   for (const document of [globalDocument, userProfileDocument, projectDocument]) {
     if (document.skills !== undefined && !isMapping(document.skills)) throw new Error("skills must be a mapping");
     const value = isMapping(document.skills) ? document.skills.imports : undefined;
     if (value === undefined) continue;
     if (document === projectDocument) throw new Error("skills.imports is user/profile-only; projects cannot enable imports");
     if (!Array.isArray(value) || !value.every((entry): entry is SkillImport => SKILL_IMPORTS.includes(entry))) {
-      throw new Error("skills.imports must be a list containing only pi, agents, claude, codex");
+      throw new Error(`skills.imports must be a list containing only ${SKILL_IMPORTS.join(", ")}`);
     }
     imports = [...new Set<SkillImport>(value)];
   }

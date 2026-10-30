@@ -203,3 +203,22 @@ test("the plain words for trusting this folder, and words that aren't", () => {
     "why should I trust this folder"]) expect([line, trustRequest(line)]).toEqual([line, undefined]);
   expect(trustRequest("trust this folder", ["pasted"])).toBeUndefined();
 });
+
+test("a repository's own skills are used only once you trust the folder; /skills trust points to the folder", async () => {
+  const skill = "---\nname: repo-rules\ndescription: How this repository names things\n---\nREPO_RULES_BODY\n";
+  const { app } = await opened({ trusted: false, files: { "package.json": PACKAGE, ".claude/skills/repo-rules/SKILL.md": skill } });
+  try {
+    await app.until((text) => text.includes("It would run:"));
+    app.input.write("1");
+    await app.until((text) => text.includes("idle"));
+    const repo = () => app.app.skillRegistry!.list().find((item) => item.name === "repo-rules")!;
+    expect(repo()).toMatchObject({ source: "project", trust: "untrusted" });
+    app.input.write("/skills\r");
+    await app.until((text) => text.includes("not used until you trust this folder"));
+    app.input.write(`/skills trust ${repo().id}\r`);
+    await app.until((text) => text.includes("is this folder's own skill: it is used while you trust the folder"));
+    app.input.write("trust this folder\r");
+    await app.until((text) => text.includes("[trust] Trusted"));
+    expect(repo()).toMatchObject({ trust: "trusted" });
+  } finally { await app.close(); }
+}, 30_000);

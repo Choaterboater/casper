@@ -60,10 +60,12 @@ describe("Phase 2 skills", () => {
     expect(summaries.find((item) => item.name === "mcp-tools")).toMatchObject({
       source: "user", trust: "trusted", extra: { platforms: ["mist"] },
     });
+    // Your other tools' folders are yours; the repository's own folders wait for you to trust the folder.
+    expect(summaries.filter((item) => item.source === "personal").map((item) => [item.name, item.trust]).sort()).toEqual([["claude-mcp", "trusted"], ["pi-mcp", "trusted"]]);
+    expect(summaries.filter((item) => item.source === "project").every((item) => item.trust === "untrusted")).toBe(true);
     expect(summaries.find((item) => item.name === "project-mcp")).toMatchObject({ source: "project", trust: "untrusted" });
-    expect(summaries.filter((item) => item.source === "external").every((item) => item.trust === "untrusted")).toBe(true);
     expect(JSON.stringify(summaries)).not.toContain("_BODY");
-    expect((await load(registry)).map(({ skill }) => skill.name)).toEqual(["mcp-tools"]);
+    expect((await load(registry)).map(({ skill }) => skill.name).sort()).toEqual(["claude-mcp", "mcp-tools", "pi-mcp"]);
   });
 
   test("ranks relevant metadata, excludes incompatible/unrelated/manual-only skills, and limits bodies", async () => {
@@ -101,9 +103,13 @@ describe("Phase 2 skills", () => {
     expect(registry.diagnostics.join(" ")).toContain("metadata changed");
   });
 
-  test("requires exact reviewed content, persists trust, and rejects changed content even after restart", async () => {
+  needsSymlinks("requires exact reviewed content, persists trust, and rejects changed content even after restart", async () => {
     const options = await fixture();
-    const file = await skill(path.join(options.projectRoot, ".casper/skills/mcp"), "mcp-tools", "REVIEWED_BODY", metadata);
+    // A skill linked into your folder from outside your folders is the one kind that still needs a review.
+    const source = path.join(options.projectRoot, "elsewhere/mcp");
+    const file = await skill(source, "mcp-tools", "REVIEWED_BODY", metadata);
+    await mkdir(path.join(options.homeDir, ".casper/skills"), { recursive: true });
+    await symlink(source, path.join(options.homeDir, ".casper/skills/mcp"));
     let registry = await SkillRegistry.discover(options);
     const id = registry.list()[0].id;
     expect(await load(registry)).toEqual([]);
@@ -145,7 +151,7 @@ describe("Phase 2 skills", () => {
     expect(registry.list()).toEqual(again.list());
     expect(registry.list()).toHaveLength(2);
     expect(new Set(registry.list().map((item) => item.id)).size).toBe(2);
-    expect(registry.diagnostics.join(" ")).toContain("Duplicate skill name");
+    expect(registry.diagnostics.join(" ")).toContain("isn't used");
     expect(registry.diagnostics.join(" ")).toContain("Skipped skill");
     expect(await load(registry)).toHaveLength(1);
     expect(await load(registry)).toEqual(await load(again));
@@ -184,15 +190,13 @@ describe("Phase 2 skills", () => {
     expect(await load(registry)).toEqual([]);
   });
 
-  test("an equally relevant reviewed project skill wins a name collision without loading both bodies", async () => {
+  test("your skill wins a name collision with a trusted folder's own, without loading both bodies", async () => {
     const options = await fixture();
     await skill(path.join(options.homeDir, ".casper/skills/mcp"), "mcp-tools", "GLOBAL_BODY", metadata);
     await skill(path.join(options.projectRoot, ".casper/skills/mcp"), "mcp-tools", "PROJECT_BODY", metadata);
-    const registry = await SkillRegistry.discover(options);
-    const projectSkill = registry.list().find((item) => item.source === "project")!;
-    const inspection = await registry.inspect(projectSkill.id);
-    await registry.trust(projectSkill.id, inspection.sha256);
-    expect((await load(registry)).map(({ body }) => body)).toEqual(["PROJECT_BODY"]);
+    const registry = await SkillRegistry.discover({ ...options, folderTrusted: true });
+    expect((await load(registry)).map(({ body }) => body)).toEqual(["GLOBAL_BODY"]);
+    expect(registry.list().find((item) => item.source === "project")?.shadowedBy).toBe(registry.list().find((item) => item.source === "user")?.id);
   });
 
   test("discovers root Markdown skills and ignores files under a skill's references directory", async () => {
@@ -204,7 +208,9 @@ describe("Phase 2 skills", () => {
     await skill(path.join(root, "nested/references"), "not-a-skill", "REFERENCE_BODY");
     const registry = await SkillRegistry.discover({ ...options, imports: ["pi"] });
     expect(registry.list().map((item) => item.name)).toEqual(["legacy-mcp", "nested-mcp"]);
-    expect(await load(registry)).toEqual([]);
+    // Your Pi folder is yours: both are used, and the references file never is.
+    const bodies = (await load(registry)).map(({ body }) => body.trim());
+    expect(bodies.sort()).toEqual(["LEGACY_BODY", "NESTED_BODY"]);
   });
 
   test("bounds file and prompt sizes, and defaults to six selected skills", async () => {
