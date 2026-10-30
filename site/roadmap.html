@@ -78,6 +78,7 @@
           </li>
           <li><a href="#released">Released</a>
             <ul>
+              <li><a href="#v0400">v0.4.0: sudo inside Casper</a></li>
               <li><a href="#v0309">v0.3.9: a crew you can watch</a></li>
               <li><a href="#v0308">v0.3.8: /continue stays</a></li>
               <li><a href="#v0307">v0.3.7: a fresh start</a></li>
@@ -134,7 +135,7 @@
         <h2 id="next-h">Next release</h2>
         <aside class="callout soon">
           <strong class="callout-title">Built, not released</strong>
-          <p>Nothing on the main branch is waiting: everything built so far is in v0.3.9. New work shows here before the next preview.</p>
+          <p>Nothing on the main branch is waiting: everything built so far is in v0.4.0. New work shows here before the next preview.</p>
         </aside>
       </section>
 
@@ -376,10 +377,33 @@
         and on the <a href="https://github.com/Choaterboater/casper/releases">Releases page</a>.</p>
         <div class="stack">
 
+        <details class="card release" id="v0400" aria-labelledby="v0400-h" open>
+          <summary class="release-heading">
+            <h3 id="v0400-h">v0.4.0 · sudo and commands that need you run inside Casper, a hidden box for keys and tokens, Auto mode, Trust this folder?, and shorter approval boxes</h3>
+            <span class="badge ok">current preview</span>
+          </summary>
+          <ul>
+            <li><strong>sudo inside Casper.</strong> When <code>sudo</code> really asks for its password, Casper asks in its own hidden box; the password goes only to sudo, never to the AI.</li>
+            <li><strong>Commands that need you.</strong> Editors, logins, y/n installs, <code>ssh -t</code> and <code>git rebase -i</code> get Casper's terminal, and Casper comes back when they exit; <code>!command</code> runs one yourself.</li>
+            <li><strong>A hidden box for keys and tokens.</strong> "prompt me for the token" opens Casper's hidden box; the value goes to a project file or the next command, never to the AI.</li>
+            <li><strong>Pasted tokens caught.</strong> A paste holding a token asks <code>1 Remove it · 2 Send anyway</code> before it is sent.</li>
+            <li><strong>Auto mode.</strong> In a folder you trust, a model judge lets ordinary build commands run and asks you about the rest; <code>sudo</code>, <code>curl … | sh</code> and a force push always ask. <code>auto mode off</code> turns it off.</li>
+            <li><strong>Trust this folder?</strong> Casper asks before a folder's own checks and scripts run; <code>/trust</code> and <code>/trust off</code> change the answer.</li>
+            <li><strong>Shorter approval boxes.</strong> <code>1 No · 2 Yes, this once · 3 Yes, for this session</code>; No takes a note for the AI, and the Next row offers <code>Always allow … in this project</code>.</li>
+            <li><strong>Skills from your other tools.</strong> Skills in <code>~/.agents</code>, <code>~/.claude</code>, <code>~/.copilot</code>, <code>~/.pi</code> and <code>~/.codex</code> are read as yours, and a project's once you trust it.</li>
+            <li><strong>Receipts that tell it straight.</strong> Only the task's own changes count, work outside the folder and what was published are listed, and only a real secret is reported.</li>
+            <li><strong>What's left.</strong> When the AI stops partway through a request with several steps, the Next row offers <code>Continue: &lt;step&gt;</code>.</li>
+            <li><strong>Current model lists.</strong> With a ChatGPT plan or Copilot sign-in, <code>/model</code> shows your account's own models and says how fresh each list is.</li>
+            <li><strong>Fewer stops.</strong> Plain reads in your own folders run without a box, a report or audit request is read-only, and a line typed before the AI starts joins the request.</li>
+            <li><strong>Fixes.</strong> A check whose baseline crashed the service counts its fix; a browser check already failing when recorded asks first; server reads over ssh aren't config changes; a folder Casper can't read gets its app folder's checks; a running app's database and logs aren't counted as the task's changes, and undo's copy survives files that keep changing.</li>
+            <li><strong>Copy what you need.</strong> "copy that" copies the answer's block, quotes copy without a gutter, and an answer that is one block offers <code>Copy the prompt</code> on the Next row.</li>
+          </ul>
+        </details>
+
         <details class="card release" id="v0309" aria-labelledby="v0309-h" open>
           <summary class="release-heading">
             <h3 id="v0309-h">v0.3.9 · A crew you can watch, plain words for continue and export, and approval boxes that take keys</h3>
-            <span class="badge ok">current preview</span>
+            <span class="badge">previous preview</span>
           </summary>
           <ul>
             <li><strong>A crew you can watch.</strong> The crew panel shows explorers too, each row names the step a helper is on, and Ctrl+O lists each helper's last five steps.</li>
@@ -394,7 +418,7 @@
         <details class="card release" id="v0308" aria-labelledby="v0308-h" open>
           <summary class="release-heading">
             <h3 id="v0308-h">v0.3.8 · /continue that stays where it is, a pasted transcript read as context, and refusals that say why</h3>
-            <span class="badge">previous preview</span>
+            <span class="badge">released</span>
           </summary>
           <ul>
             <li><strong>/continue stays.</strong> In the conversation <code>/continue</code> or <code>--continue</code> opened, <code>/continue</code> stays there instead of jumping back to the one you left; <code>/resume</code> lists the others.</li>
@@ -404,7 +428,7 @@
           </ul>
         </details>
 
-        <details class="card release" id="v0307" aria-labelledby="v0307-h" open>
+        <details class="card release" id="v0307" aria-labelledby="v0307-h">
           <summary class="release-heading">
             <h3 id="v0307-h">v0.3.7 · A new conversation at every start, fewer red marks that weren't failures, and code that isn't hidden as a secret</h3>
             <span class="badge">released</span>
@@ -1431,7 +1455,7 @@
   <footer class="site-footer">
     <div class="container footer-inner">
       <div>
-        <p><strong>Casper 0.3.9</strong> · early preview, unsigned</p>
+        <p><strong>Casper 0.4.0</strong> · early preview, unsigned</p>
         <p><a href="https://github.com/Choaterboater/casper/blob/main/LICENSE">MIT licence</a> · © 2026 Choaterboater</p>
         <p>Built on the <a href="https://github.com/earendil-works/pi">Pi SDK</a>. Other parts keep their own licences (<a href="https://github.com/Choaterboater/casper/blob/main/THIRD_PARTY_NOTICES.txt">notices</a>).</p>
       </div>
