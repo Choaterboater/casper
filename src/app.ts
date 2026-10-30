@@ -2,6 +2,8 @@ import type { SideQuestionUsage } from "./app/side-question";
 import type { FolderTrust } from "./project/trust";
 import type { KnownFolderName } from "./platform/known-folders";
 import { reviewerLine } from "./crew/review-line";
+import type { WriteWindows } from "./task/attribution";
+import type { OutsideWork } from "./task/outside-work";
 import { leavesFilesHere } from "./app/local-effect";
 import { execFile } from "node:child_process";
 import type { DebugSession } from "./debug/session";
@@ -378,7 +380,9 @@ export class CasperApp {
    * before-the-change baseline. `before` is the task's starting tree, compared only after a shell command. */
   taskEdits?: { before?: Map<string, string>; edited: boolean; shell: boolean; turnEnded: boolean; tools?: boolean;
     /** A tool ran that may change files here (not only reads, searches or a plain ssh to another machine). */
-    local?: boolean };
+    local?: boolean;
+    /** When those tools ran: a change at any other time is another program's (src/task/attribution.ts). */
+    windows?: WriteWindows };
   readonly sessionHomeDir?: string;
   sessionWorkspace?: SessionWorkspaceManager;
   sessionWorkspaceStart?: Promise<SessionWorkspaceManager>;
@@ -398,6 +402,8 @@ export class CasperApp {
   workspaceNeedsRebind = false;
   /** Project folders the user chose to stay out of at "The work is in ...": not asked again this session. */
   readonly stayedOutOf = new Set<string>();
+  /** Repositories and folders outside the project this task's commands worked in (src/task/outside-work.ts). */
+  outsideWork?: OutsideWork;
   /** Why the last workspace snapshot failed, for the task's receipt. */
   snapshotFailure?: string;
   taskRuntimeFailed = false;

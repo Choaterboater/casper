@@ -128,7 +128,7 @@ test("the first problem receipt of a session ends with where its words are expla
       await f.screen.until((output) => output.includes(RECEIPT_HINT));
       const rows = (f.terminal as unknown as { surface: { tui: { render(width: number): string[] } } }).surface.tui.render(100);
       const at = rows.findIndex((row) => Bun.stripANSI(row).includes(RECEIPT_HINT));
-      expect(Bun.stripANSI(rows[at - 1]!)).toBe("▌            1 Show diff · 2 Undo");
+      expect(Bun.stripANSI(rows[at - 1]!).trimEnd()).toBe("▌             1  Show diff    2  Undo   · press a number");
       expect(Bun.stripANSI(rows[at]!).trimEnd()).toBe(`▌   ${RECEIPT_HINT}`);
       const cells = ansiCells([rows[at]!]);
       expect(cells[0]![0]!.foreground).toBe(roleCode("error"));

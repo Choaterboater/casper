@@ -147,7 +147,7 @@ test("every other line has a section: what changed, the checks, notes, and notes
     security: { problems: 1, notes: 0, notRun: 0, tools: [] }, outsideWrites: ["~/lab"], outsideAllowed: ["~/cache"], pagesShown: 2,
     pageNotes: ["– /devices/[id] not opened: needs an id"], sandbox: { held: false, reason: "--no-sandbox" } });
   expect(shown(receiptView(task, { seenNotes: new Set(["sandbox:--no-sandbox"]) }).items)).toEqual([
-    ["changed", "– Changed meanwhile by another program, not the AI (not checked): notes.txt"],
+    ["changed", "– Changed by something else while Casper worked (not checked): notes.txt"],
     ["notes", BRANCH_MOVED_LINE],
     ["notes", "– /devices/[id] not opened: needs an id"],
     ["notes", "– The AI looked at 2 screenshots of the pages (advice, not a check)"],

@@ -169,14 +169,100 @@ export function hideCommandSecrets(command: string, env?: NodeJS.ProcessEnv): Sc
  * them ignored), read with the same always-on rules as a command. A .env, credential or key file is where secrets
  * belong, so a secret written there is not one to mention.
  */
-export function addsSecret(filePath: string, before: string, after: string, env?: NodeJS.ProcessEnv): boolean {
-  if (isSecretFile(filePath)) return false;
+export function addsSecret(filePath: string, before: string, after: string, env?: NodeJS.ProcessEnv): SecretFinding | undefined {
+  if (isSecretFile(filePath)) return undefined;
   const old = new Map<string, number>();
   for (const line of before.split(/\r?\n/)) old.set(line.trim(), (old.get(line.trim()) ?? 0) + 1);
-  const added = after.split(/\r?\n/).filter((line) => {
+  const added: Array<{ line: string; at: number }> = [];
+  after.split(/\r?\n/).forEach((line, index) => {
     const left = old.get(line.trim()) ?? 0;
     if (left) old.set(line.trim(), left - 1);
-    return !left && line.trim() !== "";
+    else if (line.trim() !== "") added.push({ line, at: index + 1 });
   });
-  return added.length > 0 && scrubPlainSecrets(added.join("\n"), env ? { env } : {}).hidden > 0;
+  if (!added.length) return undefined;
+  const found = realSecrets(added.map((entry) => entry.line).join("\n"), { env, testFile: isTestFile(filePath) })[0];
+  return found && { ...found, line: added[found.line - 1]!.at };
+}
+
+/** A real secret Casper found, said without its value: the line it is on (1-based) and what kind it is. */
+export interface SecretFinding { line: number; kind: string }
+
+/** Tests and their fixtures: their tokens and passwords are made up for the test. */
+export function isTestFile(filePath: string): boolean {
+  const normal = filePath.replaceAll("\\", "/");
+  return /(?:^|\/)(?:tests?|__tests__|spec|specs|fixtures?|testdata|__mocks__)\//i.test(normal)
+    || /(?:^|\/)(?:test_[^/]*|[^/]*_test\.[^/.]+|[^/]*\.(?:test|spec)\.[^/]+|conftest\.py)$/i.test(normal);
+}
+
+/** Words a made-up value is built from: your-api-token-here, <token>, fake_password, changeme. */
+const PLACEHOLDER = /your|example|sample|placeholder|changeme|change[-_]me|dummy|fake|mock|test|demo|redacted|replace|insert|xxxx|\*\*\*|\.\.\.|[<>{}]/i;
+/** The shapes providers give their keys: GitHub, OpenAI and Anthropic, Stripe, Slack, AWS, GitLab, Google, a JWT. */
+const KEY_PREFIX = /^(?:gh[pousr]_[A-Za-z0-9]{20,}|github_pat_\w{20,}|sk-[A-Za-z0-9_-]{20,}|sk_live_\w{16,}|rk_live_\w{16,}|xox[abprs]-[\w-]{10,}|AKIA[0-9A-Z]{16}|ASIA[0-9A-Z]{16}|glpat-[\w-]{20,}|AIza[\w-]{30,}|eyJ[\w-]{10,}\.[\w-]{10,}\.[\w-]{10,})$/;
+const UUID_VALUE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** A name made of words, not a generated value: snake_case (`test_null_origin_is_allowed_only_with_csrf`, `test_0_saves`),
+ * CamelCase (`TestNullOriginIsAllowed2`), and dotted paths of them (`self.client.post_form`). */
+function identifier(value: string): boolean {
+  const word = (part: string) => /^[A-Za-z]{3,}$/.test(part);
+  const named = (name: string): boolean => {
+    if (/^_*[A-Za-z][A-Za-z0-9]*(?:_+[A-Za-z0-9]+)+_*$/.test(name)) {
+      const parts = name.split("_").filter(Boolean);
+      return parts.every((part) => /^[A-Za-z]+$/.test(part) || /^\d+$/.test(part)) && parts.filter(word).length >= 2;
+    }
+    // CamelCase: every hump a word, digits only at a hump's end.
+    const humps = name.split(/(?=[A-Z])/);
+    return /^[A-Za-z][A-Za-z0-9]*$/.test(name) && humps.every((hump) => /^[A-Z]?[a-z]+\d*$/.test(hump)) && humps.filter((hump) => /[a-z]{3,}/.test(hump)).length >= 2;
+  };
+  return value.split(".").every((part) => part !== "" && (named(part) || /^[A-Za-z_]\w*$/.test(part) && !/\d/.test(part)));
+}
+
+/** Whether a value the rules hid looks like a real credential, not a word, a name, a placeholder or a made-up test value. */
+export function credentialShaped(value: string): boolean {
+  if (KEY_PREFIX.test(value)) return !/x{6,}|0{8,}/i.test(value);
+  if (/\s/.test(value) || value.length < 12 || PLACEHOLDER.test(value) || /^(.)\1+$/.test(value) || identifier(value)) return false;
+  if (UUID_VALUE.test(value) || /^[A-Fa-f0-9]{24,}$/.test(value)) return true;
+  const digits = value.match(/\d/g)?.length ?? 0;
+  const classes = [/[a-z]/, /[A-Z]/, /\d/, /[^A-Za-z0-9]/].filter((re) => re.test(value)).length;
+  return digits >= 2 && classes >= 3;
+}
+
+/** The values `scrubPlainSecrets` hid in one line, in order, or undefined when they can't be lined up. */
+function hiddenIn(line: string, scrubbed: string): string[] | undefined {
+  const pieces = scrubbed.split(SECRET_MARKER);
+  const pattern = new RegExp(`^${pieces.map((piece) => piece.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("(.+?)")}$`, "s");
+  const match = pattern.exec(line);
+  return match ? match.slice(1) : undefined;
+}
+
+const KIND_WORDS: Record<SecretKind, string> = { password: "a password", hash: "a password hash", key: "a token or key", psk: "a pre-shared key",
+  community: "an SNMP community", "private-key": "a private key" };
+
+/**
+ * The real secrets in `text`, each as its line and kind, never its value. The rules that hide secrets read any value
+ * behind a secret name (`token = "fake-token-123"`, `--token YOUR_TOKEN`, `**Token:** the one from the dashboard`): hiding
+ * those costs nothing, but telling you to change a secret for them trains you to skip the warning that matters. Here a
+ * value counts only when it is a secret Casper knows (your environment's, one you typed), a private key, or credential
+ * shaped (credentialShaped). In a test file only a secret Casper knows counts: its keys and passwords are made up.
+ */
+export function realSecrets(text: string, options: { env?: NodeJS.ProcessEnv; testFile?: boolean } = {}): SecretFinding[] {
+  const env = secretEnvValues(options.env);
+  const typed = typedSecretValues();
+  const found: SecretFinding[] = [];
+  text.split("\n").forEach((line, index) => {
+    const result = scrubPlainSecrets(line, options.env ? { env: options.env } : {});
+    if (!result.hidden) return;
+    const values = hiddenIn(line, result.text) ?? [];
+    const known = values.find((value) => env.includes(value) || typed.includes(value));
+    if (known) { found.push({ line: index + 1, kind: env.includes(known) ? "a secret from your environment" : "a secret you typed" }); return; }
+    if (options.testFile) return;
+    if (result.kinds.includes("private-key")) { found.push({ line: index + 1, kind: KIND_WORDS["private-key"] }); return; }
+    // A value may carry its name along (PVEAPIToken=root@pam!app=<uuid>): any part of it may be the credential.
+    if (values.some((value) => credentialShaped(value) || value.split(/[=:!@,;"'\s]+/).some(credentialShaped))) found.push({ line: index + 1, kind: KIND_WORDS[result.kinds[0] ?? "key"] });
+  });
+  // A private key's body spans lines: its BEGIN line alone is enough.
+  if (!options.testFile && !found.length && PEM_BEGIN.test(text) && /PRIVATE KEY/.test(text)) {
+    const at = text.split("\n").findIndex((line) => /BEGIN [A-Z ]*PRIVATE KEY/.test(line));
+    if (at >= 0) found.push({ line: at + 1, kind: KIND_WORDS["private-key"] });
+  }
+  return found;
 }

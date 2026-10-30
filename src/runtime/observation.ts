@@ -2,16 +2,20 @@ import { lineText, redactPreview } from "../tui/format";
 import { homedir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { hideCommandSecrets } from "../secrets/files";
+import { hideCommandSecrets, realSecrets } from "../secrets/files";
 
 /** Native edit/write paths are literal filesystem paths, not tool-input syntax. `pattern` (grep/find),
  * `check` (casper_check), `url` (web_fetch) and `query` (web_search) are identities shown in tool
  * activity; never an edit body or an arbitrary argument. */
 export interface ToolObservationInput { role?: "explorer" | "reviewer" | "builder"; goal?: string; of?: number; path?: string; command?: string; operation?: string; pattern?: string; check?: string; url?: string; query?: string;
-  /** The command held a secret the AI typed into it; `command` has it hidden. */
+  /** The command held a real secret (realSecrets: one Casper knows or one shaped like a credential), and what kind; `command`
+   * has every secret-looking value hidden either way. */
   secretHidden?: true;
-  /** This write or edit added a secret to the file: the file as a person would type it, never the value. */
-  secretWritten?: string }
+  secretKind?: string;
+  /** This write or edit added a real secret to the file: the file as a person would type it, never the value. */
+  secretWritten?: string;
+  /** Where in it and what kind: "line 12, a token or key". */
+  secretWhere?: string }
 
 /** Pi 1.1.0's native edit/write path syntax (its resolver is not an SDK export).
  * Expand once at the adapter boundary; the result is a literal filesystem path. */
@@ -64,7 +68,12 @@ export function observationInput(value: unknown): ToolObservationInput {
   // A password or token the AI typed into a command is hidden before Casper shows or keeps the command.
   if (result.command !== undefined) {
     const hidden = hideCommandSecrets(result.command);
-    if (hidden.hidden) { result.command = hidden.text; result.secretHidden = true; }
+    if (hidden.hidden) {
+      // Hidden from view whatever it is; the receipt tells you to change it only for a real one (realSecrets).
+      const real = realSecrets(result.command)[0];
+      result.command = hidden.text;
+      if (real) { result.secretHidden = true; result.secretKind = real.kind; }
+    }
   }
   return result;
 }

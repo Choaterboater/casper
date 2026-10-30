@@ -28,7 +28,7 @@ test("slots 1 and 2 are Show diff and Undo (1, the safe one, only shows); other 
 test("a step's reason and the hint print under the row, one line each, with the step's number", () => {
   const row = buildNextRow({ more: [{ label: "Remember uv run pytest", command: "/suggestion remember-test", note: "free",
     why: "saves verify.test: uv run pytest\u001b[2J in .casper/project.yaml" }], hint: "A number picks one" })!;
-  expect(row.line).toBe("Next: 1 Remember uv run pytest (free)\n  1: saves verify.test: uv run pytest [2J in .casper/project.yaml\n  A number picks one");
+  expect(row.line).toBe("Next: 1 Remember uv run pytest (free)\n  Why: saves verify.test: uv run pytest [2J in .casper/project.yaml\n  A number picks one");
 });
 
 function plainTerminal() {
@@ -106,7 +106,7 @@ test("rich terminal: one key on the empty prompt runs the step; any other key fi
   try {
     terminal.start();
     terminal.offerNext(buildNextRow({ undo, diff }));
-    await until((text) => Bun.stripANSI(text).includes("Next: 1 Show diff · 2 Undo"));
+    await until((text) => Bun.stripANSI(text).includes("Next:  1  Show diff    2  Undo   · press a number"));
     const first = terminal.readCommand();
     input.write("1");
     expect(await first).toBe("/diff");
@@ -148,7 +148,7 @@ test("rich terminal: Enter on the empty prompt never picks from the row (not eve
   try {
     terminal.start();
     terminal.offerNext(buildNextRow({ undo, diff }));
-    await until((text) => Bun.stripANSI(text).includes("Next: 1 Show diff · 2 Undo"));
+    await until((text) => Bun.stripANSI(text).includes("Next:  1  Show diff    2  Undo   · press a number"));
     const first = terminal.readCommand();
     input.write("\r");
     input.write("x");

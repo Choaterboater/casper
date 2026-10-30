@@ -361,7 +361,7 @@ export async function runChildChecks(app: CasperApp, child: ChildProject, change
 
 /** After the receipt: "The work is in ~/Documents/sample-tools. 1 Stay here · 2 Switch there". Enter stays. A run
  * that can't ask says the command to use. */
-export async function offerWorkFolder(app: CasperApp, child: ChildProject): Promise<void> {
+export async function offerWorkFolder(app: CasperApp, child: Pick<ChildProject, "dir" | "relative">): Promise<void> {
   const home = app.sessionHomeDir ?? os.homedir();
   const display = terminalText(tildePath(child.dir, home));
   if (!app.interactive || !app.terminal.canAsk) {

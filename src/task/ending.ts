@@ -96,7 +96,7 @@ export function closingListAsks(answer: string): boolean {
 export function changedSoFar(task: TaskResult): string | undefined {
   const files = new Set([...task.changedPaths ?? [], ...task.changedDuringChecks ?? []]).size;
   if (files) return `${files} ${files === 1 ? "file" : "files"} changed so far`;
-  return task.outsideWrites?.length || task.remoteChanges?.length || (!task.changedPaths && task.possibleMutations) ? "changes so far" : undefined;
+  return task.outsideWrites?.length || task.outsideChanges?.length || task.published?.length || task.remoteChanges?.length || (!task.changedPaths && task.possibleMutations) ? "changes so far" : undefined;
 }
 
 /** The line a session shows instead of the card: the AI waits for your answer, or paused after saying what it does

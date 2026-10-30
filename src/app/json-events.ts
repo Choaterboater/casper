@@ -76,6 +76,10 @@ export interface ReceiptEvent {
   secretInFiles: string[];
   /** Acknowledged owned-process incidents, including live PID and scrubbed command previews. */
   cleanup?: NonNullable<TaskResult["cleanup"]>;
+  /** Repositories and folders outside the project the task changed (`~/` form); present only when there are some. */
+  outside?: Array<{ place: string; repository: boolean; files: string[]; commits: string[]; unknown: string | null }>;
+  /** What the task sent out that /undo can't take back (pushes, releases, packages); present only when there is some. */
+  published?: string[];
   /** This task's model use; null when no model task ran (a local command). */
   usage: TaskUsage | null;
   /** Whether the tests fail without the change and pass with it; null when Casper did not compare. */
@@ -288,6 +292,9 @@ export function receiptEvent(report: VerificationReport | undefined, task: TaskR
     secretInCommand: task?.secretInCommand === true,
     secretInFiles: (task?.secretInFiles ?? []).map((file) => terminalText(file)),
     ...(task?.cleanup?.length ? { cleanup: redactCleanup(task.cleanup) } : {}),
+    ...(task?.outsideChanges?.length ? { outside: task.outsideChanges.map((change) => ({ place: terminalText(change.place), repository: change.repository,
+      files: change.files.map((file) => terminalText(file)), commits: change.commits ?? [], unknown: change.unknown ?? null })) } : {}),
+    ...(task?.published?.length ? { published: task.published.map((line) => terminalText(redactPreview(line))) } : {}),
     usage: task?.usage ? { ...task.usage } : commandUsage ? { ...commandUsage } : null,
     proof: task?.proof ? redactProof(task.proof) : null,
     proofSkipped: task?.proofSkipped ?? null,

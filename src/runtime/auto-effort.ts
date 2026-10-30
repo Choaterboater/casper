@@ -47,6 +47,22 @@ export function nearestEffort(requested: string, supported: readonly string[]): 
   return (up ?? LADDER.slice(0, index).reverse().find((level) => supported.includes(level))) as ThinkingLevel | undefined;
 }
 
+/** Work that ends outside this computer or takes long to undo: building, releasing, publishing, pushing, deploying. */
+const BUILD_OR_RELEASE = /\b(?:build|built|release|publish|push|deploy)\w*/i;
+/** A reply this short ("yes", "do it", "go ahead") says yes to the AI's own last offer. */
+const SHORT_REPLY_WORDS = 4;
+
+/**
+ * The level when the classifier failed: at least medium for build or release work, read from the request, and for a
+ * short reply from the AI's last message too (a "yes" to "Shall I release 0.3.5?" is a release). Undefined keeps the
+ * level the conversation had.
+ */
+export function fallbackEffort(request: string, previous: string | undefined, supported: readonly string[]): ThinkingLevel | undefined {
+  const words = request.trim().split(/\s+/).filter(Boolean).length;
+  const read = words <= SHORT_REPLY_WORDS && previous ? `${request}\n${previous.slice(-2_000)}` : request;
+  return BUILD_OR_RELEASE.test(read) ? resolveAutoEffort("medium", supported) : undefined;
+}
+
 function classificationError(): Error {
   return new Error("Automatic effort classification unavailable.");
 }

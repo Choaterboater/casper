@@ -25,8 +25,9 @@ test.skipIf(!mux)("real tmux: lone suggestion is 1, arrow-first check approval s
     const runner = path.join(import.meta.dir, "fixtures/check-changes-terminal.ts");
     const command = `env -u NO_COLOR TERM=xterm-256color ${quote(process.execPath)} ${quote(runner)} ${quote(root)}`;
     await mux!.run("new-session", "-d", "-s", "checks", "-x", "80", "-y", "40", command);
-    const next = await wait(screen => screen.includes("Next: 1 Save junos-syntax (free)"));
-    expect(next).not.toContain("Next: 3");
+    // The key is a cap (a reversed " 1 "), then the step and "press a number".
+    const next = await wait(screen => screen.includes("Next:  1  Save junos-syntax (free)   · press a number"));
+    expect(next).not.toContain(" 3  ");
     await mux!.run("send-keys", "-t", "checks", "1");
     const box = await wait(screen => screen.includes("Change the test check for this project?") && screen.includes("3. Use this command"));
     for (const text of ["Picked: /verify add junos-syntax", "Old → new", "--- old", "bun .casper/quick-test.ts", "+++ new", "test: bun test", "❯ 1. No", "2. Yes, save this change", "Enter to choose · Esc to skip"]) expect(box).toContain(text);

@@ -12,7 +12,8 @@ The receipt of a task that changed files ends with a row:
 Next: 1 Show diff · 2 Undo
 ```
 
-Type `1` on the empty prompt to see the task's diff, or `2` to undo it. 1 only shows something, so a
+On the rich terminal the row sits on the receipt card's Next row and each number is a key cap (a reversed ` 1 `,
+`[1]` with `NO_COLOR`), followed by `· press a number`. Type `1` on the empty prompt to see the task's diff, or `2` to undo it. 1 only shows something, so a
 stray `1` never undoes a task. Enter alone does nothing, and anything
 else you type is simply your next request. The row is gone once you type something else.
 
@@ -67,6 +68,21 @@ commits yet and no task, `/diff` lists the files and says there is nothing to co
 
   Enter picks 1, which changes nothing. A one-shot `casper -p /undo` changes nothing and exits 1:
   "notes.py changed after task 12, so Casper left everything as it is."
+- **Never another program's files.** A file that changed while none of the AI's tools that may write ran (another
+  AI tool, an editor or a running app saved it while the AI waited) is the receipt's `Changed by something else
+  while Casper worked` line, and undo never removes or puts it back: `– Left as it is: PROJECT_SUMMARY.md (changed
+  by something else while Casper worked)`. A task whose only changes were those offers no `2 Undo`.
+- **Asks when it can't tell.** A deleted file (it has no time of its own), or a change while a command or service
+  the task left running could still write, may or may not be the task's. In a session Casper asks first:
+
+  ```
+  Casper can't tell whether task 12 changed notes/old.md: another program may have.
+    1 Leave it · it stays as it is now
+    2 Undo it too · put it back as before the task
+  ```
+
+  Enter picks 1. A one-shot `casper -p /undo` leaves them and says so:
+  `– Left as it is: notes/old.md (Casper can't tell whether task 12 changed it)`.
 - **Undo can be undone.** Just before undoing, Casper copies the files once more, so `/redo` (or `1` on the
   row after an undo) puts them back.
 - **Files it creates, it may remove.** A file the task added is removed; a file the task did not create is never
@@ -115,7 +131,10 @@ a file changed only by a shell command that git ignores is not named:
 - secret files (`.env`, keys, credentials, the list in [SECRETS.md](SECRETS.md)): Casper keeps no copy of them;
 - files over 8 MB;
 - the contents of nested repositories and submodules (a repository with more than 8 changed files is named once);
-- files outside this folder;
+- files outside this folder (the receipt lists the repositories and folders the task changed there,
+  `Changed outside this folder: …`);
+- what was sent out: pushes, tags, releases and published packages (the receipt's `Published: … (can't be undone
+  with /undo)`);
 - anything changed through an MCP server or on a network device ("Undo only puts back files in this folder; it
   can't undo changes made through <server>");
 - Git LFS files are kept as the file on disk (the real content), not as LFS pointers.

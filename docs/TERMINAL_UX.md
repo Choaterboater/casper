@@ -382,9 +382,13 @@ every request until `/plan off`, and the footer badge says `PLAN · /plan off` w
 
 After an interactive receipt, the row under it starts suggestions at 1 when there is no diff or
 undo: `Next: 1 Add a test that proves this bug stays fixed (uses tokens)`. Under a receipt card the row joins the
-card's Next row, on its edge, without the `Next:` word. With diff or undo offered,
-1 stays Show diff, 2 stays Undo, and other steps start at 3. Each step's
-reason is on its own line, and a step that saves something shows the exact text it will write
+card's Next row, on its edge, without the `Next:` word. On the rich terminal each number is a key cap, so the row
+reads as something to press: a bold, reversed ` 1 ` in the theme's selection colour, the steps spaced apart, then a
+grey `· press a number` (`[1] Show diff   [2] Undo   · press a number` with `NO_COLOR`); the plain terminal keeps
+`Next: 1 Show diff · 2 Undo` as written ([`tests/next-keycaps-ansi.test.ts`](../tests/next-keycaps-ansi.test.ts)). With diff or undo offered,
+1 stays Show diff, 2 stays Undo, and other steps start at 3. Each step's reason is on its own line as `Why 3: …`
+(`Why: …` in a row of one step), never a bare `3:` that would read as a second choice; the key caps are on the
+step's row only. A step that saves something shows the exact text it will write
 (`saves verify.test: uv run pytest in .casper/project.yaml`). Nothing waits: a lone number on the empty
 prompt picks the step, and anything else you type is simply your next request. Casper's rules are local
 and free; only a step marked "uses tokens" asks the model anything. No row comes after a task that ends asking you

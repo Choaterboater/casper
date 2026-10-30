@@ -20,11 +20,13 @@ import type { RuntimeImage, RuntimeSession } from "../runtime/types";
 import { formatSelectedSkills } from "../skills/registry";
 import { classifyTask, formatTaskPrompt, underSpecifiedTarget } from "../task/classify";
 import { machineNames, rememberMachines } from "./machines";
-import { answerClaimsBrowserPass, receiptView, rememberSessionNotes, shortReceiptText, undoPathsShown, formatTaskResult, UNDO_NOT_PROJECT, type ReceiptOptions, type ReceiptView, type TaskResult } from "../task/result";
+import { answerClaimsBrowserPass, receiptView, rememberSessionNotes, shortReceiptText, undoPathsShown, formatTaskResult, UNDO_NOT_PROJECT, workElsewhere, type ReceiptOptions, type ReceiptView, type TaskResult } from "../task/result";
 import { changedSoFar, endingLine, mustStand, quietReceipt, taskEnding, withEarlierChanges } from "../task/ending";
 import { OBSERVED_EDITS_LIMIT, TaskObservations } from "../task/observations";
 import { isToolCallAsText, TOOL_CALL_AS_TEXT_LINE } from "../task/text-tool-call";
 import { diffSnapshots, tooManyFiles, type TreeChanges } from "../task/changes";
+import { attributeChanges, withoutFiles, WriteWindows } from "../task/attribution";
+import { OutsideWork } from "../task/outside-work";
 import { headMoved, taskHead } from "../task/git-movement";
 import type { CheckName, VerificationReport } from "../verify/evidence";
 import { VerifierRegistry } from "../verify/registry";
@@ -176,7 +178,7 @@ export async function runModelTask(app: CasperApp, prompt: string, options: { fl
     },
   );
   // Smoke checks are verification: they run only when Casper checks this task.
-  const edits: NonNullable<CasperApp["taskEdits"]> = { edited: false, shell: false, turnEnded: false };
+  const edits: NonNullable<CasperApp["taskEdits"]> = { edited: false, shell: false, turnEnded: false, windows: new WriteWindows() };
   app.taskEdits = edits;
   app.smokeTask = verificationMode !== "off" ? new SmokeChecks(context.smoke ?? [], () => serviceManager(app), () => changedSinceTaskStart(app, edits)) : undefined;
   await prepareCapabilities(app, prompt);
@@ -211,6 +213,7 @@ export async function runModelTask(app: CasperApp, prompt: string, options: { fl
   if (notProject.signal.aborted) undoStart.snapshot = { unavailable: UNDO_NOT_PROJECT };
   edits.before = before;
   app.snapshotBase = before;
+  app.outsideWork = new OutsideWork(workspaceRoot, app.homeDir(), systemTempDirs());
   // What the test command means before the change (package.json scripts, runner settings): a change that rewrites
   // it is not proven or acceptance-checked by it.
   const definitionCommand = context.model.commands.test?.trim();
@@ -247,6 +250,12 @@ export async function runModelTask(app: CasperApp, prompt: string, options: { fl
   let planFile: string | undefined;
   let changedWhilePlanning: string[] | undefined;
   let changedNotByModel: string[] | undefined;
+  /** The tree with another program's files as it left them, and the files Casper can't tell about (undo asks). */
+  let othersAsFound: Map<string, string> | undefined;
+  let changedUnsure: string[] | undefined;
+  // Another program's files stay out of every later comparison while they are as it left them.
+  const masked = (snapshot: Map<string, string> | undefined) => snapshot && before && changedNotByModel
+    ? withoutFiles(snapshot, before, changedNotByModel, othersAsFound) : snapshot;
   if (planFirst) {
     const planned = await runPlanTurn(app, session, prompt, checklist, workspaceRoot, options.savedPlan);
     if (planned === "stop" || app.closing || app.commandAbort?.signal.aborted) return;
@@ -330,6 +339,7 @@ export async function runModelTask(app: CasperApp, prompt: string, options: { fl
     } finally {
       // Pictures still being made are finished before the work is looked at, also when the turn failed.
       await settlePictures(app);
+      edits.windows?.release();
       // A switch to a model that sees pictures was for this request's own turn; checks and repairs run on yours.
       if (visionBack && !app.closing) await restoreModel(app, session, visionBack);
     }
@@ -337,12 +347,19 @@ export async function runModelTask(app: CasperApp, prompt: string, options: { fl
     // Repair, review and proof rounds follow the change.
     edits.turnEnded = true;
     afterModel = before && !app.closing ? await app.snapshotWorkspace(workspaceRoot) : undefined;
-    // Nothing the model ran could change files here (it only read, searched or ran a plain ssh on another machine):
-    // what changed meanwhile is another program's (a running app's database, an editor), not the model's work. It is
-    // named on the receipt, and not checked, offered as "The work is in ..." or kept for undo.
-    if (before && afterModel && edits.tools && !edits.local && !edits.edited) {
-      const others = flatten(diffSnapshots(before, afterModel));
-      if (others.length) { changedNotByModel = others; afterModel = before; }
+    // What changed while none of the AI's tools that may write ran (it read, searched, waited on a question or ran a plain
+    // ssh on another machine) is another program's: an editor, a second AI tool, a running app's database. It is named
+    // on the receipt, and not checked, offered as "The work is in ..." or undone (src/task/attribution.ts).
+    if (before && afterModel && edits.tools && edits.windows) {
+      const split = await attributeChanges({ root: workspaceRoot, changes: diffSnapshots(before, afterModel), windows: edits.windows.windows(),
+        since: edits.windows.since, until: Date.now(), toolFiles: new Set(toolFiles(workspaceRoot, app.observations.edited(), "inside")),
+        unsure: Boolean(edits.windows.unsure || app.backgroundCommands?.list().length || app.services?.live() || app.subagents.runs().length) }).catch(() => undefined);
+      if (split?.others.length) {
+        changedNotByModel = split.others;
+        othersAsFound = afterModel;
+        afterModel = withoutFiles(afterModel, before, split.others);
+      }
+      if (split?.unsure.length) changedUnsure = split.unsure;
     }
     // A project the model just set up (package.json, pyproject.toml, Package.swift...) gets its checks now,
     // not on the next task: the checks known at the start were those of the folder before the change.
@@ -483,7 +500,7 @@ export async function runModelTask(app: CasperApp, prompt: string, options: { fl
       } finally { phase(app, "repair", "end"); }
       if (!stoppedNow()) {
         // The repair may reach code whose checks were not relevant to the original edits: plan from the final tree.
-        const now = before && await app.snapshotWorkspace(workspaceRoot);
+        const now = masked(before && await app.snapshotWorkspace(workspaceRoot) || undefined);
         const finalPaths = before && now ? flatten(diffSnapshots(before, now)) : undefined;
         if (app.checkTask && verificationMode === "auto") {
           const refreshed = finalPaths && await projectAfterSetup(app, context, finalPaths);
@@ -552,7 +569,7 @@ export async function runModelTask(app: CasperApp, prompt: string, options: { fl
     // The model turn and the verification/repair round are measured separately so check
     // scripts and repair edits are never attributed to the request itself.
     afterModel ??= before && !app.closing ? await app.snapshotWorkspace(workspaceRoot) : undefined;
-    const afterChecks = (verification || appSmoke) && afterModel && !app.closing ? await app.snapshotWorkspace(workspaceRoot) : afterModel;
+    const afterChecks = (verification || appSmoke) && afterModel && !app.closing ? masked(await app.snapshotWorkspace(workspaceRoot)) : afterModel;
     const branchMoved = headMoved(undoStart.head, await taskHead(workspaceRoot));
     const changedPaths = before && afterModel ? flatten(diffSnapshots(before, afterModel)) : undefined;
     const changedDuringChecks = afterModel && afterChecks && afterChecks !== afterModel ? flatten(diffSnapshots(afterModel, afterChecks)) : [];
@@ -568,6 +585,8 @@ export async function runModelTask(app: CasperApp, prompt: string, options: { fl
       cleanupFailure = { error };
       if (execution === "completed") execution = "failed";
     }
+    const outsideChanges = await app.outsideWork?.finish().catch(() => []) ?? [];
+    app.outsideWork = undefined;
     const outsideWrites = outsideWritesReceipt(app.sandbox);
     // Parts builders landed that no reviewer finished: one plain line, never a failure.
     const notReviewed = partsNotReviewed(app);
@@ -592,8 +611,8 @@ export async function runModelTask(app: CasperApp, prompt: string, options: { fl
       ...(app.taskTurnLimit !== undefined ? { turnLimit: app.taskTurnLimit } : {}), ...(app.taskSpendStop ? { spendLimit: { ...app.taskSpendStop } } : {}), ...(proof ? { proof } : {}), ...(proofSkipped && !proof ? { proofSkipped } : {}), ...(review ? { review } : {}),
       ...(acceptance ? { acceptance } : {}), ...(checklist ? { checklist } : {}), ...bigModelReceipt(app),
       ...(app.planBuild ? { planSteps: app.planBuild.finish(execution) } : {}),
-      ...(changedWhilePlanning?.length ? { changedWhilePlanning } : {}), ...(changedNotByModel ? { changedNotByModel } : {}), ...(app.sandbox ? { sandbox: sandboxReceipt(app.sandbox)! } : {}),
-      ...outsideWrites };
+      ...(changedWhilePlanning?.length ? { changedWhilePlanning } : {}), ...(changedNotByModel ? { changedNotByModel } : {}), ...(changedUnsure ? { changedUnsure } : {}), ...(app.sandbox ? { sandbox: sandboxReceipt(app.sandbox)! } : {}),
+      ...outsideWrites, ...(outsideChanges.length ? { outsideChanges } : {}) };
     rememberMachines(app, observations.remoteChanges);
     if (app.cleanupReports.length) app.lastTaskResult.cleanup = [...app.cleanupReports];
     app.lastFinishedTask = app.lastTaskResult;
@@ -619,7 +638,7 @@ export async function runModelTask(app: CasperApp, prompt: string, options: { fl
       const options = () => receiptOptions(app, workspaceRoot);
       // A stop at --max-turns or at the spend limit is always said on a receipt.
       if ((classification.intent !== "general" && !answeredOnly) || execution !== "completed" || wroteToolCall || app.taskTurnLimit !== undefined || app.taskSpendStop !== undefined || verification || browser?.checks.length || observations.possibleMutations || observations.changedPaths?.length || observations.changedDuringChecks?.length || observations.observedEdits.length || observations.observedChecks.length
-        || app.planBuild || branchMoved || observations.remoteChanges?.length || observations.remoteNotRun?.length || observations.secretInCommand || observations.secretInFiles?.length || app.cleanupReports.length) {
+        || app.planBuild || branchMoved || outsideChanges.length || observations.published?.length || observations.remoteChanges?.length || observations.remoteNotRun?.length || observations.secretInCommand || observations.secretInFiles?.length || app.cleanupReports.length) {
         // A folder the task made too big to compare is not a project folder either: no undo, for the same reason.
         if (!changedPaths && app.snapshotFailure && tooManyFiles(app.snapshotFailure)) undoStart.snapshot = { unavailable: UNDO_NOT_PROJECT };
         // The second copy and the saved receipt; the change summary lists only this task's files.
@@ -667,6 +686,11 @@ export async function runModelTask(app: CasperApp, prompt: string, options: { fl
       modelStatus: execution, verification });
     // Last, once this folder has the task's outcome: the offer may move Casper to the project the work is in.
     if (workFolder && receiptShown && !app.closing) await offerWorkFolder(app, workFolder);
+    else {
+      // The work was in another repository, outside this folder: its checks are its own, so "Switch there" to run them.
+      const elsewhere = workElsewhere(app.lastTaskResult);
+      if (elsewhere && receiptShown && !app.closing) await offerWorkFolder(app, { dir: elsewhere.dir, relative: path.basename(elsewhere.dir) });
+    }
     if (cleanupFailure) await Promise.reject(cleanupFailure.error);
   }
   return verification;

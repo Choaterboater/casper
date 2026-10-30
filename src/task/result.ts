@@ -21,6 +21,25 @@ import { BRANCH_MOVED_LINE, GIT_MOVEMENT_UNKNOWN } from "./git-movement";
 import { configChanges, type ConfigChanges } from "./config-files";
 import { formatCost, formatDuration, lineText, redactPreview } from "../tui/format";
 import { planReceipt, planSummary, type PlanStepReport } from "../flows/plan-build";
+import type { OutsideChange } from "./outside-work";
+import { PUBLISHED_NOTE } from "./published";
+
+/** Files that changed while none of the AI's tools that may write ran, on the receipt and in undo's words. */
+export const CHANGED_BY_OTHERS = "Changed by something else while Casper worked";
+
+/** The repository outside this folder that holds the task's work, when nothing in this folder is the task's. */
+export function workElsewhere(task: Pick<TaskResult, "changedPaths" | "changedDuringChecks" | "possibleMutations" | "outsideChanges"> | undefined): OutsideChange | undefined {
+  if (!task || task.changedPaths?.length || task.changedDuringChecks?.length || (!task.changedPaths && task.possibleMutations)) return undefined;
+  return task.outsideChanges?.find((change) => change.repository && (change.files.length || change.commits?.length));
+}
+
+/** "~/Documents/sensor-lib: 7 files (api.py, manifest.json, sensor.py …); committed 1a2b3c4". */
+function outsideChangeText(change: OutsideChange, safe: (text: string) => string): string {
+  const names = change.files.slice(0, 3).map((file) => safe(file.split("/").at(-1)!)).join(", ");
+  const files = change.files.length === 1 ? safe(change.files[0]!) : change.files.length ? `${change.files.length} files (${names}${change.files.length > 3 ? " …" : ""})` : "";
+  const commits = change.commits?.length ? `committed ${change.commits.slice(0, 3).map(safe).join(", ")}${change.commits.length > 3 ? ` +${change.commits.length - 3} more` : ""}` : "";
+  return `${safe(change.place)}: ${[files, commits].filter(Boolean).join("; ")}`;
+}
 
 /** Tool-reported diagnostics, not process exit evidence or a reusable check pass. */
 export interface ObservedCheck {
@@ -137,8 +156,11 @@ export interface TaskResult {
   testRunner?: string;
   /** Files that changed during a plan turn anyway (Casper blocks the changes it can see; this names the rest). */
   changedWhilePlanning?: string[];
-  /** Files that changed while the model only read, searched or ran a plain ssh elsewhere: another program's, not checked. */
+  /** Files that changed while none of the AI's tools that may write ran: another program's, not checked, never undone. */
   changedNotByModel?: string[];
+  /** Files the task may or may not have changed (a deleted file, a command or service it left running): the task's
+   * here, but undo asks before touching them. */
+  changedUnsure?: string[];
   /** Repairs that ran on the user's big model: the extra try the user chose, or repair.bigModelLastTry. */
   bigModel?: { model: string; attempts: number; /** Picked for this task only, not saved as the big model. */ oneOff?: true };
   /** Casper's security tools ran for this task: counts only, never finding text. */
@@ -165,8 +187,16 @@ export interface TaskResult {
   secretInCommand?: true;
   /** Files the AI's writes and edits added a secret to (never the value): a note, nothing was stopped. */
   secretInFiles?: string[];
+  /** Where in each of those files and what kind: { "config/app.yaml": "line 2, a token or key" }. */
+  secretWhere?: Record<string, string>;
+  /** What kind of secret appeared in a command ("a token or key"). */
+  secretCommandKind?: string;
   /** Whether the shell sandbox held this task's shell commands and checks, and why not ("--no-sandbox"). */
   sandbox?: { held: true } | { held: false; reason: string };
+  /** Folders and repositories outside the project the task's commands and tools changed (src/task/outside-work.ts). */
+  outsideChanges?: OutsideChange[];
+  /** What the task sent out that /undo can't take back: pushes, releases, packages (src/task/published.ts). */
+  published?: string[];
   /** Folders outside the project this task wrote to after you allowed them (~/ form). Casper keeps no undo copy. */
   outsideWrites?: string[];
   /** Folders outside the project you allowed a shell command to write (~/ form): allowed, not known written. */
@@ -241,7 +271,8 @@ export function taskOutcome(report?: VerificationReport, task?: TaskResult): Tas
   if (task?.remoteNotRun?.length) return "incomplete";
   // The model only wrote a tool call as text: it did not act, which is not "unchanged and fine".
   if (task?.wroteToolCallAsText && status !== "pass") return "incomplete";
-  const changed = Boolean(task?.changedPaths?.length || task?.changedDuringChecks?.length || (!task?.changedPaths && task?.possibleMutations));
+  // Work in another repository outside this folder is a change too: never "no files changed".
+  const changed = Boolean(task?.changedPaths?.length || task?.changedDuringChecks?.length || (!task?.changedPaths && task?.possibleMutations) || workElsewhere(task));
   // "verified" is what the verdict line calls Verified (ADR 0001): the checks pass on changed files and a test fails
   // without the change. Checks that passed without that proof are not_verified; checksPassed still says they passed.
   if (status === "pass") {
@@ -308,12 +339,17 @@ export const REMOTE_UNKNOWN = "Casper can't tell from the command text whether t
 /** The receipt's line when the AI typed a secret into a command. */
 export const SECRET_IN_COMMAND = "A secret appeared in a command; change it after this task.";
 
+/** The command line with what kind of secret it was: "A secret (a token or key) appeared in a command; …". */
+export function secretInCommandText(kind: string | undefined, safe: (text: string) => string): string {
+  return kind ? SECRET_IN_COMMAND.replace("A secret ", `A secret (${safe(kind)}) `) : SECRET_IN_COMMAND;
+}
+
 /** More paths than this are summarized; the full list stays in the result. */
 const RECEIPT_PATH_LIMIT = 8;
 
 /** The receipt's line when the AI wrote a secret into files; the value is never shown. */
-export function secretInFilesText(files: string[], safe: (text: string) => string): string {
-  const shown = files.slice(0, RECEIPT_PATH_LIMIT).map(safe).join(", ");
+export function secretInFilesText(files: string[], safe: (text: string) => string, where: Record<string, string> = {}): string {
+  const shown = files.slice(0, RECEIPT_PATH_LIMIT).map((file) => `${safe(file)}${where[file] ? ` (${safe(where[file]!)})` : ""}`).join(", ");
   const more = files.length > RECEIPT_PATH_LIMIT ? ` … +${files.length - RECEIPT_PATH_LIMIT} more` : "";
   return `A secret was written into ${shown}${more} (not shown). Keep secrets in an env file or a secrets store.`;
 }
@@ -360,15 +396,17 @@ export function formatTaskResult(task: TaskResult): string {
   for (const remote of task.remoteChanges ?? []) lines.push(receiptLine(`on ${safe(remote.host)}`.slice(0, 12), remote.changes.length
     ? `${remote.changes.map(safe).join("; ")} (from the commands Casper saw)` : REMOTE_UNKNOWN));
   for (const remote of task.remoteNotRun ?? []) lines.push(receiptLine(`not on ${safe(remote.host)}`.slice(0, 12), remoteNotRunText(remote.commands)));
-  if (task.secretInCommand) lines.push(receiptLine("secret", SECRET_IN_COMMAND));
-  if (task.secretInFiles?.length) lines.push(receiptLine("secret", secretInFilesText(task.secretInFiles, safe)));
+  if (task.secretInCommand) lines.push(receiptLine("secret", secretInCommandText(task.secretCommandKind, safe)));
+  if (task.secretInFiles?.length) lines.push(receiptLine("secret", secretInFilesText(task.secretInFiles, safe, task.secretWhere)));
   if (task.sandbox) lines.push(receiptLine("sandbox", task.sandbox.held
     ? `shell commands and checks held${labRan(report) ? `; ${LAB_OUTSIDE}` : ""}` : `not sandboxed (${safe(task.sandbox.reason)})`));
   const outside = [
+    ...(task.outsideChanges ?? []).map((change) => change.unknown ? `may have changed ${safe(change.place)} (${safe(change.unknown)})` : `changed ${outsideChangeText(change, safe)} (no undo copy)`),
     ...(task.outsideWrites?.length ? [`wrote ${task.outsideWrites.map(safe).join(", ")} (you allowed it; no undo copy)`] : []),
     ...(task.outsideAllowed?.length ? [`allowed shell writes to ${task.outsideAllowed.map(safe).join(", ")} (no undo copy)`] : []),
   ];
   if (outside.length) lines.push(receiptLine("outside", outside.join("; ")));
+  if (task.published?.length) lines.push(receiptLine("published", `${task.published.map(safe).join("; ")} (${PUBLISHED_NOTE})`));
   if (task.riskyLines?.length) lines.push(receiptLine("risky", task.riskyLines.map((risky) => `${safe(risky.file)}:${risky.line} ${safe(risky.text)} (${risky.reason})`).join(" · ")
     + (task.riskyMore ? ` · and ${task.riskyMore} more` : "")));
   if (task.undo && !(!task.undo.available && task.undo.reason === UNDO_NOTHING_CHANGED)) {
@@ -428,7 +466,7 @@ export interface ReceiptOptions {
 /** Where a receipt line belongs: line 1 (the verdict); why the change is not verified (`why`: the proof, and checks
  * Casper did not run or count); the checks; what changed, with risky config lines (`config`) and other machines
  * (`devices`) apart; what needs you (`open`); notes; undo; and the commands to run next. */
-export type ReceiptSection = "verdict" | "why" | "checks" | "changed" | "config" | "devices" | "open" | "notes" | "undo" | "next";
+export type ReceiptSection = "verdict" | "why" | "checks" | "changed" | "published" | "config" | "devices" | "open" | "notes" | "undo" | "next";
 
 /** The receipt's main kinds of line: each also comes in parts (status, detail, actions). */
 export type ReceiptKind = "verdict" | "check" | "changed" | "repairs" | "proof" | "checklist" | "undo" | "not-verified"
@@ -625,6 +663,7 @@ function receiptParts(task: TaskResult, options: ReceiptOptions, onScreen = fals
     const list = pathList(task.changedPaths, safe);
     fold("changed", `✓ Changed ${list}`, changedShort(task.changedPaths, safe), { ...changedPart("Changed", list), files: task.changedPaths.map(safe) });
   }
+  else if (workElsewhere(task)) { /* The work is outside this folder: its own line below says where. */ }
   else if (task.changedPaths && task.autoSkipped === "no-changes" && !task.verification) add("changed", "– No files changed, so Casper ran no checks", changedPart("No files changed", "Casper ran no checks"));
   else if (task.changedPaths) fold("changed", "– No files changed", "no files changed", changedPart("No files changed"));
   else if (task.possibleMutations) {
@@ -681,7 +720,7 @@ function receiptParts(task: TaskResult, options: ReceiptOptions, onScreen = fals
   }
   if (task.changedDuringChecks?.length) add("changed", `– Changed while checking: ${pathList(task.changedDuringChecks, safe, false)}`);
   if (task.changedWhilePlanning?.length) add("changed", `– Changed while planning: ${pathList(task.changedWhilePlanning, safe, false)}`);
-  if (task.changedNotByModel?.length) add("changed", `– Changed meanwhile by another program, not the AI (not checked): ${pathList(task.changedNotByModel, safe, false)}`);
+  if (task.changedNotByModel?.length) add("changed", `– ${CHANGED_BY_OTHERS} (not checked): ${pathList(task.changedNotByModel, safe, false)}`);
   // A plan step the model did not finish (often a question it stopped on) needs you; the rest of the plan is a note.
   for (const line of onScreen ? planSummary(task.planSteps) : planReceipt(task.planSteps)) add(onScreen && line.startsWith("– Plan:") ? "open" : "notes", line);
   if (task.branchChangesUnknown) add("notes", `– ${task.branchMoved ? "The branch moved during this task; " : ""}${GIT_MOVEMENT_UNKNOWN}; undo is unavailable`);
@@ -691,7 +730,9 @@ function receiptParts(task: TaskResult, options: ReceiptOptions, onScreen = fals
   if (!report && !task.observedChecks?.length && task.execution === "completed") {
     const why = (line: string, status: string, detail?: string, action?: string) =>
       add("why", line, { kind: "not-verified", status, ...(detail ? { detail } : {}), ...(action ? { actions: [action] } : {}) });
-    const only = (what: string) => `only ${what} changed${task.changedPaths?.length ? ` (${pathList(task.changedPaths, safe, false)})` : ""}`;
+    // With the work in another repository too, what is said is about this folder only.
+    const here = task.outsideChanges?.some((change) => change.repository && (change.files.length || change.commits?.length)) ? " in this folder" : "";
+    const only = (what: string) => `only ${what} changed${here}${task.changedPaths?.length ? ` (${pathList(task.changedPaths, safe, false)})` : ""}`;
     if (task.autoSkipped === "no-checks") {
       if (options.checksHintShown) why("– Not verified — no checks set up", "Not verified", "no checks set up");
       else if (task.testsWithoutCommand) why(TESTS_WITHOUT_COMMAND_LINE, "Not checked", undefined, SET_UP_TEST_COMMAND);
@@ -731,14 +772,25 @@ function receiptParts(task: TaskResult, options: ReceiptOptions, onScreen = fals
     add("devices", `– Not run on ${safe(remote.host)}: ${remoteNotRunText(remote.commands)}`, { name: safe(remote.host), detail: remoteNotRunText(remote.commands) });
   }
   // Something to do: a warning, said before the notes.
-  if (task.secretInCommand) add("open", `⚠ ${SECRET_IN_COMMAND}`);
-  if (task.secretInFiles?.length) add("open", `– ${secretInFilesText(task.secretInFiles, safe)}`);
+  if (task.secretInCommand) add("open", `⚠ ${secretInCommandText(task.secretCommandKind, safe)}`);
+  if (task.secretInFiles?.length) add("open", `– ${secretInFilesText(task.secretInFiles, safe, task.secretWhere)}`);
   // The change list leaves pictures, videos and archives out of a folder that is over the limit with them.
   if (task.mediaLeftOut) add("notes", MEDIA_LEFT_OUT_LINE);
   // Only the exception is said: a task whose shell commands and checks ran with your own permissions.
   if (task.sandbox && !task.sandbox.held) add("notes", sandboxOffLine(safe(task.sandbox.reason)));
   else if (task.sandbox && labRan(report)) add("notes", `– Lab checks ran outside the sandbox (${LAB_OUTSIDE_WHY})`);
-  for (const folder of task.outsideWrites ?? []) add("changed", `– Wrote outside the project: ${safe(folder)} (you allowed it; no undo copy)`);
+  for (const change of task.outsideChanges ?? []) {
+    if (change.unknown) add("changed", `– May have changed outside this folder: ${safe(change.place)} (Casper couldn't compare it: ${safe(change.unknown)})`);
+    else add("changed", `– Changed outside this folder: ${outsideChangeText(change, safe)} (no undo copy)`);
+    if (change.testsRun) add("notes", `– The AI ran tests in ${safe(change.place)} itself (not counted)`);
+  }
+  // A place the edit tool wrote inside a repository already listed is said once, on its line.
+  const listed = (folder: string) => (task.outsideChanges ?? []).some((change) => folder === change.place || folder.startsWith(`${change.place}/`));
+  for (const folder of task.outsideWrites ?? []) if (!listed(folder)) add("changed", `– Wrote outside the project: ${safe(folder)} (you allowed it; no undo copy)`);
+  if (task.published?.length) {
+    const what = task.published.map(safe).join("; ");
+    add("published", `– Published: ${what} (${PUBLISHED_NOTE})`, { detail: what });
+  }
   for (const folder of task.outsideAllowed ?? []) add("notes", `– Allowed writes outside the project: ${safe(folder)} (no undo copy)`);
   for (const risky of task.riskyLines ?? []) {
     const what = `${safe(risky.file)}:${risky.line} ${safe(risky.text)} — ${risky.reason}`;
@@ -969,6 +1021,10 @@ function notVerifiedReason(task: TaskResult): string {
   if (report && dryRunOnly(report)) return "a dry run is not guaranteed, so its pass is not proof";
   if (report && !report.results.length) return "only observations ran, no checks";
   if (!task.changedPaths && task.possibleMutations) return "Casper could not compare the workspace";
+  const elsewhere = workElsewhere(task);
+  if (elsewhere) return `the work was in ${lineText(elsewhere.place)}, outside this folder; Casper didn't run its checks`;
+  const also = task.outsideChanges?.find((change) => change.repository && (change.files.length || change.commits?.length));
+  if (also) return `Casper ran no checks, here or in ${lineText(also.place)}`;
   return "Casper ran no checks";
 }
 

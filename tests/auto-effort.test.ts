@@ -1,7 +1,7 @@
 import { expect, test, vi } from "bun:test";
 import type { AgentSession, ModelRuntime } from "@earendil-works/pi-coding-agent";
 import type { AssistantMessage as Response } from "@earendil-works/pi-ai";
-import { classifyEffort, nearestEffort, resolveAutoEffort } from "../src/runtime/auto-effort";
+import { classifyEffort, fallbackEffort, nearestEffort, resolveAutoEffort } from "../src/runtime/auto-effort";
 
 const model: NonNullable<AgentSession["model"]> = {
   id: "classifier", name: "Fixture classifier", provider: "fixture", api: "openai-completions",
@@ -189,4 +189,19 @@ test("deadline rejects even when the transport ignores its abort signal", async 
     late.resolve(response());
     vi.useRealTimers();
   }
+});
+
+test("a failed classification of build or release work runs at least medium; a short reply reads the AI's offer", () => {
+  const supported = ["off", "minimal", "low", "medium", "high", "xhigh"];
+  expect(fallbackEffort("release sensor-lib 0.3.5 to HACS", undefined, supported)).toBe("medium");
+  expect(fallbackEffort("deploy it to the nas and push the tag", undefined, supported)).toBe("medium");
+  // "yes" to the AI's own offer: its last message says what the yes is for.
+  expect(fallbackEffort("yes", "Want me to commit, tag and release 0.3.5?", supported)).toBe("medium");
+  expect(fallbackEffort("go ahead", "I can publish the package now.", supported)).toBe("medium");
+  // Anything else keeps the level it had; a long request is read on its own words.
+  expect(fallbackEffort("what does this function do?", undefined, supported)).toBeUndefined();
+  expect(fallbackEffort("yes", "Should I rename the variable?", supported)).toBeUndefined();
+  expect(fallbackEffort("rename the variable in sum.js as we discussed earlier today please", "Shall I release it?", supported)).toBeUndefined();
+  // A model whose lowest level is above medium keeps its own.
+  expect(fallbackEffort("release it", undefined, ["high", "xhigh"])).toBe("high");
 });

@@ -3,6 +3,7 @@
 
 import { rememberTool } from "./side-question";
 import { noteJudgeStep } from "./auto-mode";
+import { leavesFilesHere } from "./local-effect";
 import type { CasperApp } from "../app";
 import path from "node:path";
 import { hasSignIn } from "../tui/model-preference";
@@ -104,6 +105,15 @@ export async function ensureRuntime(app: CasperApp): Promise<RuntimeSession> {
       app.unsubscribe = app.session.subscribe(event => {
         if (event.type === "waiting") { app.steering = event.lines; showWaiting(app); return; }
         if (event.type === "tool_start") { rememberTool(app, event.toolName); noteJudgeStep(app, event); }
+        // The times the AI's tools that may write ran: what changed at any other time is another program's.
+        const windows = app.taskEdits?.windows;
+        if (windows && (event.type === "tool_start" || event.type === "tool_end") && !leavesFilesHere(event.toolName, event.input, app.activeWorkspaceRoot())) {
+          const id = event.toolCallId ?? event.toolName;
+          if (event.type === "tool_start") windows.start(id, event.toolName === "make_picture");
+          else windows.end(id);
+        }
+        // A command moved to the background or a service the AI runs may write at any time: Casper can't tell then.
+        if (windows && event.type === "tool_end" && (app.backgroundCommands?.list().length || app.services?.live())) windows.unsure = true;
         if (event.type === "tool_start" && event.toolName === "casper_check") app.modelCheckCalls++;
         if (event.type === "tool_end" && event.toolName === "casper_check") app.modelCheckCalls = Math.max(0, app.modelCheckCalls - 1);
         app.observations.observeUsage(event);
@@ -235,6 +245,8 @@ export function currentShell(app: CasperApp): RuntimeShell {
   return {
     get keepEnv() { return app.shell?.keepEnv ?? []; },
     wrap: async (command, cwd) => {
+      // The places outside the project it works in, as they are before it runs (the receipt compares them after).
+      await app.outsideWork?.before(command, cwd).catch(() => {});
       const shell = app.shell;
       if (!shell) return { command };
       const wrapped = await shell.wrap(command, cwd);
@@ -245,7 +257,11 @@ export function currentShell(app: CasperApp): RuntimeShell {
     // refused() is followed by finished() for the same command, so only finished() forgets which shell wrapped it.
     refused: async (id, output) => wrappedBy.get(id)?.refused?.(id, output),
     approve: async (command, signal, options) => app.shell?.approve?.(command, signal, options),
-    outsideWrite: async (absolute) => app.shell?.outsideWrite?.(absolute),
+    outsideWrite: async (absolute) => {
+      const refused = await app.shell?.outsideWrite?.(absolute);
+      if (!refused) await app.outsideWork?.beforeWrite(absolute).catch(() => {});
+      return refused;
+    },
     wroteOutside: (absolute) => app.shell?.wroteOutside?.(absolute),
     logDir: async () => app.shell?.logDir?.(),
     background: () => app.projectContext?.slowCommands === false ? undefined : backgroundCommands(app),

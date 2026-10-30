@@ -300,16 +300,18 @@ posixOnly("a token the AI typed into a command is hidden in what Casper shows an
   expect(end.input?.secretHidden).toBe(true);
 }, 30_000);
 
-posixOnly("a token the AI writes into a config file marks the write with the file for the receipt; a reference to a secret does not", async () => {
+posixOnly("a token the AI writes into a config file marks the write with the file, line and kind for the receipt; a reference, or a test's made-up key, does not", async () => {
   const key = "9f8e7d6c5b4a39281706f5e4d3c2b1a0";
   const { result } = await run([
     { name: "write", args: { path: "config/app.yaml", content: `weather:\n  api_key: ${key}\n` } },
     { name: "write", args: { path: "config/other.yaml", content: "weather:\n  api_key: !secret weather_key\n" } },
     { name: "edit", args: { path: "src/parser.test.ts", edits: [{ oldText: "const sample", newText: `const token = "${key}";\nconst sample` }] } },
   ], {}, async ({ project }) => { await mkdir(path.join(project, "config")); });
-  const ends = result.toolEnds as Array<{ toolName: string; isError: boolean; input?: { path?: string; secretWritten?: string } }>;
+  const ends = result.toolEnds as Array<{ toolName: string; isError: boolean; input?: { path?: string; secretWritten?: string; secretWhere?: string } }>;
   // The three calls run side by side, so they can end in any order: each is looked up by its own path.
-  expect(Object.fromEntries(ends.map((end) => [end.input?.path, [end.toolName, end.isError, end.input?.secretWritten]]))).toEqual({
-    "config/app.yaml": ["write", false, "config/app.yaml"], "config/other.yaml": ["write", false, undefined], "src/parser.test.ts": ["edit", false, "src/parser.test.ts"] });
+  expect(Object.fromEntries(ends.map((end) => [end.input?.path, [end.toolName, end.isError, end.input?.secretWritten, end.input?.secretWhere]]))).toEqual({
+    "config/app.yaml": ["write", false, "config/app.yaml", "line 2, a token or key"], "config/other.yaml": ["write", false, undefined, undefined],
+    // A test's keys are made up for the test: no "change it" for them.
+    "src/parser.test.ts": ["edit", false, undefined, undefined] });
   expect(JSON.stringify(ends.map((end) => end.input))).not.toContain(key);
 }, 30_000);

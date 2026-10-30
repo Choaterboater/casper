@@ -24,6 +24,10 @@ export interface ReceiptUndo {
   blocked?: Array<{ path: string; why: string }>;
   /** Changed files Casper keeps no copy of (secret files, big files, nested repos). */
   left: LeftOut[];
+  /** Changed while none of the AI's tools that write ran: another program's, never put back. */
+  others?: string[];
+  /** Among `paths`, files Casper can't tell the task changed: /undo asks before putting them back. */
+  unsure?: string[];
   /** MCP servers the task changed things through (approved calls that were not read-only): undo can't reach them. */
   servers?: string[];
   /** Set by /undo: the files it put back, and the copy made just before, for /redo. Cleared by /redo. */

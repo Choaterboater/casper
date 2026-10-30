@@ -170,7 +170,9 @@ export interface RuntimeStatus {
   availableThinkingLevels?: string[];
   configuredEffort?: string;
   modelRole?: string;
-  autoEffort?: { state: "pending" | "classified" | "fallback" | "unavailable"; classifier?: string };
+  autoEffort?: { state: "pending" | "classified" | "fallback" | "unavailable"; classifier?: string;
+    /** The classifier failed and the request is build or release work: at least medium (fallbackEffort). */
+    raised?: true };
   /** Local credential snapshot only; never a provider connectivity claim. */
   auth: "configured" | "missing" | "unknown";
   /** How the selected provider is paid: a subscription sign-in (the catalog price is not what
