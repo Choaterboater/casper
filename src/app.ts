@@ -1,4 +1,5 @@
 import type { SideQuestionUsage } from "./app/side-question";
+import type { FolderTrust } from "./project/trust";
 import type { KnownFolderName } from "./platform/known-folders";
 import { reviewerLine } from "./crew/review-line";
 import { leavesFilesHere } from "./app/local-effect";
@@ -889,6 +890,8 @@ export class CasperApp {
 
   /** The versions of .casper/project.yaml this session may read again (see src/app/project-file.ts). */
   trustedProjectFiles = new Set<string>();
+  /** Whether you trust the open folder (src/app/folder-trust.ts): unset until a folder is open. */
+  folderTrust?: FolderTrust;
 
   /** The current task's first snapshot: its files stay listed while they exist, even once git ignores them. */
   snapshotBase?: Map<string, string>;

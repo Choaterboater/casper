@@ -3,6 +3,8 @@
 // below keeps a fixed grid (plus the lines scrolled off the top) rather than a plain text log. Every character is
 // one cell: wide ones (CJK, most emoji) would be off by one, and Casper draws none of those itself.
 
+import { trustFolderSync } from "./trust";
+
 /** Keys as Windows Terminal sends them: ConPTY asks for win32-input-mode (CSI ? 9001 h), so each press is a
  * key-down and key-up record (CSI Vk;Sc;Uc;Kd;Cs;Rc _) that the console turns into what the program reads. */
 const KEYS = {
@@ -186,6 +188,10 @@ export class ConptySession {
     const cols = options.cols ?? 100;
     const rows = options.rows ?? 30;
     this.screen = new Screen(cols, rows);
+    // A screen test opens Casper in a folder of its own: trusted in that run's home, so the screen starts at the
+    // prompt, not at "Trust this folder?" (the suite's preload doesn't reach this child or the built exe).
+    const home = options.env.USERPROFILE ?? options.env.HOME;
+    if (home) trustFolderSync(options.cwd, home);
     this.process = Bun.spawn(command, {
       cwd: options.cwd,
       env: options.env,

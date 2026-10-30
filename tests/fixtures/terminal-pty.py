@@ -2,6 +2,7 @@
 import codecs
 import errno
 import fcntl
+import hashlib
 import json
 import os
 import pathlib
@@ -71,6 +72,16 @@ class Screen:
 
     def text(self): return "\n".join("".join(row).rstrip() for row in self.rows)
 
+def trust_folder(home, folder):
+    """Saves `folder` as one you trusted, as src/project/trust.ts does, by the path as named and its real path (Casper
+    started there sees the real one), so the screen opens with no "Trust this folder?" box."""
+    for named in {str(folder), os.path.realpath(folder)}:
+        digest = hashlib.sha256(named.encode()).hexdigest()[:16]
+        safe = re.sub(r"[^a-zA-Z0-9._-]", "-", os.path.basename(named)) or "project"
+        state = home / ".casper" / "projects" / f"{safe}-{digest}"
+        state.mkdir(parents=True, exist_ok=True)
+        (state / "trust.json").write_text(json.dumps({"version": 1, "trusted": True}))
+
 class Session:
     def __init__(self, bun, repo, root, no_color=False, term="xterm-256color", app=None, extra_env=None, preload=None, setup=None):
         self.root = pathlib.Path(root)
@@ -84,6 +95,7 @@ class Session:
         # This fixture exercises the connect, writes and change boxes, so its server waits for /mcp connect.
         (home / ".casper/config.yaml").write_text("localModels: false\nmcp_autoconnect: off\n")
         if setup: setup(home, project)
+        trust_folder(home, project)
         self.master, slave = pty.openpty()
         fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", 100, 80, 0, 0))
         env = {"HOME": str(home), "PATH": os.environ["PATH"], "TERM": term, "CASPER_TTY_CONTROL": root}

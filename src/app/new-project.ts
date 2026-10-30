@@ -1,5 +1,6 @@
-import { lstat, readdir } from "node:fs/promises";
+import { lstat, readdir, realpath } from "node:fs/promises";
 import path from "node:path";
+import { saveFolderTrust } from "../project/trust";
 import { projectsFolder } from "../new/command";
 import { EMPTY_CHOICE, newProjectQuestion, newProjectSuggestion, parseNameAnswer, templateMenu, type NewProjectSuggestion } from "../new/pick";
 import { formatNewProjectReceipt } from "../new/receipt";
@@ -155,6 +156,11 @@ export async function buildProject(flow: NewProjectFlow, parent: string, templat
   const result = await create({ parent, name, template, homeDir: flow.homeDir, onStep: flow.write,
     ...(flow.env ? { env: flow.env } : {}), ...(flow.signal ? { signal: flow.signal } : {}) });
   for (const line of formatNewProjectReceipt(result)) flow.write(line);
+  // You asked Casper to make it: it opens trusted, with no "Trust this folder?" (src/app/folder-trust.ts). Saved under the
+  // path as named and as git names it (macOS's /var is /private/var), whichever Casper opens it by.
+  if (opened(result)) {
+    for (const dir of new Set([result.dir, await realpath(result.dir).catch(() => result.dir)])) await saveFolderTrust(dir, flow.homeDir, true).catch(() => {});
+  }
   return result;
 }
 

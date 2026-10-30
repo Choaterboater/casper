@@ -1,4 +1,5 @@
 import { formatVerificationReport, reportText, type CheckName, type VerificationReport, type VerificationResult } from "../verify/evidence";
+import { untrustedReason } from "../project/trust";
 import { modelErrorNext, type ModelErrorCause } from "../runtime/model-errors";
 import type { RiskyLine } from "../network/risky-receipt";
 import { isBuiltinCheck } from "../verify/named";
@@ -101,6 +102,8 @@ export interface TaskResult {
   verificationMode?: VerificationMode;
   /** Checking came from Casper's default, not a --verify flag or `verification.mode`. */
   verificationDefaulted?: true;
+  /** Checks were off because you haven't trusted the folder, or it is your home folder or a drive. */
+  untrustedFolder?: "new" | "home" | "drive";
   /** Why auto mode ran no check after the model turn. */
   autoSkipped?: AutoCheckSkip;
   /** With no check to run, the project still has test files Casper has no command for: said as that, not "no tests". */
@@ -697,7 +700,10 @@ function receiptParts(task: TaskResult, options: ReceiptOptions, onScreen = fals
     else if (task.autoSkipped === "app-data") why(`– Checks skipped — ${only("a running app's database files")}; ${slash("/verify")} runs them anyway.`, "Checks skipped", only("a running app's database files"), slash("/verify"));
     else if (task.autoSkipped === "docs-only") why(`– Checks skipped — ${only("documentation")}; ${slash("/verify")} runs them anyway.`, "Checks skipped", only("documentation"), slash("/verify"));
     else if (task.autoSkipped === "not-covered") why("– Not verified — no configured check covers the changed files.", "Not verified", "no configured check covers the changed files");
-    else if (changed && task.verificationMode === "off") {
+    else if (changed && task.untrustedFolder) {
+      const reason = untrustedReason(task.untrustedFolder);
+      why(`– Not verified — ${reason}.`, "Not verified", reason, task.untrustedFolder === "new" ? '"trust this folder"' : undefined);
+    } else if (changed && task.verificationMode === "off") {
       why(`– Not verified — checks are off for this run. ${options.surface === "one-shot" ? "Run casper --verify to have Casper check." : "Run /verify to check these changes."}`,
         "Not verified", "checks are off for this run", options.surface === "one-shot" ? "casper --verify" : "/verify");
     } else if (changed && task.verificationMode === "offer") why(`– Not verified — run ${slash("/verify")} to check these changes.`, "Not verified", undefined, slash("/verify"));

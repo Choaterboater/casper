@@ -3,6 +3,7 @@ import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { privateTmux } from "./support/private-tmux";
 import { removeTempDir } from "./support/temp-dir";
+import { trustFolder } from "./support/trust";
 
 const mux = await privateTmux({ env: {
   CASPER_LOCAL_MODELS: undefined, CASPER_OFFLINE: "1", PI_OFFLINE: "1", PI_TELEMETRY: "0", NO_COLOR: "1",
@@ -17,6 +18,7 @@ for (const entry of ["/model", "/login"] as const) for (const kind of ["sglang",
   await removeTempDir(path.join(home, ".casper"));
   await mkdir(path.join(home, ".casper"), { recursive: true });
   await mkdir(project);
+  await trustFolder(project, home);
   await writeFile(path.join(home, ".casper/config.yaml"), "localModels: false\n");
   const server = Bun.serve({ port: 0, hostname: "127.0.0.1", fetch(request) {
     const route = new URL(request.url).pathname;

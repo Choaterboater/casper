@@ -43,6 +43,11 @@ browserDefaults.installed = async () => false;
 const { localModelDefaults } = await import("../../src/runtime/local-models");
 localModelDefaults.discover = async () => ({ servers: [], problems: [] });
 
+// Every folder a test opens counts as one you trusted, so a session in a temp folder doesn't stop at "Trust this
+// folder?". Tests of folder trust put the saved answers back (tests/folder-trust-app.test.ts).
+const { folderTrustDefaults } = await import("../../src/project/trust");
+folderTrustDefaults.lookup = async (info) => ({ trusted: true, from: info.root });
+
 // No test asks GitHub for casper-network-mcp releases: tests of releases pass their own fetch and a fake server.
 const { networkReleaseDefaults } = await import("../../src/mcp/network/releases");
 networkReleaseDefaults.fetch = async () => { throw new Error("tests never reach GitHub for network server releases"); };

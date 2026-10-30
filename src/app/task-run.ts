@@ -163,7 +163,8 @@ export async function runModelTask(app: CasperApp, prompt: string, options: { fl
   if (app.closing || app.commandAbort?.signal.aborted) return;
   const flag = app.verificationFlag;
   const configured = context.verification.mode;
-  const verificationMode = (await checksPlan(app, context)).mode;
+  const plan = await checksPlan(app, context);
+  const verificationMode = plan.mode;
   if (verificationMode !== "off") app.checkTask = new VerificationTask(
     VerifierRegistry.forProject(context.model, context.verification.timeoutMs, app.blockOnCleanupFailure, taskNetworkOptions(app)), app.activeWorkspaceRoot(),
     (result) => writeCheckResult(app, result),
@@ -582,6 +583,7 @@ export async function runModelTask(app: CasperApp, prompt: string, options: { fl
       ...(services.length ? { services } : {}), ...(riskyLines.length ? { riskyLines: [...riskyLines], ...(riskyLines.more ? { riskyMore: riskyLines.more } : {}) } : {}),
       // Smoke checks ran even without a configured command, so "no checks" no longer describes the task.
       verificationMode, ...(!flag && !configured && verificationMode === "auto" ? { verificationDefaulted: true as const } : {}),
+      ...(plan.untrusted ? { untrustedFolder: plan.untrusted } : {}),
       ...(autoChecks?.skipped && !verification?.smoke && !verification?.pages ? { autoSkipped: autoChecks.skipped } : {}),
       ...(autoChecks?.skipped === "no-checks" && !verification?.smoke && !verification?.pages && context.model.testsWithoutCommand ? { testsWithoutCommand: true as const } : {}),
       ...(pageNotes?.length && !verification?.pages ? { pageNotes } : {}), ...(pagesShown ? { pagesShown } : {}),

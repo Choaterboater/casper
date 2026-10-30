@@ -1,4 +1,5 @@
 import path from "node:path";
+import { untrustedReason } from "../project/trust";
 import { savedLocalServers } from "../runtime/local-models";
 import { addLabHosts, labConfigPlace, labImportList, parseLabFile } from "../network/lab-import";
 import type { LabSettings } from "../network/spec";
@@ -88,6 +89,8 @@ export interface OutputWriter {
 /** Everything the extracted slash-command handlers touch on the app. The app stays the
  * owner of all state; this interface makes the (wide) coupling explicit instead of private. */
 export interface CommandHost {
+  /** Whether you trust the open folder: an untrusted one runs none of its checks (src/app/folder-trust.ts). */
+  readonly folderTrust?: import("../project/trust").FolderTrust;
   /** Machines this conversation reached over ssh, newest last (the request hint); /clear and /resume forget them. */
   machines?: string[];
   blockOnCleanupFailure?(error?: import("../platform/processes").ProcessCleanupError): void;
@@ -575,6 +578,11 @@ export async function runSlashCommand(host: CommandHost, prompt: string): Promis
       return;
     }
     if (/^\/services(?:\s|$)/.test(prompt)) {
+      // Listing is fine; starting runs the folder's own service commands, which an untrusted folder doesn't.
+      if (host.folderTrust?.trusted === false && /^\/services\s+(?:start|restart)\b/.test(prompt)) {
+        host.output.write(`[services] Not started: ${untrustedReason(host.folderTrust.why, "start its services")}.\n`);
+        return;
+      }
       await handleServicesCommand(host, prompt);
       return;
     }
@@ -675,6 +683,8 @@ export async function runSlashCommand(host: CommandHost, prompt: string): Promis
     }
     if (/^\/verify(?:\s|$)/.test(prompt)) {
       const args = prompt.trim().split(/\s+/).slice(1);
+      // The checks are the folder's own commands: none run in a folder you haven't trusted.
+      if (host.folderTrust?.trusted === false) { host.output.write(`[verify] Not run: ${untrustedReason(host.folderTrust.why)}.\n`); return; }
       // `/verify add <name>`: the user saves a ready-made check Casper found. Casper never adds one by itself.
       if (args[0] === "add") {
         if (args.length !== 2 || !host.projectContext) throw new Error(VERIFY_USAGE);
@@ -1761,7 +1771,7 @@ async function handlePermissions(host: CommandHost, prompt: string, duringWork =
   // Your own servers that started with writes on are listed apart: their changes don't ask (My MCP servers).
   const asked = host.mcp?.writesOn({ own: false }) ?? [];
   const view: PermissionsView = {
-    shell: basics[0]!, scripts: basics.at(-1)!,
+    shell: basics[0]!, scripts: basics.at(-1)!, ...(host.folderTrust ? { folder: folderTrustText(host.folderTrust) } : {}),
     sandboxReason: sandbox?.failure ?? sandbox?.state.reason, shellAsks: Boolean(sandbox?.asksFirst), routine: context?.routineCommands !== false,
     asking: !host.stopAsking, sandboxOn: Boolean(sandbox?.on), outsideWritesAsk: sandbox?.asksOutsideWrites !== false,
     commandsSession: entries.filter((entry) => entry.session).length, commandsSaved: entries.filter((entry) => !entry.session).length,
@@ -1793,6 +1803,12 @@ export function stopAsking(host: Pick<CommandHost, "stopAsking" | "updateFooter"
   host.stopAsking = true;
   host.updateFooter();
   host.output.write(`[permissions] Not asking until you quit: shell commands, hosts, writes outside the project and other machines are answered Yes for this session. Protected places, secrets, device writes and the spend pause stay as they are. /permissions ask turns asking back on.${task}`);
+}
+
+/** /permissions' line about the open folder: trusted, or what not trusting it means and how to change that. */
+export function folderTrustText(trust: import("../project/trust").FolderTrust): string {
+  if (trust.trusted) return "This folder is trusted: Casper runs its checks, and the project's scripts, builds and tests are routine work. \"stop trusting this folder\" takes it back.";
+  return `This folder isn't trusted: its checks, services and smoke checks don't run, and the AI asks before the project's scripts, builds, tests and installs where no sandbox holds them (${untrustedReason(trust.why)}).`;
 }
 
 /** The lines /permissions shows about the shell, from the state it is in now. */

@@ -439,8 +439,11 @@ Each row names the test that fails without it.
 - **On Linux the sandbox has its own `localhost`.** A command that goes straight to `localhost` reaches
   the sandbox, not a dev server Casper started; the service tool's `request` reaches those.
 - **Windows, and Linux without bubblewrap**, have no sandbox: the AI's shell asks before each command that changes something (reads like `ls` and routine work like `npm test` or `git commit` don't; `sudo`, `curl … | sh`, a force push and a new package still ask),
-  and your project's checks, services and dev servers run with your permissions and network. Use
-  `--no-verify` in a repository you don't trust.
+  and a trusted project's checks, services and dev servers run with your permissions and network.
+  Casper asks "Trust this folder?" the first time a session opens a folder. In one you haven't
+  trusted, no check, service or smoke check runs, and the project's scripts, builds, tests and
+  installs ask like any other command. Your home folder is never trusted. A run that can't ask is
+  trusted for that run; use `--no-verify` there for a repository you don't trust.
 - **Releases are checked, not code-signed.** Until the owner makes the release key, `SHA256SUMS` is
   not signed and the installers check only the SHA-256 (and, with `gh` signed in, where the file was
   built). The very first `curl … | sh` trusts the installer it downloads; the signature protects
