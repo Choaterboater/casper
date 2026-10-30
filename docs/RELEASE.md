@@ -14,11 +14,57 @@ when releasing. Existing historical notes below stay as written; feature tests c
 reference docs, not a per-PR release-note or roadmap entry. Release-prep checks verify the version and
 installer targets (`tests/release-install.test.ts`, `tests/release-targets.test.ts`).
 
-Casper distributes an unsigned **v0.3.9 preview**, not a stable release. The installers
-download from `https://github.com/Choaterboater/casper/releases/download/v0.3.9`,
+Casper distributes an unsigned **v0.4.0 preview**, not a stable release. The installers
+download from `https://github.com/Choaterboater/casper/releases/download/v0.4.0`,
 because GitHub's `latest/download` link skips preview releases. The first published
 preview was **v0.1.0**. A published release is never changed; every fix ships under a
 new version.
+
+## v0.4.0: sudo and commands that need you run inside Casper, a hidden box for keys and tokens, Auto mode, Trust this folder?, and shorter approval boxes
+
+### Added
+
+- When sudo on this computer asks for its password, Casper asks in its own hidden box, and the AI never sees it.
+- Editors, logins, y/n installs and other commands that need you get Casper's terminal, and `!command` runs one yourself.
+- The AI asks for a key or token in Casper's hidden box; the value goes to a file or the next command, never the AI.
+- A paste holding a token asks `1 Remove it · 2 Send anyway` before anything is sent.
+- Auto mode: in a trusted folder, a model judge lets ordinary build commands run and asks about the rest; `auto mode off` stops it.
+- Casper asks whether to trust a folder before its own checks and scripts run, and `/trust` changes the answer.
+- Skills in `~/.agents`, `~/.claude`, `~/.copilot`, `~/.pi` and `~/.codex` are read as yours, and a project's once you trust it.
+- When the AI stops partway through a request with several steps, the Next row offers `Continue: <step>`.
+- Receipts list work outside this folder and what was published, such as a push or a GitHub release.
+- "copy that" copies the answer's block, and an answer that is mostly one block offers `Copy the prompt` on the Next row.
+
+### Changed
+
+- Approval boxes ask with three short rows, No takes a note for the AI, and the Next row offers to always allow a command.
+- With no sandbox, a plain read in your own folders runs without the `Run this command?` box, as the read tool does.
+- A request for a report, review or audit, or one that says not to change anything, runs read-only.
+- Lines typed during a task reach its repair, proof and acceptance rounds, and one typed before the AI starts joins the request.
+- With a ChatGPT plan or Copilot sign-in, `/model` shows your account's own models and says how fresh each list is.
+- After signing in to ChatGPT or Copilot, the default model is `gpt-6.1-sol`.
+- The network-server offer comes only from product names you type, never from pasted text or Wi-Fi words alone.
+- Receipts count only the task's own changes, and `/undo` leaves a file something else changed.
+- The Next row shows its numbers as key caps, and a step's reason reads `Why 3:`.
+- A running app's database and logs count as changed by something else, unless the AI's own commands named them.
+- Quotes have no `│` gutter, so a quoted prompt copies with only its words, and `/copy n` counts quotes too.
+- The `[effort]` line and `/status` say why automatic effort fell back, such as `no answer within 4 s`.
+
+### Fixed
+
+- `/model` lists for ChatGPT and Copilot stay current again, and finding a model server no longer cancels the refresh.
+- A receipt reports a secret only for a real one, not a placeholder such as `YOUR_TOKEN` in a form, test or README.
+- A recorded check whose baseline request crashed the service counts as failing first, so its fix is proof.
+- A browser check already failing when it was recorded asks `Fix it anyway?` before its repair.
+- In a folder Casper can't fully read, the app folder holding the work gets its own checks and the `Switch there` offer.
+- A pasted terminal screen no longer moves you to another project.
+- The untrusted-text reader caps long strings, reads the end of a large file and names its fix instead of failing.
+- Plain server reads over ssh, such as `uname` or `df`, no longer show as config changes.
+- The AI's questions show Markdown as meant, with no stray backslashes.
+- Undo's copy survives a file that keeps changing while it is copied, and the receipt no longer shows git's error text.
+- A network login just added, or not added yet, is a grey step note, not a red failure.
+- The agent guard lets `command -v`, `which` and an agent's `--version` or `--help` run.
+- The start row reads `Continue today's conversation`.
 
 ## v0.3.9: a crew you can watch, plain words for continue and export, and approval boxes that take keys
 

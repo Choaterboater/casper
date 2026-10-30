@@ -40,7 +40,7 @@
       <div class="container">
         <div class="hx-row">
           <div class="hx-copy">
-            <p class="hx-meta">Casper 0.3.9 · early preview, not signed · MIT licence</p>
+            <p class="hx-meta">Casper 0.4.0 · early preview, not signed · MIT licence</p>
             <h1 id="hero-title">The coding agent that proves it's done.</h1>
             <p class="lead">A coding helper for your terminal. Build web apps, APIs, command-line tools and scripts in the language your project uses, and Casper checks the AI's work before it tells you "done". Network engineers get extra care built in.</p>
             <div class="actions">
@@ -75,8 +75,8 @@
             <button type="button" role="tab" id="tab-unix" aria-controls="cmd-unix" aria-selected="true">macOS / Linux</button>
             <button type="button" role="tab" id="tab-windows" aria-controls="cmd-windows" aria-selected="false" tabindex="-1">Windows</button>
           </div>
-          <div class="cmd" id="cmd-unix"><span class="cmd-label visually-hidden">macOS / Linux</span><pre><code>curl -fsSL https://github.com/Choaterboater/casper/releases/download/v0.3.9/install.sh | sh</code></pre></div>
-          <div class="cmd" id="cmd-windows"><span class="cmd-label">Windows x64 or ARM64 · PowerShell</span><pre><code>[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; irm https://github.com/Choaterboater/casper/releases/download/v0.3.9/install.ps1 | iex</code></pre></div>
+          <div class="cmd" id="cmd-unix"><span class="cmd-label visually-hidden">macOS / Linux</span><pre><code>curl -fsSL https://github.com/Choaterboater/casper/releases/download/v0.4.0/install.sh | sh</code></pre></div>
+          <div class="cmd" id="cmd-windows"><span class="cmd-label">Windows x64 or ARM64 · PowerShell</span><pre><code>[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; irm https://github.com/Choaterboater/casper/releases/download/v0.4.0/install.ps1 | iex</code></pre></div>
         </div>
         <p class="small muted">No Bun or source checkout needed. The installer checks the file's SHA-256 and runs the new program's <code>--version</code> before it replaces an older install. Then run <code>casper</code> in your project folder.</p>
       </div>
@@ -308,11 +308,11 @@ Exit codes: 0 no problems, 1 problems (or warnings with --strict), 64 usage mist
           </ul>
         </div>
         <div>
-          <h2 id="next">New in 0.3.9</h2>
+          <h2 id="next">New in 0.4.0</h2>
           <ul>
-            <li>The crew panel shows explorers and the step each helper is on, and Ctrl+O lists each helper's last five steps.</li>
-            <li>"continue session" and "export this session to the desktop" work in plain words, "Switch there" takes the conversation with it, and approval boxes take keys.</li>
-            <li>From 0.3.8: <code>/continue</code> in the conversation it opened stays there, and a pasted terminal transcript is read as context. From 0.3.7: each start is a new conversation, <code>1</code> on the start's row continues the folder's last one, and a helper that stopped at its limit with findings is a grey partial note. From 0.3.6: <code>look adapt</code> runs as <code>/look</code>, <code>1</code> after a critique fixes everything it found, and the AI's browser opens pages up to 3840 wide. From 0.3.5: the AI keeps going until the work is done, a line you type no longer ends it, a plan asks its questions at once, and an app the AI builds stays running. From 0.3.4: in <code>/model</code>, the rows under <code>openrouter</code> show its free models (newest first), or its cheapest, newest or smartest first. From 0.3.3: when a model hits its limit, a task goes on with the next model you list with <code>/model failover</code>; <code>/model</code> lists a model the day OpenRouter adds it, with how smart it is (<code>AA 55</code>) and, with 🔒 or ⚠, what its hosts keep of your prompts.</li>
+            <li>When <code>sudo</code> asks for its password, Casper asks in its own hidden box, and editors, logins and y/n prompts get Casper's terminal. A key or token the AI asks for goes in the same box, and a token in a paste is caught before it is sent.</li>
+            <li>Auto mode lets a model judge run ordinary build commands in a folder you trust, Casper asks "Trust this folder?" before a folder's own commands run, and approval boxes ask with three short rows.</li>
+            <li>From 0.3.9: the crew panel shows explorers and the step each helper is on, "continue session" and "export this session to the desktop" work in plain words, and approval boxes take keys. From 0.3.8: <code>/continue</code> in the conversation it opened stays there, and a pasted terminal transcript is read as context. From 0.3.7: each start is a new conversation, <code>1</code> on the start's row continues the folder's last one, and a helper that stopped at its limit with findings is a grey partial note. From 0.3.6: <code>look adapt</code> runs as <code>/look</code>, <code>1</code> after a critique fixes everything it found, and the AI's browser opens pages up to 3840 wide. From 0.3.5: the AI keeps going until the work is done, a line you type no longer ends it, a plan asks its questions at once, and an app the AI builds stays running. From 0.3.4: in <code>/model</code>, the rows under <code>openrouter</code> show its free models (newest first), or its cheapest, newest or smartest first. From 0.3.3: when a model hits its limit, a task goes on with the next model you list with <code>/model failover</code>; <code>/model</code> lists a model the day OpenRouter adds it, with how smart it is (<code>AA 55</code>) and, with 🔒 or ⚠, what its hosts keep of your prompts.</li>
             <li>From 0.3.2: lines you type during a task wait their turn, skills you add in chat, and pages that need a browser. From 0.3.1: MCP servers on your own network, with the keys they need. From 0.3.0: a context bar in the footer, diagrams in the browser, and small local models that get further.</li>
             <li>From 0.2.50: receipts you can read, and local models that compact in time. From 0.2.46: local Ollama models by their own names, and a timed-out run is no longer proof. From 0.2.45: sign in to a site for the AI's browser. From 0.2.40: <code>/look</code>, Casper tries a changed app before the receipt, and a Home Assistant skill. Helpers that build are off by default. Verified background updates are on by default.</li>
           </ul>
@@ -324,7 +324,7 @@ Exit codes: 0 no problems, 1 problems (or warnings with --strict), 64 usage mist
   <footer class="site-footer">
     <div class="container footer-inner">
       <div>
-        <p><strong>Casper 0.3.9</strong> · early preview, unsigned</p>
+        <p><strong>Casper 0.4.0</strong> · early preview, unsigned</p>
         <p><a href="https://github.com/Choaterboater/casper/blob/main/LICENSE">MIT licence</a> · © 2026 Choaterboater</p>
         <p>Built on the <a href="https://github.com/earendil-works/pi">Pi SDK</a>. Other parts keep their own licences (<a href="https://github.com/Choaterboater/casper/blob/main/THIRD_PARTY_NOTICES.txt">notices</a>).</p>
       </div>
