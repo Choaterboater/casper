@@ -8,6 +8,7 @@ import { terminalText, tint } from "../tui/format";
 import { errorText, refreshFailure } from "./model-errors";
 import { cantUseTools, NO_TOOLS } from "./local-models";
 import { modelFacts, type ModelFacts } from "./model-facts";
+import { listDay, type ListFreshness } from "./catalog-freshness";
 
 /** The slice of ModelRuntime the browser consumes; `pi-model-picker.ts` passes a sanitized view
  * whose provider/id/name values are already control-character safe. */
@@ -17,6 +18,9 @@ export interface ModelBrowserCatalog {
   getError(): string | undefined;
   /** Look for the local model servers again; resolves with why the ones Casper was told about aren't there. */
   refreshLocal?(options?: { signal?: AbortSignal }): Promise<string[]>;
+  /** Where each signed-in provider's list comes from, its date, and why it is out of date when it is
+   * (src/runtime/catalog-freshness.ts), asked after a refresh. */
+  freshness?(options?: { signal?: AbortSignal }): Promise<readonly ListFreshness[]>;
 }
 
 type ModelRef = { provider: string; id: string };
@@ -34,6 +38,8 @@ const CTX_WIDTH = 9;
 const SCORE_WIDTH = 5;
 /** The list's width from which each row also shows its score: below it the score is the first column to go. */
 const SCORE_MIN_WIDTH = 90;
+/** pi-tui's marks around a drawn (not the terminal's) cursor, as renderFakeCursor writes them. */
+const FAKE_CURSOR_MARKS = /\x1b_pi:\/?fc\x07/g;
 
 /** "a", "a and b", "a, b and c". */
 function listWords(words: readonly string[]): string {
@@ -198,6 +204,10 @@ export class ModelBrowser {
   private errorMessage?: string;
   private refreshStatusMessage = "Refreshing model catalogs…";
   private refreshStatusSuccess = false;
+  /** Each signed-in provider's list as the last refresh found it: its source and date in the header. */
+  private lists = new Map<string, ListFreshness>();
+  /** Lists out of date, and models a plan offers that Casper can't call: one line each under the header. */
+  private listNotes: string[] = [];
   /** Why model servers Casper was told about aren't listed (the local look's problems), shown under the header. */
   private localProblems: string[] = [];
   private notice: readonly string[];
@@ -270,7 +280,9 @@ export class ModelBrowser {
     lines.push(truncateToWidth(this.summaryLine(), width));
     lines.push(truncateToWidth(this.hintLine(), width));
     lines.push(this.rule(width));
-    return this.options.color ? lines : lines.map(line => stripVTControlCharacters(line));
+    // Without colour, no reverse-video cursor either: pi-tui marks the search box's drawn cursor (ESC _pi:fc BEL …
+    // ESC _pi:/fc BEL) for the screen to paint in reverse video, and stripVTControlCharacters leaves those marks.
+    return this.options.color ? lines : lines.map(line => stripVTControlCharacters(line.replace(FAKE_CURSOR_MARKS, "")));
   }
 
   private hintLine(): string {
@@ -286,8 +298,32 @@ export class ModelBrowser {
 
   private statusSuffix(): string {
     if (this.errorMessage) return " " + tint(terminalText(this.errorMessage).replace(/\s+/g, " ").trim(), "error", this.options.color);
+    if (this.listNotes.length) return tint(` · ${this.refreshStatusMessage}`, "warning", this.options.color);
     if (this.refreshStatusMessage) return tint(` · ${this.refreshStatusMessage}`, this.refreshStatusSuccess ? "success" : "muted", this.options.color);
     return "";
+  }
+
+  /** After a clean refresh: "refreshed" only when no signed-in provider's list is out of date or offers models Casper
+   * can't call; else which ones are, and a line each saying why. */
+  private async readLists(signal: AbortSignal): Promise<void> {
+    const lists = await this.options.catalog.freshness?.({ signal }).catch(() => []) ?? [];
+    if (this.closed) return;
+    this.lists = new Map(lists.map((list) => [list.provider, list]));
+    this.listNotes = lists.flatMap((list) => [
+      ...list.stale ? [`${terminalText(list.provider)}: ${terminalText(list.stale)}`] : [],
+      ...list.unknown?.length ? [`Your ${terminalText(list.provider)} plan also offers ${listWords(list.unknown.map((id) => terminalText(id)))}, which this Casper can't call yet. Update Casper.`] : [],
+    ]);
+    const behind = lists.filter((list) => list.stale || list.unknown?.length).map((list) => terminalText(list.provider));
+    this.refreshStatusMessage = behind.length ? `${listWords(behind)} ${behind.length > 1 ? "lists" : "list"} out of date` : "Model catalogs refreshed.";
+    this.refreshStatusSuccess = !behind.length;
+  }
+
+  /** The header's note on a provider's list: where it comes from and its date. */
+  private listSource(provider: string): string {
+    const list = this.lists.get(provider);
+    if (!list) return "";
+    const source = list.source === "your account" ? "your account's list" : list.source === "pi.dev" ? "pi.dev's list" : "built-in list";
+    return ` · ${source}${list.at ? `, ${listDay(list.at)}` : ""}`;
   }
 
   private loadModelsFromSnapshot(): void {
@@ -482,11 +518,11 @@ export class ModelBrowser {
     if (info) return info;
     const header = this.scope === undefined
       ? this.accent("All models") + this.muted(` (${this.allModels.length})`)
-      : this.accent(terminalText(this.scope)) + this.muted(`${this.view ? ` · ${VIEW_TITLES[this.view]}` : ""} (${this.filteredModels.length})`);
+      : this.accent(terminalText(this.scope)) + this.muted(`${this.view ? ` · ${VIEW_TITLES[this.view]}` : ""} (${this.filteredModels.length})${this.listSource(this.scope)}`);
     const columns = this.columns(width);
     // Why a server Casper was told about isn't listed: each reason wrapped to the pane, at most a third of it. Then,
     // when rows show a score, what it is: named once, here.
-    const reasons = [...this.noticeLines(width), ...this.localProblems.flatMap((line) => wrapTextWithAnsi(line, Math.max(10, width - 2)))
+    const reasons = [...this.noticeLines(width), ...[...this.listNotes, ...this.localProblems].flatMap((line) => wrapTextWithAnsi(line, Math.max(10, width - 2)))
       .map((line) => tint(`  ${line}`, "warning", this.options.color))].slice(0, Math.max(1, Math.floor(height / 3)));
     const notes = [...reasons, ...columns.privacy ? [this.muted(`  ${PRIVACY_LEGEND}`)] : [], ...columns.score ? [this.muted(`  ${SCORE_LEGEND}`)] : []];
     const lines = [header + this.statusSuffix(), ...notes.length ? notes : [""]];
@@ -747,15 +783,21 @@ export class ModelBrowser {
     this.options.tui.requestRender();
   }
 
-  /** The local model servers and the provider catalogs are looked at side by side; the rows reload after each, so a
-   * server found here shows even when a catalog refresh fails or is slow. */
+  /** The local model servers are looked at first, then the provider catalogs; the rows reload after each, so a server
+   * found here shows even when a catalog refresh fails or is slow. Not side by side: a server found is registered with
+   * the engine, and every registration makes it re-read each provider's list offline, which drops a catalog refresh
+   * still in flight without an error (the new models never showed, and /model still said "refreshed"). */
   private async refreshModels(): Promise<void> {
-    const local = this.options.catalog.refreshLocal?.({ signal: this.refreshAbortController.signal }).then((problems) => {
+    const refreshLocal = this.options.catalog.refreshLocal;
+    if (refreshLocal) {
+      await refreshLocal({ signal: this.refreshAbortController.signal }).then((problems) => {
+        if (this.closed) return;
+        this.localProblems = problems;
+        this.reload();
+      }, () => undefined);
       if (this.closed) return;
-      this.localProblems = problems;
-      this.reload();
-    }, () => undefined);
-    await Promise.all([local, this.refreshCatalogs()]);
+    }
+    await this.refreshCatalogs();
   }
 
   /** Background catalog refresh: live provider catalogs unless PI_OFFLINE is set (the adapter's
@@ -777,8 +819,8 @@ export class ModelBrowser {
       } else {
         this.errorMessage = this.options.catalog.getError();
         if (!this.errorMessage) {
-          this.refreshStatusMessage = "Model catalogs refreshed.";
-          this.refreshStatusSuccess = true;
+          await this.readLists(this.refreshAbortController.signal);
+          if (this.closed) return;
         }
       }
       this.reload();

@@ -4,6 +4,7 @@ import { terminalText } from "../tui/format";
 import { errorText } from "./model-errors";
 import type { RuntimePickerView } from "./types";
 import { ModelBrowser, type ModelView } from "./pi-model-browser";
+import type { ListFreshness } from "./catalog-freshness";
 
 type Pick = { provider: string; id: string; persist: boolean };
 /** What the picker closed for: a model, or one of your model servers to add or forget (asked outside the picker). */
@@ -21,11 +22,18 @@ export interface PickerServers {
   notice?: readonly string[];
 }
 
+/** Your plans' own model lists and how fresh each provider's list is (src/runtime/account-models.ts,
+ * src/runtime/catalog-freshness.ts): read again after the catalog refresh, then asked by /model's header. */
+export interface PickerLists {
+  refresh(signal?: AbortSignal): Promise<void>;
+  freshness(signal?: AbortSignal): Promise<readonly ListFreshness[]>;
+}
+
 /** The catalog as the picker sees it. Provider/id/name values must be control-character safe, and so are refresh
  * errors. Its refresh reads OpenRouter's own list after the provider catalogs (src/runtime/openrouter-models.ts), so
  * the rows the browser reloads have both. */
 export function pickerCatalog(catalog: ModelRuntime, refreshLocal?: (signal?: AbortSignal) => Promise<string[]>,
-  refreshOpenRouter?: (signal?: AbortSignal) => Promise<void>): ModelRuntime {
+  refreshOpenRouter?: (signal?: AbortSignal) => Promise<void>, lists?: PickerLists): ModelRuntime {
   return new Proxy(catalog, {
     get(target, key) {
       if (key === "getError") return () => {
@@ -34,6 +42,10 @@ export function pickerCatalog(catalog: ModelRuntime, refreshLocal?: (signal?: Ab
       };
       if (key === "refreshLocal") return refreshLocal && (async (options?: { signal?: AbortSignal }) =>
         (await refreshLocal(options?.signal)).map((line) => terminalText(line).replace(/\s+/g, " ")));
+      if (key === "freshness") return lists && (async (options?: { signal?: AbortSignal }) =>
+        (await lists.freshness(options?.signal)).map((list): ListFreshness => ({ ...list, provider: terminalText(list.provider),
+          ...list.stale ? { stale: terminalText(list.stale).replace(/\s+/g, " ") } : {},
+          ...list.unknown ? { unknown: list.unknown.map((id) => terminalText(id).replace(/\s+/g, " ")) } : {} })));
       if (key === "refresh") return async (options: Parameters<ModelRuntime["refresh"]>[0]) => {
         try {
           // The browser shows freshness status and keeps cached rows on failure, so live
@@ -41,6 +53,7 @@ export function pickerCatalog(catalog: ModelRuntime, refreshLocal?: (signal?: Ab
           // allowNetwork override: Pi's default fetches unless PI_OFFLINE is set.
           const result = await target.refresh(options);
           await refreshOpenRouter?.(options?.signal).catch(() => undefined);
+          await lists?.refresh(options?.signal).catch(() => undefined);
           return { ...result, errors: new Map([...result.errors].map(([provider, error]) =>
             [terminalText(provider), new Error(terminalText(errorText(error)))])) };
         } catch (error) {
@@ -62,7 +75,7 @@ export async function pickPiModel(view: RuntimePickerView, catalog: ModelRuntime
    * with why the ones Casper was told about aren't there. */
   refreshLocal?: (signal?: AbortSignal) => Promise<string[]>, servers?: PickerServers,
   /** Reads OpenRouter's own model list again, after the catalog refresh (src/runtime/openrouter-models.ts). */
-  refreshOpenRouter?: (signal?: AbortSignal) => Promise<void>): Promise<PickerResult | undefined> {
+  refreshOpenRouter?: (signal?: AbortSignal) => Promise<void>, lists?: PickerLists): Promise<PickerResult | undefined> {
   signal?.throwIfAborted();
   const previousBindings = getKeybindings();
   setKeybindings(new KeybindingsManager({ ...TUI_KEYBINDINGS,
@@ -85,7 +98,7 @@ export async function pickPiModel(view: RuntimePickerView, catalog: ModelRuntime
     removeListener(); // Detach now, not after more keys in the same chunk.
     resolve(pick);
   };
-  const catalogView = pickerCatalog(catalog, refreshLocal, refreshOpenRouter);
+  const catalogView = pickerCatalog(catalog, refreshLocal, refreshOpenRouter, lists);
   try {
     picker = new ModelBrowser({
       tui: view.tui,

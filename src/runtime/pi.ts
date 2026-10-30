@@ -21,6 +21,7 @@ import type { ModelServerActions } from "./pi-models";
 import { applyClaudeCodeVersion } from "./claude-code-version";
 import { registerClaudeSubscription } from "./claude-subscription";
 import { applyLatestOpenRouterModels, startOpenRouterModels } from "./openrouter-models";
+import { applyLatestAccountModels, startAccountModels } from "./account-models";
 import { authenticatePi } from "./pi-auth";
 import { applyOpenRouterAttribution, isOpenRouterModel } from "./openrouter-attribution";
 import { retryUpstreamErrors } from "./model-errors";
@@ -1047,6 +1048,9 @@ export class PiRuntime implements AgentRuntime {
     // helper takes what it read.
     if (!bounded) models.useOpenRouterModels(startOpenRouterModels(modelRuntime, this.lifetime.signal));
     else applyLatestOpenRouterModels(modelRuntime);
+    // Your plans' own model lists (src/runtime/account-models.ts): same split, the main session reads, a helper takes.
+    if (!bounded) models.useAccountModels(startAccountModels(modelRuntime, this.lifetime.signal), agentDir);
+    else applyLatestAccountModels(modelRuntime);
     if (options.compactAt) models.useCompactAt(options.compactAt);
     const tools = new PiToolController(options.tools ?? []);
     const agentShellGuard = new AgentShellGuard(Boolean(bounded));

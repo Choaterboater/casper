@@ -47,11 +47,12 @@ export function openRouterAttribution(): Record<string, string> {
 
 /** A conversation request's headers, changed in place: Casper's attribution replaces the engine's, or,
  * when it is off, the engine's is taken out too (PI_TELEMETRY is set only at startup, before your
- * config is read). Headers that aren't the engine's attribution are left alone; null removes a header. */
+ * config is read). The engine adds its attribution below these headers, out of this hook's sight, so
+ * its keys are set to null (which removes them) whether or not they are here. Other headers stay. */
 export function applyOpenRouterAttribution(headers: Record<string, string | null>): void {
   const ours = openRouterAttribution();
   if (Object.keys(ours).length) { Object.assign(headers, ours); return; }
-  for (const [key, value] of Object.entries(ENGINE_ATTRIBUTION)) if (headers[key] === value) headers[key] = null;
+  for (const key of Object.keys(ENGINE_ATTRIBUTION)) headers[key] = null;
 }
 
 /** A request is OpenRouter's by provider id or by endpoint host, matching how the runtime

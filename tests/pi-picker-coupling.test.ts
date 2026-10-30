@@ -7,7 +7,7 @@ import os from "node:os";
 import path from "node:path";
 import { ModelBrowser, refreshErrorMessage, type ModelBrowserCatalog } from "../src/runtime/pi-model-browser";
 import { tint } from "../src/tui/format";
-import { pickPiModel } from "../src/runtime/pi-model-picker";
+import { pickerCatalog, pickPiModel } from "../src/runtime/pi-model-picker";
 import type { RuntimePickerView } from "../src/runtime/types";
 import { removeTempDir } from "./support/temp-dir";
 
@@ -300,7 +300,9 @@ test("refresh failures and success surface in the header while cached rows stay 
   try {
     succeedingRefresh.settle({ aborted: false, errors: new Map() });
     await succeedingRefresh.promise;
-    expect(rendered(succeeding)).toContain("Model catalogs refreshed.");
+    let text = "";
+    for (let tries = 0; tries < 50 && !text.includes("refreshed"); tries++) { await Bun.sleep(10); text = rendered(succeeding); }
+    expect(text).toContain("Model catalogs refreshed.");
   } finally { succeeding.dispose(); }
 });
 
@@ -609,4 +611,103 @@ test("with no server actions there is no add row, and a just-added server opens 
     scoped.handleInput("\r");
     expect(selected).toBe("ollama-box/qwen3:8b");
   } finally { scoped.dispose(); }
+});
+
+/** The catalog view with what /model says about each provider's list (src/runtime/catalog-freshness.ts). */
+function withLists(catalog: ModelBrowserCatalog, lists: Awaited<ReturnType<NonNullable<ModelBrowserCatalog["freshness"]>>>): ModelBrowserCatalog {
+  return { ...catalog, freshness: async () => lists };
+}
+
+test("a list Casper's engine is given frozen says so after a refresh, never a bare 'Model catalogs refreshed.'", async () => {
+  const refresh = pendingRefresh();
+  const stale = "list from Oct 15; pi.dev's is from Oct 29, but this Casper's engine (version 9.9.9) is given the older one. Update Casper.";
+  const picker = new ModelBrowser({
+    tui: fakeTui(), color: false, sessionOnly: false, onSelect: () => {}, onCancel: () => {},
+    catalog: withLists(fakeCatalog([fakeModel("openai-codex", "gpt-6.1-sol"), fakeModel("anthropic", "claude-fixture")], () => refresh.promise),
+      [{ provider: "anthropic", source: "pi.dev", at: Date.UTC(2026, 9, 28) }, { provider: "openai-codex", source: "pi.dev", at: Date.UTC(2026, 9, 15), stale }]),
+  });
+  try {
+    refresh.settle({ aborted: false, errors: new Map() });
+    await refresh.promise;
+    let text = "";
+    for (let tries = 0; tries < 50 && !text.includes("out of date"); tries++) { await Bun.sleep(10); text = rendered(picker, 200); }
+    expect(text).not.toContain("Model catalogs refreshed.");
+    expect(text).toContain("openai-codex list out of date");
+    expect(text).toContain(`openai-codex: ${stale}`);
+  } finally { picker.dispose(); }
+});
+
+test("models your plan offers that this Casper can't call are named; a provider's list shows its source and date", async () => {
+  const refresh = pendingRefresh();
+  const picker = new ModelBrowser({
+    tui: fakeTui(), color: false, sessionOnly: false, onSelect: () => {}, onCancel: () => {}, initialScope: "github-copilot",
+    catalog: withLists(fakeCatalog([fakeModel("github-copilot", "gpt-6.1-sol")], () => refresh.promise),
+      [{ provider: "github-copilot", source: "your account", at: Date.UTC(2026, 9, 29, 12), unknown: ["gpt-9-fixture", "gpt-9-mini"] }]),
+  });
+  try {
+    refresh.settle({ aborted: false, errors: new Map() });
+    await refresh.promise;
+    let text = "";
+    for (let tries = 0; tries < 50 && !text.includes("can't call"); tries++) { await Bun.sleep(10); text = rendered(picker, 200); }
+    expect(text).toContain("Your github-copilot plan also offers gpt-9-fixture and gpt-9-mini, which this Casper can't call yet. Update Casper.");
+    expect(text).toContain("github-copilot (1) · your account's list, Oct 29");
+  } finally { picker.dispose(); }
+});
+
+test("lists that are all current keep 'Model catalogs refreshed.'", async () => {
+  const refresh = pendingRefresh();
+  const picker = new ModelBrowser({
+    tui: fakeTui(), color: false, sessionOnly: false, onSelect: () => {}, onCancel: () => {},
+    catalog: withLists(fakeCatalog([fakeModel("anthropic", "claude-fixture")], () => refresh.promise), [{ provider: "anthropic", source: "built in", at: Date.UTC(2026, 9, 21) }]),
+  });
+  try {
+    refresh.settle({ aborted: false, errors: new Map() });
+    await refresh.promise;
+    let text = "";
+    for (let tries = 0; tries < 50 && !text.includes("refreshed"); tries++) { await Bun.sleep(10); text = rendered(picker); }
+    expect(text).toContain("Model catalogs refreshed.");
+    expect(text).not.toContain("out of date");
+  } finally { picker.dispose(); }
+});
+
+test("a model server found while /model opens doesn't cancel the provider lists' refresh (their new models show and are saved)", async () => {
+  // Registering a provider makes the engine re-read every provider's list offline, which drops a network refresh still
+  // in flight without an error: /model said "refreshed" and nothing changed. The new pi.dev model must show.
+  const dir = await mkdtemp(path.join(os.tmpdir(), "casper-refresh-race-"));
+  const encode = (value: object) => Buffer.from(JSON.stringify(value)).toString("base64url");
+  const token = `${encode({ alg: "none" })}.${encode({ "https://api.openai.com/auth": { chatgpt_account_id: "acct-fixture" } })}.fixture`;
+  const piDev = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request) {
+    if (!new URL(request.url).pathname.endsWith("/openai-codex")) return new Response(null, { status: 404 });
+    await Bun.sleep(150);
+    return Response.json([{ id: "gpt-9-fixture", name: "GPT-9 Fixture", api: "openai-codex-responses", provider: "openai-codex",
+      baseUrl: "https://chatgpt.com/backend-api", reasoning: true, input: ["text"], cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+      contextWindow: 272_000, maxTokens: 128_000 }], { headers: { "last-modified": new Date().toUTCString(), etag: "\"fixture\"" } });
+  } });
+  const picker: { current?: ModelBrowser } = {};
+  try {
+    await writeFile(path.join(dir, "auth.json"), JSON.stringify({ "openai-codex": { type: "oauth", access: token, refresh: "fixture-refresh",
+      expires: Date.now() + 86_400_000, accountId: "acct-fixture" } }), { mode: 0o600 });
+    const runtime = await ModelRuntime.create({ authPath: path.join(dir, "auth.json"), modelsPath: path.join(dir, "models.json"),
+      refreshOnCreate: false, catalogBaseUrl: `http://127.0.0.1:${piDev.port}` });
+    await runtime.refresh({ allowNetwork: false });
+    // The local look finds a server partway through the catalog refresh, as /model's side-by-side look does.
+    const refreshLocal = async () => {
+      await Bun.sleep(40);
+      runtime.registerProvider("fixture-local", { baseUrl: "http://127.0.0.1:9/v1", api: "openai-completions", apiKey: "none",
+        models: [{ id: "local-model", name: "local-model", reasoning: false, input: ["text"], cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 32_000, maxTokens: 4_000 }] });
+      return [];
+    };
+    picker.current = new ModelBrowser({ tui: fakeTui(), color: false, sessionOnly: false, onSelect: () => {}, onCancel: () => {},
+      catalog: pickerCatalog(runtime, refreshLocal) as unknown as ModelBrowserCatalog });
+    let text = "";
+    for (let tries = 0; tries < 300 && !/refreshed|out of date|Could not/.test(text); tries++) { await Bun.sleep(10); text = rendered(picker.current, 200); }
+    expect(text).toContain("Model catalogs refreshed.");
+    expect(runtime.getAvailableSnapshot().some((model) => model.provider === "openai-codex" && model.id === "gpt-9-fixture")).toBe(true);
+    expect(runtime.getAvailableSnapshot().some((model) => model.provider === "fixture-local")).toBe(true);
+    expect(await Bun.file(path.join(dir, "models-store.json")).text()).toContain("gpt-9-fixture");
+  } finally {
+    picker.current?.dispose();
+    piDev.stop(true);
+    await removeTempDir(dir);
+  }
 });

@@ -7,10 +7,12 @@ import { classifyEffort, effortBelow, fallbackEffort, nearestEffort, resolveAuto
 import { isEffortSelection, isModelRole, resolveModelSelection, type ModelReference, type ModelRoles, type ResolvedModelSelection } from "./model-routing";
 import { matchModelWords, noModelMessage } from "./model-words";
 import type { RuntimeLoginIO, RuntimeModelInfo, RuntimeModelSelection, RuntimeModelSelectionOptions, RuntimeModelWordsMatch, RuntimeModelWordsOptions, RuntimeReadOnlyStartOptions, RuntimeStatus, RuntimeUsage } from "./types";
-import { pickPiModel } from "./pi-model-picker";
+import { pickPiModel, type PickerLists } from "./pi-model-picker";
 import { anyModelMatches } from "./pi-model-browser";
 import { openRouterRequestHeaders } from "./openrouter-attribution";
 import type { OpenRouterModels } from "./openrouter-models";
+import type { AccountModels } from "./account-models";
+import { listFreshness } from "./catalog-freshness";
 import { compactionKeepFor, compactionReserveFor, DEFAULT_COMPACT_AT, fixedRequestTokens, OWN_PART, readCompactAt, type CompactAt, SMALL_WINDOW, smallWindowWarning, windowTooSmall } from "./small-window";
 import { lockBusy } from "../platform/files";
 import { cantUseTools, isLocalProvider, lastLocalLook, LOCAL_SERVERS, localKindHere, localModelDefaults, noToolsLine, onThisComputer, savedLocalServers, SERVER_SIDE_TIP, servedWindowWarning, wantsServerTip, type LocalDiscovery, type LocalProblem } from "./local-models";
@@ -53,8 +55,8 @@ function withoutModels(settings: Settings): Settings {
 export const DEFAULT_MODELS: ReadonlyArray<{ provider: string; id: string }> = [
   { provider: "openrouter", id: "deepseek/deepseek-v4.1-flash" },
   { provider: "anthropic", id: "claude-opus-4-8" },
-  { provider: "openai-codex", id: "gpt-5.5" },
-  { provider: "github-copilot", id: "gpt-5.4" },
+  { provider: "openai-codex", id: "gpt-6.1-sol" },
+  { provider: "github-copilot", id: "gpt-6.1-sol" },
   { provider: "openai", id: "gpt-5.5" },
 ];
 
@@ -410,6 +412,15 @@ export class PiModels {
    * when it opens, and a model only it may have waits for it. */
   private openRouter?: OpenRouterModels;
   useOpenRouterModels(live: OpenRouterModels): void { this.openRouter = live; }
+  /** Your plans' own model lists (src/runtime/account-models.ts) and the engine store the freshness of every list is
+   * read from (src/runtime/catalog-freshness.ts): /model reads both after its catalog refresh. */
+  private lists?: PickerLists;
+  useAccountModels(accounts: AccountModels, agentDir: string): void {
+    this.lists = {
+      refresh: (signal) => accounts.refresh(signal),
+      freshness: (signal) => listFreshness({ catalog: this.catalog, agentDir, accounts: accounts.lists(), ...signal ? { signal } : {} }),
+    };
+  }
   /** Waits for the session's first read of OpenRouter's list only when `missing` says a model the caller needs is not
    * in the catalog yet; with `again`, a model still missing after it sends Casper reading the list once more. */
   private async openRouterWhen(missing: () => boolean, options: { again?: boolean; signal?: AbortSignal } = {}): Promise<void> {
@@ -784,7 +795,7 @@ export class PiModels {
             this.localRefresh && (async (refreshSignal) => {
               const { problems } = await this.localRefresh!(refreshSignal);
               return [...problems.map((problem) => problem.text), ...problems.some(wantsServerTip) ? [SERVER_SIDE_TIP] : []];
-            }), servers, this.openRouter && ((refreshSignal) => this.openRouter!.refresh(refreshSignal))));
+            }), servers, this.openRouter && ((refreshSignal) => this.openRouter!.refresh(refreshSignal)), this.lists));
           signal.throwIfAborted();
           if (!picked) return { status: this.status(session), selected: false, savedDefault: false };
           if ("action" in picked) {

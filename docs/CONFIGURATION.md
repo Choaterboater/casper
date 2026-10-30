@@ -640,7 +640,7 @@ Any other `sandbox` or `shell` key in a project file is named at startup and ign
 | Variable | Meaning |
 | --- | --- |
 | `CASPER_AGENT_DIR` | Folder for sign-ins, the model catalog, engine resources and conversations. Defaults to `~/.casper/agent`. Relative paths resolve from the folder you start Casper in; `~/` expands to your home folder. A folder you set here never receives the one-time import from Pi. Shell commands can't write it, as with `~/.casper`. |
-| `CASPER_OFFLINE` | Set to `1` to stop provider catalog downloads (OpenRouter's model list too) and automatic sign-in browser launches. Cached models remain available. This is **not** a network block: model calls and sign-in still use the network. |
+| `CASPER_OFFLINE` | Set to `1` to stop provider catalog downloads (OpenRouter's model list, your plan's own model list and the pi.dev date check too) and automatic sign-in browser launches. Cached models remain available. This is **not** a network block: model calls and sign-in still use the network. |
 | `CASPER_NO_UPDATE_CHECK` | Set to `1` to disable background Casper update checks, notices and installs, regardless of `updates:`. `CI` disables them too. Explicit `casper update` still works. |
 | `CASPER_TELEMETRY` | Set to `0` to send no OpenRouter app attribution headers (`HTTP-Referer`, `X-OpenRouter-Title`, `X-OpenRouter-Categories`, `X-OpenRouter-App-Visibility`) on model requests and key checks; the bundled engine's own attribution is turned off with it. Works like Pi's `PI_TELEMETRY`: unset keeps attribution, and when set only `1`, `true` or `yes` keep it. An inherited `PI_TELEMETRY` is ignored. `telemetry: off` in your own config (**Send Casper's name to OpenRouter** in `/settings`) does the same; either one off is off. |
 | `CASPER_OAUTH_CALLBACK_HOST` | Address the browser sign-in listens on; defaults to `127.0.0.1`. Casper refuses browser sign-in for any other value. |
@@ -730,6 +730,26 @@ Beside it, at most every 30 minutes, Casper reads OpenRouter's public zero-data-
 when at least one host keeps nothing of a request and ⚠ when every host may keep your prompts. The
 marks only show it; Casper doesn't change where requests go ([decision 37](adr/0002/37-privacy-marks-only-show.md)).
 See [decision 36](adr/0002/36-openrouter-models-live.md).
+
+**Your plan's own model list.** With a ChatGPT plan (`openai-codex`) or GitHub Copilot sign-in, Casper reads the
+account's own model list as a session starts and when `/model` opens (if the last read is over 10 minutes old), the
+way oh-my-pi does: `https://chatgpt.com/backend-api/codex/models` and Copilot's `/models`. Each request goes only to
+that provider with that sign-in, as the engine's own requests do; the token never shows in a message. The account
+decides which models show: a ChatGPT-plan model the account no longer offers (`gpt-5.5` was one) is taken off the
+list, unless the account names none of the listed models. Copilot's list was already cut to your account by the
+engine. A model your plan offers that the engine's catalog doesn't know yet is not added, because how to call it
+(thinking levels, prices, request settings) isn't in the account's list; `/model` names it and says to update Casper.
+A read that fails keeps the list read before, and `/model` says it couldn't read it. `CASPER_OFFLINE=1` stops it. See
+[decision 44](adr/0002/44-account-model-lists.md).
+
+**How fresh each list is.** The engine's catalog is its copy of each provider's list, kept at pi.dev. pi.dev gives
+each engine version the copy made for it and stops moving an older version's copy when the list changes in a way that
+engine can't read; the engine still calls it fresh. So when a signed-in provider's copy is over a week old, `/model`
+asks pi.dev (two plain `HEAD` requests, no sign-in, at most every 4 hours per provider, never offline) for the date of
+the copy this Casper's engine is given (asked with the engine's own name, which pi.dev pins to its version) and of the
+current copy (asked as `casper/<version>`). Only when the engine's copy is more than a day older does `/model` say so,
+with both dates, and ask you to update Casper; an old saved copy the next refresh replaces says nothing. If pi.dev
+doesn't answer, nothing is claimed. OpenRouter isn't checked: its own list is read above.
 
 ## Claude subscription through Claude Code
 
