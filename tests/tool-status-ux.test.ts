@@ -354,3 +354,21 @@ test("a helper that stopped at its limit with findings is a grey partial note in
   // A completed helper is an ordinary ✓.
   expect(outcomeNote({ ...event, output: { text: JSON.stringify({ isError: false, status: "completed", response: "ok" }), truncated: false } })).toBeUndefined();
 });
+
+test("a network login Casper just added is a grey note, never a red failure; so is no login yet", () => {
+  // As call_capability returns it: the broker's envelope, the login line as its summary.
+  const result = (summary: string) => JSON.stringify({ isError: true, executed: true, summary, truncated: false, originalBytes: summary.length });
+  const ended = (summary: string, toolName = "call_capability"): Extract<RuntimeEvent, { type: "tool_end" }> =>
+    ({ type: "tool_end", toolName, input: { operation: "mist.list_sites" }, isError: true, output: { text: result(summary), truncated: false } });
+  for (const summary of ["Mist login added (read-only). Call the tool again.", "Central login added (can change the org). Call the tool again.",
+    "ClearPass login replaced (read-only). Call the tool again."]) {
+    expect(outcomeNote(ended(summary))).toBe("login added · calling it again");
+    const line = Bun.stripANSI(formatToolActivity(ended(summary)));
+    expect(line).toContain("— login added · calling it again");
+    expect(line).not.toMatch(/✗|failed/);
+  }
+  expect(outcomeNote(ended("Mist has no login yet, and the person didn't add one now. Don't ask them in chat; they can type /mcp login mist."))).toBe("no login yet");
+  // A direct tool's plain text too, and a real failure stays red.
+  expect(outcomeNote({ ...ended(""), toolName: "mist_list_sites", output: { text: "Mist login added. Call the tool again.", truncated: false } })).toBe("login added · calling it again");
+  expect(outcomeNote(ended("HTTP 500 from the Mist API"))).toBeUndefined();
+});

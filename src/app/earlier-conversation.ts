@@ -20,6 +20,12 @@ export function conversationDay(modified: string, now = new Date()): string {
   return `${day.toLocaleDateString("en-US", { month: "short", day: "numeric" })}${day.getFullYear() === now.getFullYear() ? "" : `, ${day.getFullYear()}`}`;
 }
 
+/** The row's words: "Continue today's conversation", "Continue the Oct 21 conversation". */
+export function continueLabel(modified: string, now = new Date()): string {
+  const day = conversationDay(modified, now);
+  return day.endsWith("'s") ? `Continue ${day} conversation` : `Continue the ${day} conversation`;
+}
+
 /** True once the row is offered. */
 export async function offerEarlierConversation(app: CasperApp): Promise<boolean> {
   if (app.closing || !app.interactive || app.runConversation || app.queuedPrompt !== undefined || !app.projectContext) return false;
@@ -38,7 +44,7 @@ export async function offerEarlierConversation(app: CasperApp): Promise<boolean>
     const { title } = conversationLabel(newest);
     const messages = newest.messages === undefined ? "" : `${newest.messages} message${newest.messages === 1 ? "" : "s"}`;
     const note = [title, messages].filter(Boolean).join(" · ");
-    app.terminal.offerNext(buildNextRow({ more: [{ label: `Continue the ${conversationDay(newest.modified)} conversation`, command: "/continue", ...(note ? { note } : {}) }],
+    app.terminal.offerNext(buildNextRow({ more: [{ label: continueLabel(newest.modified), command: "/continue", ...(note ? { note } : {}) }],
       hint: NEW_CONVERSATION_HINT }));
     return true;
   } catch { return false; /* no row: a plain start still works */ }

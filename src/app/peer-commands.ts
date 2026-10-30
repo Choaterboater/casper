@@ -10,6 +10,7 @@ import { requestOf } from "../sessions/resume";
 import { scrubPlainSecrets } from "../secrets/files";
 import { scrubValue, type ScrubTextResult } from "../secrets/scrub";
 import { ownValues } from "../verify/model-output";
+import { pasteBlocks } from "./copy-words";
 
 /** Where /export saves when no file is named: ~/.casper/exports. */
 export function exportFolder(home: string): string { return path.join(home, ".casper", "exports"); }
@@ -35,20 +36,23 @@ export async function conversationCommand(host: CommandHost, prompt: string): Pr
   }
   const turns = host.session?.recentTurns?.(Number.MAX_SAFE_INTEGER) ?? [];
   if (command === "copy") {
-    if (argument && !/^[1-9]\d*$/.test(argument)) throw new Error("Usage: /copy [n] (n: a code block of the last answer, 1 is the first)");
+    if (argument && !/^[1-9]\d*$/.test(argument)) throw new Error("Usage: /copy [n] (n: a code or quote block of the last answer, 1 is the first)");
     const answer = [...turns].reverse().find((turn) => turn.role === "assistant")?.text;
     if (!answer) { host.output.write("[copy] Nothing to copy yet: no answer in this conversation.\n"); return; }
-    const blocks = codeBlocks(answer);
+    // Code and quote blocks, numbered together: a quote is copied without its "> " (src/app/copy-words.ts).
+    const blocks = pasteBlocks(answer);
     const n = argument ? Number(argument) : undefined;
     if (n !== undefined && n > blocks.length) {
-      host.output.write(`[copy] The last answer has ${blocks.length ? `${blocks.length} code block${blocks.length === 1 ? "" : "s"}` : "no code blocks"}; /copy copies all of it.\n`);
+      const kind = blocks.every((block) => block.kind === "code") ? "code block" : "block";
+      host.output.write(`[copy] The last answer has ${blocks.length ? `${blocks.length} ${kind}${blocks.length === 1 ? "" : "s"}` : "no code or quote blocks"}; /copy copies all of it.\n`);
       return;
     }
-    const text = n === undefined ? answer : blocks[n - 1]!;
+    const block = n === undefined ? undefined : blocks[n - 1]!;
+    const text = block?.text ?? answer;
     try { await (host.copyText ?? copyText)(text); }
     catch (error) { host.output.write(`[copy] Couldn't reach the clipboard: ${terminalText(error instanceof Error ? error.message : String(error))}\n`); return; }
     const lines = text.split("\n").length;
-    host.output.write(`[copy] Copied ${n === undefined ? "the last answer" : `code block ${n} of the last answer`} (${lines} line${lines === 1 ? "" : "s"}).\n`);
+    host.output.write(`[copy] Copied ${block ? `${block.kind === "quote" ? "the quote" : "code block"}${block.kind === "quote" && blocks.length === 1 ? "" : ` ${n}`} of the last answer` : "the last answer"} (${lines} line${lines === 1 ? "" : "s"}).\n`);
     return;
   }
   // The whole conversation as saved (what a compaction took from the AI's context too), else the turns in context.

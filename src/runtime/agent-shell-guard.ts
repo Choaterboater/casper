@@ -4,6 +4,8 @@ import { commandSegments, commandStart, splitShell } from "../sandbox/remote";
 
 const AGENTS = /^(?:casper|claude|codex|pi|omp|cursor-agent|aider|gemini|opencode)(?:\.(?:exe|cmd|bat))?$/i;
 export const AGENT_SHELL_GUIDANCE = "No launching coding agents or touching unrelated tmux unless the person asks; task-created tmux -L only. Builders too.";
+/** An agent's own flags that only print something and exit: its version or its help. */
+const LOOKUP_FLAGS = new Set(["--version", "-V", "-v", "version", "--help", "-h", "help"]);
 const AGENT_NOTE = "Not run: Casper does not start another coding agent unless the person explicitly asks for it.";
 const TMUX_NOTE = "Not run: use a private tmux -L server created in this task, not someone else's server or session. The person can explicitly ask otherwise.";
 
@@ -31,7 +33,7 @@ export class AgentShellGuard {
   reason(command: string): string | undefined {
     for (const words of this.programs(command)) {
       const tool = path.basename(words[0] ?? "");
-      if (AGENTS.test(tool) && !(words.length === 2 && ["--version", "-V"].includes(words[1]!)) && !this.explicit(tool.replace(/\.(exe|cmd|bat)$/i, ""))) return AGENT_NOTE;
+      if (AGENTS.test(tool) && !(words.length === 2 && LOOKUP_FLAGS.has(words[1]!)) && !this.explicit(tool.replace(/\.(exe|cmd|bat)$/i, ""))) return AGENT_NOTE;
       if (tool !== "tmux" || this.explicit("tmux")) continue;
       const name = words[1] === "-L" ? words[2] : undefined;
       if (!name || !/^[A-Za-z0-9_-]+$/.test(name)) return TMUX_NOTE;
@@ -60,6 +62,8 @@ export class AgentShellGuard {
   private programs(command: string, depth = 0): string[][] {
     if (depth > 8) return [];
     return commandSegments(command).flatMap(segment => {
+      // `command -v casper` (or -V) looks the program up and runs nothing.
+      if (path.basename(segment.words[0] ?? "") === "command" && ["-v", "-V"].includes(segment.words[1] ?? "")) return [];
       const words = segment.words.slice(commandStart(segment.words));
       const name = path.basename(words[0] ?? "");
       const runner = ["npx", "bunx"].includes(name) || name === "bun" && words[1] === "x" || name === "npm" && words[1] === "exec";

@@ -59,7 +59,7 @@ over the network, and `/references add` downloads files after asking you.
 | `/settings [name]`, `/config [name]` | Seven areas, aligned values and help for the highlighted row. Up/Down moves; Enter/Space changes; Left/Right or Tab switches areas; type to search; Esc closes. A name opens one setting. Plain terminals keep grouped numbered choices ([CONFIGURATION.md](CONFIGURATION.md#settings)) |
 | `/theme` | The Theme row of `/settings` on its own: pick the screen's colours |
 | `/hotkeys` | The keys Casper uses, one a line |
-| `/copy [n]` | Copy the last answer, or its code block n, to the clipboard |
+| `/copy [n]` | Copy the last answer, or its code or quote block n (numbered together, a quote without its `> `), to the clipboard. Saying `copy that` or `copy the prompt` does `/copy 1` with no model call when the answer has one block. When an answer is mostly one block to paste, the row under it offers `Copy the prompt`, `Copy the command` or `Copy the code` (free) |
 | `/export [file]` | Save this conversation (Markdown; a `.jsonl` name saves every message): to `~/.casper/exports` with Casper's other per-user files, or to `file` from the project folder; it says the whole path; never over a file that is there. The Markdown has the whole conversation, also what a compaction took out of the AI's context (marked where it happened, with the summary the AI kept); a prompt Casper sent the AI itself (a repair or review round) is under Casper, folded, never under You. Both formats hide secrets as `<secret hidden>` with the pass bash output gets (secret-named environment values, Casper's own login keys, `KEY=VALUE` secrets, address passwords, private keys, secrets named in prose); a `.jsonl` keeps its format, with only those strings changed, and the line says how many were hidden |
 | `/rename <title>` | Name this conversation (the window title and `/resume`) |
 | `/trust`, `/trust off` | Trust this folder: Casper runs its checks, and the project's scripts, builds and tests run as routine work; `off` takes it back. "trust this folder" and "stop trusting this folder" do the same ([VERIFICATION.md](VERIFICATION.md)) |
@@ -716,7 +716,10 @@ live rows, popups or pickers, or a duplicated prompt box (`bun test tests/termin
 - `/effort auto`: classify each raw request before generation. `/status` and the footer show
   `effort auto → <level>`; before the first request `/status` reads `auto → <level> for now; your
   next request picks the level` (the footer keeps it to `<model> · auto`), and `(fallback)`/`(unavailable)`
-  follows when it could not classify, with an `[effort]` notice in the transcript. A fixed level
+  follows when it could not classify, with an `[effort]` notice in the transcript. A fallback says why, in the
+  notice and in `/status` (`auto → high (fallback: no answer within 4 s)`): no answer within 4 s, the provider returned
+  an error, the answer was cut off, the answer wasn't a level, couldn't reach the provider, or the classifier model
+  isn't signed in. Never the provider's own text. A fixed level
   disables it. The banner's model line says the model and its effort once
   (`fixture/demo · effort auto (starts on your first request; /model to change)`); the first
   request adds a short `[model] <model> · effort <level>` line only when that differs from the banner
@@ -876,6 +879,9 @@ only. See [platform support](PLATFORM_SUPPORT.md) for host-validation limits.
   `Enter to choose · Esc to skip`; specialized actions such as Ctrl+S remain available. An approval has no hint under
   its rows: its numbers are the keys.
   Approvals, plan choices, `/model`, `/settings` choices, sign-in and startup questions share these rows.
+- A quote in the AI's answer is indented and grey with no `│` gutter, so a prompt it quoted for you to paste later
+  copies with only its words (`tests/markdown-stream.test.ts`). A code block's title line (`── bash ──`) is never part
+  of its code; a first line that says `bash` is one the AI wrote.
 - A question from the AI's `ask` tool starts with a muted `The AI asks:` line. Casper's own
   questions and approvals never do, so the AI can't pass off a question as a Casper approval. Markdown escapes in its
   words come off (`\`GET\`` shows as `` `GET` ``), and its `code` shows bold without backticks (with them under
@@ -1033,7 +1039,8 @@ Daily commands include `/help`, `/status`, `/project`, `/diff`, `/verify`, `/ski
 
 Each start in a folder is a new conversation, as in Claude Code, Codex, Copilot CLI and Pi; only a `/branch`
 experiment's folder reopens its branch's own. When the folder has an earlier conversation, the start offers one row,
-`Next: 1 Continue the Oct 21 conversation (<title> · 12 messages)` with `Anything you type starts a new conversation.`
+`Next: 1 Continue the Oct 21 conversation (<title> · 12 messages)` (or `Continue today's conversation`,
+`Continue yesterday's conversation`) with `Anything you type starts a new conversation.`
 under it: a lone `1` on the empty prompt runs `/continue` (sent before the row shows, it waits up to 3 s for it), and so does a
 first line that only asks to go back (`continue`, `continue session`, `pick up where we left off`); anything else typed is the new conversation's first request, and
 Enter runs nothing ([decision 42](adr/0002/42-a-plain-start-is-new.md)).

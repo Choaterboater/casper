@@ -39,7 +39,7 @@ const MODE_GITLINK = "160000";
 export interface LeftOut {
   path: string;
   /** "ignored": git ignores it; "not copied": it was there before the task, but no copy was kept (git ignored it then). */
-  why: "secret" | "big" | "nested repo" | "ignored" | "not copied";
+  why: "secret" | "big" | "nested repo" | "ignored" | "not copied" | "changing";
 }
 
 /** A copy, what it left out, and what git ignores in the folder (a folder ends with "/"): files that were there but
@@ -73,7 +73,8 @@ export interface UndoApplied {
 export function leftOutWhy(entry: LeftOut): string {
   return entry.why === "secret" ? "Casper keeps no copy of secret files" : entry.why === "big" ? "over 8 MB"
     : entry.why === "ignored" ? "git ignores it, so Casper keeps no copy"
-    : entry.why === "not copied" ? "it was there before the task, but git ignored it then, so Casper has no copy" : "a nested repository";
+    : entry.why === "not copied" ? "it was there before the task, but git ignored it then, so Casper has no copy"
+    : entry.why === "changing" ? "it changed while Casper copied it" : "a nested repository";
 }
 
 /** The entry of `list` (a file, or a folder ending in "/") that holds `file`, if any. */
@@ -269,7 +270,25 @@ export class UndoStore {
         }
         const addAll = () => this.git(["add", "--all", "--pathspec-from-file=-", "--pathspec-file-nul"],
           { input: [".", ...left.map((entry) => `:(exclude,literal)${entry.path}`)].join("\0"), signal });
-        await addAll();
+        // A running app (a database, a log) can change a file while git reads it; git then stops ("unstable object
+        // source data") without naming it. Once more, then without the files still changing: they are named, and the
+        // rest of the copy stands.
+        const startedAt = Date.now();
+        try { await addAll(); }
+        catch (error) {
+          if (!unstableSource(error)) throw error;
+          try { await addAll(); }
+          catch (again) {
+            if (!unstableSource(again)) throw again;
+            const changing = await changingFiles(this.root, unique.filter((file) => !file.endsWith("/") && !left.some((entry) => entry.path === file)), startedAt);
+            if (!changing.length) throw again;
+            left.push(...changing.map((file): LeftOut => ({ path: file, why: "changing" })));
+            left.sort((a, b) => a.path.localeCompare(b.path));
+            await this.git(["rm", "--cached", "-f", "-q", "--ignore-unmatch", "--pathspec-from-file=-", "--pathspec-file-nul"],
+              { input: changing.map((file) => `:(literal)${file}`).join("\0"), signal });
+            await addAll();
+          }
+        }
         let tree: string;
         try { tree = (await this.text(["write-tree"])).trim(); } catch {
           // git's clean-up from another work tree's copies can drop a file this index still names (its copy was
@@ -500,10 +519,32 @@ function plainError(error: unknown): string {
   return (error instanceof Error ? error.message : String(error)).replace(/\s+/g, " ").slice(0, 200);
 }
 
+/** git stopped because a file changed while it read it. */
+function unstableSource(error: unknown): boolean {
+  return error instanceof GitError && /unstable object source data|changed while (?:reading|we were reading)|short read/i.test(error.message);
+}
+
+/** Of `files`, those whose time of change is at or after `since` (being written now), checked twice a moment apart. */
+async function changingFiles(root: string, files: readonly string[], since: number): Promise<string[]> {
+  const stamp = async (file: string) => { const info = await lstat(path.join(root, file)).catch(() => undefined); return info ? `${info.size}:${info.mtimeMs}` : "gone"; };
+  const first = await Promise.all(files.map(stamp));
+  await new Promise((resolve) => setTimeout(resolve, 150));
+  const changing: string[] = [];
+  for (const [index, file] of files.entries()) {
+    const now = await stamp(file);
+    const [, mtime] = now.split(":");
+    if (now !== first[index] || Number(mtime) >= since - 1_000) changing.push(file);
+  }
+  return changing;
+}
+
+/** Why no copy was saved, in plain words: never git's own error text (src/task/undo.ts GitError). */
 function unavailableReason(error: unknown): string {
   const code = (error as NodeJS.ErrnoException | undefined)?.code;
   if (code === "ENOENT") return "git is not installed";
   if (code === "ABORT_ERR" || (error as Error | undefined)?.name === "AbortError") return "the task was stopped before a copy was saved";
   if (code === "ETIMEDOUT") return "Casper could not save a copy (it took too long)";
-  return `Casper could not save a copy (${plainError(error)})`;
+  if (code === "ELOCKED") return `Casper could not save a copy (${plainError(error)})`;
+  if (unstableSource(error)) return "Casper could not save a copy (files kept changing while it copied them)";
+  return "Casper could not save a copy (git could not read the folder)";
 }

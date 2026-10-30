@@ -25,8 +25,8 @@ test("a deleted file goes by its folder's time; while a command or service the t
     changes: { ...none, removed: ["src/a.py", "docs/b.md"] }, changedAt: at({ src: 11_000, docs: 30_000 }) });
   expect(removed).toEqual({ task: ["src/a.py"], others: [], unsure: ["docs/b.md"] });
   const running = await attributeChanges({ root: "/r", since: 1_000, until: 60_000, windows: [[10_000, 12_000]], unsure: true,
-    changes: { ...none, modified: ["db.sqlite"] }, changedAt: at({ "db.sqlite": 30_000 }) });
-  expect(running).toEqual({ task: [], others: [], unsure: ["db.sqlite"] });
+    changes: { ...none, modified: ["data/export.csv"] }, changedAt: at({ "data/export.csv": 30_000 }) });
+  expect(running).toEqual({ task: [], others: [], unsure: ["data/export.csv"] });
 });
 
 test("tool windows: an end without a start counts from the last end; a picture is held until released", () => {
@@ -45,4 +45,19 @@ test("another program's files are left out of a later copy only while they are a
   expect(withoutFiles(found, before, ["a", "b"])).toEqual(new Map([["a", "1"]]));
   // Changed again afterwards (by the task's checks, say): that change counts.
   expect(withoutFiles(new Map([["a", "3"], ["b", "x"]]), before, ["a", "b"], found)).toEqual(new Map([["a", "3"]]));
+});
+
+test("a running app's database and log are the app's even while the AI's command runs, unless the command names them", async () => {
+  const changes = { ...none, modified: ["config/home-assistant_v2.db", "config/home-assistant_v2.db-wal", "config/home-assistant.log", "config/automations.yaml"],
+    added: ["config/home-assistant_v2.db-shm", "logs/app.log.1", "logs/app.log.2.gz"], removed: ["config/home-assistant_v2.db-journal"] };
+  const during = at(Object.fromEntries([...changes.modified, ...changes.added].map((file) => [file, 11_000])));
+  const split = await attributeChanges({ root: "/r", since: 1_000, until: 60_000, windows: [[10_000, 12_000]], changes, changedAt: during,
+    commands: ["docker compose restart homeassistant"] });
+  expect(split.task).toEqual(["config/automations.yaml"]);
+  expect(split.others).toEqual(["config/home-assistant.log", "config/home-assistant_v2.db", "config/home-assistant_v2.db-journal",
+    "config/home-assistant_v2.db-shm", "config/home-assistant_v2.db-wal", "logs/app.log.1", "logs/app.log.2.gz"]);
+  // A command that works on the database (or the edit tool on the log) keeps them the task's.
+  const named = await attributeChanges({ root: "/r", since: 1_000, until: 60_000, windows: [[10_000, 12_000]], changes, changedAt: during,
+    commands: ["sqlite3 config/home-assistant_v2.db 'DELETE FROM states WHERE 1'"], toolFiles: new Set(["logs/app.log.1"]) });
+  expect(named.task).toEqual(["config/automations.yaml", "config/home-assistant_v2.db", "config/home-assistant_v2.db-shm", "config/home-assistant_v2.db-wal", "logs/app.log.1"]);
 });

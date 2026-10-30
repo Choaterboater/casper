@@ -1,7 +1,8 @@
 import { expect, test, vi } from "bun:test";
 import type { AgentSession, ModelRuntime } from "@earendil-works/pi-coding-agent";
 import type { AssistantMessage as Response } from "@earendil-works/pi-ai";
-import { classifyEffort, fallbackEffort, nearestEffort, resolveAutoEffort } from "../src/runtime/auto-effort";
+import { classifyEffort, fallbackEffort, fallbackReason, nearestEffort, resolveAutoEffort } from "../src/runtime/auto-effort";
+import { formatEffort } from "../src/tui/format";
 
 const model: NonNullable<AgentSession["model"]> = {
   id: "classifier", name: "Fixture classifier", provider: "fixture", api: "openai-completions",
@@ -181,6 +182,7 @@ test("deadline rejects even when the transport ignores its abort signal", async 
     vi.advanceTimersByTime(4_000);
     const error = await pending;
     expect(error).toBeInstanceOf(Error);
+    expect(fallbackReason(error)).toBe("no answer within 4 s");
     expect(transportSignal?.aborted).toBe(true);
     late.reject(new Error("Late private transport failure"));
     await Promise.resolve();
@@ -204,4 +206,16 @@ test("a failed classification of build or release work runs at least medium; a s
   expect(fallbackEffort("rename the variable in sum.js as we discussed earlier today please", "Shall I release it?", supported)).toBeUndefined();
   // A model whose lowest level is above medium keeps its own.
   expect(fallbackEffort("release it", undefined, ["high", "xhigh"])).toBe("high");
+});
+
+test("a fallback says why in plain words, never the provider's text, in the [effort] line's words and /status", async () => {
+  const reasonFor = async (completeSimple: Pick<ModelRuntime, "completeSimple">["completeSimple"]) =>
+    fallbackReason(await classifyEffort({ ...options, catalog: { completeSimple } }).catch(error => error));
+  expect(await reasonFor(async () => response('{"effort":"high"}', { stopReason: "error", errorMessage: "private provider diagnostic" }))).toBe("the provider returned an error");
+  expect(await reasonFor(async () => response("", { stopReason: "length" }))).toBe("the answer was cut off");
+  expect(await reasonFor(async () => response("I think medium."))).toBe("the answer wasn't a level");
+  expect(await reasonFor(() => { throw new Error("private token and provider URL"); })).toBe("couldn't reach the provider");
+  // /status's effort: the level, and why it fell back.
+  expect(formatEffort({ provider: "openai-codex", model: "gpt-6.1-sol", auth: "configured", configuredEffort: "auto", thinkingLevel: "high",
+    autoEffort: { state: "fallback", reason: "no answer within 4 s" } })).toBe("auto → high (fallback: no answer within 4 s)");
 });

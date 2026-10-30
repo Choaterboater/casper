@@ -4,7 +4,7 @@ import { mkdir, mkdtemp, readFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { CasperApp } from "../src/app";
-import { continueWords, conversationDay, EARLY_ONE_WAIT_MS, NEW_CONVERSATION_HINT } from "../src/app/earlier-conversation";
+import { continueLabel, continueWords, conversationDay, EARLY_ONE_WAIT_MS, NEW_CONVERSATION_HINT } from "../src/app/earlier-conversation";
 import { loadProjectContext } from "../src/project/context";
 import { SkillRegistry } from "../src/skills/registry";
 import { removeTempDir } from "./support/temp-dir";
@@ -131,7 +131,7 @@ function withPrompts(base: AgentRuntime, prompts: string[]): AgentRuntime {
     },
   };
 }
-const ROW = `Next: 1 Continue the ${conversationDay(EARLIER[0]!.modified)} conversation (Fix the login bug · 12 messages)`;
+const ROW = `Next: 1 ${continueLabel(EARLIER[0]!.modified)} (Fix the login bug · 12 messages)`;
 
 test("a plain start begins a new conversation and offers one row to continue the last one: 1 continues it", async () => {
   const resumed: Array<[string, unknown]> = [];
@@ -213,6 +213,10 @@ test("the row names the day plainly: today's, yesterday's, a date, and the year 
   expect(conversationDay(new Date(2026, 9, 26, 23, 0).toISOString(), now)).toBe("yesterday's");
   expect(conversationDay(new Date(2026, 9, 21, 12, 0).toISOString(), now)).toBe("Oct 21");
   expect(conversationDay(new Date(2025, 11, 30, 12, 0).toISOString(), now)).toBe("Dec 30, 2025");
+  // "Continue today's conversation", never "Continue the today's conversation".
+  expect(continueLabel(new Date(2026, 9, 27, 9, 0).toISOString(), now)).toBe("Continue today's conversation");
+  expect(continueLabel(new Date(2026, 9, 26, 23, 0).toISOString(), now)).toBe("Continue yesterday's conversation");
+  expect(continueLabel(new Date(2026, 9, 21, 12, 0).toISOString(), now)).toBe("Continue the Oct 21 conversation");
 });
 
 /** Like `runtime`, but the session is in whichever conversation it last resumed. */

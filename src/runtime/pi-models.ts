@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import path from "node:path";
 import { clampThinkingLevel, getSupportedThinkingLevels } from "@earendil-works/pi-ai/compat";
 import { SettingsManager, type AgentSession, type ModelRuntime, type SessionManager } from "@earendil-works/pi-coding-agent";
-import { classifyEffort, effortBelow, fallbackEffort, nearestEffort, resolveAutoEffort } from "./auto-effort";
+import { ClassificationError, classifyEffort, effortBelow, fallbackEffort, fallbackReason, nearestEffort, resolveAutoEffort } from "./auto-effort";
 import { isEffortSelection, isModelRole, resolveModelSelection, type ModelReference, type ModelRoles, type ResolvedModelSelection } from "./model-routing";
 import { matchModelWords, noModelMessage } from "./model-words";
 import type { RuntimeLoginIO, RuntimeModelInfo, RuntimeModelSelection, RuntimeModelSelectionOptions, RuntimeModelWordsMatch, RuntimeModelWordsOptions, RuntimeReadOnlyStartOptions, RuntimeStatus, RuntimeUsage } from "./types";
@@ -689,7 +689,7 @@ export class PiModels {
         const classifier = roles.fast ? resolveModelSelection("@fast", this.catalog.getModels(), roles, this.defaultReference()).reference : selection.reference!;
         const model = this.catalog.getModel(classifier.provider, classifier.id);
         selection.auto.classifier = `${classifier.provider}/${classifier.id}`;
-        if (!model || this.staleAuth.has(classifier.provider) || !this.catalog.hasConfiguredAuth(classifier.provider)) throw new Error("Classifier unavailable.");
+        if (!model || this.staleAuth.has(classifier.provider) || !this.catalog.hasConfiguredAuth(classifier.provider)) throw new ClassificationError("the classifier model isn't signed in");
         let usage = this.accounting.get(session);
         if (!usage) { usage = { requests: 0, tokens: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } }; this.accounting.set(session, usage); }
         usage.requests++;
@@ -700,9 +700,11 @@ export class PiModels {
         signal.throwIfAborted();
         session.setThinkingLevel(result.level, { persist: false });
         selection.auto.state = "classified";
-      } catch {
+      } catch (error) {
         signal.throwIfAborted();
         selection.auto.state = "fallback";
+        // Why, kept for the [effort] line and /status: the person can see what to change (a sign-in, a slow network).
+        selection.auto.reason = fallbackReason(error);
         // Build or release work does not fall back to a low level (fallbackEffort).
         const raised = fallbackEffort(request, lastAssistantText(session), supported);
         if (raised && effortBelow(session.thinkingLevel, raised)) { session.setThinkingLevel(raised, { persist: false }); selection.auto.raised = true; }

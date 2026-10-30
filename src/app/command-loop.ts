@@ -23,6 +23,7 @@ import { serviceManager } from "./task-tools";
 import { updateFooter, loadPaneSetting, askPaneOnce, paneCommand, detailsCommand } from "./footer";
 import { holdBackSteered, settleQueuedLines } from "./during-work";
 import { continueWords, EARLY_ONE_WAIT_MS, offerEarlierConversation } from "./earlier-conversation";
+import { copyRequest, pasteBlocks } from "./copy-words";
 import { newProjectFlowWithAbort, openProjectFolder, newProjectCommand, initialProjectRequest, openWorkspaceBeforeRuntime } from "./workspace";
 import { rebindWorkspace } from "./session-branches";
 import { runModelTask, runSuggestion } from "./task-run";
@@ -241,6 +242,15 @@ export async function handlePrompt(app: CasperApp, prompt: string, typed?: { pas
     if (trust) {
       app.output.write(trustHandledHere(trustLine(trust)));
       return report = await handleSlashCommand(app, trustLine(trust));
+    }
+    // "copy that", "copy the prompt": /copy of the last answer's block, as if typed, with no model call (src/app/copy-words.ts).
+    const copy = typed && !app.pastedImages?.size ? copyRequest(prompt, typed.pasted) : undefined;
+    if (copy) {
+      const blocks = pasteBlocks(app.lastAnswer).length;
+      if (blocks > 1) { app.output.write(`[copy] The last answer has ${blocks} blocks: /copy 1 to /copy ${blocks} copies one, /copy all of it.\n`); return report; }
+      const line = blocks === 1 ? "/copy 1" : "/copy";
+      app.output.write(`[copy] Handled here, no model call: ${line} does the same.\n`);
+      return report = await handleSlashCommand(app, line);
     }
     // "look adapt", typed without the slash: /look adapt (src/look/commands.ts lookWords). Only a line typed here; when
     // /look can't run, the line goes on to the AI below.

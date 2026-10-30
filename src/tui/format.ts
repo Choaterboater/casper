@@ -104,7 +104,8 @@ export function markdownTheme(color: boolean): MarkdownTheme {
   const border = role("border");
   return {
     heading: role("accent", "1"), link: accent, linkUrl: muted, code: accent, codeBlock: accent, codeBlockBorder: border, codeBlockIndent: "",
-    quote: muted, quoteBorder: border, hr: border, listBullet: accent,
+    // A quote is indented and grey, with no "│" gutter: a mouse copy of a prompt the AI quoted to paste later takes no marks.
+    quote: muted, quoteBorder: () => "  ", hr: border, listBullet: accent,
     bold: style("1"), italic: style("3"), strikethrough: style("9"), underline: style("4"),
   };
 }
@@ -456,7 +457,8 @@ export function formatEffort(status: RuntimeStatus, short = false): string | und
   if (status.configuredEffort === "auto") {
     const state = status.autoEffort?.state;
     // "pending" is before the next request (the first, or the next after auto was chosen), when Casper picks its level.
-    const note = state === "pending" ? short ? "" : " for now; your next request picks the level" : state && state !== "classified" ? ` (${state})` : "";
+    const reason = !short && state === "fallback" && status.autoEffort?.reason ? `: ${terminalText(status.autoEffort.reason)}` : "";
+    const note = state === "pending" ? short ? "" : " for now; your next request picks the level" : state && state !== "classified" ? ` (${state}${reason})` : "";
     return `auto → ${status.thinkingLevel ? terminalText(status.thinkingLevel) : "—"}${note}`;
   }
   return status.thinkingLevel ? terminalText(status.thinkingLevel) : undefined;

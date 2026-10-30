@@ -90,6 +90,12 @@ its tools ran, stays the AI's. A deleted file (it has no time of its own) or a c
 task left running could still write stays the AI's on the receipt, and `/undo` asks before touching it
 ([UNDO.md](UNDO.md#the-rules)). `tests/changed-by-others.test.ts` covers this.
 
+A running app rewrites some files by itself all the time, also while one of the AI's commands runs: a SQLite database
+and its `-wal`, `-shm` and `-journal` files (`.db`, `.sqlite`, `.sqlite3`), and logs (`*.log`, `*.log.1`, `*.log.gz`).
+Those are always the app's, `Changed by something else`, unless the AI's `edit` or `write` tools or one of its commands
+named them (`sqlite3 config/home-assistant_v2.db …`). A Home Assistant folder's investigation that changed nothing
+says so, instead of `Changed 7 files` and an undo line for its database. `tests/home-assistant-session.test.ts` covers this.
+
 **Work outside this folder.** Before the first AI command that works in a repository or folder outside this one
 (the folder it starts in, `cd`, `pushd`, `git -C`, or a path inside a repository) or an `edit` there, Casper notes its
 state: a repository's HEAD and the files git shows as changed, or a small folder's files. The receipt compares
