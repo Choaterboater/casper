@@ -34,7 +34,7 @@ const check = (freshness: "fresh" | "stale") => ({ id: "c1", name: "Save", scena
   status: "pass" as const, baseline: "pass" as const, freshness, assertions: [{ kind: "text", status: "pass" as const, actual: "Saved" }] });
 
 /** A replay failure gets one model turn, with the project checks and the same recorded check rerun. */
-async function replayFailure(options: { budget?: number; priorRepairs?: boolean; fixed?: boolean; incomplete?: boolean; stop?: boolean; repairFails?: boolean; regression?: boolean; noEdit?: boolean; unreplayed?: boolean; stale?: boolean; scoped?: boolean; browserOnly?: boolean; proving?: boolean; weakenTest?: boolean; child?: boolean; turnLimit?: boolean } = {}) {
+async function replayFailure(options: { budget?: number; priorRepairs?: boolean; fixed?: boolean; incomplete?: boolean; stop?: boolean; repairFails?: boolean; regression?: boolean; noEdit?: boolean; unreplayed?: boolean; stale?: boolean; scoped?: boolean; browserOnly?: boolean; proving?: boolean; weakenTest?: boolean; child?: boolean; turnLimit?: boolean; baselineFail?: boolean; answer?: string } = {}) {
   process.env.TERM = "xterm-256color";
   const calls: string[] = [];
   const prompts: string[] = [];
@@ -96,7 +96,7 @@ async function replayFailure(options: { budget?: number; priorRepairs?: boolean;
       if (options.stop) app.app.taskTurnLimit = 1;
     },
     report: async (): Promise<BrowserReport> => ({ status: options.incomplete ? "incomplete" : replayed > 1 && options.fixed !== false ? "pass" : "fail",
-      guidance: "g", checks: [{ ...check(options.stale ? "stale" : "fresh"), status: options.incomplete ? "incomplete" : replayed > 1 && options.fixed !== false ? "pass" : "fail",
+      guidance: "g", checks: [{ ...check(options.stale ? "stale" : "fresh"), ...(options.baselineFail ? { baseline: "fail" as const } : {}), status: options.incomplete ? "incomplete" : replayed > 1 && options.fixed !== false ? "pass" : "fail",
         assertions: [{ kind: "text", status: replayed > 1 && options.fixed !== false ? "pass" : "fail", actual: "Not saved" }] }] }),
   } as unknown as BrowserSession;
   try {
@@ -107,6 +107,10 @@ async function replayFailure(options: { budget?: number; priorRepairs?: boolean;
       await writeFile(path.join(project, "tests/check.ts"), "import { readFileSync } from 'node:fs'; if (!readFileSync('app.ts', 'utf8').startsWith('fixed')) { console.error('assertion failed'); process.exit(1); }\n");
     }
     app.input.write(options.proving ? "fix app.ts\r" : "update the notes documentation\r");
+    if (options.answer !== undefined) {
+      await app.until(text => text.includes("Fix it anyway?"), 25_000);
+      app.input.write(options.answer);
+    }
     // Several check runs and model rounds: on a loaded runner this needs more than the default 15 s, under the test's 30 s.
     await app.until(text => /Browser checks failed|browser checks passed|Browser checks incomplete/.test(text), 25_000);
     return { calls, prompts, screen: app.screen(), task: app.app.lastTaskResult!, runs: (await readFile(path.join(project, "runs.txt"), "utf8").catch(() => "")).length };
@@ -323,3 +327,25 @@ test("a check the AI withdrew shows on the receipt with its reason, and the pass
     expect(screen).not.toContain("Browser checks failed");
   } finally { await app.close(); }
 }, 30_000);
+
+test("a re-checked browser check that was already failing when recorded asks first, as a command check does: Leave it repairs nothing", async () => {
+  const { calls, task, screen } = await replayFailure({ baselineFail: true, answer: "1" });
+  expect(calls).toEqual(["model", "replay"]);
+  expect(screen).toContain("– Save was already failing when it was recorded");
+  expect(screen).toContain("Save was already failing when it was recorded. Fix it anyway? → Leave it");
+  expect(task.verification?.repairAttempts ?? 0).toBe(0);
+  expect(task.browser?.status).toBe("fail");
+}, 30_000);
+
+test("Fix it anyway on a browser check already failing when recorded gets the usual one repair", async () => {
+  const { calls, task } = await replayFailure({ baselineFail: true, answer: "2" });
+  expect(calls).toEqual(["model", "replay", "browser repair", "replay"]);
+  expect(task.verification?.repairAttempts).toBe(1);
+  expect(task.browser?.status).toBe("pass");
+}, 30_000);
+
+test("the browser guide says a check already failing when recorded asks before its repair", async () => {
+  const doc = (await readFile(new URL("../docs/BROWSER.md", import.meta.url), "utf8")).replace(/\s+/g, " ");
+  expect(doc).toContain("A failing check that was already failing when it was recorded (its baseline was a failure) first gets the question a command check gets when it failed before the change");
+  expect(doc).toContain("with `Leave it` first, so Enter repairs nothing and the receipt says the check fails. A run that can't ask repairs it, as it does a command check.");
+});

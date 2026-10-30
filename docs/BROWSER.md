@@ -358,7 +358,12 @@ stays open.
 If this replay produces a fresh failure and a try remains in `repair.maxAttempts`,
 Casper gives the model **one repair turn**, using the same budget as command,
 page-note and proof repairs. Incomplete or stale results, and failures from checks
-not replayed by this task, do not start that turn. After it, Casper replans and
+not replayed by this task, do not start that turn. A failing check that was already failing when it was recorded
+(its baseline was a failure) first gets the question a command check gets when it failed before the change:
+`– Save was already failing when it was recorded`, then `Save was already failing when it was recorded. Fix it anyway?`
+with `Leave it` first, so Enter repairs nothing and the receipt says the check fails. A run that can't ask repairs it,
+as it does a command check. A browser check keeps no copy of the code from before, so a check the model recorded
+failing to drive its own fix looks the same, and you choose. After it, Casper replans and
 reruns relevant project checks (fresh scoped passes can still be reused), refreshes
 proof/acceptance when applicable, then replays the recorded checks again. A failed
 id is retried even if the repair edited nothing, under the same unattended replay
