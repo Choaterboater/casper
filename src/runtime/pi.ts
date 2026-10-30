@@ -658,7 +658,8 @@ class PiRuntimeSession implements RuntimeSession {
           if (typeof content === "string" && file !== undefined && this.writes.size < 64) this.writes.set(event.toolCallId, { before, after: content });
           // A secret the AI writes into a file is a receipt line naming the file (src/secrets/files.ts addsSecret).
           const texts = file === undefined ? undefined : elisionTexts(event.toolName, Object(event.args), before ?? undefined);
-          if (file !== undefined && texts && addsSecret(file, texts.before, texts.after)) input.secretWritten = displayPath(file, this.runtime.cwd);
+          const secret = file !== undefined && texts ? addsSecret(displayPath(file, this.runtime.cwd), texts.before, texts.after) : undefined;
+          if (secret) { input.secretWritten = displayPath(file!, this.runtime.cwd); input.secretWhere = `line ${secret.line}, ${secret.kind}`; }
           const description = stepTitle(event.toolName, event.args);
           if (description !== undefined && this.toolTitles.size < 64) this.toolTitles.set(event.toolCallId, description);
           this.emit({ type: "tool_start", toolName: event.toolName, toolCallId: event.toolCallId, input, ...(description !== undefined ? { description } : {}) });

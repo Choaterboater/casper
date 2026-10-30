@@ -210,6 +210,15 @@ export function undoChangedChoices(verb: "Undo" | "Redo", others: number): Choic
   ];
 }
 
+/** Undo, for files Casper can't tell the task changed: Leave them first, so Enter touches nothing. */
+export function undoUnsureChoices(count: number): Choice[] {
+  const them = count === 1 ? "it" : "them";
+  return [
+    { label: `Leave ${them}`, description: `${them === "it" ? "it stays" : "they stay"} as ${them === "it" ? "it is" : "they are"} now` },
+    { label: `Undo ${them} too`, description: `put ${them} back as before the task` },
+  ];
+}
+
 /** "A shell command wants to reach api.mist.com." (the shell sandbox's host question). Enter keeps it blocked. */
 export const HOST_CHOICES = [
   { label: NO, description: "the command can't reach it" },

@@ -143,7 +143,7 @@ test("in a session, 1 on the row after a look report fixes everything it found i
   expect(casper.output()).not.toContain("Fix all of it");
 
   input.write("mainly a desk\n");
-  at = await casper.until(`Next: 1 Fix all of it (uses tokens)\n  1: /look adapt, clarify and polish on ${PAGE}, in one task\n`, at);
+  at = await casper.until(`Next: 1 Fix all of it (uses tokens)\n  Why: /look adapt, clarify and polish on ${PAGE}, in one task\n`, at);
   at = await casper.until("> ", at);
   input.write("1\n");
   at = await casper.until(`[look] Fixing what the last report found, with adapt, clarify and polish: ${PAGE}\n`, at);

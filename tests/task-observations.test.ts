@@ -246,18 +246,18 @@ test("a secret the AI wrote into a file is one receipt line naming the file, nev
   const jwt = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJmaXh0dXJlIn0.c2lnbmF0dXJlLWZpeHR1cmUtMDEyMzQ1Njc4OQ";
   const key = "9f8e7d6c5b4a39281706f5e4d3c2b1a0";
   const yaml = (lines: string[]) => `weather:\n  platform: sample\n${lines.join("\n")}\n`;
-  expect(addsSecret("config/app.yaml", "", yaml([`  api_key: ${key}`]), {})).toBe(true);
-  expect(addsSecret("config/app.yaml", "", yaml([`  token: ${jwt}`]), {})).toBe(true);
-  expect(addsSecret("config/app.yaml", "", yaml([`  headers:`, `    Authorization: "Bearer ${jwt}"`]), {})).toBe(true);
+  expect(addsSecret("config/app.yaml", "", yaml([`  api_key: ${key}`]), {})).toBeTruthy();
+  expect(addsSecret("config/app.yaml", "", yaml([`  token: ${jwt}`]), {})).toBeTruthy();
+  expect(addsSecret("config/app.yaml", "", yaml([`  headers:`, `    Authorization: "Bearer ${jwt}"`]), {})).toBeTruthy();
   // Placeholders and references to a value kept elsewhere are not secrets.
   for (const value of ["!secret weather_key", "!env_var WEATHER_KEY", "${WEATHER_KEY}", "\"${WEATHER_KEY}\"", "\"{{ weather_key }}\"", "<your-api-key>", "YOUR_API_KEY", "changeme", "xxxxxxxx"]) {
-    expect(addsSecret("config/app.yaml", "", yaml([`  api_key: ${value}`]), {})).toBe(false);
+    expect(addsSecret("config/app.yaml", "", yaml([`  api_key: ${value}`]), {})).toBeUndefined();
   }
-  expect(addsSecret("src/app.ts", "", "const token = process.env.WEATHER_TOKEN;\n", {})).toBe(false);
+  expect(addsSecret("src/app.ts", "", "const token = process.env.WEATHER_TOKEN;\n", {})).toBeUndefined();
   // Only what the write adds counts: a key the file already had, moved or re-indented, is not new.
-  expect(addsSecret("config/app.yaml", yaml([`  api_key: ${key}`]), yaml(["  scan_interval: 60", `    api_key: ${key}`]), {})).toBe(false);
+  expect(addsSecret("config/app.yaml", yaml([`  api_key: ${key}`]), yaml(["  scan_interval: 60", `    api_key: ${key}`]), {})).toBeUndefined();
   // An env or secrets file is where secrets belong (Home Assistant's secrets.yaml too).
-  for (const file of [".env", "config/secrets.yaml", "deploy/prod.tfvars"]) expect(addsSecret(file, "", `weather_key: ${key}\n`, {})).toBe(false);
+  for (const file of [".env", "config/secrets.yaml", "deploy/prod.tfvars"]) expect(addsSecret(file, "", `weather_key: ${key}\n`, {})).toBeUndefined();
   // A file written over ssh from a here-document is in the command itself: the command's own line covers it.
   expect(hideCommandSecrets(`ssh build-server 'cat > /opt/app/app.yaml' <<'EOF'\n${yaml([`  api_key: ${key}`])}EOF`, {}).hidden).toBeGreaterThan(0);
 

@@ -80,10 +80,32 @@ scope that covers those files (a docs test) still runs. YAML and JSON are not sk
 for `.sqlite`) is what an app running next to its code writes all the time; when only those changed, the receipt
 says `Checks skipped — only a running app's database files changed (...)`. The database file itself counts as data too.
 
-**Changed by another program.** When the AI only read, searched or ran one plain `ssh <machine> '...'` (work on
-another machine), files that changed in the folder meanwhile are another program's (an editor, a second session):
-they are listed as `Changed meanwhile by another program, not the AI (not checked)`, and are not checked, offered
-as "The work is in ..." or kept for undo. Any other tool, or a shell command of any other shape, keeps them the AI's.
+**Changed by something else.** Casper notes when each of the AI's tools that may write runs (any tool but reads,
+searches and one plain `ssh <machine> '...'`). A file whose time of change falls while none of them ran (the AI
+read, searched, or waited on its own question) is another program's: an editor, a second AI tool, a running app.
+It is listed as `Changed by something else while Casper worked (not checked)`, and is not checked, offered as "The
+work is in ..." or touched by undo. A file the AI's `edit` and `write` tools named, or one that changed while one of
+its tools ran, stays the AI's. A deleted file (it has no time of its own) or a change while a command or service the
+task left running could still write stays the AI's on the receipt, and `/undo` asks before touching it
+([UNDO.md](UNDO.md#the-rules)). `tests/changed-by-others.test.ts` covers this.
+
+**Work outside this folder.** Before the first AI command that works in a repository or folder outside this one
+(the folder it starts in, `cd`, `pushd`, `git -C`, or a path inside a repository) or an `edit` there, Casper notes its
+state: a repository's HEAD and the files git shows as changed, or a small folder's files. The receipt compares
+again and says `Changed outside this folder: ~/Documents/other: 7 files (api.py, sensor.py, source.py …); committed
+1a2b3c4 (no undo copy)`, or `May have changed outside this folder: … (Casper couldn't compare it: …)`, however the
+files were written. When the task changed nothing in this folder and its work is in such a repository, line 1 says
+`Not verified — the work was in ~/Documents/other, outside this folder; Casper didn't run its checks`, never "only
+documentation changed". A test run the AI made there is named (`The AI ran tests in ~/Documents/other itself (not
+counted)`) and not counted. After the receipt, `The work is in ~/Documents/other. 1 Stay here · 2 Switch there`
+offers to move there, where `/verify` runs its checks. Casper only reads those places, and undo never reaches them.
+`tests/outside-receipt.test.ts` and `tests/outside-work.test.ts` cover this.
+
+**Published.** What the AI's commands sent out is on the receipt's Changed row, read from each successful command
+and what it printed: `Published: pushed main and tag v0.3.5 to owner/repo; created GitHub release v0.3.5 (can't be
+undone with /undo)`. It covers `git push` (branches and tags, from git's own output), `gh release` and `gh pr`
+create and merge, `npm`/`pnpm`/`yarn publish`, `cargo publish`, `twine upload`, `uv publish` and `docker push`.
+Casper never asks GitHub or a registry. `tests/published.test.ts` covers this.
 
 From v0.2.16, checks run without AI provider keys (`OPENROUTER_API_KEY`, `ANTHROPIC_API_KEY`,
 `OPENAI_API_KEY` and the other names Pi reads) and without Casper's own secret variables;
@@ -300,7 +322,7 @@ coloured edge, for example
 ▌   Devices  build-server: installed a service (/etc/systemd/system/app.service)
 ▌            from the commands Casper saw, not checked there
 ▌   Next     /verify repair test
-▌            1 Show diff · 2 Undo
+▌            [1] Show diff   [2] Undo   · press a number
 ```
 
 A row shows only when it has something to say, in this order: **Open** (what needs you, `⚠` first, and a plan step the
@@ -308,7 +330,8 @@ AI did not finish), **Checks** (one per check with its time, the repairs, and ch
 **Changed**, **Config** (the config files the task changed, its lockfiles as one entry, and risky config lines),
 **Devices** (other machines, from the commands Casper saw), **Proof** (only when the proof is missing or weak),
 **Notes** (grey, at most three, then `+N more · /receipt`), **Undo**, and **Next** (what to type, then the numbered
-keys). Config files are package.json and other dependency lists, tsconfig, `.env` files, YAML, TOML and INI files,
+keys, each a key cap: a bold, reversed ` 1 ` in the theme's selection colour, `[1]` with `NO_COLOR`, then a grey
+`· press a number`; `tests/next-keycaps-ansi.test.ts` checks these). Config files are package.json and other dependency lists, tsconfig, `.env` files, YAML, TOML and INI files,
 Dockerfiles and compose files, CI workflows, `.casper/project.yaml`, Ansible inventories and variables, and device
 configs (Junos `.set`, `.conf`, `.cfg`). The edge and line 1 are green for Verified or Checks passed, red only for
 Failed, and amber with `⚠` for the rest (not verified, not checked, incomplete, stopped);

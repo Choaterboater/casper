@@ -3,6 +3,7 @@ import { configEntries } from "../task/config-files";
 import type { ReceiptItem, ReceiptKind, ReceiptSection, ReceiptView, TaskResult } from "../task/result";
 import { lineText, terminalText, tint } from "./format";
 import type { ThemeRole } from "./theme";
+import { keyCaps } from "./next-row";
 
 /**
  * The receipt card: on a session's rich terminal a task's receipt is laid out in labelled rows under its coloured edge,
@@ -125,7 +126,8 @@ export function receiptCard(view: ReceiptView, color: boolean): ReceiptCard | un
   const rows: CardRow[] = [
     { label: "Open", values: open.map((item) => item.line.startsWith("⚠ ") ? marked(item.line) : plain(words(item.line))) },
     { label: "Checks", values: [...chipLine ? [chipLine] : [], ...checkLines] },
-    { label: "Changed", values: changed },
+    // What was sent out goes under the files, in its own words: "Published: pushed main … (can't be undone with /undo)".
+    { label: "Changed", values: [...changed, ...of("published").map((item) => plain(words(item.line)))] },
     { label: "Config", values: [...config.length ? [config.join(", ")] : [], ...risky] },
     { label: "Devices", values: devices },
     { label: "Proof", values: proof },
@@ -139,7 +141,7 @@ export function receiptCard(view: ReceiptView, color: boolean): ReceiptCard | un
 
 /** What to type next, each once: line 1's first, then each row's in order, then the next steps the receipt names. */
 function nextValues(verdict: ReceiptItem, items: ReceiptItem[], plain: (text: string) => string): string[] {
-  const order: ReceiptSection[] = ["open", "checks", "why", "changed", "config", "devices", "notes", "undo", "next"];
+  const order: ReceiptSection[] = ["open", "checks", "why", "changed", "published", "config", "devices", "notes", "undo", "next"];
   const ordered = order.flatMap((section) => items.filter((item) => item.section === section));
   const actions = [...new Set([...verdict.actions ?? [], ...ordered.flatMap((item) => item.actions ?? [])])];
   return [...actions.length ? [plain(actions.join(" · "))] : [],
@@ -202,7 +204,7 @@ export function receiptDetail(view: ReceiptView, task: TaskResult, color: boolea
   const undoAvailable = task.undo?.available && !undo.length ? [plain(`available${task.receipt ? `: /undo ${task.receipt}` : ""}`)] : [];
   const rows: CardRow[] = [
     { label: "Open", values: open.map((item) => item.line.startsWith("⚠ ") ? marked(item.line) : plain(words(item.line))) },
-    { label: "Changes", values: changes },
+    { label: "Changes", values: [...changes, ...of("published").map((item) => plain(words(item.line)))] },
     { label: "Config", values: [...config.length ? [config.join(", ")] : [], ...of("config").map((item) => `${paint("⚠", "warning")} ${plain(`risky line: ${item.detail ?? words(item.line)}`)}`)] },
     { label: "Devices", values: [...of("devices").map((item) => plain(item.name ? `${item.name}: ${item.detail ?? words(item.line)}` : words(item.line))),
       ...of("devices").some((item) => item.line.startsWith("– Changed on ")) ? [grey(DEVICES_READ)] : []] },
@@ -258,6 +260,6 @@ export function cardRows(card: ReceiptCard, width: number, color: boolean): stri
  * last rows: its keys on the Next row, or under the card's own Next commands, and the reasons grey under them. */
 export function cardNextRows(row: string, tone: CardTone, labelled: boolean, width: number, color: boolean): string[] {
   const [keys = "", ...why] = terminalText(row).split("\n");
-  const values = [keys.replace(/^Next: /, ""), ...why.map((line) => tint(line.trim(), "muted", color))];
+  const values = [keyCaps(keys.replace(/^Next: /, ""), color), ...why.map((line) => tint(line.trim(), "muted", color))];
   return cardRows({ tone, rows: [{ label: labelled ? "Next" : "", values }] }, width, color);
 }

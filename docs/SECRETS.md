@@ -90,11 +90,18 @@ through. Check what a tool returns before you share it.
   stored on the switch" stays as it is.
 - **Commands the AI sent: always (from v0.2.19).** A secret the AI typed into a command is hidden
   before Casper shows the command, keeps it in `/output` and records, or puts it on the receipt. The
-  AI already has it, so the receipt says `A secret appeared in a command; change it after this task.`
+  AI already has it, so when the value is a real secret the receipt says what kind and asks you to change it:
+  `A secret (a token or key) appeared in a command; change it after this task.` A value is real when Casper knows it
+  (one from your environment, one you typed into Casper's own box), it is a private key, or it is shaped like a
+  credential: a provider's key format (`ghp_`, `sk-`, `AKIA`, a JWT), a UUID or long hex, or 12 or more characters
+  mixing letters, digits and symbols. A placeholder (`YOUR_TOKEN`, `your-api-token-here`, `<token>`), a made-up
+  value (`fake-token-123`, `"x" * 40`), a plain word or a code name is still hidden on screen, but gets no line.
 - **Secrets the AI wrote into files: a receipt note.** When the AI's `write` or `edit` adds a line
-  that the rules above read as a secret (an API key, a token, a password) to a file, the receipt
-  names the file, never the value: `A secret was written into config/app.yaml (not shown). Keep
-  secrets in an env file or a secrets store.` Nothing is stopped or asked. A reference to a value
+  holding a real secret (as above) to a file, the receipt names the file, the line and the kind, never the
+  value: `A secret was written into config/app.yaml (line 2, a token or key) (not shown). Keep
+  secrets in an env file or a secrets store.` Nothing is stopped or asked. In a test file (`tests/`, `test_*.py`,
+  `*.test.ts`, fixtures) only a secret Casper knows counts: a test's keys and passwords are made up.
+  `tests/secret-claims.test.ts` covers a token form, its tests and a README full of token, csrf and password. A reference to a value
   kept elsewhere (`!secret weather_key`, `${WEATHER_KEY}`, `{{ weather_key }}`), a placeholder, and
   a write to a `.env`, `secrets.yaml` or other secret file (where secrets belong) get no line. A
   file written over ssh from a local file (`ssh host 'cat > f' < f`) is not read; a here-document

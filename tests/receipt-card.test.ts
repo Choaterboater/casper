@@ -136,7 +136,8 @@ test("green only for Verified or Checks passed, red only for a failed result, am
 });
 
 test("the next-step keys join the card: on its Next row, or under the card's own commands", () => {
-  const row = "Next: 1 Show diff · 2 Undo · 3 Add a test (uses tokens)\n  3: the tests pass without the fix too";
-  expect(cardNextRows(row, "error", false, 80, false)).toEqual(["▌            1 Show diff · 2 Undo · 3 Add a test (uses tokens)", "▌            3: the tests pass without the fix too"]);
-  expect(cardNextRows("Next: 1 Show diff · 2 Undo", "warning", true, 80, false)).toEqual(["▌   Next     1 Show diff · 2 Undo"]);
+  const row = "Next: 1 Show diff · 2 Undo · 3 Add a test (uses tokens)\n  Why 3: the tests pass without the fix too";
+  // With colour off each key is [1], the same width as the cap it stands for.
+  expect(cardNextRows(row, "error", false, 90, false)).toEqual(["▌            [1] Show diff   [2] Undo   [3] Add a test (uses tokens)   · press a number", "▌            Why 3: the tests pass without the fix too"]);
+  expect(cardNextRows("Next: 1 Show diff · 2 Undo", "warning", true, 80, false)).toEqual(["▌   Next     [1] Show diff   [2] Undo   · press a number"]);
 });

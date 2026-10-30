@@ -127,8 +127,8 @@ conpty("ConPTY: a small task, undo and redo, and a shell command that asks first
   s.send("make hello\n");
   // A finished step folds into one row that says what was done.
   await s.until("edited hello.txt");
-  // The next-step keys sit on the receipt card's Next row.
-  await s.until("1 Show diff · 2 Undo");
+  // The next-step keys sit on the receipt card's Next row, each a key cap (a reversed " 1 ", plain text here).
+  await s.until(" 1  Show diff    2  Undo   · press a number");
   await idle(s);
   expect(await readFile(path.join(project, "hello.txt"), "utf8")).toBe("hello\n");
 

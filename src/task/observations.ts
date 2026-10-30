@@ -8,9 +8,10 @@ import { CHECK_NAMES } from "../verify/evidence";
 import { rememberableTestCommand } from "../flows/runners";
 import type { ObservedCheck, TaskResult } from "./result";
 import { remoteChanges } from "./remote-changes";
+import { Published } from "./published";
 import { leavesLocalFilesAlone } from "../flows/plan";
 
-type TaskObservationSnapshot = Required<Pick<TaskResult, "observedEdits" | "observedChecks" | "possibleMutations" | "usage">> & Pick<TaskResult, "changedPaths" | "changedDuringChecks" | "testRunner" | "remoteChanges" | "remoteNotRun" | "secretInCommand" | "secretInFiles">;
+type TaskObservationSnapshot = Required<Pick<TaskResult, "observedEdits" | "observedChecks" | "possibleMutations" | "usage">> & Pick<TaskResult, "changedPaths" | "changedDuringChecks" | "testRunner" | "remoteChanges" | "remoteNotRun" | "secretInCommand" | "secretInFiles" | "secretWhere" | "secretCommandKind" | "published">;
 
 /** One retained tool call, newest last. Output is already bounded by the runtime adapter. */
 export interface RetainedToolOutput {
@@ -74,10 +75,15 @@ export class TaskObservations {
   private readonly remote = new Map<string, { host: string; changes: string[] }>();
   /** Commands to other machines Casper stopped before they ran, by address. */
   private readonly remoteStopped = new Map<string, { host: string; commands: number }>();
+  /** Pushes, releases and packages the AI's commands sent out: /undo can't take them back. */
+  private readonly published = new Published();
   /** A secret appeared in a command the AI sent (hidden on screen; the AI has it). */
   private secretInCommand = false;
-  /** Files the AI's writes and edits added a secret to, as a person would type them. */
+  /** Files the AI's writes and edits added a secret to, as a person would type them, and where in each ("line 12, a token or key"). */
   private readonly secretFiles = new Set<string>();
+  private readonly secretWhere = new Map<string, string>();
+  /** What kind of secret the first command with one held ("a token or key"). */
+  private secretKind?: string;
 
   /** Counts the main conversation's model responses and totals their reported usage. A delegated
    * subagent's model calls are added by `recordDelegatedUsage`; until every delegate call has
@@ -152,8 +158,11 @@ export class TaskObservations {
     // A look command (ls, cat, grep, find) or ssh to another machine leaves this folder's files alone.
     const looked = event.toolName === "bash" && typeof event.input?.command === "string" && leavesLocalFilesAlone(event.input.command);
     if ((["bash", "powershell", "edit", "write"].includes(event.toolName) && !looked) || (event.toolName === "lsp" && event.input?.operation === "rename")) this.mutationToolRan = true;
-    if (event.input?.secretHidden) this.secretInCommand = true;
-    if (event.input?.secretWritten && !event.isError && this.secretFiles.size < OBSERVED_EDITS_LIMIT) this.secretFiles.add(event.input.secretWritten);
+    if (event.input?.secretHidden) { this.secretInCommand = true; this.secretKind ??= event.input.secretKind; }
+    if (event.input?.secretWritten && !event.isError && this.secretFiles.size < OBSERVED_EDITS_LIMIT) {
+      this.secretFiles.add(event.input.secretWritten);
+      if (event.input.secretWhere && !this.secretWhere.has(event.input.secretWritten)) this.secretWhere.set(event.input.secretWritten, event.input.secretWhere);
+    }
     // A command Casper or the sandbox refused did not reach the other machine.
     // Not one refused for reading a private place here (~/.ssh): that is about this computer, and the AI reaching the
     // machine another way afterwards left a finished task saying "Incomplete — a command to <machine> did not run".
@@ -166,6 +175,9 @@ export class TaskObservations {
         entry.commands++;
         this.remoteStopped.set(address, entry);
       }
+    }
+    if ((event.toolName === "bash" || event.toolName === "powershell") && event.input?.command && !refused) {
+      this.published.observe(event.input.command, event.output?.text ?? "", event.isError);
     }
     if ((event.toolName === "bash" || event.toolName === "powershell") && event.input?.command && !refused && this.remote.size < 16) {
       for (const { host, address, changes } of remoteChanges(event.input.command)) {
@@ -224,8 +236,9 @@ export class TaskObservations {
       ...(this.testRunner ? { testRunner: this.testRunner } : {}),
       ...(this.remote.size ? { remoteChanges: [...this.remote.values()].map(({ host, changes }) => ({ host, changes: [...changes] })) } : {}),
       ...(this.remoteStopped.size ? { remoteNotRun: [...this.remoteStopped.values()].map((entry) => ({ ...entry })) } : {}),
-      ...(this.secretInCommand ? { secretInCommand: true as const } : {}),
-      ...(this.secretFiles.size ? { secretInFiles: [...this.secretFiles] } : {}),
+      ...(this.published.lines().length ? { published: this.published.lines() } : {}),
+      ...(this.secretInCommand ? { secretInCommand: true as const, ...(this.secretKind ? { secretCommandKind: this.secretKind } : {}) } : {}),
+      ...(this.secretFiles.size ? { secretInFiles: [...this.secretFiles], ...(this.secretWhere.size ? { secretWhere: Object.fromEntries(this.secretWhere) } : {}) } : {}),
       possibleMutations: (this.mutationToolRan || this.edits.size > 0) && !changedPaths,
       usage: { turns: this.turns, ...tokenFields(this.delegationReports < this.delegations ? null : this.split),
         ...(this.helpers.length ? { helpers: structuredClone(this.helpers) } : {}), ...(this.delegationReports < this.delegations ? { tokens: null, estimatedCost: null }

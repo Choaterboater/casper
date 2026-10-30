@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import path from "node:path";
 import { clampThinkingLevel, getSupportedThinkingLevels } from "@earendil-works/pi-ai/compat";
 import { SettingsManager, type AgentSession, type ModelRuntime, type SessionManager } from "@earendil-works/pi-coding-agent";
-import { classifyEffort, effortBelow, nearestEffort, resolveAutoEffort } from "./auto-effort";
+import { classifyEffort, effortBelow, fallbackEffort, nearestEffort, resolveAutoEffort } from "./auto-effort";
 import { isEffortSelection, isModelRole, resolveModelSelection, type ModelReference, type ModelRoles, type ResolvedModelSelection } from "./model-routing";
 import { matchModelWords, noModelMessage } from "./model-words";
 import type { RuntimeLoginIO, RuntimeModelInfo, RuntimeModelSelection, RuntimeModelSelectionOptions, RuntimeModelWordsMatch, RuntimeModelWordsOptions, RuntimeReadOnlyStartOptions, RuntimeStatus, RuntimeUsage } from "./types";
@@ -692,6 +692,9 @@ export class PiModels {
       } catch {
         signal.throwIfAborted();
         selection.auto.state = "fallback";
+        // Build or release work does not fall back to a low level (fallbackEffort).
+        const raised = fallbackEffort(request, lastAssistantText(session), supported);
+        if (raised && effortBelow(session.thinkingLevel, raised)) { session.setThinkingLevel(raised, { persist: false }); selection.auto.raised = true; }
       }
       this.record(session);
       return this.status(session);
@@ -916,4 +919,13 @@ export class PiModels {
     return { text: response.content.filter((part) => part.type === "text").map((part) => part.text).join(""), usage: reported, model: name,
       stopReason: response.stopReason, ...(maxTokens !== undefined ? { maxTokens } : {}) };
   }
+}
+
+/** The AI's last words in this conversation, for a short reply's fallback effort. */
+function lastAssistantText(session: AgentSession): string | undefined {
+  try {
+    const last = [...session.messages].reverse().find((message) => message.role === "assistant");
+    if (!last || !Array.isArray(last.content)) return undefined;
+    return last.content.flatMap((block) => block.type === "text" ? [block.text] : []).join("\n") || undefined;
+  } catch { return undefined; }
 }

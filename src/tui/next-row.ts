@@ -7,7 +7,7 @@
  * number typed on an empty prompt runs that step, and anything else typed is simply the next request. The AI
  * never picks from this row; only a key the user presses does.
  */
-import { lineText } from "./format";
+import { lineText, tint } from "./format";
 
 export const DIFF_SLOT = 1;
 export const UNDO_SLOT = 2;
@@ -45,7 +45,24 @@ export function buildNextRow(input: { undo?: NextItem; diff?: NextItem; more?: r
   if (!shown.length) return undefined;
   const keys = new Map(shown.map(([key, item]) => [String(key), item.command.trim()]));
   const row = `Next: ${shown.map(([key, item]) => `${key} ${plain(item.label)}${item.note ? ` (${plain(item.note)})` : ""}`).join(" · ")}`;
-  const why = shown.filter(([, item]) => item.why && plain(item.why)).map(([key, item]) => `  ${key}: ${plain(item.why!)}`);
+  // "Why 3:", never a bare "3:", which read as a second choice numbered 3; a row of one step says "Why:".
+  const why = shown.filter(([, item]) => item.why && plain(item.why)).map(([key, item]) => `  ${shown.length === 1 ? "Why" : `Why ${key}`}: ${plain(item.why!)}`);
   const hint = input.hint && plain(input.hint) ? [`  ${plain(input.hint)}`] : [];
   return { line: [row, ...why, ...hint].join("\n"), keys };
+}
+
+/** Said after the keys on the rich terminal, so a row of steps reads as something to press. */
+export const PRESS_A_NUMBER = "press a number";
+
+/**
+ * The row's keys drawn so they stand out from the receipt around them: each number a key cap (bold, reversed, in the
+ * theme's selection colour), the steps spaced apart, then a grey "· press a number". With colour off (NO_COLOR) a
+ * cap is "[1]", the same width. `keys` is the row without "Next: " ("1 Show diff · 2 Undo"); text that is not a
+ * numbered step is left as it is.
+ */
+export function keyCaps(keys: string, color: boolean): string {
+  const steps = keys.split(" · ");
+  if (!steps.every((step) => /^[1-9] \S/.test(step))) return keys;
+  const cap = (key: string) => color ? tint(` ${key} `, "selection", color, "1;7") : `[${key}]`;
+  return `${steps.map((step) => `${cap(step[0]!)} ${step.slice(2)}`).join("   ")}   ${tint(`· ${PRESS_A_NUMBER}`, "muted", color)}`;
 }

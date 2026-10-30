@@ -133,7 +133,7 @@ A run ends with exactly one `receipt` event, or, when Casper stops before it can
 | `usage` | `input`, `cacheRead`, `cacheWrite`, `output`, `tokens`, `estimatedCost`, `helper`? | Each model turn ends, even without text. Unknown fields are null. Helper turns carry their run id. |
 | `check` | `name`, `command`, `status` (`pass`/`fail`/`skip`), `exit`, `ms`, `recordedBy`, `reused`, `ended`?, `kind`?, `label`?, `hosts`?, `summary`? | Casper recorded a check. `recordedBy` is `casper` (auto mode, `/verify`, repair) or `casper_check` (the model asked for it). `ended` appears only on a failure that was not the code failing: `timeout`, `no_start` (could not execute, or the shell's exit 126/127), or (v0.2.17) `blocked` (the shell sandbox refused something the check tried; the receipt text says what), or `cleanup` (the command passed, exit 0, but something it started was still running when it ended and Casper could not confirm it stopped: never a pass, and not a failure of the code, so the run is incomplete, exit 2). Named checks (`verify.checks.<name>`, v0.2.16) may add `kind` (`report`: a diff that never passes or fails; `lab`: your own lab devices), `label` (a few words such as `dry run not guaranteed`), `hosts` (lab checks) and `summary` (reports). |
 | `phase` | `phase` (`task`, `checklist`, `checks`, `smoke`, `pages`, `review`, `proof`, `acceptance`, `repair`), `state` (`start`/`end`), `atMs` | A stage of Casper's work starts or ends. `pages` and configured `smoke` run inside `checks`; a new completion `smoke` runs after final checks, unless existing evidence is reused. |
-| `receipt` | `outcome`, `exitCode`, `execution`, `changed`, `changedDuringChecks`, `verificationMode`, `checks`, `repairAttempts`, `turnLimit`, `spendLimit`, `remoteChanges`, `remoteNotRun`, `secretInCommand`, `secretInFiles`, `usage`, `proof`, `proofSkipped`, `review`, `acceptance`, `checklist`, `services`, `smoke`, `pages`, `checksPassed`, `repairModels`, `bigModel`, `security`, `task`, `undo`, `sandbox`, `changedWhilePlanning`, `pageNotes`, `verdict`, `text` | The run finished. |
+| `receipt` | `outcome`, `exitCode`, `execution`, `changed`, `changedDuringChecks`, `verificationMode`, `checks`, `repairAttempts`, `turnLimit`, `spendLimit`, `remoteChanges`, `remoteNotRun`, `secretInCommand`, `secretInFiles`, `outside`, `published`, `usage`, `proof`, `proofSkipped`, `review`, `acceptance`, `checklist`, `services`, `smoke`, `pages`, `checksPassed`, `repairModels`, `bigModel`, `security`, `task`, `undo`, `sandbox`, `changedWhilePlanning`, `pageNotes`, `verdict`, `text` | The run finished. |
 | `error` | `message` | Something failed. |
 
 ### Receipt fields
@@ -163,6 +163,11 @@ A run ends with exactly one `receipt` event, or, when Casper stops before it can
   even when the local checks passed. `secretInCommand` is `true` when a secret appeared in
   a command the AI sent; change that secret after the task. `secretInFiles` lists the files the AI's
   writes and edits added a secret to (never the value); empty when none.
+- `outside` (only when there are some) lists the repositories and folders outside the project the task changed:
+  `[{ "place": "~/Documents/other", "repository": true, "files": ["src/api.py"], "commits": ["1a2b3c4"],
+  "unknown": null }]`; `unknown` says why Casper couldn't compare one. `published` (only when there is some) lists
+  what the AI's commands sent out that `/undo` can't take back: `["pushed main and tag v0.3.5 to owner/repo",
+  "created GitHub release v0.3.5"]`.
 - `verdict` is line 1 of `text`: `✓ Verified — …` only when the tests fail without the change;
   otherwise `– Checks passed — not proven: …`, `✓ Checks passed — no files changed`,
   `✗ Failed — …`, `✗ Not checked — …` (only unfinished checks), `– Incomplete — …`,

@@ -85,7 +85,7 @@ test("a fix whose tests pass without it gets \"Add a test\" on the row; its numb
   const f = await fixture({ projectYaml: PASSING });
   try {
     const first = await f.send("fix the add function in calc.py", f.receipt);
-    expect(first).toContain("Next: 1 Show diff · 2 Undo · 3 Add a test that proves this bug stays fixed (uses tokens)\n  3: the tests pass without your fix too\n");
+    expect(first).toContain("Next: 1 Show diff · 2 Undo · 3 Add a test that proves this bug stays fixed (uses tokens)\n  Why 3: the tests pass without your fix too\n");
     expect(first).toContain("  A number picks one · type to ask something else · /suggestions off stops these\n");
     // Slots 1 and 2 are Undo and Show diff of this task.
     expect(first).toContain("Next: 1 Show diff · 2 Undo · 3 Add a test");
@@ -135,7 +135,7 @@ test("Remember saves the test command the model ran, exactly as shown, and keeps
   try {
     const first = await f.send("fix the add function in calc.py", f.receipt);
     expect(first).toContain("Next: 1 Show diff · 2 Undo · 3 Remember uv run pytest as this project's test command (free)\n"
-      + "  3: the model ran it without error; saves verify.test: uv run pytest in .casper/project.yaml so Casper can check every change\n");
+      + "  Why 3: the model ran it without error; saves verify.test: uv run pytest in .casper/project.yaml so Casper can check every change\n");
     const saved = await f.send("3", /\n> $/);
     expect(saved).toContain("[project] Saved verify.test: uv run pytest in .casper/project.yaml");
     expect(f.prompts).toHaveLength(1);

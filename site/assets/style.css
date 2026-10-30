@@ -449,6 +449,7 @@ td.no  { color: var(--bad); font-weight: 600; }
   Terminal captures: <pre class="term" data-title="casper — ~/my-repo">…</pre>
   Text copied from Casper's output. Colour spans inside:
     .ok (✓ lines)  .bad (a failed result, [error])  .warn (a failed step, ○, ⚠)  .dim  .accent  .prompt  .you (typed input)
+    .key (a receipt's next-step key, drawn as a reversed key cap)
   The title bar is drawn from data-title (or "terminal" if missing).
 */
 pre.term {
@@ -489,6 +490,7 @@ pre.term .warn { color: var(--term-warn); }
 pre.term .dim { color: var(--term-dim); }
 pre.term .accent, pre.term .prompt { color: var(--term-accent); }
 pre.term .you { color: var(--term-bright); font-weight: 600; }
+pre.term .key { background: var(--term-accent); color: var(--term-bg); font-weight: 600; }
 pre.term b, pre.term strong { color: var(--term-bright); }
 /* A capture with a caption: <figure class="capture"><pre class="term">…</pre><figcaption>…</figcaption></figure> */
 figure.capture { margin: 1rem 0 1.75rem; }

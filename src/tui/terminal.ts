@@ -9,7 +9,7 @@ import { promptEcho, TerminalSurface, type AskOrigin, type WorkView } from "./su
 import { CONFIG_BOX_LINES, renderChangeBox, renderEditBox, renderFailureBox, stepRows, type EditedFile, type FailedStep, type StepPart } from "./step-view";
 import type { EntryKind } from "./transcript";
 import type { MenuCommand } from "./commands";
-import type { NextRow } from "./next-row";
+import { keyCaps, type NextRow } from "./next-row";
 import { bellSequence, hostCommand, prepareTmuxPane, titleSequence, TITLE_RESTORE, TITLE_SAVE, type HostCommand, type HostTerminal } from "./host-terminal";
 import { SidePane, type ActivityPane } from "./side-pane";
 import { answerRecordText, numberPrompt, OTHER_CHOICE, reasonPrefix, type PickRecord } from "./choices";
@@ -412,18 +412,27 @@ export class InteractiveTerminal {
       if (this.surface && card?.hint) this.surface.writeBlock({ render: hint, invalidate() {} }, "attached");
       return;
     }
+    // The keys as key caps on the rich terminal, so they read as something to press (keyCaps); the plain terminal
+    // keeps the row as written.
+    const color = this.color;
+    const lines = terminalText(row.line).split("\n");
+    const capped = (width: number) => lines.flatMap((line, index) => wrapTextWithAnsi(index ? this.styleLine(line)
+      : line.startsWith("Next: ") ? `Next: ${keyCaps(line.slice(6), color)}` : keyCaps(line, color), Math.max(1, width)));
     if (this.surface && card) {
       // Under a receipt card, on its edge: the keys join its Next row.
-      const color = this.color;
-      const lines = terminalText(row.line).split("\n");
       this.surface.writeBlock({ render: width => [...width >= CARD_MIN_COLUMNS ? cardNextRows(row.line, card.tone, !card.next, width, color)
-        : lines.flatMap(line => wrapTextWithAnsi(this.styleLine(line), Math.max(1, width))), ...hint(width)], invalidate() {} }, "attached");
+        : capped(width), ...hint(width)], invalidate() {} }, "attached");
       this.surface.offerNext(row.keys);
       return;
     }
-    // Right under the receipt it belongs to.
+    if (this.surface) {
+      // Right under the receipt it belongs to.
+      this.surface.writeBlock({ render: capped, invalidate() {} }, "attached");
+      this.surface.offerNext(row.keys);
+      return;
+    }
     this.write(`${row.line}\n`, "attached");
-    if (this.surface) this.surface.offerNext(row.keys); else this.nextKeys = new Map(row.keys);
+    this.nextKeys = new Map(row.keys);
   }
 
   readCommand(): Promise<string | undefined> {

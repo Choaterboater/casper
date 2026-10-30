@@ -5,13 +5,13 @@
  */
 import { crlfCheckout, gitMovement, headMoved, taskHead, projectBlob, GIT_MOVEMENT_UNKNOWN, GIT_OVERLAP, type TaskHead } from "../task/git-movement";
 import { storedTaskResult } from "./json-events";
-import { undoChangedChoices } from "./safe-choices";
+import { undoChangedChoices, undoUnsureChoices } from "./safe-choices";
 import type { OutputWriter } from "./commands";
 import { tildePath } from "../new/scaffold";
 import { readProjectText, removeProjectFile, writeProjectFile } from "../platform/files";
 import type { RuntimeSession } from "../runtime/types";
 import { RECEIPTS_KEPT, ReceiptStore, type ReceiptUndo, type StoredReceipt } from "../task/receipts";
-import { formatTaskResult, receiptVerdict, receiptView, UNDO_NOTHING_CHANGED, type TaskResult } from "../task/result";
+import { CHANGED_BY_OTHERS, formatTaskResult, receiptVerdict, receiptView, UNDO_NOTHING_CHANGED, type TaskResult } from "../task/result";
 import { receiptDetail } from "../tui/receipt-card";
 import path from "node:path";
 import { HASH_LIMIT } from "../task/changes";
@@ -207,8 +207,12 @@ export class TaskUndo {
           return left ? { path: file, why: left.why } : undefined;
         };
         const kept: LeftOut[] = [];
+        // Another program's files (changed while none of the AI's tools that write ran) are never undone.
+        const others = new Set(task.changedNotByModel ?? []);
+        const leftToOthers: string[] = [];
         const paths = (await store.changes(before.tree, after.tree).catch(() => [])).flatMap((change) => {
           if (gitOnly.has(change.path)) return [];
+          if (others.has(change.path)) { leftToOthers.push(change.path); return []; }
           const already = !change.from && change.to ? notCopiedBefore(change.path) : change.from && !change.to ? notCopiedAfter(change.path) : undefined;
           if (already) { kept.push(already); return []; }
           return [change.path];
@@ -254,7 +258,9 @@ export class TaskUndo {
           task.undo = paths.some((file) => !overlap.some((entry) => entry.path === file))
             ? { available: true, left } : { available: false, reason: `${names(overlap.map((entry) => entry.path))}: ${GIT_OVERLAP}` };
         }
+        const unsure = (task.changedUnsure ?? []).filter((file) => paths.includes(file));
         undo = { before: before.tree, after: after.tree, paths, left: unique, ...(overlap.length ? { blocked: overlap } : {}),
+          ...(leftToOthers.length ? { others: leftToOthers.sort() } : {}), ...(unsure.length ? { unsure } : {}),
           ...(input.servers.length ? { servers: [...input.servers] } : {}) };
       }
     }
@@ -344,6 +350,8 @@ export class TaskUndo {
     if (!incoming) return;
     const plan = await this.undoPlan(store, undo, undo.paths, incoming);
     if (!(await this.confirmPartial("Undo", n, plan.changedSince, plan.ready.length, signal))) return;
+    const unsureLeft = await this.confirmUnsure(n, plan, undo.unsure ?? [], signal);
+    if (unsureLeft === undefined) return;
     const applied = await this.putBack(n, store, plan, undo.before, signal);
     if (typeof applied === "string") { this.refuse(`Nothing was undone: ${applied}.`); return; }
     this.lastRestored = applied.restored;
@@ -352,6 +360,8 @@ export class TaskUndo {
       : `– Nothing was put back for task ${n}.`];
     for (const skipped of applied.skipped) lines.push(`– Not put back: ${terminalText(skipped.path)} (${terminalText(skipped.why)})`);
     if (plan.changedSince.length) lines.push(`– Left as you changed them: ${names(plan.changedSince)}`);
+    if (unsureLeft.length) lines.push(`– Left as ${unsureLeft.length === 1 ? "it is" : "they are"}: ${names(unsureLeft)} (Casper can't tell whether task ${n} changed ${unsureLeft.length === 1 ? "it" : "them"})`);
+    if (undo.others?.length) lines.push(`– Left as ${undo.others.length === 1 ? "it is" : "they are"}: ${names(undo.others)} (${CHANGED_BY_OTHERS.replace(/^C/, "c")})`);
     lines.push(...this.limits(undo, plan.blocked));
     if (applied.restored.length) lines.push(await this.tellConversation(receipt, applied.restored, "undo"));
     this.write(`${lines.join("\n")}\n`);
@@ -497,6 +507,24 @@ export class TaskUndo {
     if (applied.restored.length) lines.push(await this.tellConversation(receipt, applied.restored, "redo"));
     this.write(`${lines.join("\n")}\n`);
     if (applied.restored.length) this.offer(buildNextRow({ undo: { label: "Undo", command: `/undo ${n}` } }));
+  }
+
+  /** Files Casper can't tell the task changed (a deleted file, a command or service the task left running): asked, Leave
+   * them first so Enter touches nothing; a run that can't ask leaves them. Takes them out of `plan` unless you say undo
+   * them too. The files left, or undefined when nothing is to be done (nothing else to put back). */
+  private async confirmUnsure(n: number, plan: UndoPlan, unsure: readonly string[], signal?: AbortSignal): Promise<string[] | undefined> {
+    const asked = plan.ready.filter((entry) => unsure.includes(entry.path)).map((entry) => entry.path);
+    if (!asked.length) return [];
+    let leave = !this.host.interactive;
+    if (!leave) {
+      const choices = undoUnsureChoices(asked.length);
+      const answer = await this.host.terminal.pick(`Casper can't tell whether task ${n} changed ${names(asked)}: another program may have.`, choices, signal);
+      if (answer === undefined) { this.write("Nothing was changed.\n"); return undefined; }
+      leave = answer !== choices[1]!.label;
+    }
+    if (!leave) return [];
+    plan.ready = plan.ready.filter((entry) => !asked.includes(entry.path));
+    return asked;
   }
 
   /** Some files changed after the task: ask (Cancel first, so Enter changes nothing), or refuse where no one can be asked. */
