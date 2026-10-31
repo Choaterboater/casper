@@ -23,7 +23,7 @@ below, then run the rebuilt Bun executable with `run build:release` in Casper's
 source checkout. Casper's complete application source and dependency lock are public.
 
 ==============================================================================
-@anthropic-ai/claude-agent-sdk 0.3.296
+@anthropic-ai/claude-agent-sdk 0.3.316
 Source: https://github.com/anthropics/claude-agent-sdk-typescript
 License notice (from LICENSE.md):
 © Anthropic PBC. All rights reserved. Use is subject to the Legal Agreements outlined here: https://code.claude.com/docs/en/legal-and-compliance.
@@ -277,7 +277,7 @@ of running the last repair on a stronger model (repair.bigModelLastTry) comes
 from Plandex; no Plandex code is used.
 
 ==============================================================================
-@anthropic-ai/sandbox-runtime@0.0.77 (Apache-2.0) — the shell sandbox
+@anthropic-ai/sandbox-runtime@0.0.81 (Apache-2.0) — the shell sandbox
 Sources:
 node_modules/@anthropic-ai/sandbox-runtime/LICENSE
 https://github.com/anthropics/sandbox-runtime
