@@ -1,7 +1,6 @@
 # 38. A task that hits a model's limit goes on with another model
 
-Date: 2026-10-25. Status: proposed (the user asked for it; the coordinator's defaults below wait for the user's and the
-owner's review before merge, since this changes which provider receives the conversation).
+Date: 2026-10-25. Status: accepted (merged 2026-10-25 in #492).
 
 ## Decision
 

@@ -1,6 +1,6 @@
 # 43. Boxes take keys; words go on the row that asks for them
 
-Date: 2026-10-28. Status: proposed (owner's choice; needs the owner's review before merge). Replaces the inline comment
+Date: 2026-10-28. Status: accepted (merged 2026-10-29 in #525). Replaces the inline comment
 on an approval's No, and letters typed straight into a question's Other row. Decision 27's "Yes to everything this
 session" is no longer the shell box's last row: the note row follows it.
 

@@ -1,6 +1,6 @@
 # 44. Casper reads your ChatGPT and Copilot plans' own model lists, and says when a list is out of date
 
-Date: 2026-10-29. Status: proposed (needs the owner's review before merge).
+Date: 2026-10-29. Status: accepted (merged 2026-10-30 in #547).
 
 ## Decision
 

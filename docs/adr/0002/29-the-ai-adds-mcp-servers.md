@@ -1,6 +1,6 @@
 # 29. The AI can add an MCP server, after a yes nothing else gives
 
-Date: 2026-10-22. Status: proposed (needs the owner's review before merge). The box's strictness is the safe default
+Date: 2026-10-22. Status: accepted (merged 2026-10-22 in #470). The box's strictness is the safe default
 chosen while the owner was away; it can be changed at review.
 
 ## Decision

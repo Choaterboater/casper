@@ -1,8 +1,8 @@
 # 44. A folder's own commands run only once you trust it
 
-Date: 2026-10-29. Status: proposed (owner's choice; needs the owner's review before merge: it changes routine commands
-and adds a box). Narrows decision 2 in a folder you haven't trusted. Replaces "Trust first" in VERIFICATION.md, which
-said Casper runs a repository's commands without asking and to use `--no-verify` for code you don't trust.
+Date: 2026-10-29. Status: accepted (merged 2026-10-29 in #540). Narrows decision 2 in a folder you haven't trusted.
+Replaces "Trust first" in VERIFICATION.md, which said Casper runs a repository's commands without asking and to use
+`--no-verify` for code you don't trust.
 
 **What:** the first time a session opens a folder, Casper asks `Trust <folder>? It would run: npm test, npm run lint.`
 with `1 Not now · 2 Trust this folder`. Enter and Esc mean Not now. Trust is saved for the folder in
