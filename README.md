@@ -225,7 +225,7 @@ Ctrl+D on an empty prompt exits. [Keys and commands](docs/TERMINAL_UX.md#quick-r
 
 ## What's new
 
-v0.4.1: a Claude Code plan sign-in that Claude Code reports as `Claude Ultra` works with `claude-subscription` again; any named plan is accepted unless it says free, API or console, and a refusal names the plan Claude Code reported. API keys still never stand in. See [release notes](docs/RELEASE.md).
+v0.4.1: a Claude Code plan sign-in that Claude Code reports as `Claude Ultra` works with `claude-subscription` again, and a refusal names the plan Claude Code reported; every box is an open box at the left edge, so a mouse copy takes no border or indent; on Linux a command held by the sandbox can no longer make its own user namespace. See [release notes](docs/RELEASE.md).
 
 v0.4.0: when sudo asks for its password, Casper asks in its own hidden box, and editors, logins and y/n prompts get Casper's terminal; the AI asks for a key or token in the same hidden box, and a token in a paste is caught before it is sent; Auto mode lets a model judge run ordinary build commands in a trusted folder; Casper asks "Trust this folder?" before a folder's own commands run; approval boxes ask with three short rows; "copy that" copies the answer's block, and a running app's database and logs no longer count as the task's changes. See [release notes](docs/RELEASE.md).
 

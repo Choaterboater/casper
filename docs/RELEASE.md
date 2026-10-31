@@ -20,16 +20,23 @@ because GitHub's `latest/download` link skips preview releases. The first publis
 preview was **v0.1.0**. A published release is never changed; every fix ships under a
 new version.
 
-## v0.4.1: Claude Code plan sign-ins that report Claude Ultra work again
+## v0.4.1: Claude Ultra sign-ins work again, boxes copy clean, and a tighter Linux sandbox
 
 ### Changed
 
 - A Claude Code plan sign-in is accepted under any plan name Claude Code reports, unless that name says free, API or console.
 - When Casper refuses a Claude Code sign-in, the message names the plan Claude Code reported.
+- Every box is an open box: a title rule, text at the left edge and a closing rule, so copying takes no border.
+- Approval and question boxes start at the left edge, so a command copied from `Run this command?` has no leading spaces.
+- The side answer has no `│` gutter, so it copies with only its words.
+- On Linux, a command held by the sandbox can no longer make its own user namespace, and neither can Casper's network MCP server.
+- Inside the Linux sandbox, a program that sandboxes itself, such as Chromium without `--no-sandbox` or rootless podman, now fails.
+- Merged decision records in `docs/adr/0002` say accepted, and decision 47 says the `Yes to everything` row was kept.
 
 ### Fixed
 
 - A Claude Max sign-in that Claude Code now reports as `Claude Ultra` works with `claude-subscription` again, still with no API-key fallback.
+- Your own Claude Code settings, such as auto-mode rules, no longer reach Casper's Claude Code plan requests.
 
 ## v0.4.0: sudo and commands that need you run inside Casper, a hidden box for keys and tokens, Auto mode, Trust this folder?, and shorter approval boxes
 
