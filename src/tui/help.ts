@@ -220,8 +220,8 @@ Local commands:
   /look adapt|harden|clarify        390, 768, 1280 and your own width (up to 3840) with 44px targets; long text, empty, loading and error states; wording only
   /look fix [words]                 After a report: fix everything it found, in one task (1 on the row under it does the same)
   look <command> [and <command>]    In a session, the same without the slash (look clairfy too), on the page the last /look used
-  /pages [list]                     Pages the AI made for this project (comparisons, mock-ups, dashboards), with their local links
-  /pages open <name>                Show one in your browser (also with opening off)
+  /pages [list]                     Pages the AI made in every folder (comparisons, dashboards, diagrams), numbered; a key opens one
+  /pages open <name>                Show one in your browser (also with opening off); or ask: "show me the radar page"
   /pages remove <name>              Delete one; its open tab says (removed)
   /tasks                            What runs in the background, numbered; asks 1 Keep them · 2 Stop 1 ...
   /tasks stop <n>|all               Stop one of them, or all, without the question

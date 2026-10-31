@@ -1,7 +1,8 @@
+import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { desktopHere, openInBrowser } from "./open";
 import { PageServer } from "./server";
-import { listPages, pageFile, type PageFile, pageNameProblem, removePage, writePage } from "./store";
+import { isProjectKey, type PageFile, pageNameProblem, removePage, type SavedPage, savedPages, writePage } from "./store";
 
 export interface PageSessionOptions {
   homeDir: string;
@@ -18,6 +19,14 @@ export interface PageSessionOptions {
   say: (line: string) => void;
 }
 
+export interface OpenedPage {
+  page: SavedPage;
+  link: string;
+  opened: boolean;
+  /** Why it did not open. */
+  notOpened?: string;
+}
+
 export interface MadePage {
   name: string;
   /** The address to open, or the file's own address in a one-shot run. */
@@ -32,7 +41,8 @@ export interface MadePage {
 /** The pages of one project for one Casper session: writes them, serves them, opens each one the first time it is
  * made or opened in the session, and makes an open tab reload itself after a change. */
 export class PageSession {
-  private server?: PageServer;
+  /** One server per page folder shown this session: this project's, and any other folder a page was opened from. */
+  private readonly servers = new Map<string, PageServer>();
   /** Pages already shown in this session: a change only reloads their tab. */
   private readonly shown = new Set<string>();
 
@@ -40,11 +50,14 @@ export class PageSession {
 
   get directory(): string { return this.options.directory; }
 
-  /** The address the person opens: the page server's in a live session, else the file itself. */
-  private link(page: Pick<PageFile, "name" | "file">): string {
+  private get server(): PageServer | undefined { return this.servers.get(this.options.directory); }
+
+  /** The address the person opens: the page server's for its folder in a live session, else the file itself. */
+  private link(page: Pick<PageFile, "name" | "file">, directory = this.options.directory): string {
     if (!this.options.live) return pathToFileURL(page.file).href;
-    this.server ??= new PageServer(this.options.directory);
-    return this.server.url(page.name);
+    let server = this.servers.get(directory);
+    if (!server) this.servers.set(directory, server = new PageServer(directory));
+    return server.url(page.name);
   }
 
   /** Why a page would not open now, or undefined when it opens. */
@@ -70,35 +83,47 @@ export class PageSession {
     return { name, link, updated: !created, opened, ...(notOpened ? { notOpened } : {}) };
   }
 
-  /** The pages with their addresses. A live session starts the server for them. */
-  async list(): Promise<Array<PageFile & { link: string }>> {
-    const pages = await listPages(this.options.directory);
-    return pages.map((page) => ({ ...page, link: this.link(page) }));
-  }
+  /** Every folder's saved pages, this one's first (store.ts savedPages). */
+  saved(): Promise<SavedPage[]> { return savedPages(this.options.homeDir, this.options.directory); }
 
-  /** /pages open: opens it whatever the setting (you asked); prints the link when nothing can open here. */
-  async open(name: string): Promise<{ link: string; opened: boolean } | string> {
-    const problem = pageNameProblem(name);
+  /** The saved page a ref names: `<project>/<name>`, or a name, this folder's first, else the newest elsewhere. */
+  async find(ref: string): Promise<SavedPage | string> {
+    const [project, name, ...rest] = ref.split("/");
+    if (name !== undefined && (rest.length || !isProjectKey(project!) || pageNameProblem(name))) return pageNameProblem(ref) ?? `No page ${ref}. /pages lists them.`;
+    const problem = name === undefined ? pageNameProblem(ref) : undefined;
     if (problem) return problem;
-    const page = await pageFile(this.options.directory, name);
-    if (!page) return `No page ${name}. /pages lists them.`;
-    const link = this.link(page);
-    const opened = !this.openBlock() && (this.options.open ?? openInBrowser)(link);
-    if (opened) this.shown.add(name);
-    return { link, opened };
+    const page = (await this.saved()).find((saved) => name === undefined ? saved.name === ref : saved.project === project && saved.name === name);
+    return page ?? `No page ${ref}. /pages lists them.`;
   }
 
-  /** /pages remove: deletes the file; an open tab says it was removed. */
-  async remove(name: string): Promise<boolean> {
-    if (pageNameProblem(name)) return false;
-    const removed = await removePage(this.options.directory, name);
-    if (removed) { this.server?.notify(name, "gone"); this.shown.delete(name); }
+  /** Opens a saved page from any folder. `asked`: you typed it (/pages open), so it opens whatever Open pages in the
+   * browser says; the AI's open keeps to the setting. One transcript line says where it is. */
+  async open(ref: string, options: { asked?: boolean } = { asked: true }): Promise<OpenedPage | string> {
+    const page = await this.find(ref);
+    if (typeof page === "string") return page;
+    const directory = page.here ? this.options.directory : path.dirname(page.file);
+    const link = this.link(page, directory);
+    const notOpened = !options.asked && !this.options.openSetting() ? "opening pages is off" : this.openBlock();
+    const opened = !notOpened && (this.options.open ?? openInBrowser)(link);
+    if (opened && page.here) this.shown.add(page.name);
+    this.options.say(`[page] ${page.name}${page.here ? "" : ` (${page.folder})`} → ${link}${opened ? "" : " (open it in your browser)"}`);
+    return { page, link, opened, ...(opened ? {} : { notOpened: notOpened ?? "the browser did not start" }) };
+  }
+
+  /** /pages remove: deletes the file; an open tab says it was removed. A bare name is this folder's page only: another
+   * folder's needs its `<project>/<name>`, so a page of the same name elsewhere is never removed by mistake. */
+  async remove(ref: string): Promise<boolean> {
+    const page = await this.find(ref);
+    if (typeof page === "string" || (!page.here && !ref.includes("/"))) return false;
+    const directory = path.dirname(page.file);
+    const removed = await removePage(directory, page.name);
+    if (removed) { this.servers.get(page.here ? this.options.directory : directory)?.notify(page.name, "gone"); if (page.here) this.shown.delete(page.name); }
     return removed;
   }
 
   async close(): Promise<void> {
-    const server = this.server;
-    this.server = undefined;
-    await server?.stop();
+    const servers = [...this.servers.values()];
+    this.servers.clear();
+    await Promise.all(servers.map((server) => server.stop()));
   }
 }

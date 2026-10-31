@@ -180,7 +180,7 @@ export const COMMAND_REGISTRY: readonly CommandSpec[] = [
       { name: "harden", args: "[page or url]", description: "Long text, empty, loading and error states", waits: true },
       { name: "clarify", args: "[page or url]", description: "Wording only", waits: true },
     ] },
-  { name: "pages", description: "Pages the AI made for this project, with links; open or remove one", afterCleanupError: NONE, subcommands: [
+  { name: "pages", description: "Pages the AI made in every folder; open or remove one", afterCleanupError: NONE, subcommands: [
     { name: "open", args: "<name>", description: "Show a page in your browser" },
     { name: "remove", args: "<name>", description: "Delete a page" },
     LIST("The same as /pages"),

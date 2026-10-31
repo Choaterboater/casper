@@ -577,6 +577,11 @@ A page is untrusted text the model wrote, so Casper holds it as such:
   stops when Casper quits. It answers only requests that name `127.0.0.1` or `localhost` with its
   port, so a web page elsewhere can't reach it through a name of its own. Nothing is shared beyond
   this computer.
+- **Saved pages in other folders.** `/pages` and the AI's `open` read only Casper's own page folders
+  (`~/.casper/pages/<name>-<16 hex>/`); a link, a loose file or any other folder there is skipped. A page
+  from another folder is served by a server for that folder alone, under the same rules. `open` gives the
+  AI page names, folder names and days, never a page's contents
+  ([decision 49](adr/0002/49-saved-pages.md)).
 - **The pages folder and nothing else.** A page name is `a-z`, `0-9` and `-` (up to 40, never a
   Windows device name), checked again with `isOutside`; links, hidden and other files in the folder
   are not served. Casper writes a page to a temporary file and renames it into place, and refuses a
