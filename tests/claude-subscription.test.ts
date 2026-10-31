@@ -9,7 +9,7 @@ import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import type { AccountInfo, Options, SDKMessage, SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
 import { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { normalizeContext } from "@earendil-works/pi-ai/utils/transcript";
-import { assertSubscriptionAccount, claudeExecutable, CLAUDE_SUBSCRIPTION, proposalServer, registerClaudeSubscription, streamClaudeSubscription, subscriptionEnvironment, subscriptionPrompt } from "../src/runtime/claude-subscription";
+import { assertSubscriptionAccount, claudeExecutable, CLAUDE_SUBSCRIPTION, isSubscriptionStatus, proposalServer, registerClaudeSubscription, streamClaudeSubscription, subscriptionEnvironment, subscriptionPrompt } from "../src/runtime/claude-subscription";
 import { subscriptionName } from "../src/tui/usage";
 import { INVALID_ARGUMENTS } from "../src/runtime/tool-repair";
 
@@ -165,6 +165,38 @@ test("subscription account accepts the SDK's plan labels and omitted API-key sou
     { apiProvider: "firstParty", subscriptionType: "Claude Max", apiKeySource: "" },
     { apiProvider: "gateway", subscriptionType: "Claude Max" },
   ] as AccountInfo[]) expect(() => assertSubscriptionAccount(info)).toThrow("No API-key fallback");
+});
+
+test("Claude Code 2.1.312's Ultra account and future plan names pass; free, API and console plans do not", () => {
+  // Exact accountInfo() the SDK returned for a Max plan signed in with claude.ai.
+  expect(() => assertSubscriptionAccount(JSON.parse('{"subscriptionType":"Claude Ultra","apiProvider":"firstParty"}') as AccountInfo)).not.toThrow();
+  for (const subscriptionType of ["Ultra", "ultra", "Claude Ultra", "Claude Max 20x", "Claude Galaxy"]) {
+    for (const apiKeySource of [undefined, "none", "oauth"] as const) {
+      expect(() => assertSubscriptionAccount({ apiProvider: "firstParty", subscriptionType, apiKeySource })).not.toThrow();
+    }
+  }
+  for (const subscriptionType of ["Claude Free", "free", "API", "Claude API", "Anthropic Console", "console", "unknown", "none", "   "]) {
+    expect(() => assertSubscriptionAccount({ apiProvider: "firstParty", subscriptionType })).toThrow("No API-key fallback");
+  }
+  for (const info of [
+    { apiProvider: "firstParty", subscriptionType: "Claude Ultra", apiKeySource: "ANTHROPIC_API_KEY" },
+    { apiProvider: "firstParty", subscriptionType: "Claude Ultra", apiKeySource: "apiKeyHelper" },
+    { apiProvider: "bedrock", subscriptionType: "Claude Ultra" },
+    { apiProvider: "vertex", subscriptionType: "Claude Ultra" },
+    { apiProvider: "gateway", subscriptionType: "Claude Ultra" },
+  ] as AccountInfo[]) expect(() => assertSubscriptionAccount(info)).toThrow("No API-key fallback");
+});
+
+test("a refused account names the plan Claude Code reported", () => {
+  expect(() => assertSubscriptionAccount({ apiProvider: "firstParty", subscriptionType: "Claude Free" })).toThrow('Claude Code reported plan "Claude Free"');
+  expect(() => assertSubscriptionAccount({ apiProvider: "firstParty" })).toThrow("Claude Code reported no plan");
+});
+
+test("Claude Code auth status accepts ultra and renamed paid plans", () => {
+  const plan = { loggedIn: true, authMethod: "claude.ai" };
+  for (const subscriptionType of ["ultra", "Claude Ultra", "max", "galaxy"]) expect(isSubscriptionStatus({ ...plan, subscriptionType })).toBe(true);
+  for (const subscriptionType of ["free", "api", "console", "unknown", "", undefined]) expect(isSubscriptionStatus({ ...plan, subscriptionType })).toBe(false);
+  expect(isSubscriptionStatus({ ...plan, authMethod: "api_key", subscriptionType: "ultra" })).toBe(false);
 });
 
 test("a real-shaped Max account releases the prompt without copying credentials", async () => {

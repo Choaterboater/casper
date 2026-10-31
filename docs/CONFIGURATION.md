@@ -784,10 +784,13 @@ doesn't answer, nothing is claimed. OpenRouter isn't checked: its own list is re
 ## Claude subscription through Claude Code
 
 `claude-subscription` is an enabled, separate model provider backed by the official Claude Agent
-SDK. It uses an installed native Claude Code executable and Claude Code's existing Pro, Max,
-Team or Enterprise login. A separate Pi installation is not needed, and no Claude credentials
+SDK. It uses an installed native Claude Code executable and Claude Code's existing paid plan login
+(Pro, Max, Ultra, Team or Enterprise). A separate Pi installation is not needed, and no Claude credentials
 are copied into Casper. Claude Code must already be installed and signed in on the same OS:
 a Windows installation and a WSL installation have separate executables and login state.
+Claude Code renames plans (a Max login can report `Claude Ultra`), so any named plan on Anthropic's own
+service with no API key passes; free, API and console plans, API keys, Bedrock, Vertex and gateways do not.
+A refusal names the plan Claude Code reported, and never falls back to an API key.
 
 Starting signed out: choose **Claude Code plan** in `/login`, or type `/login claude-subscription`
 (`/login claude` is an alias). Casper runs native `claude auth login --claudeai`, lets you finish in

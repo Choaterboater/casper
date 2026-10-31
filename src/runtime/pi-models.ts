@@ -71,7 +71,7 @@ const KEY_VARIABLES: Record<string, string> = {
 
 /** What to do when the model's provider has no sign-in: its real name, its /login and its key variable. */
 export function missingSignIn(provider: string, baseUrl?: string): string {
-  if (provider === CLAUDE_SUBSCRIPTION) return "Claude subscription needs native Claude Code installed and signed in to a Pro, Max, Team or Enterprise plan on this OS. Sign in using Claude Code, then restart Casper.";
+  if (provider === CLAUDE_SUBSCRIPTION) return "Claude subscription needs native Claude Code installed and signed in to a paid Claude plan (Pro, Max, Ultra, Team or Enterprise) on this OS. Sign in using Claude Code, then restart Casper.";
   if (baseUrl && !SIGN_IN_NAMES[provider] && !KEY_VARIABLES[provider]) return `${provider} at ${baseUrl} needs an apiKey line in models.json (any text works for a local server).`;
   const name = SIGN_IN_NAMES[provider];
   const variable = KEY_VARIABLES[provider];

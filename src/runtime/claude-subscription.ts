@@ -35,15 +35,21 @@ export function subscriptionEnvironment(env: Record<string, string | undefined>)
   return { ...clean, ENABLE_CLAUDEAI_MCP_SERVERS: "0", DISABLE_AUTO_COMPACT: "1", CLAUDE_CODE_DISABLE_AUTO_MEMORY: "1" };
 }
 
-/** CLI auth status uses "max"; SDK accountInfo uses "Claude Max" and may omit apiKeySource. */
+/** Plan names change (CLI "max" became SDK "Claude Ultra"), so any named plan passes unless it
+ * says free, API or console. The provider and key-source checks keep API keys out. */
 function isSubscriptionPlan(plan: string | undefined): boolean {
-  return /^(?:claude\s+)?(pro|max|team|enterprise)$/i.test(plan?.trim() ?? "");
+  const name = plan?.trim() ?? "";
+  return name !== "" && !/^(unknown|none|null|undefined)$/i.test(name) && !/\b(free|api|console)\b/i.test(name);
 }
+
+const reported = (value: string) => JSON.stringify(value.replace(/\p{C}/gu, "").slice(0, 60));
 
 export function assertSubscriptionAccount(account: AccountInfo): void {
   if (account.apiProvider !== "firstParty" || !isSubscriptionPlan(account.subscriptionType)
     || (account.apiKeySource !== undefined && !["none", "oauth"].includes(account.apiKeySource))) {
-    throw new Error("Claude subscription requires Claude Code signed in to a Pro, Max, Team or Enterprise plan. No API-key fallback was used.");
+    const plan = account.subscriptionType?.trim() ? `plan ${reported(account.subscriptionType)}` : "no plan";
+    const key = account.apiKeySource !== undefined ? `, key source ${reported(account.apiKeySource)}` : "";
+    throw new Error(`Claude subscription requires Claude Code signed in to a paid Claude plan (Pro, Max, Ultra, Team or Enterprise). Claude Code reported ${plan} (provider ${reported(account.apiProvider ?? "none")}${key}). No API-key fallback was used.`);
   }
 }
 
