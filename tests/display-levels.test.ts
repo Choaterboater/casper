@@ -7,14 +7,12 @@ import { loadConfiguration } from "../src/config/load";
 import { loadProjectContext } from "../src/project/context";
 import type { RuntimeEvent } from "../src/runtime/types";
 import { inlineDiff, nextDisplay, type DisplayLevel } from "../src/tui/display";
-import { GLYPHS } from "../src/tui/glyphs";
 import { renderFold, type FoldView, type InteractiveTerminal } from "../src/tui/terminal";
 import { removeTempDir } from "./support/temp-dir";
 
 const ambientTerm = process.env.TERM;
 process.env.TERM = "xterm-256color";
 // A box's top-left corner as this terminal draws it: square on the old Windows console.
-const [CORNER] = GLYPHS.corners;
 afterAll(() => { if (ambientTerm === undefined) delete process.env.TERM; else process.env.TERM = ambientTerm; });
 const cleanup: Array<() => Promise<void>> = [];
 afterEach(async () => { for (const close of cleanup.splice(0).reverse()) await close(); });
@@ -53,18 +51,18 @@ const work: RuntimeEvent[] = [
   { type: "message_end" },
 ];
 
-/** A box's rows without the frame: what it says. */
-const inside = (screen: string[]) => screen.map(line => line.replace(/^ {2}│ ?|│$/g, "").trimEnd());
+/** A box's rows: an open box puts nothing beside them, so they are what it says. */
+const inside = (screen: string[]) => screen.map(line => line.trimEnd());
 
 test("normal folds steps into one row naming them, the edit into a box with its diff, and the failure into a box", () => {
   const s = view(true, "normal");
   s.handle(...work);
   expect(s.screen[0]).toBe("  ● read src/math.ts");
   expect(s.screen[1]).toBe("");
-  expect(s.screen[2]).toStartWith(`  ${CORNER}─ Edited 1 file ─`);
+  expect(s.screen[2]).toStartWith("── Edited 1 file ─");
   expect(inside(s.screen.slice(3, 6))).toEqual(["src/math.ts  +1 -1", "  - export const b = 2;", "  + export const b = 3;"]);
   expect(s.screen[7]).toBe("");
-  expect(s.screen[8]).toStartWith(`  ${CORNER}─ ✗ bash · bun test — failed ─`);
+  expect(s.screen[8]).toStartWith("── ✗ bash · bun test — failed ─");
   expect(inside([s.screen[9]!])).toEqual(["1 fail"]);
   // The plain terminal keeps one line per step.
   const plain = view(false, "normal");
@@ -75,7 +73,7 @@ test("normal folds steps into one row naming them, the edit into a box with its 
 test("quiet shows failures only, on the rich and the plain terminal", () => {
   const rich = view(true, "quiet");
   rich.handle(...work);
-  expect(rich.screen[0]).toStartWith(`  ${CORNER}─ ✗ bash · bun test — failed ─`);
+  expect(rich.screen[0]).toStartWith("── ✗ bash · bun test — failed ─");
   expect(rich.screen.join("\n")).not.toMatch(/read|Edited|✓/);
   const plain = view(false, "quiet");
   plain.handle(...work);

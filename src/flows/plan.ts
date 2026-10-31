@@ -457,14 +457,14 @@ export interface PlanScreenOptions {
 }
 
 /** The same sections in plain and framed terminals. Only implementation Details stay one key away.
- * A frame is as wide as the window, with breathing room inside; no centering or terminal state required. */
+ * A frame is an open box as wide as the window: a title rule, the plan at the left edge with nothing beside it (so a
+ * mouse copy takes no border), and a closing rule; no centering or terminal state required. */
 export function planScreenRows(plan: ParsedPlan, width: number, options: PlanScreenOptions = {}): string[] {
   plan = questionsOnly(plan);
   const available = Number.isFinite(width) ? Math.max(1, Math.floor(width)) : 80;
   const framed = Boolean(options.framed && available >= 6);
   const outer = available;
-  const gutter = outer >= 10 ? "  " : "";
-  const inner = framed ? outer - 2 - gutter.length * 2 : outer;
+  const inner = outer;
   const accent = options.accent ?? ((text: string) => text);
   const dim = options.dim ?? ((text: string) => text);
   // Sanitize model content before trusted theme functions add ANSI codes. Keep mock-up spacing.
@@ -476,7 +476,7 @@ export function planScreenRows(plan: ParsedPlan, width: number, options: PlanScr
       return dim(name) + path.slice(name.length);
     });
   const title = `Plan${plan.title ? ` · ${cleanLine(plan.title)}` : ""}`;
-  const titleRows = hang("", accent(title), framed ? Math.max(1, outer - 6) : inner);
+  const titleRows = hang("", accent(title), framed ? Math.max(1, outer - 5) : inner);
   const rows: string[] = framed ? [] : [...hang("", accent(`Casper ${title.toLowerCase().startsWith("plan") ? "plan" + title.slice(4) : title}`), inner)];
   if (framed && titleRows.length > 1) rows.push(...titleRows);
   for (const line of plan.note ?? []) rows.push(...hang("  ", body(line), inner));
@@ -538,16 +538,14 @@ export function planScreenRows(plan: ParsedPlan, width: number, options: PlanScr
   if (options.full) add("Details", plan.details);
   if (options.more && !framed && !options.full) rows.push("", ...hang("", dim(lineText(options.more)), inner));
   if (!framed) return rows;
-  // Paint each edge separately: title/body/dim resets must not leave the frame uncoloured.
-  const edge = (left: string, right: string, text = "") => `${accent(`${left}─`)}${text}${accent(`${"─".repeat(Math.max(0, outer - 3 - visibleWidth(text)))}${right}`)}`;
+  // Paint each rule separately: title/body/dim resets must not leave the rule uncoloured.
+  const rule = (text = "", lead = "── ") => text
+    ? `${accent(lead)}${text}${accent("─".repeat(Math.max(0, outer - visibleWidth(lead) - visibleWidth(text))))}`
+    : accent("─".repeat(outer));
   const footer = dim(" Ctrl+T details · Ctrl+G edit ");
   if (options.more && visibleWidth(footer) > outer - 4) rows.push("", ...hang("", footer.trim(), inner));
-  const side = accent("│");
-  const blank = `${side}${" ".repeat(outer - 2)}${side}`;
-  return [edge("╭", "╮", titleRows.length === 1 ? ` ${titleRows[0]} ` : ""), blank,
-    ...rows.map((row) => `${side}${gutter}${row}${" ".repeat(Math.max(0, inner - visibleWidth(row)))}${gutter}${side}`),
-    blank, options.more && visibleWidth(footer) <= outer - 4
-      ? `${accent(`╰${"─".repeat(outer - 3 - visibleWidth(footer))}`)}${footer}${accent("─╯")}` : edge("╰", "╯")];
+  return [rule(titleRows.length === 1 ? `${titleRows[0]} ` : ""), "", ...rows, "",
+    options.more && visibleWidth(footer) <= outer - 4 ? `${accent("─".repeat(outer - 1 - visibleWidth(footer)))}${footer}${accent("─")}` : rule()];
 }
 
 /** A question about the plan ("why step 3?"): answered in words under the planning gate; the plan stays. */

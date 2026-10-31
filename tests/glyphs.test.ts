@@ -1,15 +1,12 @@
 import { expect, test } from "bun:test";
 import { visibleWidth } from "@earendil-works/pi-tui";
 import { glyphOutput, glyphSet } from "../src/tui/glyphs";
-import { renderPanel } from "../src/tui/presentation";
 
-test("the old Windows console gets an ASCII spinner and square corners; Windows Terminal and others keep the braille ones", () => {
+test("the old Windows console gets an ASCII spinner; Windows Terminal and others keep the braille one", () => {
   const legacy = glyphSet("win32", {});
   expect(legacy.spinner).toEqual(["|", "/", "-", "\\"]);
-  expect(legacy.corners).toEqual(["┌", "┐", "└", "┘"]);
   for (const modern of [glyphSet("win32", { WT_SESSION: "abc" }), glyphSet("win32", { TERM_PROGRAM: "vscode" }), glyphSet("darwin", {}), glyphSet("linux", {})]) {
     expect(modern.spinner[0]).toBe("⠋");
-    expect(modern.corners).toEqual(["╭", "╮", "╰", "╯"]);
   }
 });
 
@@ -33,11 +30,4 @@ test("the old console gets every mark in ASCII, one column each; other terminals
   const pipe = { isTTY: false, write: (_text: string) => true };
   expect(glyphOutput(pipe, legacy)).toBe(pipe);
   expect(glyphOutput(tty, glyphSet("linux", {}))).toBe(tty);
-});
-
-test("a panel draws with the corners it is given", () => {
-  const rows = renderPanel("output", ["x"], 20, false, "muted", ["┌", "┐", "└", "┘"]);
-  expect(rows[0]!.startsWith("┌─ output")).toBe(true);
-  expect(rows[0]!.endsWith("┐")).toBe(true);
-  expect(rows.at(-1)).toBe(`└${"─".repeat(18)}┘`);
 });

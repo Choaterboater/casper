@@ -106,7 +106,9 @@ test("idle: ? asks the side model with no tools; the answer shows as a side answ
     f.input.write("? what does ECONNRESET mean\r");
     await f.until((text) => text.includes("The other end closed the connection."));
     expect(f.screen()).toContain("? side answer · fixture/fast · not part of the conversation");
-    expect(f.screen()).toContain("  │ Retry or check the server log.");
+    // No "│" gutter: a mouse copy of the answer takes only its words.
+    expect(f.screen()).toContain("\n    Retry or check the server log.");
+    expect(f.screen()).not.toContain("│ Retry");
     expect(f.asked).toHaveLength(1);
     expect(f.asked[0]).toMatchObject({ user: "what does ECONNRESET mean", role: "fast" });
     // complete() is one tool-free call outside the conversation; nothing else is offered.

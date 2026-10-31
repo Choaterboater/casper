@@ -34,20 +34,25 @@ export function styleLine(line: string, color: boolean, result = false): string 
   return role ? tint(line, role, color, role === "accent" ? "1" : undefined) : line;
 }
 
-/** A folded group's rows at this width: two columns in under the AI's words (`attached`, with └), or at the left edge
- * with ● when nothing of theirs is above. */
+/** A folded group's rows at this width: its step rows two columns in under the AI's words (`attached`, with └), or at
+ * the left edge with ● when nothing of theirs is above. Its boxes sit at the left edge, so a mouse copy of a diff or a
+ * failure takes no indent. */
 export function renderFold(fold: FoldView, width: number, attached: boolean, color: boolean): string[] {
   const indent = " ".repeat(Math.min(2, Math.max(0, width - 1)));
   const inner = Math.min(120, Math.max(1, width - indent.length));
+  const box = Math.min(120, Math.max(1, width));
+  const steps = [...stepRows(fold.parts, inner, tint(attached ? "└" : "●", "muted", color), color),
+    ...fold.lines.flatMap(line => terminalText(line).split("\n")).map(row => styleLine(row, color))]
+    .map(row => truncateToWidth(`${indent}${row}`, width, ""));
   const groups = [
-    [...stepRows(fold.parts, inner, tint(attached ? "└" : "●", "muted", color), color),
-      ...fold.lines.flatMap(line => terminalText(line).split("\n")).map(row => styleLine(row, color))],
-    fold.edits.length ? renderEditBox(fold.edits, inner, { color, maxLines: fold.editLines }) : [],
-    fold.config?.length ? renderEditBox(fold.config, inner, { color, maxLines: fold.editLines, perFile: CONFIG_BOX_LINES, title: `${CHANGE_GLYPH} Changed config` }) : [],
-    ...(fold.changes ?? []).map(change => renderChangeBox(change, inner, color)),
-    ...fold.failures.map(failure => failure.output?.trim() ? renderFailureBox(failure, inner, color) : [styleLine(terminalText(failure.title), color)]),
+    steps,
+    fold.edits.length ? renderEditBox(fold.edits, box, { color, maxLines: fold.editLines }) : [],
+    fold.config?.length ? renderEditBox(fold.config, box, { color, maxLines: fold.editLines, perFile: CONFIG_BOX_LINES, title: `${CHANGE_GLYPH} Changed config` }) : [],
+    ...(fold.changes ?? []).map(change => renderChangeBox(change, box, color)),
+    ...fold.failures.map(failure => failure.output?.trim() ? renderFailureBox(failure, box, color)
+      : [truncateToWidth(`${indent}${styleLine(terminalText(failure.title), color)}`, width, "")]),
   ].filter(rows => rows.length);
-  return groups.flatMap((rows, index) => [...(index ? [""] : []), ...rows.map(row => truncateToWidth(`${indent}${row}`, width, ""))]);
+  return groups.flatMap((rows, index) => [...(index ? [""] : []), ...rows.map(row => truncateToWidth(row, width, ""))]);
 }
 
 /** A group of finished steps as the screen shows it once the AI moves on (see writeFold). */
@@ -300,8 +305,8 @@ export class InteractiveTerminal {
     const lines = options.diff ? plain.map(line =>
       /^\+(?!\+\+ )/.test(line) ? tint(line, "diffAdded", this.color) : /^-(?!-- )/.test(line) ? tint(line, "diffRemoved", this.color)
         : line.startsWith("@@") ? tint(line, "diffHunk", this.color) : line) : plain;
-    this.surface.writeBlock({ render: width => renderPanel(heading, lines, Math.max(1, width - 2), this.color, options.tone ?? "muted")
-      .map(row => truncateToWidth(`  ${row}`, width)), invalidate() {} }, "group");
+    this.surface.writeBlock({ render: width => renderPanel(heading, lines, Math.max(1, width), this.color, options.tone ?? "muted")
+      .map(row => truncateToWidth(row, width)), invalidate() {} }, "group");
   }
 
   /** Command-line and queued requests use exactly the typed request's component and palette. */

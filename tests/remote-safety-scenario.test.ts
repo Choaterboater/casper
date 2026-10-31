@@ -182,7 +182,7 @@ posix("interactive: each ssh asks first (No first), ~/.ssh stays private, secret
   expect(receipt.replace(/\s+/g, " ")).toContain("Changed tools/pyproject.toml, tools/stats.py, tools/tests/test_stats.py");
   expect(receipt.replace(/\s+/g, " ")).toContain("Config tools/pyproject.toml");
   // Offered to move there, Stay first; Enter stayed.
-  expect(receipt).toContain("The work is in ~/Documents/tools.\n  ❯ 1. Stay here");
+  expect(receipt).toContain("The work is in ~/Documents/tools.\n❯ 1. Stay here");
   expect(receipt).toContain("The work is in ~/Documents/tools. → Stay here");
   // No noise: no 0.0s, no memory warning.
   expect(screen).not.toMatch(/\b0\.\ds\b/);

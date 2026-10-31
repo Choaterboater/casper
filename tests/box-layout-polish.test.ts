@@ -6,7 +6,6 @@ import { TerminalSurface } from "../src/tui/surface";
 import { InteractiveTerminal, renderFold, styleLine, type FoldView } from "../src/tui/terminal";
 import { tint } from "../src/tui/format";
 import { Transcript } from "../src/tui/transcript";
-import { GLYPHS } from "../src/tui/glyphs";
 import { SHELL_COMMAND_CHOICES } from "../src/app/safe-choices";
 
 const fold: FoldView = { parts: [{ verb: "read", names: ["src/a.ts"], noun: ["file", "files"], paths: true }],
@@ -21,11 +20,11 @@ for (const width of [80, 160, 202]) test(`one left edge and one gap between mode
   t.commit({ render: w => renderPanel("Approval", ["Enter to choose · Esc to skip"], w - 2, false).map(row => `  ${row}`), invalidate() {} }, "group");
   const rows = t.render(width);
   expect(rows[1]).toBe("");
-  expect(rows.filter(row => row.startsWith(`  ${GLYPHS.corners[0]}`)).length).toBe(3);
+  expect(rows.filter(row => /^(?: {2})?── /.test(row)).length).toBe(3);
   expect(rows.find(row => row.includes("└ read"))).toStartWith("  └");
   expect(rows.find(row => row.includes("[crew]"))).toStartWith("  [crew]");
   expect(rows.join("\n")).not.toContain("\n\n\n");
-  for (let i = 1; i < rows.length; i++) if (rows[i]!.startsWith(`  ${GLYPHS.corners[0]}`) || rows[i]!.startsWith("  [crew]")) expect(rows[i - 1]).toBe("");
+  for (let i = 1; i < rows.length; i++) if (/^(?: {2})?── /.test(rows[i]!) || rows[i]!.startsWith("  [crew]")) expect(rows[i - 1]).toBe("");
   expect(Math.max(...rows.map(visibleWidth))).toBeLessThanOrEqual(Math.min(width, 122));
   expect(renderFold(fold, width, false, false)[0]).toStartWith("  ●");
 });
@@ -89,7 +88,7 @@ test("a builder's inline command uses the same frame and routes a note typed aft
     input.write("use the fixture instead");
     const rows = (surface as unknown as { tui: { render(width: number): string[] } }).tui.render(80);
     expect(rows.join("\n")).toContain("Builder 1 wants to run:");
-    expect(rows.join("\n")).toContain(`${GLYPHS.corners[0]}─ Command`);
+    expect(rows.join("\n")).toContain("── Command");
     expect(rows.join("\n")).toContain("❯ 1. No — use the fixture instead");
     input.write("\r");
     expect(await answer).toEqual(["No"]);
@@ -115,13 +114,15 @@ for (const color of [true, false]) test(`activity stays above an open box; no em
     const text = rows.map(Bun.stripANSI).join("\n");
     expect(text.indexOf("✓ read")).toBeLessThan(text.indexOf("── Approval"));
     expect(text).toContain("The model says: Check the result.");
-    expect(text).toContain(`${GLYPHS.corners[0]}─ Command`);
-    expect(text).toContain("│ printf first"); expect(text).toContain("│ printf second");
+    expect(text).toContain("── Command");
+    // The command's lines have nothing beside them, so a mouse copy takes only the command.
+    expect(text.split("\n").map(line => line.trimEnd())).toEqual(expect.arrayContaining(["printf first", "printf second"]));
     expect(text).toContain("❯ 1. No");
     expect(text).not.toMatch(/^\s*\?\s*$/m);
     expect(text).not.toContain("\n\n\n");
     const rule = rows.find(row => Bun.stripANSI(row).includes("── Approval"))!;
-    expect(visibleWidth(rule)).toBe(122);
+    // At the left edge, capped at 120 columns.
+    expect(visibleWidth(rule)).toBe(120);
     if (color) expect(rows.find(row => row.includes("guessed.ts"))).toBe(tint("  – read · guessed.ts — path not found", "muted", true));
     surface.interrupt(); await answer;
   } finally { surface.close(); input.destroy(); }

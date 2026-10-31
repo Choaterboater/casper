@@ -187,8 +187,8 @@ This needs a **source checkout** with dependencies installed
 Windows build, `$PSVersionTable.PSVersion`, and the terminal app and version. Test in
 Windows Terminal under both PowerShell 7 and Windows PowerShell 5.1. Record any other
 console separately. The old Windows console (conhost, outside Windows Terminal) has no braille
-or rounded corners in its fonts, so there Casper's spinner is `| / - \` and panels have square
-corners, and every other mark is ASCII (`>` for `❯`, `+` for `✓`, `x` for `✗`; docs/TERMINAL_UX.md lists them).
+in its fonts, so there Casper's spinner is `| / - \` (boxes are open, with no corners, everywhere), and every other mark
+is ASCII (`>` for `❯`, `+` for `✓`, `x` for `✗`; docs/TERMINAL_UX.md lists them).
 
 **Step A — the offline demo.** It makes no model calls and saves nothing:
 

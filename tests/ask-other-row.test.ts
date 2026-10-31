@@ -34,7 +34,7 @@ function screenText(raw: string, cols = 100, rows = 30): string {
 /** The open box: from "The AI asks:" (or the question) to the hint under the rows. */
 function box(raw: string, first = "The AI asks:"): string {
   const lines = screenText(raw).split("\n").map((line) => line.trimEnd());
-  const start = lines.lastIndexOf(`  ${first}`);
+  const start = lines.lastIndexOf(first);
   const end = lines.findIndex((line, index) => index > start && /Esc /.test(line));
   return lines.slice(start, end + 1).join("\n");
 }
@@ -59,7 +59,7 @@ test("the AI's question ends with an Other row; its number opens the answer line
       "  4. Stop here",
       "  5. Other — type your own answer",
       "Enter to choose · Esc to skip",
-    ].map(line => `  ${line}`).join("\n"));
+    ].join("\n"));
     session.input.write("5");
     await waitFor(() => box(session.screen.output).includes("❯ 5. Other — type your own answer —"));
     expect(box(session.screen.output)).toBe([
@@ -71,7 +71,7 @@ test("the AI's question ends with an Other row; its number opens the answer line
       "  4. Stop here",
       "❯ 5. Other — type your own answer —",
       "Enter to send · Esc to go back",
-    ].map(line => `  ${line}`).join("\n"));
+    ].join("\n"));
     // Numbers on the answer line are the answer, not rows.
     session.input.write("2 files, then stop");
     await waitFor(() => screenText(session.screen.output).includes("Other — type your own answer — 2 files, then stop"));

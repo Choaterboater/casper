@@ -5,7 +5,6 @@ import { buildersLine, PLAIN_START_AFTER_MS, refusalForScreen, RuntimeEventView 
 import { reachCantAsk, reachDeclined, SHELL_CANT_ASK } from "../src/app/sandbox";
 import { planToolGate } from "../src/flows/plan";
 import { commandLabel, displayPath, formatToolActivity, toolTarget } from "../src/tui/format";
-import { GLYPHS } from "../src/tui/glyphs";
 import { describeSteps, stepRows } from "../src/tui/step-view";
 import type { WorkView } from "../src/tui/surface";
 import { InteractiveTerminal, renderFold, type FoldView } from "../src/tui/terminal";
@@ -15,8 +14,6 @@ import type { RuntimeEvent } from "../src/runtime/types";
 
 const ambientTerm = process.env.TERM;
 process.env.TERM = "xterm-256color";
-// A box's top-left corner as this terminal draws it: square on the old Windows console.
-const [CORNER] = GLYPHS.corners;
 afterAll(() => { if (ambientTerm === undefined) delete process.env.TERM; else process.env.TERM = ambientTerm; });
 
 /** A terminal that records the main screen and the work in progress (live rows, status row) apart. A fold is drawn as
@@ -106,10 +103,11 @@ test("rich terminal: live rows show every step of the group; the fold puts edits
   // The failed edit was tried again at once: shown nowhere. The failed command is a box with what it printed.
   expect(t.screen[0]).toBe("  ● read c.py");
   expect(t.screen[1]).toBe("");
-  expect(t.screen[2]).toStartWith(`  ${CORNER}─ Edited 2 files ─`);
-  expect(t.screen.slice(3, 7).map(row => row.slice(4).trim().replace(/│$/, "").trim())).toEqual(["a.py  +1 -1", "- x = 1", "+ x = 2", "b.py"]);
-  expect(screen).toContain(`${CORNER}─ ✗ bash · python3 -m pytest … — failed ─`);
-  expect(screen).toMatch(/│ tests\/test_a\.py F +│\n  │ 1 failed +│/);
+  expect(t.screen[2]).toStartWith("── Edited 2 files ─");
+  expect(t.screen.slice(3, 7).map(row => row.trim())).toEqual(["a.py  +1 -1", "- x = 1", "+ x = 2", "b.py"]);
+  expect(screen).toContain("── ✗ bash · python3 -m pytest … — failed ─");
+  // Nothing beside a box's lines: a mouse copy of them takes no border.
+  expect(screen).toContain("\ntests/test_a.py F\n1 failed");
   expect(screen).not.toContain("old text not found");
   expect(t.box).toBeUndefined();
 });
@@ -124,9 +122,9 @@ test("edits fold into one box naming each file, a few changed lines each; with n
   t.handle({ type: "assistant_text_delta", delta: "Done." });
   expect(t.screen[0]).toBe("  ● read a.py");
   expect(t.screen[1]).toBe("");
-  expect(t.screen[2]).toStartWith(`  ${CORNER}─ Edited 7 files ─`);
+  expect(t.screen[2]).toStartWith("── Edited 7 files ─");
   // Each file gets its own preview: a small diff is never crowded out by another file.
-  const rows = t.screen.slice(3, 24).map(row => row.slice(4).trim().replace(/│$/, "").trim());
+  const rows = t.screen.slice(3, 24).map(row => row.trim());
   expect(rows.filter(row => row.endsWith("+1 -1")).map(row => row.split(" ")[0])).toEqual(files);
   expect(rows.filter(row => row === "+ new")).toHaveLength(7);
   expect(t.screen.join("\n")).not.toContain("more lines");

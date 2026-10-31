@@ -123,8 +123,9 @@ test("the rich numbered box dims the labelled model reason after Casper's questi
     const answer = session.terminal.pick(shellQuestion(command, "Check the custom steps."), [...SHELL_COMMAND_CHOICES]);
     expect(await waitUntil(() => Bun.stripANSI(session.screen.output).includes("4. Yes to everything"))).toBe(true);
     const visible = Bun.stripANSI(session.screen.output).replaceAll("\r", "");
-    const commandRows = renderPanel("Command", [...command.split("\n").slice(0, 8), "… 4 more lines", ...command.split("\n").slice(-3)], session.screen.writer.columns - 2, false, "muted");
-    expect(visible).toContain(`  Run this command?\n  The model says: Check the custom steps.\n${commandRows.map(row => `  ${row}`).join("\n")}\n`);
+    const commandRows = renderPanel("Command", [...command.split("\n").slice(0, 8), "… 4 more lines", ...command.split("\n").slice(-3)], session.screen.writer.columns, false, "muted");
+    // At the left edge, nothing beside the command: a mouse copy takes only the command.
+    expect(visible).toContain(`\nRun this command?\nThe model says: Check the custom steps.\n${commandRows.join("\n")}\n`);
     expect(session.screen.output).toContain(tint("The model says: Check the custom steps.", "muted", true));
     expect(session.screen.output).not.toContain(tint("The model says: Check the custom steps.", "accent", true));
     // The entire command row, including omitted-line text, padding and border, is one faint span.

@@ -150,7 +150,7 @@ test("/plan: the plan turn refuses changes; 2 builds the plan", async () => {
     await f.screen.until(waiting("Build this plan?"));
     expect(f.screen.output).not.toContain("Big job");
     // Casper's plan screen, once: numbered steps and cases, not the raw answer too.
-    expect(f.screen.output).toContain("╭─ Plan");
+    expect(f.screen.output).toContain("── Plan");
     expect(f.screen.output).toMatch(/  1\. Add a Limiter class +limiter\.py/);
     expect(f.screen.output).toContain("Done means");
     expect(f.screen.output).toContain("1. limit(0) throws");
@@ -538,7 +538,7 @@ test("the plan screen hides only details until Ctrl+T and Build gets the rewritt
     f.input.write(`/plan how would I change the Casper at the top to look cleaner and animated\r`);
     await f.screen.until(waiting("Build this plan?"));
     const screen = f.screen.output;
-    expect(screen).toContain("╭─ Plan · A cleaner, animated header");
+    expect(screen).toContain("── Plan · A cleaner, animated header");
     expect(screen).toContain("What you'll see");
     expect(screen).toContain("  The ghost and the name in one colour, with a short fade-in.");
     expect(screen).toContain("  2. Draw the header in the accent colour.");
@@ -766,7 +766,7 @@ test("NO_COLOR keeps the same plan sections without a frame", async () => {
     await f.screen.until(waiting("Build this plan?"));
     expect(f.screen.output).toContain("Casper plan · A task board");
     expect(f.screen.output).toContain("Done means");
-    expect(f.screen.output).not.toContain("╭─ Plan");
+    expect(f.screen.output).not.toContain("── Plan");
     f.input.write("\r");
     await f.screen.until(idleAfter("Stopped without building."));
   } finally { await f.close(); if (old === undefined) delete process.env.NO_COLOR; else process.env.NO_COLOR = old; }
@@ -825,9 +825,11 @@ async function capturedPlan(noColor = false): Promise<string[]> {
     f.input.write("/plan add tags to notes, with a filter\r");
     await f.screen.until(waiting("Build this plan?"));
     const rows = f.screen.raw.replace(/\r\n?/g, "\n").split("\n");
-    const start = rows.findIndex(row => Bun.stripANSI(row).startsWith(noColor ? "Casper plan · Colour regression" : "╭─ Plan · Colour regression"));
+    const start = rows.findIndex(row => Bun.stripANSI(row).startsWith(noColor ? "Casper plan · Colour regression" : "── Plan · Colour regression"));
     expect(start).toBeGreaterThanOrEqual(0);
-    const end = rows.findIndex((row, index) => index > start && Bun.stripANSI(row).trimStart().startsWith(noColor ? "Build this plan?" : "╰"));
+    // The open box ends at its closing rule (which may carry the Ctrl+T footer).
+    const end = rows.findIndex((row, index) => index > start && (noColor ? Bun.stripANSI(row).trimStart().startsWith("Build this plan?")
+      : /^─+(?: Ctrl\+T details · Ctrl\+G edit ─)?$/.test(Bun.stripANSI(row).trim())));
     expect(end).toBeGreaterThan(start);
     return rows.slice(start, noColor ? end : end + 1);
   } finally {
@@ -837,16 +839,15 @@ async function capturedPlan(noColor = false): Promise<string[]> {
 }
 
 
-test("rendered rich plan frame lines ╭ ─ │ ╰ use accent SGR 96, including after body resets", async () => {
+test("rendered rich plan rules use accent SGR 96, and nothing sits beside the plan", async () => {
   const rows = await capturedPlan();
-  const seen = new Set<string>();
-  for (const [index, row] of rows.entries()) {
-    const cells = ansiCells([row])[0]!;
-    const edges = index === 0 || index === rows.length - 1
-      ? cells.filter(cell => /[╭╮╰╯─]/.test(cell.char)) : [cells[0]!, cells.at(-1)!];
-    for (const cell of edges) { seen.add(cell.char); expect(cell.foreground).toBe("96"); }
+  for (const row of [rows[0]!, rows.at(-1)!]) {
+    const rule = ansiCells([row])[0]!.filter(cell => cell.char === "─");
+    expect(rule.length).toBeGreaterThan(0);
+    for (const cell of rule) expect(cell.foreground).toBe("96");
   }
-  for (const char of ["╭", "─", "│", "╰"]) expect(seen.has(char)).toBe(true);
+  // An open box: a mouse copy of the plan takes no border (a mock-up keeps its own inner box).
+  expect(rows.slice(1, -1).map(row => Bun.stripANSI(row)).join("\n")).not.toMatch(/^[│╭╰]/m);
 }, 60_000);
 
 test("rendered rich plan file paths after the step are dim even with the high-contrast theme", async () => {
@@ -855,9 +856,9 @@ test("rendered rich plan file paths after the step are dim even with the high-co
   const paths = cellsFor(ansiCells([row]), "src/tui/banner.ts");
   expect(paths.every(cell => cell.dim)).toBe(true);
   expect(cellSnapshot([paths])).toBe('[dim]"src/tui/banner.ts"');
-  expect(Bun.stripANSI(row)).toMatch(/1\. Draw the header  src\/tui\/banner.ts +│$/);
-  // The frame is as wide as the 202-column window.
-  expect(Bun.stringWidth(row)).toBe(202);
+  expect(Bun.stripANSI(row).trimEnd()).toMatch(/1\. Draw the header  src\/tui\/banner.ts$/);
+  // The rules are as wide as the 202-column window.
+  expect(Bun.stringWidth(Bun.stripANSI(rows[0]!).trimEnd())).toBe(202);
 }, 60_000);
 
 test("rendered rich plan mock-up inner box borders and contents are dim", async () => {
@@ -865,12 +866,9 @@ test("rendered rich plan mock-up inner box borders and contents are dim", async 
   const art = rows.slice(rows.findIndex(row => row.includes("┌")), rows.findIndex(row => row.includes("└")) + 1);
   expect(art).toHaveLength(3);
   for (const row of art) {
-    const cells = ansiCells([row])[0]!;
-    const inner = cells.slice(3, -3).filter(cell => cell.char.trim());
+    const inner = ansiCells([row])[0]!.filter(cell => cell.char.trim());
     expect(inner.length).toBeGreaterThan(0);
     expect(inner.every(cell => cell.dim)).toBe(true);
-    expect(cells[0]!.dim).toBe(false);
-    expect(cells.at(-1)!.dim).toBe(false);
   }
 }, 60_000);
 
@@ -1011,7 +1009,7 @@ test("a question at Change the plan is answered and the same plan's choices come
     expect(f.prompts[1]).toContain("1. Add a Limiter class in limiter.py");
     expect(f.prompts[1]).not.toContain("Rewrite the current plan");
     // The plan was not redrawn: the same choices follow the answer.
-    expect(f.screen.output.slice(from)).not.toContain("╭─ Plan");
+    expect(f.screen.output.slice(from)).not.toContain("── Plan");
     f.input.write("\r");
     await f.screen.until(idleAfter("[plan] Stopped without building."));
   } finally { await f.close(); }

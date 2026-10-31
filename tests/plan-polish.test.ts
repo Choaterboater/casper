@@ -5,7 +5,7 @@ import { bundledFlows, findFlow, MAX_FLOW_BODY_BYTES } from "../src/flows/catalo
 
 const dim = (text: string) => `\x1b[2m${text}\x1b[22m`;
 const plain = (rows: string[]) => rows.map(row => Bun.stripANSI(row));
-const content = (rows: string[]) => plain(rows).map(row => row.startsWith("│") ? row.slice(3, -3).trimEnd() : row);
+const content = (rows: string[]) => plain(rows).map(row => row.trimEnd());
 
 test.each(["What I found", "Open questions"])("wrapped bullets in %s hang under their text, not the bullet", heading => {
   const text = heading === "Open questions"
@@ -96,7 +96,7 @@ test("long step labels and paths wrap without overlap or loss in narrow panels",
   for (const width of [12, 24, 40, 80]) {
     const rows = planScreenRows({ steps: [`${label} — ${file}`], tests: [] }, width, { framed: true, dim });
     expect(rows.every(row => visibleWidth(row) <= width)).toBe(true);
-    const text = plain(rows).slice(2, -2).map(row => row.slice(1, -1)).join("").replace(/\s/g, "");
+    const text = plain(rows).slice(2, -2).join("").replace(/\s/g, "");
     expect(text.replace(file, "")).toContain(label.replace(/\s/g, ""));
     expect(text).toContain(file);
     expect(text).not.toContain("…");
@@ -118,8 +118,8 @@ test("dynamic route paths stay whole and dim after the step's words", () => {
   expect(rows.join("\n")).toContain(dim(file));
   expect(rows.filter(row => row.includes(file))).toHaveLength(1);
   const narrow = planScreenRows({ steps: [`Update routing — ${file}`], tests: [] }, 20, { framed: true, dim });
-  expect(narrow.every(row => visibleWidth(row) === 20)).toBe(true);
-  expect(plain(narrow).slice(2, -2).map(row => row.slice(1, -1)).join("").replace(/\s/g, "")).toContain(file);
+  expect(narrow.every(row => visibleWidth(row) <= 20)).toBe(true);
+  expect(plain(narrow).slice(2, -2).join("").replace(/\s/g, "")).toContain(file);
 });
 
 test("mock-up whitespace, literal headings and multiple code blocks survive narrow rendering and save/edit", () => {

@@ -1,9 +1,7 @@
 /** The marks this terminal can draw. The old Windows console (conhost, not Windows Terminal or an editor's terminal)
- * has no braille, rounded corners or most symbols in its fonts, so it gets ASCII and square corners instead. */
+ * has no braille or most symbols in its fonts, so it gets ASCII instead. */
 export interface GlyphSet {
   spinner: readonly string[];
-  /** Top-left, top-right, bottom-left, bottom-right. */
-  corners: readonly [string, string, string, string];
   /** Every other mark Casper writes (❯ ✓ ✗ → ↳ ▌ ◐ ○ • ● – … ⚠ ↻ ◆), as this terminal draws it. */
   text(text: string): string;
 }
@@ -11,7 +9,7 @@ export interface GlyphSet {
 const BRAILLE = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 
 /** One column each, like the mark it stands for, so a line keeps its width and nothing shifts. The box-drawing
- * corner is one the old console draws, as for the panel corners. */
+ * corner is one the old console draws. */
 const ASCII: Readonly<Record<string, string>> = {
   "❯": ">", "✓": "+", "✗": "x", "→": ">", "↳": "└", "▌": "|", "◐": "*", "○": "o", "•": "*", "●": "*", "–": "-", "…": "~", "⚠": "!", "↻": "@", "━": "=", "◆": "#",
 };
@@ -24,8 +22,8 @@ export function legacyConsole(platform: NodeJS.Platform = process.platform, env:
 
 export function glyphSet(platform: NodeJS.Platform = process.platform, env: Record<string, string | undefined> = process.env): GlyphSet {
   return legacyConsole(platform, env)
-    ? { spinner: ["|", "/", "-", "\\"], corners: ["┌", "┐", "└", "┘"], text: text => text.replace(ASCII_MARKS, mark => ASCII[mark]!) }
-    : { spinner: BRAILLE, corners: ["╭", "╮", "╰", "╯"], text: text => text };
+    ? { spinner: ["|", "/", "-", "\\"], text: text => text.replace(ASCII_MARKS, mark => ASCII[mark]!) }
+    : { spinner: BRAILLE, text: text => text };
 }
 
 /** This process's terminal. */

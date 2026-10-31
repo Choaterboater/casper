@@ -3,7 +3,6 @@ import { PassThrough } from "node:stream";
 import { visibleWidth } from "@earendil-works/pi-tui";
 import { shellQuestion } from "../src/app/sandbox";
 import { SHELL_COMMAND_CHOICES } from "../src/app/safe-choices";
-import { GLYPHS } from "../src/tui/glyphs";
 import { SettingsScreen, type ScreenSetting } from "../src/tui/settings-screen";
 import { TerminalSurface } from "../src/tui/surface";
 
@@ -106,8 +105,9 @@ test("shrinking a command preview adds newly omitted logical lines to its origin
     for (const height of [12, 14, 18, 27]) {
       const lines = Bun.stripANSI(session.render(80, height).join("\n")).split("\n");
       expect(lines.length).toBeLessThanOrEqual(height);
-      expect(lines[2]).toStartWith(`${GLYPHS.corners[0]}─ Command `);
-      const preview = lines.filter(line => line.startsWith("│ ")).map(line => line.slice(2, -2).trimEnd());
+      expect(lines[2]).toStartWith("── Command ");
+      // An open box: the command's lines sit between its title rule and its closing rule, with nothing beside them.
+      const preview = lines.slice(3, lines.findIndex((line, index) => index > 2 && /^─+$/.test(line))).map(line => line.trimEnd());
       const shown = preview.filter(line => /^custom-step-\d+$/.test(line));
       expect(shown.slice(-3)).toEqual(["custom-step-18", "custom-step-19", "custom-step-20"]);
       expect(shown.slice(0, -3)).toEqual(Array.from({ length: shown.length - 3 }, (_, index) => `custom-step-${index + 1}`));

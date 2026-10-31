@@ -4,7 +4,6 @@ import { plainSteps } from "../src/app/plain-steps";
 import { observationInput, stepTitle } from "../src/runtime/observation";
 import type { RuntimeEvent } from "../src/runtime/types";
 import { formatToolActivity } from "../src/tui/format";
-import { GLYPHS } from "../src/tui/glyphs";
 import { describeSteps, pastTense, stepRows } from "../src/tui/step-view";
 import type { WorkView } from "../src/tui/surface";
 import { renderFold, type FoldView, type InteractiveTerminal } from "../src/tui/terminal";
@@ -78,7 +77,7 @@ test("live rows, plain rows, the fold and a failure box carry the title with the
   expect(s.work?.plain).toContain("✓ Run the unit tests · bun test");
   s.send(...titled("2", "make", "Build the app", "make: *** [all] Error 2\n\nCommand exited with code 2", true), { type: "message_end" });
   expect(s.folded()).toContain("└ Ran the unit tests");
-  expect(s.folded()).toContain(`${GLYPHS.corners[0]}─ ✗ Build the app · make — failed`);
+  expect(s.folded()).toContain("── ✗ Build the app · make — failed");
   expect(s.view.lastStep()?.body).toContain("Error 2");
   const plain = screen(false);
   plain.send(...titled("1", "bun test", "Run the unit tests", "1 pass"), { type: "message_end" });

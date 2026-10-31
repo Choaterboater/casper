@@ -15,19 +15,26 @@ const plan: ParsedPlan = {
 };
 const headings = ["Goal", "What I found", "Screens", "Data", "Look", "First version", "Later", "Done means", "Open questions"];
 const plain = (rows: string[]) => rows.map(row => stripVTControlCharacters(row));
-const inside = (rows: string[]) => rows.slice(2, -2).map(row => row.slice(1, -1).trim());
+// An open box: a title rule, a blank row, the plan at the left edge with nothing beside it, a blank row, a closing rule.
+const inside = (rows: string[]) => rows.slice(2, -2).map(row => row.trim());
+/** Its rules are as wide as the window and no row is wider; nothing sits beside the plan, so a mouse copy takes no border. */
+const openBox = (rows: string[], width: number) => {
+  expect(visibleWidth(rows[0]!)).toBe(width);
+  expect(visibleWidth(rows.at(-1)!)).toBe(width);
+  expect(rows.every(row => visibleWidth(row) <= width)).toBe(true);
+  expect(plain(rows.slice(1, -1)).join("\n")).not.toMatch(/│|[╭╮╰╯]/);
+};
 
 describe("the designed plan panel", () => {
   test.each([80, 160])("a framed panel at %i columns: title in the top edge, footer in bottom edge, even spacing", width => {
     const rows = planScreenRows(plan, width, { framed: true, more: "details" });
-    expect(rows[0]).toStartWith("╭─ Plan · A calmer project board ─");
+    expect(rows[0]).toStartWith("── Plan · A calmer project board ─");
     expect(rows.at(-1)).toContain("Ctrl+T details · Ctrl+G edit");
-    expect(rows.at(-1)).toEndWith("─╯");
-    // The frame is as wide as the window.
-    const frame = width;
-    expect(rows.every(row => visibleWidth(row) === frame)).toBe(true);
-    expect(rows[1]).toBe(`│${" ".repeat(frame - 2)}│`);
-    expect(rows.at(-2)).toBe(rows[1]);
+    expect(rows.at(-1)).toEndWith("edit ─");
+    // The rules are as wide as the window.
+    openBox(rows, width);
+    expect(rows[1]).toBe("");
+    expect(rows.at(-2)).toBe("");
     const content = inside(rows);
     for (const heading of headings) {
       expect(content).toContain(heading);
@@ -54,7 +61,7 @@ describe("the designed plan panel", () => {
     const rows = planScreenRows(plan, 80, options);
     for (const heading of headings) expect(headingsSeen).toContain(heading);
     expect(pathsSeen).toContain("src/pages/board.ts");
-    expect(rows.every(row => visibleWidth(row) === 80)).toBe(true);
+    openBox(rows, 80);
     expect(plain(rows)).toEqual(planScreenRows(plan, 80, { framed: true }));
     const attack = planScreenRows({ steps: ["Do \x1b[2Jnot clear"], tests: [] }, 80, options);
     expect(attack.join("\n")).not.toContain("\x1b[2J");
@@ -72,9 +79,9 @@ describe("the designed plan panel", () => {
   });
   test("blank lines inside sections are omitted while mock-up indentation stays", () => {
     const rows = planScreenRows({ steps: [], tests: [], see: ["A board", "", "  ┌──┐", "  │hi│", "  └──┘"] }, 80, { framed: true });
-    expect(rows).toContain(`│    A board${" ".repeat(67)}│`);
+    expect(rows).toContain("  A board");
     const text = rows.join("\n");
-    expect(text).toContain("      ┌──┐");
+    expect(text).toContain("\n    ┌──┐\n");
     expect(inside(rows).filter(row => !row)).toHaveLength(0);
   });
   test("criteria keep every qualifier, even beyond normal checklist limits", () => {
@@ -91,7 +98,7 @@ describe("the designed plan panel", () => {
   test("Unicode graphemes and combining sequences remain whole", () => {
     const title = "界面👩‍💻é".repeat(15);
     const rows = planScreenRows({ title, steps: [], tests: [] }, 20, { framed: true });
-    expect(rows.every(row => visibleWidth(row) === 20)).toBe(true);
+    openBox(rows, 20);
     expect(inside(rows).join("").replace(/\s/g, "")).toContain(title);
   });
 });
@@ -109,7 +116,7 @@ test("on a wide screen a long step keeps the width with its file after the words
     "- The right tool is first.",
   ].join("\n"))!;
   const rows = plain(planScreenRows(wide, 200, { framed: true }));
-  expect(rows.every(row => visibleWidth(row) === 200)).toBe(true);
+  openBox(rows, 200);
   const body = inside(rows);
   expect(body.find(row => row.startsWith("- PR #10"))).toBe("- PR #10 is merged; the biggest gap is ranking.");
   expect(rows.join("\n")).not.toMatch(/\]\(|\*\*/);

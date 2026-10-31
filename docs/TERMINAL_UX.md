@@ -238,7 +238,10 @@ A fenced block in an assistant message copies clean: a title line with its langu
 stays at the left edge, full width, while the prose around it hangs under `●`), then a
 closing rule. A line wider than the window is cut at the edge only (no character added or
 dropped), so a mouse copy of switch config picks up no `│` characters.
-Bordered panels (`src/tui/presentation.ts`) are kept for what matters: the edits a group of steps made
+Boxes (`src/tui/presentation.ts`) are open, as code blocks are, so a mouse copy takes no border: a title rule
+(`── Edited 3 files ────`), the content at the left edge with no side border and no indent, and a closing rule. The
+approval and question boxes sit at the left edge too, so a command copied out of `Run this command?` takes no spaces
+or `│`, and a side answer is indented with no `│` gutter. Boxes are kept for what matters: the edits a group of steps made
 (`Edited 3 files`, each file with `+N -M` and at most twelve diff lines per file, then
 `… N more lines · Ctrl+T shows all`), a failed step (amber, titled with its line, `✗ bash · git push — failed`,
 with the failing lines and test counts preferred over passing tails, secrets hidden and your home folder as `~`), `/output`
@@ -463,34 +466,34 @@ The plan is written for you, not for the code, and shown once by Casper (the mod
 as well). For example, an existing-project plan on a rich terminal looks like this:
 
 ```text
-╭─ Plan · A cleaner, animated header ──────────────────────────────────────────╮
-│                                                                              │
-│  Goal                                                                        │
-│    Make the name easy to read.                                               │
-│                                                                              │
-│  What I found                                                                │
-│    - One function draws the header.                                          │
-│                                                                              │
-│  What you'll see                                                             │
-│    Accent colour, brief fade-in:                                             │
-│    ┌────────────────┐                                                        │
-│    │ CASPER · ready │                                                        │
-│    └────────────────┘                                                        │
-│                                                                              │
-│  Steps                                                                       │
-│    1. Restyle the header.  src/tui/banner.ts                                 │
-│    2. Add a brief fade-in.  src/tui/banner.ts                                │
-│                                                                              │
-│  Done means                                                                  │
-│    1. Plain output stays readable.                                           │
-│    2. Fade respects reduced motion.                                          │
-│    3. Header checks pass.                                                    │
-│                                                                              │
-╰─────────────────────────────────────────────── Ctrl+T details · Ctrl+G edit ─╯
+── Plan · A cleaner, animated header ───────────────────────────────────────────
+
+Goal
+  Make the name easy to read.
+
+What I found
+  - One function draws the header.
+
+What you'll see
+  Accent colour, brief fade-in:
+  ┌────────────────┐
+  │ CASPER · ready │
+  └────────────────┘
+
+Steps
+  1. Restyle the header.  src/tui/banner.ts
+  2. Add a brief fade-in.  src/tui/banner.ts
+
+Done means
+  1. Plain output stays readable.
+  2. Fade respects reduced motion.
+  3. Header checks pass.
+
+───────────────────────────────────────────────── Ctrl+T details · Ctrl+G edit ─
 ```
 
-On a rich terminal the plan has an accent frame as wide as the window, with
-paths dimmed. A step that fits on one line has its file at the right; a longer step keeps the full width and its
+On a rich terminal the plan is an open box: an accent title rule and closing rule as wide as the window, the plan
+at the left edge with nothing beside it (a mouse copy takes no border), and paths dimmed. A step that fits on one line has its file at the right; a longer step keeps the full width and its
 file goes on the line under it. A link shows its text and bold loses its `**`. Plain terminals and `NO_COLOR` show the same sections, unframed and without colour:
 
 ```text
@@ -661,9 +664,9 @@ live rows, popups or pickers, or a duplicated prompt box (`bun test tests/termin
 - While a prompt runs or tool activity is on screen, the footer spinner, the status row and a running
   step's mark animate (braille spinner) so background work is visibly moving, and the
   footer shows one phase and elapsed time (`⠋ working 1m35s`); idle has no spinner or timer.
-- The old Windows console (conhost: no `WT_SESSION`, `TERM_PROGRAM` or `ConEmuANSI`) has no braille,
-  rounded corners or most symbols in its fonts, so every mark is drawn in ASCII there, one column each:
-  `|/-\` spinner, square corners, `>` for `❯` and `→`, `+` for `✓`, `x` for `✗`, `*` for `•` and `●`, `o` for `○`,
+- The old Windows console (conhost: no `WT_SESSION`, `TERM_PROGRAM` or `ConEmuANSI`) has no braille
+  or most symbols in its fonts, so every mark is drawn in ASCII there, one column each:
+  `|/-\` spinner, `>` for `❯` and `→`, `+` for `✓`, `x` for `✗`, `*` for `•` and `●`, `o` for `○`,
   `-` for `–`, `!` for `⚠`, `|` for `▌`, `└` for `↳`, `~` for `…` (`└` itself draws there). Windows Terminal and other terminals keep the symbols.
 - `/model provider/id`: exact selection, remembered globally. During a task it applies from the
   model's next step, like `/effort` (see Input and commands).
@@ -898,7 +901,7 @@ only. See [platform support](PLATFORM_SUPPORT.md) for host-validation limits.
   same line after its numbered lines.
 - A command approval always starts with Casper's own question (`Run this command?`). Only the last sentence of the model's reason
   follows, dimmed and labelled `The model says:`: at most 100 characters then `…`, clipped to one row without wrapping.
-  Multi-line commands sit in a dim frame with a head/gap/tail preview: about eight head lines, `… N more lines`, then the final three. Consequential middle lines (push, remove, download, sudo, install and redirects) stay below the gap; the count includes only omitted command lines. Secrets stay hidden. The activity list remains above the box.
+  Multi-line commands sit in a dim open box (a title rule and a closing rule, nothing beside the lines) with a head/gap/tail preview: about eight head lines, `… N more lines`, then the final three. Consequential middle lines (push, remove, download, sudo, install and redirects) stay below the gap; the count includes only omitted command lines. Secrets stay hidden. The activity list remains above the box.
   A session yes for `bun test` covers different project test files and log tails in the same folder; other commands
   and permanent approvals keep exact matching.
 - Approval boxes for a shell command, a host, another machine, a write outside the project, your GitHub login and
@@ -978,7 +981,7 @@ only. See [platform support](PLATFORM_SUPPORT.md) for host-validation limits.
   question: one separate call to your fast model (or your model when no fast one is set up) with no
   tools. It gets a short summary of the session (the project name, the task's first line and the
   tool names used lately; no file contents and no secrets). The answer shows as an indented side
-  answer that names the model (`? side answer · <provider/id> · not part of the conversation`); it
+  answer with no `│` gutter that names the model (`? side answer · <provider/id> · not part of the conversation`); it
   is not added to the conversation, so the working AI never sees it. It asks with thinking off,
   since side questions are quick, or at the lowest effort a model allows when it can't stop
   thinking (the newest Claude models: low); a fast role with its own effort (`/model role fast
