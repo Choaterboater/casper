@@ -1,6 +1,6 @@
 # 34. The footer shows the session's running total beside the task's figure
 
-Date: 2026-10-23. Status: proposed (needs the owner's review before merge).
+Date: 2026-10-23. Status: accepted (merged 2026-10-23 in #480).
 
 ## Decision
 

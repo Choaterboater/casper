@@ -1,6 +1,6 @@
 # 33. No receipt card until the task is done
 
-Date: 2026-10-23. Status: proposed (chosen while the owner was away; needs the owner's review before merge).
+Date: 2026-10-23. Status: accepted (merged 2026-10-23 in #479).
 
 ## Decision
 

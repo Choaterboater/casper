@@ -1,6 +1,6 @@
 # 44. The AI asks for a secret through Casper's hidden box
 
-Date: 2026-10-29. Status: proposed (owner's choice; needs the owner's review before merge).
+Date: 2026-10-29. Status: accepted (merged 2026-10-30 in #545).
 
 **What:** `casper_secret` lets the AI ask the person for a password, token or key. Casper shows its own hidden box (the
 one the ssh password uses: nothing typed is echoed, only a count). The box names what is asked, the AI's one-line reason
