@@ -114,6 +114,8 @@ test.skipIf(process.platform === "win32")("Linux: no network of its own, the hom
   const args = mcpBwrapArgs({ hidden: [home], reads: [venv], writes: [cache], cwd: cache, socat: "/usr/bin/socat", socket: path.join(root, "p.sock"),
     port: 3128, seccomp: "/x/apply-seccomp", command: [path.join(venv, "bin/server"), "--read-only"] });
   expect(args).toContain("--unshare-net");
+  // The helper refuses new namespaces unless this is 1; Casper's own environment must not lift that.
+  expect(args[args.indexOf("--unsetenv") + 1]).toBe("SRT_ALLOW_NESTED_USERNS");
   const line = args.join(" ");
   expect(line).toContain(`--tmpfs ${home} --ro-bind ${venv} ${venv} --bind ${cache} ${cache}`);
   const script = args.at(-1)!;
