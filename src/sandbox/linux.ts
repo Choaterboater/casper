@@ -20,6 +20,10 @@ export function quote(word: string): string {
 
 const isDirectory = (file: string) => { try { return statSync(file).isDirectory(); } catch { return false; } };
 
+/** The seccomp helper keeps the command from making user namespaces (a way round read-only binds) unless
+ * SRT_ALLOW_NESTED_USERNS is 1 in its environment; Casper's own environment never lifts that. */
+export const NESTED_USERNS = ["--unsetenv", "SRT_ALLOW_NESTED_USERNS"];
+
 export interface LinuxWrapOptions {
   policy: SandboxPolicy;
   network: "host" | "none";
@@ -38,7 +42,7 @@ export interface LinuxWrapOptions {
 export function bwrapArgs(options: LinuxWrapOptions, command: string): string[] {
   const { policy } = options;
   const args = ["--die-with-parent", "--new-session", "--unshare-pid", ...(options.network === "none" ? ["--unshare-net"] : []),
-    "--ro-bind", "/", "/", "--dev", "/dev", "--proc", "/proc"];
+    "--ro-bind", "/", "/", "--dev", "/dev", "--proc", "/proc", ...NESTED_USERNS];
   const writable = [...policy.allowWrite].filter((entry) => existsSync(entry)).sort((a, b) => a.length - b.length);
   for (const entry of writable) args.push("--bind", entry, entry);
   const insideWritable = (entry: string) => writable.some((allowed) => within(allowed, entry));
