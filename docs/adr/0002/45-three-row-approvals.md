@@ -1,6 +1,6 @@
 # 45. Approval boxes ask with three short rows; "always" moves to the Next row
 
-Date: 2026-10-29. Status: proposed (owner's choice; needs the owner's review before merge). Changes decision 1's
+Date: 2026-10-29. Status: accepted (merged 2026-10-30 in #544). Changes decision 1's
 shell box and decision 43's note row (No takes the note), and keeps decision 27's row that decision 47 removed (as
 row 4). Decisions 1, 43 and 47 are otherwise unchanged.
 

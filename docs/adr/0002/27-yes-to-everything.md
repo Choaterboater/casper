@@ -1,6 +1,6 @@
 # 27. "Yes to everything this session" in the command box
 
-Date: 2026-10-21. Status: proposed (owner's choice; needs the owner's review before merge). Changes decision 1's
+Date: 2026-10-21. Status: accepted (merged 2026-10-21 in #452). Changes decision 1's
 shell box from four choices to five; decision 1 is otherwise unchanged.
 
 ## Decision

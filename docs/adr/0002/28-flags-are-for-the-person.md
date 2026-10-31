@@ -1,6 +1,6 @@
 # 28. The flag that allows shell commands is told to the person, not the AI
 
-Date: 2026-10-22. Status: proposed (needs the owner's review before merge). Decision 1 is unchanged.
+Date: 2026-10-22. Status: accepted (merged 2026-10-22 in #463). Decision 1 is unchanged.
 
 ## Decision
 

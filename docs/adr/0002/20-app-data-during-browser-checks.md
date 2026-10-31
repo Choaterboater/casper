@@ -1,6 +1,6 @@
 # 20. The app's own data writes keep a browser check fresh
 
-Date: 2026-10-18. Status: proposed.
+Date: 2026-10-18. Status: accepted (merged 2026-10-18 in #377).
 
 ## Decision
 

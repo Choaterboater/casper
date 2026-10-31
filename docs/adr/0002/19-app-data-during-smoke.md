@@ -1,6 +1,6 @@
 # 19. The app's own data writes do not void the smoke
 
-Date: 2026-10-18. Status: proposed.
+Date: 2026-10-18. Status: accepted (merged 2026-10-18 in #367).
 
 ## Decision
 

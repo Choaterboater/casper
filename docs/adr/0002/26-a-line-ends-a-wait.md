@@ -1,6 +1,6 @@
 # 26. A line you send ends a step that only waits
 
-Date: 2026-10-23. Status: proposed (the owner asked for it; needs the owner's review before merge).
+Date: 2026-10-23. Status: accepted (merged 2026-10-23 in #477).
 
 ## Decision
 

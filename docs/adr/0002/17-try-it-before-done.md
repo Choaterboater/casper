@@ -1,6 +1,6 @@
 # 17. Try changed apps before the receipt
 
-Date: 2026-10-16. Status: proposed.
+Date: 2026-10-16. Status: accepted (merged 2026-10-17 in #358).
 
 ## Decision
 

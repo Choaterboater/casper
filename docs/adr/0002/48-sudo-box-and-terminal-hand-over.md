@@ -1,7 +1,6 @@
 # 48. sudo asks in Casper's box, and a command that needs you gets the terminal
 
-Date: 2026-10-30. Status: proposed (owner's choice; touches approval and secrets, so it needs the owner's review before
-merge).
+Date: 2026-10-30. Status: accepted (merged 2026-10-30 in #552).
 
 **What:** three things, so nobody has to leave Casper to finish a task.
 

@@ -1,6 +1,6 @@
 # 46. Plain reads in your own folders run without the "Run this command?" box
 
-Date: 2026-10-29. Status: proposed (owner's choice; needs the owner's review before merge). Widens decision 1's "plain
+Date: 2026-10-29. Status: accepted (merged 2026-10-30 in #549). Widens decision 1's "plain
 read" from the project to your own folders under home; decision 1 is otherwise unchanged.
 
 **What:** with no sandbox, the AI's shell asks `Run this command?` before a command that is neither a plain read nor

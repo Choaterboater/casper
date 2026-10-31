@@ -1,6 +1,6 @@
 # 39. Keep going until the work is done
 
-Date: 2026-10-26. Status: proposed (the user asked for it; needs the owner's review before merge). It changes one case
+Date: 2026-10-26. Status: accepted (merged 2026-10-26 in #500). It changes one case
 of decision 33: in a session with keep going on, Casper says "go" itself once instead of showing the paused line at
 once.
 

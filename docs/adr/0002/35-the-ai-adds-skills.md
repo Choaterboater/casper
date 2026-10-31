@@ -1,6 +1,6 @@
 # 35. The AI can add a skill, after a yes nothing else gives
 
-Date: 2026-10-23. Status: proposed (needs the owner's review before merge). The box's strictness follows decision 29's
+Date: 2026-10-23. Status: accepted (merged 2026-10-23 in #485). The box's strictness follows decision 29's
 (the AI adds MCP servers); it can be changed at review.
 
 ## Decision
