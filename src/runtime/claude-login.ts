@@ -86,7 +86,7 @@ export async function loginClaudeCode(display: LoginDisplay, dependencies: {
     await input;
     if (display.signal.aborted) return { ...tag, status: "cancelled", effect: "unknown" };
     if (exit !== 0 || !(await verified())) return { ...tag, status: "failed", effect: "unknown", reason: "provider",
-      detail: "Claude Code did not verify a Pro, Max, Team or Enterprise plan login. Model and defaults unchanged." };
+      detail: "Claude Code did not verify a paid Claude plan login (Pro, Max, Ultra, Team or Enterprise). Model and defaults unchanged." };
     if (display.signal.aborted) return { ...tag, status: "cancelled", effect: "unknown" };
     return { ...tag, status: "saved" };
   } catch {
