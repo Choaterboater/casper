@@ -293,6 +293,20 @@ needsSandbox("a worktree's .git file can't be pointed somewhere else", async () 
   } finally { await treeSandbox.close(); }
 });
 
+// A user namespace of its own would let a command lift the read-only binds. The seccomp helper refuses one on every
+// network kind, and the variable that would allow it is cleared, so Casper's own environment can't lift that either.
+test.skipIf(!sandboxAvailable || process.platform !== "linux")("on Linux a held command can't make a user namespace of its own", async () => {
+  for (const network of ["ask", "host", "none"] as const) {
+    const wrapped = await sandbox.wrap("echo STARTED; unshare -U true && echo MADE-ONE", { cwd: root, network });
+    expect(wrapped.held).toBe(true);
+    const result = await runFixture(["sh", "-c", wrapped.command], { cwd: root, env: { ...process.env, HOME: home, SRT_ALLOW_NESTED_USERNS: "1" } });
+    sandbox.finished(wrapped.id);
+    const out = `${result.stdout}${result.stderr}`;
+    expect(out).toContain("STARTED");
+    expect(out).not.toContain("MADE-ONE");
+  }
+});
+
 /** Running socat processes (not exited ones waiting to be reaped), with their parents. */
 async function runningSocat(): Promise<{ pid: number; parent: number }[]> {
   const listing = await runFixture(["ps", "-axo", "pid=,ppid=,stat=,comm="], { env: { PATH: process.env.PATH ?? "/usr/bin:/bin", LC_ALL: "C" } });

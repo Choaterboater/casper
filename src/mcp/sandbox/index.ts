@@ -5,7 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import type { MCPServerDefinition } from "../config";
 import type { MCPSandboxStatus } from "../manager";
-import { quote, which } from "../../sandbox/linux";
+import { NESTED_USERNS, quote, which } from "../../sandbox/linux";
 import { ShellSandbox, type SandboxState } from "../../sandbox/manager";
 import { seccompHelper } from "../../sandbox/seccomp";
 import { realpathLongest } from "../../platform/project-paths";
@@ -239,7 +239,7 @@ export interface McpBwrapInput {
  */
 export function mcpBwrapArgs(input: McpBwrapInput): string[] {
   const isDir = (entry: string) => { try { return statSync(entry).isDirectory(); } catch { return false; } };
-  const args = ["--die-with-parent", "--new-session", "--unshare-pid", "--unshare-net", "--ro-bind", "/", "/", "--dev", "/dev", "--proc", "/proc"];
+  const args = ["--die-with-parent", "--new-session", "--unshare-pid", "--unshare-net", "--ro-bind", "/", "/", "--dev", "/dev", "--proc", "/proc", ...NESTED_USERNS];
   for (const entry of [...input.hidden].sort((a, b) => a.length - b.length)) if (isDir(entry)) args.push("--tmpfs", entry);
   for (const entry of input.reads) if (existsSync(entry)) args.push("--ro-bind", entry, entry);
   for (const entry of input.writes) if (existsSync(entry)) args.push("--bind", entry, entry);

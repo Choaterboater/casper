@@ -180,6 +180,17 @@ test("Casper's own bubblewrap line runs the command through the seccomp helper, 
   }
 });
 
+test("Casper's own bubblewrap line clears SRT_ALLOW_NESTED_USERNS, so the helper always keeps the command from making namespaces", async () => {
+  const { bwrapArgs } = await import("../src/sandbox/linux");
+  const policy = { allowWrite: [], denyWrite: [], denyRead: [], allowedDomains: [] };
+  for (const network of ["host", "none"] as const) {
+    const args = bwrapArgs({ policy, network, cwd: "/", seccomp: "/opt/apply-seccomp" }, "echo hi");
+    const at = args.indexOf("--unsetenv");
+    expect(args[at + 1]).toBe("SRT_ALLOW_NESTED_USERNS");
+    expect(at).toBeLessThan(args.indexOf("--chdir"));
+  }
+});
+
 test("a worktree's .git file and its folder's commondir are read-only, and so are git's files in a new project's folder", async () => {
   const { base, home, root } = await fixture();
   const main = path.join(base, "main-git");
