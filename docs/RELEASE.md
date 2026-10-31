@@ -14,11 +14,22 @@ when releasing. Existing historical notes below stay as written; feature tests c
 reference docs, not a per-PR release-note or roadmap entry. Release-prep checks verify the version and
 installer targets (`tests/release-install.test.ts`, `tests/release-targets.test.ts`).
 
-Casper distributes an unsigned **v0.4.0 preview**, not a stable release. The installers
-download from `https://github.com/Choaterboater/casper/releases/download/v0.4.0`,
+Casper distributes an unsigned **v0.4.1 preview**, not a stable release. The installers
+download from `https://github.com/Choaterboater/casper/releases/download/v0.4.1`,
 because GitHub's `latest/download` link skips preview releases. The first published
 preview was **v0.1.0**. A published release is never changed; every fix ships under a
 new version.
+
+## v0.4.1: Claude Code plan sign-ins that report Claude Ultra work again
+
+### Changed
+
+- A Claude Code plan sign-in is accepted under any plan name Claude Code reports, unless that name says free, API or console.
+- When Casper refuses a Claude Code sign-in, the message names the plan Claude Code reported.
+
+### Fixed
+
+- A Claude Max sign-in that Claude Code now reports as `Claude Ultra` works with `claude-subscription` again, still with no API-key fallback.
 
 ## v0.4.0: sudo and commands that need you run inside Casper, a hidden box for keys and tokens, Auto mode, Trust this folder?, and shorter approval boxes
 

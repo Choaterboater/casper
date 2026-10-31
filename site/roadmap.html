@@ -78,6 +78,7 @@
           </li>
           <li><a href="#released">Released</a>
             <ul>
+              <li><a href="#v0401">v0.4.1: Claude Ultra sign-ins</a></li>
               <li><a href="#v0400">v0.4.0: sudo inside Casper</a></li>
               <li><a href="#v0309">v0.3.9: a crew you can watch</a></li>
               <li><a href="#v0308">v0.3.8: /continue stays</a></li>
@@ -135,7 +136,7 @@
         <h2 id="next-h">Next release</h2>
         <aside class="callout soon">
           <strong class="callout-title">Built, not released</strong>
-          <p>Nothing on the main branch is waiting: everything built so far is in v0.4.0. New work shows here before the next preview.</p>
+          <p>Nothing on the main branch is waiting: everything built so far is in v0.4.1. New work shows here before the next preview.</p>
         </aside>
       </section>
 
@@ -377,10 +378,22 @@
         and on the <a href="https://github.com/Choaterboater/casper/releases">Releases page</a>.</p>
         <div class="stack">
 
+        <details class="card release" id="v0401" aria-labelledby="v0401-h" open>
+          <summary class="release-heading">
+            <h3 id="v0401-h">v0.4.1 · Claude Code plan sign-ins that report Claude Ultra work again</h3>
+            <span class="badge ok">current preview</span>
+          </summary>
+          <ul>
+            <li><strong>Claude Ultra sign-ins.</strong> A Claude Max sign-in that Claude Code now reports as <code>Claude Ultra</code> works with <code>claude-subscription</code> again.</li>
+            <li><strong>Plan renames.</strong> Any plan name Claude Code reports is accepted unless it says free, API or console; API keys, Bedrock, Vertex and gateways are still refused, with no API-key fallback.</li>
+            <li><strong>Refusals that name the plan.</strong> When Casper refuses a sign-in, the message names the plan Claude Code reported.</li>
+          </ul>
+        </details>
+
         <details class="card release" id="v0400" aria-labelledby="v0400-h" open>
           <summary class="release-heading">
             <h3 id="v0400-h">v0.4.0 · sudo and commands that need you run inside Casper, a hidden box for keys and tokens, Auto mode, Trust this folder?, and shorter approval boxes</h3>
-            <span class="badge ok">current preview</span>
+            <span class="badge">previous preview</span>
           </summary>
           <ul>
             <li><strong>sudo inside Casper.</strong> When <code>sudo</code> really asks for its password, Casper asks in its own hidden box; the password goes only to sudo, never to the AI.</li>
@@ -403,7 +416,7 @@
         <details class="card release" id="v0309" aria-labelledby="v0309-h" open>
           <summary class="release-heading">
             <h3 id="v0309-h">v0.3.9 · A crew you can watch, plain words for continue and export, and approval boxes that take keys</h3>
-            <span class="badge">previous preview</span>
+            <span class="badge">released</span>
           </summary>
           <ul>
             <li><strong>A crew you can watch.</strong> The crew panel shows explorers too, each row names the step a helper is on, and Ctrl+O lists each helper's last five steps.</li>
@@ -415,7 +428,7 @@
           </ul>
         </details>
 
-        <details class="card release" id="v0308" aria-labelledby="v0308-h" open>
+        <details class="card release" id="v0308" aria-labelledby="v0308-h">
           <summary class="release-heading">
             <h3 id="v0308-h">v0.3.8 · /continue that stays where it is, a pasted transcript read as context, and refusals that say why</h3>
             <span class="badge">released</span>
@@ -1455,7 +1468,7 @@
   <footer class="site-footer">
     <div class="container footer-inner">
       <div>
-        <p><strong>Casper 0.4.0</strong> · early preview, unsigned</p>
+        <p><strong>Casper 0.4.1</strong> · early preview, unsigned</p>
         <p><a href="https://github.com/Choaterboater/casper/blob/main/LICENSE">MIT licence</a> · © 2026 Choaterboater</p>
         <p>Built on the <a href="https://github.com/earendil-works/pi">Pi SDK</a>. Other parts keep their own licences (<a href="https://github.com/Choaterboater/casper/blob/main/THIRD_PARTY_NOTICES.txt">notices</a>).</p>
       </div>
