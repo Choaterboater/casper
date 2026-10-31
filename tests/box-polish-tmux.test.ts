@@ -27,18 +27,19 @@ const quote = (s: string) => `'${s.replaceAll("'", "'\\''")}'`;
       expect(Bun.stripANSI(wide)).toContain("✗ 1 of 130 tests failed");
       expect(Bun.stripANSI(wide)).toContain("(fail) validates input");
       expect(Bun.stripANSI(wide)).not.toContain("(pass) case");
-      expect(Bun.stripANSI(wide)).toContain("│ printf first");
+      // The command sits at the left edge with nothing beside it, so a mouse copy takes only the command.
+      expect(Bun.stripANSI(wide).split("\n").map(row => row.trimEnd())).toContain("printf first");
       expect(Bun.stripANSI(wide)).toContain("The model says: Check the result.");
       expect(Bun.stripANSI(wide)).not.toContain("Earlier context");
       expect(Bun.stripANSI(wide)).not.toMatch(/^\s*\?\s*$/m);
       expect(Bun.stripANSI(wide).indexOf("✓ read")).toBeLessThan(Bun.stripANSI(wide).indexOf("── Approval"));
-      expect(Bun.stripANSI(wide).split("\n").find(row => row.includes("── Approval"))!.trimEnd().length).toBe(122);
+      expect(Bun.stripANSI(wide).split("\n").find(row => row.includes("── Approval"))!.trimEnd().length).toBe(120);
       if (color) {
         if (!highContrast) {
           expect(wide).toMatch(/\x1b\[2m[^\n]*The model says: Check the result/);
           expect(wide).toMatch(/\x1b\[2m[^\n]*path not found/);
         }
-        for (const region of ["╭─ Command"]) {
+        for (const region of ["── Command"]) {
           expect(wide).toMatch(new RegExp(`\\x1b\\[(?:0;)?2m[^\\n\\x1b]*${region}`));
         }
         expect(wide).toMatch(/\x1b\[(?:36|96)m❯/);

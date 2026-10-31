@@ -1,6 +1,5 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { activeThemeName, useTheme } from "../src/tui/theme";
-import { GLYPHS } from "../src/tui/glyphs";
 import type { FoldView } from "../src/tui/terminal";
 import { ansiCells, cellsFor, type Cell } from "./support/ansi-cells";
 import { withEnv } from "./support/env";
@@ -12,7 +11,7 @@ const fold = (failures: FoldView["failures"], edits: FoldView["edits"] = []): Fo
 /** The default theme's warning, error and success colours (yellow, red, green), whatever theme an earlier test left on. */
 const AMBER = "33", RED = "31", GREEN = "32";
 /** The failure box's top line: square-cornered on the old Windows console. */
-const BOX_TOP = `${GLYPHS.corners[0]}─ ✗ bash · npm test — failed`;
+const BOX_TOP = "── ✗ bash · npm test — failed";
 let previous = activeThemeName();
 beforeEach(() => { previous = activeThemeName(); useTheme("default"); });
 afterEach(() => { useTheme(previous); });

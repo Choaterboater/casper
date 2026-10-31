@@ -31,13 +31,19 @@ test.skipIf(!mux)("real tmux: /plan panel and choices at 80 columns, Ctrl+G edit
     await mux!.run("new-session", "-d", "-s", "plan", "-x", "80", "-y", "55", command);
     await wait(text => text.includes("idle"));
     await mux!.run("send-keys", "-t", "plan", "-l", "/plan make the existing header cleaner and animated"); await mux!.run("send-keys", "-t", "plan", "Enter");
-    const screen = await wait(text => completeFrame(text, "╭─ Plan · A cleaner, animated header"));
-    expect(screen).toContain("╭─ Plan · A cleaner, animated header");
+    const screen = await wait(text => completeFrame(text, "── Plan · A cleaner, animated header"));
+    expect(screen).toContain("── Plan · A cleaner, animated header");
     expect(screen).toContain("Ctrl+T details · Ctrl+G edit");
     for (const text of ["Goal", "What I found", "What you'll see", "Steps", "Done means", "1. Stop", "2. Answer the question", "3. Build", "4. Change the plan", "▄▄███▄▄  CASPER"]) expect(screen).toContain(text);
-    const frame = screen.split("\n").filter(row => /^[╭│╰]/.test(row));
-    expect(frame.every(row => Bun.stringWidth(row.trimEnd()) === 80)).toBe(true);
-    const body = frame.map(row => row.slice(3, -3).trimEnd());
+    // An open box: a title rule and a closing rule 80 wide, the plan between them with nothing beside it.
+    const rows = screen.split("\n");
+    const top = rows.map(row => row.startsWith("── Plan · A cleaner, animated header")).lastIndexOf(true);
+    const bottom = rows.findIndex((row, index) => index > top && /^─+(?: Ctrl\+T details · Ctrl\+G edit ─)?$/.test(row.trimEnd()));
+    const frame = rows.slice(top, bottom + 1);
+    expect([frame[0]!, frame.at(-1)!].map(row => Bun.stringWidth(row.trimEnd()))).toEqual([80, 80]);
+    expect(frame.every(row => Bun.stringWidth(row.trimEnd()) <= 80)).toBe(true);
+    const body = frame.slice(1, -1).map(row => row.trimEnd());
+    expect(body.join("\n")).not.toMatch(/^[│╭╰]/m);
     for (const start of ["  - The header lives", "  - Should the reduced-motion"]) {
       const bullet = body.findIndex(row => row.startsWith(start));
       expect(bullet).toBeGreaterThan(0);
@@ -46,17 +52,17 @@ test.skipIf(!mux)("real tmux: /plan panel and choices at 80 columns, Ctrl+G edit
     const art = body.findIndex(row => /^  ┌─+┐$/.test(row));
     expect(art).toBeGreaterThan(body.findIndex(row => row.includes("A brief fade-in reveals")));
     expect(body[art + 1]).toContain("│ ▄▄███▄▄  CASPER");
-    expect(frame.find(row => row.includes("Draw the header in the accent colour"))).toMatch(/accent colour  src\/tui\/banner\.ts +│$/);
+    expect(body.find(row => row.includes("Draw the header in the accent colour"))).toMatch(/accent colour  src\/tui\/banner\.ts$/);
     expect(body.findIndex(row => row.includes("The renderer already keeps"))).toBeLessThan(body.findIndex(row => row === "Open questions"));
     await Bun.sleep(350); // Real input guard: keys typed before the box appeared cannot answer it.
     await mux!.run("send-keys", "-t", "plan", "C-g");
-    const edited = await wait(text => completeFrame(text, "╭─ Plan · A hand-edited header"));
+    const edited = await wait(text => completeFrame(text, "── Plan · A hand-edited header"));
     expect(edited).toContain("4. Change the plan");
     await Bun.sleep(350);
     await mux!.run("send-keys", "-t", "plan", "4");
     await wait(text => text.includes("What should change?") && text.replace(/\s+/g, " ").includes("Esc stops without building"));
     await mux!.run("send-keys", "-t", "plan", "-l", "make it quieter"); await mux!.run("send-keys", "-t", "plan", "Enter");
-    await wait(text => completeFrame(text, "╭─ Plan · A revised header"));
+    await wait(text => completeFrame(text, "── Plan · A revised header"));
     await Bun.sleep(350);
     await mux!.run("send-keys", "-t", "plan", "Enter");
     const stopped = await wait(text => text.includes("Stopped without building.") && text.includes("idle"));

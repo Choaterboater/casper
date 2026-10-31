@@ -144,8 +144,10 @@ conpty("ConPTY: a small task, undo and redo, and a shell command that asks first
   // No sandbox on Windows: a command that changes things asks first, in a numbered box where 1 is No.
   s.send("run mkdir\n");
   await s.until("Run this command?");
-  await s.until("│ mkdir made");
+  // The command sits in an open box at the left edge: nothing beside it, so a mouse copy takes only the command.
+  await s.until("── Command");
   await s.until("❯ 1. No");
+  expect(s.visible().split("\n").map((line) => line.trimEnd())).toContain("mkdir made");
   await boxReady();
   s.send("2");
   await s.until("ran mkdir made");
@@ -282,12 +284,12 @@ conpty("ConPTY: a resize redraws at the new width, also with a choice box open",
   expect(await exitWith(s, () => s.send("/exit\n"))).toBe(0);
 }, 120_000);
 
-conpty("ConPTY: Windows Terminal gets rounded corners and color, the old console square corners, NO_COLOR no color", async () => {
+conpty("ConPTY: Windows Terminal and the old console draw the same open box with color, NO_COLOR no color", async () => {
   const colour = /\x1b\[(?:[0-9;]*;)?(?:3[0-7]|9[0-7])m/;
   for (const [terminal, env, corner, coloured] of [
-    ["windows-terminal", {}, "╭─ Sign in", true],
-    ["old-console", {}, "┌─ Sign in", true],
-    ["windows-terminal", { NO_COLOR: "1" }, "╭─ Sign in", false],
+    ["windows-terminal", {}, "── Sign in", true],
+    ["old-console", {}, "── Sign in", true],
+    ["windows-terminal", { NO_COLOR: "1" }, "── Sign in", false],
   ] as const) {
     const { s } = await startCasper({ terminal, env });
     s.send("/login\n");

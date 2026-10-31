@@ -31,7 +31,7 @@ test.each(documents)("%s explains the bounded interview, spec, saved plan and mo
   expect(text).toContain("60 columns");
   expect(text).toMatch(/(?:no forced|without forced|No implementation Steps are forced)/);
   expect(text).toContain("as wide as the window");
-  expect(text).toContain("accent frame");
+  expect(text).toContain("open box");
   expect(text).toMatch(/(?:dim paths|paths dimmed)/);
   expect(text).toMatch(/(?:plain terminals|Plain terminals).*?NO_COLOR.*?(?:no frame|unframed)/);
   for (const key of ["Ctrl+T", "Ctrl+G", "VISUAL", "EDITOR"]) expect(text).toContain(key);
@@ -57,7 +57,7 @@ test.each([...documents, "README.md", "site/tour.html", "site/faq.html"])("%s li
 test("the terminal guide shows matching framed and plain plan examples with section spacing", () => {
   const text = read("docs/TERMINAL_UX.md");
   const examples = [...text.matchAll(/```text\n([\s\S]*?)\n```/g)].map(match => match[1]!);
-  const rich = examples.find(example => example.startsWith("╭─ Plan · A cleaner, animated header ─"));
+  const rich = examples.find(example => example.startsWith("── Plan · A cleaner, animated header ─"));
   const plain = examples.find(example => example.startsWith("Casper plan · A cleaner, animated header\n"));
   const plan = extractPlan([
     "Title: A cleaner, animated header", "Goal: Make the name easy to read.",
@@ -68,9 +68,13 @@ test("the terminal guide shows matching framed and plain plan examples with sect
   ].join("\n"));
   expect(rich).toBe(planScreenRows(plan, 80, { framed: true, more: "Ctrl+T details · Ctrl+G edit" }).join("\n"));
   expect(plain).toBe(planScreenRows(plan, 80, { more: "Ctrl+T details · Ctrl+G edit" }).join("\n"));
-  expect(rich).toContain("│    ┌────────────────┐");
+  expect(rich).toContain("\n  ┌────────────────┐\n");
   expect(rich).toMatch(/1\. Restyle the header\. {2,}src\/tui\/banner.ts/);
-  expect(rich!.split("\n").every(row => Array.from(row).length === 80)).toBe(true);
+  // An open box: rules as wide as the window, nothing beside the plan.
+  const richRows = rich!.split("\n");
+  expect([richRows[0], richRows.at(-1)].map(row => Array.from(row!).length)).toEqual([80, 80]);
+  expect(richRows.every(row => Array.from(row).length <= 80)).toBe(true);
+  expect(richRows.slice(1, -1).join("\n")).not.toMatch(/^│/m);
   expect(plain).not.toMatch(/^[╭╰]/m);
   expect(words(text)).toContain("Plain terminals and NO_COLOR show the same sections, unframed and without colour");
 });

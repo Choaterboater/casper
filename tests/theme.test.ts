@@ -33,7 +33,6 @@ async function place() {
   return { home, project, config: path.join(home, ".casper", "config.yaml") };
 }
 
-const CORNERS = ["╭", "╮", "╰", "╯"] as const;
 
 test("the default theme draws exactly the colours Casper drew before themes", () => {
   // The SGR codes each place used before roles existed: cyan structure, dim for what is secondary.
@@ -52,8 +51,9 @@ test("the default theme draws exactly the colours Casper drew before themes", ()
     .toEqual(["\x1b[1;36mh\x1b[0m", "\x1b[36ml\x1b[0m", "\x1b[2mu\x1b[0m", "\x1b[36mc\x1b[0m", "\x1b[2mb\x1b[0m", "\x1b[2mq\x1b[0m", "\x1b[2m-\x1b[0m", "\x1b[36m•\x1b[0m", "\x1b[1mB\x1b[0m"]);
   expect(["accent", "success", "warning", "error", "muted"].map((tone) => panelColor("t", tone as "accent", true)))
     .toEqual(["\x1b[36mt\x1b[0m", "\x1b[32mt\x1b[0m", "\x1b[33mt\x1b[0m", "\x1b[31mt\x1b[0m", "\x1b[2mt\x1b[0m"]);
-  expect(renderPanel("Working", ["step"], 20, true, "accent", CORNERS)).toEqual([
-    "\x1b[36m╭─ Working ────────╮\x1b[0m", "\x1b[36m│\x1b[0m step             \x1b[36m│\x1b[0m", "\x1b[36m╰──────────────────╯\x1b[0m",
+  // An open box: the body has no border beside it, so a mouse copy takes only its words.
+  expect(renderPanel("Working", ["step"], 20, true, "accent")).toEqual([
+    "\x1b[36m── Working ─────────\x1b[0m", "step", "\x1b[36m────────────────────\x1b[0m",
   ]);
   expect(renderCodeBlock("ts", ["let a = 1;"], 12, true)).toEqual(["\x1b[2m── ts ──────\x1b[0m", "let a = 1;", "\x1b[2m────────────\x1b[0m"]);
   const art = wordmarkHeader(true).render(200);
@@ -74,7 +74,7 @@ test("light and high-contrast change only the colours; without colour every them
   for (const theme of BUILT_IN_THEMES) {
     useTheme(theme.name);
     for (const role of THEME_ROLES) expect(tint("plain", role, false, "1")).toBe("plain");
-    expect(renderPanel("Box", ["a"], 12, false, "warning", CORNERS).join("\n")).not.toContain("\x1b");
+    expect(renderPanel("Box", ["a"], 12, false, "warning").join("\n")).not.toContain("\x1b");
   }
   // A name Casper has no theme for uses default, and says so in one line.
   expect(useTheme("sunset")).toBe(false);

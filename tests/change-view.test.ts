@@ -3,14 +3,13 @@ import { RuntimeEventView } from "../src/app/events";
 import { planFold } from "../src/app/fold";
 import type { DisplayLevel } from "../src/tui/display";
 import type { RuntimeEvent } from "../src/runtime/types";
-import { GLYPHS, glyphSet } from "../src/tui/glyphs";
+import { glyphSet } from "../src/tui/glyphs";
 import type { WorkView } from "../src/tui/surface";
 import { renderFold, styleLine, type FoldView, type InteractiveTerminal } from "../src/tui/terminal";
 import { activeThemeName, useTheme } from "../src/tui/theme";
 import { ansiCells, cellsFor } from "./support/ansi-cells";
 
 /** A box's top-left corner as this terminal draws it: square on the old Windows console. */
-const [CORNER] = GLYPHS.corners;
 
 const open: RuntimeEventView[] = [];
 afterEach(() => { for (const view of open.splice(0)) view.reset(); });
@@ -47,8 +46,8 @@ test("a change on another machine shows right away and stays in view, never merg
   const folded = s.folded();
   expect(folded).toContain("└ ran git status");
   expect(folded).not.toMatch(/ran [^\n]*ssh/);
-  expect(folded).toContain(`${CORNER}─ ◆ Changed on build-server: installed a service`);
-  expect(folded).toContain("│ sudo cp app.service /etc/systemd/system/app.service");
+  expect(folded).toContain("── ◆ Changed on build-server: installed a service");
+  expect(folded.split("\n")).toContain("sudo cp app.service /etc/systemd/system/app.service");
 });
 
 test("setup on this computer gets named rows; a plain terminal prints them under the step", () => {
@@ -67,11 +66,11 @@ test("config files get their own box with up to about 40 diff rows; lockfiles on
   const s = screen();
   s.send(...edit("1", "/repo/package.json", long), ...edit("2", "/repo/src/a.ts", "@@ -1 +1 @@\n-a\n+b"), ...edit("3", "/repo/bun.lock", "@@ -1 +1 @@\n-x\n+y"), done);
   const folded = s.folded();
-  expect(folded).toContain(`${CORNER}─ ◆ Changed config`);
+  expect(folded).toContain("── ◆ Changed config");
   expect(folded).toContain("new19");
   expect(folded).not.toContain("new20");
   expect(folded).toContain("more lines · Ctrl+T shows all");
-  expect(folded).toContain(`${CORNER}─ Edited 1 file`);
+  expect(folded).toContain("── Edited 1 file");
   expect(folded).toContain("◆ lockfile updated (bun.lock)");
   // Never folded into "edited a, b".
   expect(folded).not.toMatch(/edited [^\n]*package\.json/);
@@ -80,7 +79,7 @@ test("config files get their own box with up to about 40 diff rows; lockfiles on
 test("secrets in a config diff stay hidden", () => {
   const s = screen();
   s.send(...edit("1", "/repo/.env", "@@ -1 +1 @@\n-API_TOKEN=old-value-123\n+API_TOKEN=sk-live-abcdef1234567890"), done);
-  expect(s.folded()).toContain(`${CORNER}─ ◆ Changed config`);
+  expect(s.folded()).toContain("── ◆ Changed config");
   expect(s.folded()).not.toContain("sk-live-abcdef1234567890");
 });
 
@@ -90,14 +89,14 @@ test("at /details quiet the change rows still show, without their boxes", () => 
   const folded = s.folded();
   expect(folded).toContain("◆ Changed on sw1: sent 3 config lines");
   expect(folded).toContain("◆ Changed config: compose.yaml");
-  expect(folded).not.toContain(`${CORNER}─`);
+  expect(folded).not.toMatch(/^── /m);
 });
 
 test("an MCP change Casper sends is a change row with what was sent, secrets hidden", () => {
   const s = screen();
   s.view.noteChange("Changed in mist: update_site_setting", ['{ "site_id": "site-1",', '  "psk": "••••••••" }']);
   s.send(done);
-  expect(s.folded()).toContain(`${CORNER}─ ◆ Changed in mist: update_site_setting`);
+  expect(s.folded()).toContain("── ◆ Changed in mist: update_site_setting");
   expect(s.folded()).toContain("site-1");
   const plain = screen(false);
   plain.view.noteChange("Changed in mist: update_site_setting");

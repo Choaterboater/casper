@@ -190,7 +190,7 @@ test("a code block with emoji or CJK characters wider than the screen draws with
   } finally { terminal.close(); input.destroy(); }
 });
 
-test("tool panels cap at 120 columns with the shared indent; code blocks keep the full width through a resize", async () => {
+test("tool panels cap at 120 columns at the left edge; code blocks keep the full width through a resize", async () => {
   const input = Object.assign(new PassThrough(), { isTTY: true, setRawMode() {} });
   const screen = fakeWriter(100, 40);
   const terminal = new InteractiveTerminal(input, screen.writer, () => {}, () => {});
@@ -205,10 +205,11 @@ test("tool panels cap at 120 columns with the shared indent; code blocks keep th
       const repaints = screen.output.split(REPAINT).length;
       screen.writer.columns = columns; screen.writer.emit("resize");
       await screen.until(output => output.split(REPAINT).length > repaints && output.split(REPAINT).at(-1)!.includes("Waiting for fixture/model"));
-      // Round corners, or square ones on the old Windows console (src/tui/glyphs.ts).
-      const borders = plainLines(screen.output.split(REPAINT).at(-1)!).filter(line => /^ {2}[╭╰┌└]/.test(line));
-      expect(borders.filter(line => /^ {2}[╭┌]/.test(line)).map(line => line.replace(/[╭─╮┌┐]/g, "").trim())).toEqual(["output"]);
-      expect(borders.map(line => visibleWidth(line))).toEqual(Array(2).fill(Math.min(columns, 122)));
+      // An open box at the left edge: its title rule, the output with nothing beside it, its closing rule.
+      const lines = plainLines(screen.output.split(REPAINT).at(-1)!);
+      const top = lines.findIndex(line => line.startsWith("── output "));
+      expect(lines[top + 1]!.trimEnd()).toBe("tool output");
+      expect([lines[top]!, lines[top + 2]!].map(line => visibleWidth(line.trimEnd()))).toEqual(Array(2).fill(Math.min(columns, 120)));
       // The code block's title line spans the width too.
       const code = plainLines(screen.output.split(REPAINT).at(-1)!).find(line => line.startsWith("── ts "));
       expect(visibleWidth(code!)).toBe(columns);

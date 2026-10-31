@@ -56,10 +56,10 @@ test("every option stays indented, a long one wrapped too, at any width", async 
     const first = rows.findIndex((row) => /\b1\. Check it first/.test(row));
     const second = rows.findIndex((row) => /\b2\. Publish/.test(row));
     expect([width, rows[first]!.indexOf("1."), rows[second]!.indexOf("2.")]).toEqual([width, rows[second]!.indexOf("2."), rows[first]!.indexOf("1.")]);
-    expect([width, rows[second]!.indexOf("2.")]).toEqual([width, 4]);
+    expect([width, rows[second]!.indexOf("2.")]).toEqual([width, 2]);
     // Its wrapped rows hang under its words, not at the left edge.
     for (const row of rows.slice(second + 1).filter((row) => row.trim() && !/^\s*3\./.test(row) && !/Enter to choose|──|waiting/.test(row)).slice(0, 2)) {
-      expect([width, row, row.search(/\S/)]).toEqual([width, row, 7]);
+      expect([width, row, row.search(/\S/)]).toEqual([width, row, 5]);
     }
   }
 });

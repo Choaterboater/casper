@@ -170,7 +170,11 @@ def check(name, s, checks):
 
 
 def one_prompt_box(s):
-    borders = [i for i, r in enumerate(s.vt.screen().split("\n")) if r.startswith("───")]
+    # The prompt box's rules sit right above and below its ❯ row. An open box in the transcript (an edit, a failure)
+    # also ends in a full-width rule, so only rules touching a ❯ row count.
+    rows = s.vt.screen().split("\n")
+    prompt = lambda i: 0 <= i < len(rows) and rows[i].startswith("❯")
+    borders = [i for i, r in enumerate(rows) if r.startswith("───") and (prompt(i - 1) or prompt(i + 1))]
     return (len(borders) == 2, f"expected one prompt box (two border rows), found border rows {borders}")
 
 

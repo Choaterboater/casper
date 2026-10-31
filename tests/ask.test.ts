@@ -29,8 +29,9 @@ test("an ask shows a standalone question and Up/Down selects an option", async (
     const answer = session.terminal.ask("Which database?", OPTIONS, false);
     await session.screen.until(output => output.includes("Which database?") && output.includes("SQLite") && output.includes("Postgres"));
     const visible = Bun.stripANSI(session.screen.output);
-    expect(visible).toMatch(/  Which database\?[^\r\n]*\r?\n  ❯ 1\. SQLite/);
-    expect(visible).toContain("    2. Postgres");
+    // The box sits at the left edge: a mouse copy of its question takes no indent.
+    expect(visible).toMatch(/(?:^|\n)Which database\?[^\r\n]*\r?\n❯ 1\. SQLite/);
+    expect(visible).toContain("\n  2. Postgres");
     session.input.write("\x1b[B\r");
     const result = await Promise.race([answer, new Promise<"timeout">(resolve => setTimeout(() => resolve("timeout"), 250))]);
     expect(result).toEqual(["Postgres"]);
@@ -43,7 +44,7 @@ test("a question from the AI opens with \"The AI asks:\"; Casper's own questions
     session.terminal.setStatus("fixture"); session.terminal.start();
     const fromAi = session.terminal.ask("Casper wants to reach collector.example. Allow?", OPTIONS, false, undefined, "ai");
     await session.screen.until(output => output.includes("collector.example"));
-    expect(Bun.stripANSI(session.screen.output)).toMatch(/  The AI asks:[^\r\n]*\r?\n  Casper wants to reach collector\.example\. Allow\?/);
+    expect(Bun.stripANSI(session.screen.output)).toMatch(/(?:^|\n)The AI asks:[^\r\n]*\r?\nCasper wants to reach collector\.example\. Allow\?/);
     session.input.write("1");
     expect(await fromAi).toEqual(["SQLite"]);
     const fromCasper = session.terminal.ask("Which database?", OPTIONS, false);
@@ -63,7 +64,7 @@ test("pressing a choice's number picks it at once; a digit past the last row pic
     session.terminal.setStatus("fixture"); session.terminal.start();
     const byNumber = session.terminal.ask("Which database?", OPTIONS, false, undefined, "ai");
     await session.screen.until(output => output.includes("2. Postgres"));
-    expect(Bun.stripANSI(session.screen.output)).toContain("    3. Other — type your own answer\r\n  Enter to choose · Esc to skip");
+    expect(Bun.stripANSI(session.screen.output)).toContain("\n  3. Other — type your own answer\r\nEnter to choose · Esc to skip");
     session.input.write("2");
     expect(await byNumber).toEqual(["Postgres"]);
     // A digit past the last row (the Other row is 3) picks nothing and starts no answer; after 3, it is words.
@@ -217,7 +218,7 @@ test("a long question and long options wrap in full at 60 columns, below the mod
     for (const line of frame) expect(visibleWidth(line)).toBeLessThanOrEqual(60);
     // The panel follows the transcript instead of covering its tail.
     expect(frame).toContain("Two backends fit; the choice changes the deploy.");
-    const panel = frame.slice(frame.findIndex(line => line.startsWith("  Which storage")), frame.findIndex(line => line.includes("skip")));
+    const panel = frame.slice(frame.findIndex(line => line.startsWith("Which storage")), frame.findIndex(line => line.includes("skip")));
     const text = panel.join(" ").replace("→", " ").replace(/\s+/g, " ");
     expect(text).toContain(question);
     for (const option of options) expect(text).toContain(`${option.label} ${option.description}`);
@@ -243,13 +244,13 @@ test("a question taller than the screen stays on screen: only the highlighted op
     const answer = session.terminal.ask(question, options, false);
     await session.screen.until(output => output.includes("skip"));
     let visible = await repaint(60);
-    expect(visible).toContain(`  ${question}`);
+    expect(visible).toContain(question);
     expect(visible.join(" ").replace(/\s+/g, " ")).toContain(`❯ 1. Option 1 ${options[0]!.description}`);
-    expect(visible).toContain("    2. Option 2");
+    expect(visible).toContain("  2. Option 2");
     expect(visible.join(" ")).not.toContain("Explanation 2");
     session.input.write("\x1b[B");
     visible = await repaint(61);
-    expect(visible).toContain(`  ${question}`);
+    expect(visible).toContain(question);
     expect(visible.join(" ").replace(/\s+/g, " ")).toContain(`❯ 2. Option 2 ${options[1]!.description}`);
     expect(visible.join(" ")).not.toContain("Explanation 1");
     session.input.write("\r");

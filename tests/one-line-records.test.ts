@@ -97,7 +97,7 @@ test("skipped /settings leaves one line, not its 27 rows; a long question is cut
     await session.screen.until((output) => output.includes("Enter to choose · Esc to skip"));
     // Taller than the 30-row screen: the rows around the highlighted one show, the rest are counted, and the box's top
     // never scrolls into the scrollback, where it would stay after the box closes.
-    expect(screenText(session.screen.output)).toMatch(/^ {4}… \d+ more below$/m);
+    expect(screenText(session.screen.output)).toMatch(/^ {2}… \d+ more below$/m);
     expect(screenText(session.screen.output).split("\n").length).toBe(30);
     session.input.write("\x1b");
     await skipped;

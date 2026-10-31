@@ -170,7 +170,7 @@ export function renderEditBox(files: readonly EditedFile[], width: number, optio
     merged.set(file.path, entry);
   }
   const entries = [...merged.entries()];
-  const inner = Math.max(1, width - 4);
+  const inner = Math.max(1, width);
   // The normal fold's old group budget must not let the first file consume every preview.
   // Detailed display explicitly opts into the complete diff with Infinity.
   const perFile = options.maxLines === Infinity ? Infinity : options.perFile ?? 12;
@@ -233,7 +233,7 @@ const FAILURE_ROWS = 8;
  * first row says how many and that Ctrl+T shows them all.
  */
 export function renderFailureBox(failure: FailedStep, width: number, color: boolean): string[] {
-  const inner = Math.max(1, width - 4);
+  const inner = Math.max(1, Math.min(120, width));
   const { lines, earlier, focused } = failureLines(failure.output ?? "", { max: 6, ...(failure.home ? { home: failure.home } : {}) });
   const wrapped = lines.flatMap(line => wrapTextWithAnsi(line, inner));
   // Preserve the failure at the start and the counts at the end even when a diagnostic wraps.

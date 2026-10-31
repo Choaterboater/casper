@@ -82,7 +82,7 @@ test("an answer on the Other row past 100 characters and past the edge shows in 
       // Every word, in order, on rows no wider than the terminal, and nothing cut.
       expect(typedRow(screen, OTHER_CHOICE)).toBe(LONG);
       expect(screen).not.toContain("…");
-      expect(screen).toContain(`  ${QUESTION}`);
+      expect(screen).toContain(`\n${QUESTION}\n`);
       for (const line of screen.split("\n")) expect(line.length).toBeLessThanOrEqual(60);
       session.input.write("\r");
       expect(await answer).toEqual([LONG]);
@@ -107,7 +107,7 @@ test("an answer too long for a short terminal keeps the words being typed in vie
       expect(shown).not.toContain("step01");
       expect(LONG.endsWith(shown.slice(1).replace(/^\S*\s/, ""))).toBe(true);
       // The box still fits the screen: its question above, its keys below.
-      expect(screen).toContain(`  ${QUESTION}`);
+      expect(screen).toContain(`\n${QUESTION}\n`);
       expect(screen).toContain("Esc to go back");
       // Back at the start (Home), new words show there, and the rest is "…".
       session.input.write("\x01");
@@ -117,7 +117,7 @@ test("an answer too long for a short terminal keeps the words being typed in vie
       shown = typedRow(screen, OTHER_CHOICE);
       expect(shown).toEndWith("…");
       expect(shown).not.toContain("step40");
-      expect(screen).toContain(`  ${QUESTION}`);
+      expect(screen).toContain(`\n${QUESTION}\n`);
       session.input.write("\r");
       expect(await answer).toEqual([`first ${LONG}`]);
     } finally { session.close(); }
@@ -132,7 +132,7 @@ test("a short answer shows as before: the words after the label, no …", async 
       await waitFor(() => visible(session).includes("Esc to skip"), () => visible(session));
       session.input.write("5");
       session.input.write("only the parser");
-      await waitFor(() => visible(session).includes(`  ❯ 5. ${OTHER_CHOICE} — only the parser\n`), () => visible(session));
+      await waitFor(() => visible(session).includes(`\n❯ 5. ${OTHER_CHOICE} — only the parser\n`), () => visible(session));
       expect(visible(session)).not.toContain("…");
       session.input.write("\r");
       expect(await answer).toEqual(["only the parser"]);

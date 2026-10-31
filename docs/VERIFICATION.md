@@ -695,7 +695,7 @@ rereads it on return and shows it again. Plans are gitignored at `.casper/plans/
 lists recent plans to reopen. A plan with an open question adds `2 Answer the question` before Build; several
 add `2 Answer the questions`, asked in turn and answered in one rewrite. A plan longer than the screen is not
 printed again after a rewrite: Casper shows the lines added and removed and where the saved plan is. The rich
-plan's accent frame is as wide as the window, with dim paths; plain
+plan is an open box whose accent rules are as wide as the window, with nothing beside the plan and dim paths; plain
 terminals and `NO_COLOR` show no frame.
 
 **Plan progress is a model report, not check proof.** During the build the working line can read

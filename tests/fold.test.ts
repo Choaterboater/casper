@@ -1,6 +1,5 @@
 import { expect, test } from "bun:test";
 import { EDIT_BOX_LINES, planFold, type FinishedStep } from "../src/app/fold";
-import { GLYPHS } from "../src/tui/glyphs";
 import { renderEditBox, renderFailureBox } from "../src/tui/step-view";
 
 const step = (toolName: string, extra: Partial<FinishedStep> = {}): FinishedStep => ({
@@ -10,7 +9,6 @@ const step = (toolName: string, extra: Partial<FinishedStep> = {}): FinishedStep
 const patch = (lines: number) => `@@ -1,${lines} +1,${lines} @@\n${Array.from({ length: lines }, (_, index) => `-old ${index}\n+new ${index}`).join("\n")}\n`;
 const fit = { root: "/work/app", home: "/home/someone" };
 // A box's corners as this terminal draws them: square on the old Windows console.
-const [TOP_LEFT, TOP_RIGHT] = GLYPHS.corners;
 
 test("normal: one row for what went well, one box for the edits, a box per failure; a not-run step keeps its line", () => {
   const fold = planFold([
@@ -46,8 +44,10 @@ test("edits with no diff to show are named in the row; each file has a bounded p
   const written = planFold([step("write", { path: "/work/app/new.ts" })], "normal", fit);
   expect([written.edits, written.parts.map(part => `${part.verb} ${part.names.join(", ")}`)]).toEqual([[], ["edited new.ts"]]);
   const box = renderEditBox([{ path: "a.ts", added: 20, removed: 20, diff: patch(20) }, { path: "b.ts" }], 50, { color: false, maxLines: 10 });
-  expect(box[0]).toBe(`${TOP_LEFT}─ Edited 2 files ${"─".repeat(31)}${TOP_RIGHT}`);
-  const body = box.slice(1, -1).map(row => row.slice(2, -2).trimEnd());
+  expect(box[0]).toBe(`── Edited 2 files ${"─".repeat(32)}`);
+  // An open box: nothing beside the body, so a mouse copy takes no border.
+  const body = box.slice(1, -1);
+  expect(body.join("\n")).not.toMatch(/[│╭╮╰╯]/);
   expect(body[0]).toBe("a.ts  +20 -20");
   expect(body).toContain("b.ts");
   expect(body.filter(row => /^ {2}[+-] /.test(row))).toHaveLength(12);
@@ -59,10 +59,10 @@ test("a failure box shows the last lines as they were, redacted, with home as ~,
     "open /home/someone/.config/gh/config.yml: operation not permitted"].join("\n");
   const box = renderFailureBox({ title: "✗ bash · git push — failed", output, home: "/home/someone" }, 70, false);
   const text = box.join("\n");
-  expect(box[0]).toStartWith(`${TOP_LEFT}─ ✗ bash · git push — failed ─`);
+  expect(box[0]).toStartWith("── ✗ bash · git push — failed ─");
   expect(text).toContain("… 5 earlier lines · Ctrl+T shows all");
   expect(text).toContain("open ~/.config/gh/config.yml: operation not permitted");
   expect(text).not.toContain("abcdef0123456789abcdef");
   expect(text).not.toContain("/home/someone");
-  expect(text).toMatch(/│ line 8 +│/);
+  expect(box).toContain("line 8");
 });

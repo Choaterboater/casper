@@ -1,7 +1,6 @@
 import { expect, test } from "bun:test";
 import { SHELL_COMMAND_CHOICES } from "../src/app/safe-choices";
 import { shellQuestion } from "../src/app/sandbox";
-import { GLYPHS } from "../src/tui/glyphs";
 import { activeThemeName, BUILT_IN_THEMES, useTheme } from "../src/tui/theme";
 import { ansiCells, cellsFor, type Cell } from "./support/ansi-cells";
 import { withEnv } from "./support/env";
@@ -40,8 +39,12 @@ test("approval rows are plain labels: no dim explanations beside them, and No (s
 
 test("the approval Command frame renders dim", async () => {
   for (const theme of BUILT_IN_THEMES) await approval((cells, rows) => {
-    const frame = rows.flatMap((row, index) => row.includes("Command ") || row.includes("│ custom-tool") || row.includes(GLYPHS.corners[2]) ? [cells[index]!] : []);
-    expect(frame).toHaveLength(3);
+    // An open box: the title rule, the command at the left edge with nothing beside it, the closing rule.
+    const top = rows.findIndex(row => row.includes("Command "));
+    const end = rows.findIndex((row, index) => index > top && /^─+$/.test(Bun.stripANSI(row).trim()));
+    expect(Bun.stripANSI(rows[top + 1]!)).toStartWith("custom-tool");
+    expect(end).toBeGreaterThan(top + 1);
+    const frame = rows.slice(top, end + 1).map((_row, index) => cells[top + index]!);
     for (const row of frame) expect(row.slice(2).every(cell => cell.dim)).toBe(true);
   }, { theme: theme.name });
 });

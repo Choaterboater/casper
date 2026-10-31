@@ -427,10 +427,11 @@ export class TerminalSurface {
           Math.max(0, this.terminal.rows - editorLines.length - (this.pendingAsk || this.pendingLine ? 10 : 4)));
         const block = this.slot ? this.slot.render(Math.min(120, Math.max(1, width - 2))).map(line => truncateToWidth(`  ${line}`, width))
           : this.lending ? [rule, this.muted(truncateToWidth("  exclusive input in progress · Esc or Ctrl+C cancels", width)), rule]
-          : this.pendingAsk ? [this.askRule(Math.min(120, Math.max(1, width - 2))),
-            ...this.renderAsk(Math.min(120, Math.max(1, width - 2)), this.terminal.rows - crew.length - (crew.length ? 1 : 0) - (this.shownRows.length ? 2 : 0) - 4),
-            this.border("─".repeat(Math.min(120, Math.max(1, width - 2))))]
-            .map(line => truncateToWidth(`  ${line}`, width))
+          // An open box at the left edge: a mouse copy of its command or question takes no border and no indent.
+          : this.pendingAsk ? [this.askRule(Math.min(120, Math.max(1, width))),
+            ...this.renderAsk(Math.min(120, Math.max(1, width)), this.terminal.rows - crew.length - (crew.length ? 1 : 0) - (this.shownRows.length ? 2 : 0) - 4),
+            this.border("─".repeat(Math.min(120, Math.max(1, width))))]
+            .map(line => truncateToWidth(line, width))
           : this.pendingLine ? [rule, ...this.lineHeading.flatMap(line => wrapTextWithAnsi(line, width)).map(line => truncateToWidth(line, width)), ...editorLines]
           : this.editor.popup.length ? [rule, ...this.editor.popup, ...status, ...editorLines] : [...status, ...editorLines];
         if (crew.length) block.unshift(...crew.map(line => truncateToWidth(`  ${line}`, width)), ...(this.pendingAsk ? [""] : []));
@@ -1207,7 +1208,7 @@ export class TerminalSurface {
       height - tail.length - count - head.length));
     if (shell) {
       const framed = contextBudget >= 3;
-      const commandWidth = Math.max(1, width - (framed ? 4 : 0));
+      const commandWidth = Math.max(1, width);
       const bodyBudget = Math.max(1, contextBudget - (framed ? 2 : 0));
       const commandRows = commandPreview(context, bodyBudget, commandWidth).flatMap(line => wrapTextWithAnsi(line, commandWidth));
       head.push(...(framed ? renderPanel("Command", commandRows, width, false, "muted") : commandRows).map(line => dim(line, this.io.color)));

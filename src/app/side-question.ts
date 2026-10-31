@@ -103,7 +103,7 @@ export async function askSideQuestion(app: CasperApp, question: string): Promise
       app.output.write(`  ? side answer${model} · failed: ${terminalText(answer.error ?? emptyReason(answer))}\n`);
       return;
     }
-    const body = terminalText(answer.text.trim()).split("\n").map((line) => `  │ ${line}`.trimEnd()).join("\n");
+    const body = terminalText(answer.text.trim()).split("\n").map((line) => `    ${line}`.trimEnd()).join("\n");
     app.output.write(`  ? side answer${model} · not part of the conversation\n${body}\n`);
   } catch (error) {
     if (app.closing) return;
