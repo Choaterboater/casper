@@ -1,6 +1,6 @@
 # 31. Casper keeps an MCP server's key you type
 
-Date: 2026-10-22. Status: proposed (needs the owner's review before merge).
+Date: 2026-10-22. Status: accepted (merged 2026-10-22 in #474).
 
 ## Decision
 

@@ -1,6 +1,6 @@
 # 18. A guessed root may answer 404 for an API
 
-Date: 2026-10-18. Status: proposed.
+Date: 2026-10-18. Status: accepted (merged 2026-10-18 in #366).
 
 ## Decision
 

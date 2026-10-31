@@ -1,6 +1,6 @@
 # 32. An MCP server on your own network may use plain http
 
-Date: 2026-10-22. Status: proposed (needs the owner's review before merge).
+Date: 2026-10-22. Status: accepted (merged 2026-10-22 in #473).
 
 ## Decision
 

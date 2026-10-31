@@ -1,6 +1,6 @@
 # 37. /model shows what OpenRouter's hosts do with your prompts, and changes nothing
 
-Date: 2026-10-25. Status: proposed (the user's choice; needs the owner's review before merge).
+Date: 2026-10-25. Status: accepted (merged 2026-10-25 in #490).
 
 ## Decision
 

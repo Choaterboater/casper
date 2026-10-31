@@ -1,6 +1,6 @@
 # 36. Casper reads OpenRouter's own model list while you are signed in to OpenRouter
 
-Date: 2026-10-25. Status: proposed (needs the owner's review before merge).
+Date: 2026-10-25. Status: accepted (merged 2026-10-25 in #487).
 
 ## Decision
 

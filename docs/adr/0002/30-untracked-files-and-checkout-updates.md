@@ -1,6 +1,6 @@
 # 30. Untracked files don't hold back a checkout's own update
 
-Date: 2026-10-22. Status: proposed (needs the owner's review before merge). Changes the checkout guard rail of
+Date: 2026-10-22. Status: accepted (merged 2026-10-22 in #472). Changes the checkout guard rail of
 [decision 14](14-background-updates.md) ("no local commits or untracked files"); decision 14 is otherwise unchanged.
 
 ## Decision

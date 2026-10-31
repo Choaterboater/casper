@@ -1,6 +1,6 @@
 # 42. A plain start is a new conversation, with one row to continue the last
 
-Date: 2026-10-27. Status: proposed.
+Date: 2026-10-27. Status: accepted (merged 2026-10-27 in #514).
 
 ## Decision
 

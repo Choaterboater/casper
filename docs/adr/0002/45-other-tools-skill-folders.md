@@ -1,6 +1,6 @@
 # 45. Your other tools' skill folders are yours; a project's follow folder trust
 
-Date: 2026-10-29. Status: proposed (owner's choice; needs the owner's review before merge). Builds on 44 (folder trust).
+Date: 2026-10-29. Status: accepted (merged 2026-10-29 in #542). Builds on 44 (folder trust).
 Replaces the opt-in, review-each-skill `skills.imports` and the per-skill review of `<project>/.casper/skills`.
 
 **What:**

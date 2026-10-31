@@ -1,7 +1,7 @@
 # 47. Auto mode: a model judge for commands that would ask
 
-Date: 2026-10-29. Status: proposed (owner's choice; needs the owner's review before merge). Supersedes decision 27's
-"Yes to everything this session" row in the command box, which was the stand-in until this landed.
+Date: 2026-10-29. Status: accepted (merged 2026-10-29 in #541). Decision 27's "Yes to everything this session" row in
+the command box was kept: [decision 45](45-three-row-approvals.md) keeps it as row 4.
 
 **What:** with the sandbox off, in a folder you trust, a shell command that would show `Run this command?` (not a read,
 not routine work, not one you already answered) goes to a model judge first. The judge is the conversation's current
@@ -14,8 +14,8 @@ answers **allow** or **ask**:
 - ask: the usual box, with `The judge says: <why>` on its dim line instead of the model's own reason.
 
 It is on by default. `auto mode off` (typed), **Auto mode** in `/settings`, or `auto_mode: off` in
-`~/.casper/config.yaml` turns it off. The command box loses its temporary `Yes to everything this session` row;
-`/permissions all` stays for anyone who wants no questions.
+`~/.casper/config.yaml` turns it off. The command box keeps its `Yes to everything this session` row (row 4, decision
+45), and `/permissions all` stays for anyone who wants no questions.
 
 **Why:** the owner: "I don't want to hit a bunch of prompts when building something." Claude Code (whose interactive
 sessions start in auto mode since v2.1.283), Codex and Copilot CLI have moved to a reviewer model instead of a box
