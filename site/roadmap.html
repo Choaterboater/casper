@@ -78,7 +78,7 @@
           </li>
           <li><a href="#released">Released</a>
             <ul>
-              <li><a href="#v0401">v0.4.1: Claude Ultra sign-ins</a></li>
+              <li><a href="#v0401">v0.4.1: boxes copy clean</a></li>
               <li><a href="#v0400">v0.4.0: sudo inside Casper</a></li>
               <li><a href="#v0309">v0.3.9: a crew you can watch</a></li>
               <li><a href="#v0308">v0.3.8: /continue stays</a></li>
@@ -380,13 +380,17 @@
 
         <details class="card release" id="v0401" aria-labelledby="v0401-h" open>
           <summary class="release-heading">
-            <h3 id="v0401-h">v0.4.1 · Claude Code plan sign-ins that report Claude Ultra work again</h3>
+            <h3 id="v0401-h">v0.4.1 · Claude Ultra sign-ins work again, boxes copy clean, and a tighter Linux sandbox</h3>
             <span class="badge ok">current preview</span>
           </summary>
           <ul>
             <li><strong>Claude Ultra sign-ins.</strong> A Claude Max sign-in that Claude Code now reports as <code>Claude Ultra</code> works with <code>claude-subscription</code> again.</li>
             <li><strong>Plan renames.</strong> Any plan name Claude Code reports is accepted unless it says free, API or console; API keys, Bedrock, Vertex and gateways are still refused, with no API-key fallback.</li>
             <li><strong>Refusals that name the plan.</strong> When Casper refuses a sign-in, the message names the plan Claude Code reported.</li>
+            <li><strong>Boxes copy clean.</strong> Every box is an open box: a title rule, text at the left edge and a closing rule. Approval and question boxes start at the left edge, so a command copied from <code>Run this command?</code> has no leading spaces, and the side answer has no <code>│</code> gutter.</li>
+            <li><strong>A tighter Linux sandbox.</strong> A command held by the sandbox can no longer make its own user namespace, and neither can Casper's network MCP server; a program that sandboxes itself, such as Chromium or rootless podman, now fails inside it.</li>
+            <li><strong>Your Claude Code settings stay yours.</strong> Your own settings, such as auto-mode rules, no longer reach Casper's Claude Code plan requests.</li>
+            <li><strong>Decisions marked.</strong> Merged decision records say accepted, and decision 47 says the <code>Yes to everything</code> row was kept.</li>
           </ul>
         </details>
 

@@ -11,8 +11,9 @@ const section = (text: string, start: string, end: string) => {
 
 // These are release-preparation assertions, not tests of the features themselves.
 const changes = {
-  Changed: ["any plan name", "names the plan"],
-  Fixed: ["Claude Ultra"],
+  Changed: ["any plan name", "names the plan", "open box", "Run this command?", "side answer", "user namespace", "rootless podman",
+    "decision 47"],
+  Fixed: ["Claude Ultra", "auto-mode rules"],
 };
 
 test("v0.4.1 notes publish each user-facing change once under Changed or Fixed", async () => {
@@ -79,7 +80,8 @@ test("the roadmap ships v0.4.1 first and leaves no merged work in the next-relea
   const current = section(page, 'id="v0401"', 'id="v0400"');
   expect(page).toContain('href="#v0401"');
   expect(current).toContain("current preview");
-  for (const phrase of ["Claude Ultra sign-ins", "claude-subscription", "Plan renames", "no API-key fallback", "Refusals that name the plan"]) {
+  for (const phrase of ["Claude Ultra sign-ins", "claude-subscription", "Plan renames", "no API-key fallback", "Refusals that name the plan",
+    "Boxes copy clean", "Run this command?", "user namespace", "rootless podman", "auto-mode rules"]) {
     expect(current).toContain(phrase);
   }
   const previous = section(page, 'id="v0400"', 'id="v0309"');
