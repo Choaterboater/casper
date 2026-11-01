@@ -61,3 +61,18 @@ test("a running app's database and log are the app's even while the AI's command
     commands: ["sqlite3 config/home-assistant_v2.db 'DELETE FROM states WHERE 1'"], toolFiles: new Set(["logs/app.log.1"]) });
   expect(named.task).toEqual(["config/automations.yaml", "config/home-assistant_v2.db", "config/home-assistant_v2.db-shm", "config/home-assistant_v2.db-wal", "logs/app.log.1"]);
 });
+
+test("files a job from an earlier task keeps writing are its own, even while this task's command reads them", async () => {
+  // The smoke session's "is it still runing?": the comparison runner (started two tasks before) wrote its log and its JSON
+  // between the tasks, and again while the AI's `tail logs/casper.stderr.log` ran.
+  const changes = { ...none, modified: ["logs/casper.json", "logs/casper.stderr.log", "notes.txt"] };
+  const during = at({ "logs/casper.json": 11_000, "logs/casper.stderr.log": 11_500, "notes.txt": 11_200 });
+  const split = await attributeChanges({ root: "/r", since: 1_000, until: 60_000, windows: [[10_000, 12_000]], changes, changedAt: during,
+    commands: ["cat compare.out; ps -axo pid=,etime=,command=; tail -c 600 logs/casper.stderr.log"],
+    liveFiles: new Set(["logs/casper.json", "logs/casper.stderr.log", "compare.out"]) });
+  expect(split).toEqual({ task: ["notes.txt"], others: ["logs/casper.json", "logs/casper.stderr.log"], unsure: [] });
+  // The AI's own edit of one keeps it the task's.
+  const edited = await attributeChanges({ root: "/r", since: 1_000, until: 60_000, windows: [[10_000, 12_000]], changes, changedAt: during,
+    liveFiles: new Set(["logs/casper.json"]), toolFiles: new Set(["logs/casper.json"]) });
+  expect(edited.task).toContain("logs/casper.json");
+});

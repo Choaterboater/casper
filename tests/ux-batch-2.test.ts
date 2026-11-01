@@ -210,6 +210,26 @@ test("tmux guard owns only successfully created named servers in the current tas
   guard.task("Same words", {}); expect(guard.reason("tmux -L own capture-pane")).toBeDefined();
 });
 
+test("a tmux server the command itself starts is its own in the rest of that command: start, wait, then list it", () => {
+  // The smoke session's refused launch: the later `tmux -L csmoke ls` was checked before the server was recorded.
+  const made = new Set<string>();
+  const guard = new AgentShellGuard(false, (name) => made.has(name));
+  guard.task("launch omp and Casper for the comparison");
+  const launch = "tmux -L csmoke new-session -d -s compare -c \"$PWD\" 'node scripts/run.mjs --force > compare.out 2>&1'\nsleep 45; cat compare.out; tmux -L csmoke ls; wc -c logs/*.json";
+  expect(guard.reason(launch)).toBeUndefined();
+  made.add("csmoke");
+  // A command of several parts ends with its last part's exit code: the server it started is the task's once it exists.
+  guard.finished(launch, 1);
+  expect(guard.reason("tmux -L csmoke capture-pane -p")).toBeUndefined();
+  // Someone else's server is still not the task's, before or after a start in the same command.
+  made.add("theirs");
+  expect(guard.reason("tmux -L theirs new-session -d; tmux -L theirs ls")).toContain("private tmux -L");
+  expect(guard.reason("tmux -L fresh new-session -d && tmux -L theirs kill-server")).toContain("private tmux -L");
+  // A start that never made a server leaves nothing of the task's.
+  guard.finished("tmux -L ghost new-session -d; echo done", 0);
+  expect(guard.reason("tmux -L ghost ls")).toContain("private tmux -L");
+});
+
 for (const width of [80, 120, 202]) test(`readable ANSI footer at ${width} columns drops cost, context, model in order`, () => {
   const details = "sample │ provider/model-name · high │ ctx 72%~ │ task sub ≈$10.99";
   const state = tint("⠋ working 5h03m", "accent", true);

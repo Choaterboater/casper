@@ -1,6 +1,6 @@
 import { truncateToWidth, visibleWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
 import { configEntries } from "../task/config-files";
-import type { ReceiptItem, ReceiptKind, ReceiptSection, ReceiptView, TaskResult } from "../task/result";
+import { STILL_RUNNING_MARK, type ReceiptItem, type ReceiptKind, type ReceiptSection, type ReceiptView, type TaskResult } from "../task/result";
 import { lineText, terminalText, tint } from "./format";
 import type { ThemeRole } from "./theme";
 import { keyCaps } from "./next-row";
@@ -35,7 +35,8 @@ const DEVICES_READ = "from the commands Casper saw, not checked there";
 /** Notes past these are counted ("+2 more · /receipt"); /receipt has every one. */
 const NOTES_SHOWN = 3;
 
-export type CardTone = "success" | "warning" | "error";
+/** `accent`: work that goes on in the background (Still running), neither a pass nor a warning. */
+export type CardTone = "success" | "warning" | "error" | "accent";
 
 export interface ReceiptCard {
   tone: CardTone;
@@ -49,13 +50,14 @@ export interface ReceiptCard {
 
 export interface CardRow { label: string; values: string[] }
 
-/** Green for Verified or Checks passed, red only for a failed result, amber for everything between. */
+/** Green for Verified or Checks passed, red only for a failed result, the accent colour for work still running in the
+ * background, amber for everything between. */
 export function receiptTone(view: ReceiptView): CardTone {
   const status = view.verdict?.status;
-  return status === "Verified" || status === "Checks passed" ? "success" : status === "Failed" ? "error" : "warning";
+  return status === "Verified" || status === "Checks passed" ? "success" : status === "Failed" ? "error" : status === "Still running" ? "accent" : "warning";
 }
 
-const MARK: Record<CardTone, string> = { success: "✓", warning: "⚠", error: "✗" };
+const MARK: Record<CardTone, string> = { success: "✓", warning: "⚠", error: "✗", accent: STILL_RUNNING_MARK };
 const ROLE: Record<string, ThemeRole> = { "✓": "success", "✗": "error", "⚠": "warning" };
 /** A line without its mark: the row's label and the colour say what the mark said. */
 const words = (line: string) => line.replace(/^[✓✗⚠–↻] /, "");

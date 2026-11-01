@@ -95,7 +95,7 @@ test("/receipt on a session's rich terminal is the card; with --verbose, and on 
 
 test("/help receipt says what each verdict means and what to do", () => {
   const lines = RECEIPT_HELP.trimEnd().split("\n");
-  for (const term of ["✓ Verified", "⚠ Checks passed · not proven", "⚠ Not verified", "⚠ Not checked", "⚠ Incomplete", "✗ Failed", "⚠ Stopped"]) {
+  for (const term of ["✓ Verified", "⚠ Checks passed · not proven", "⚠ Not verified", "⚠ Not checked", "⚠ Incomplete", "◐ Still running", "✗ Failed", "⚠ Stopped"]) {
     const line = lines.find((entry) => entry.trimStart().startsWith(`${term} `));
     expect({ term, explained: Boolean(line && line.length > term.length + 30) }).toEqual({ term, explained: true });
   }

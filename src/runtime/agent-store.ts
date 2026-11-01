@@ -1,6 +1,7 @@
 import { chmod, copyFile, lstat, mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import path from "node:path";
+import { rememberPersonEngineEnv } from "../platform/environment";
 import { casperTelemetryEnabled } from "./openrouter-attribution";
 
 /** Internal bridge: the bundled engine still reads this name for its state directory. */
@@ -39,6 +40,8 @@ export function agentStoreWarnings(): string[] {
  * (agentStoreWarnings says so). Returns true when legacy credentials may be imported into the default store. */
 export function useCasperAgentStore(): boolean {
   const env = process.env as Record<string, string | undefined>;
+  // The commands the AI runs get the person's own values back (withoutProviderKeys), never Casper's.
+  rememberPersonEngineEnv(env);
   // An inherited value (even Bun's "undefined", which would put the store in `<cwd>/undefined/`) is replaced.
   env[AGENT_DIR_ENV] = casperAgentDir();
   if (env.CASPER_OFFLINE === "1") env.PI_OFFLINE = "1";

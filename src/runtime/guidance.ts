@@ -6,9 +6,9 @@ import { DEFAULT_COMMAND_LIMIT_SECONDS } from "./background-commands";
 
 /** One hour, as for Casper checks. Shared with native bash; its behavior is unchanged. */
 export const BASH_TIMEOUT_CAP_SECONDS = 3600;
-export const COMMAND_GUIDANCE = `Bash defaults to ${DEFAULT_COMMAND_LIMIT_SECONDS} seconds; slow work may background (the result says so). Explicit timeouts use seconds, cap at ${BASH_TIMEOUT_CAP_SECONDS}, and stop the command there. Narrow timed-out searches instead of repeating them.`;
+export const COMMAND_GUIDANCE = `Bash defaults to ${DEFAULT_COMMAND_LIMIT_SECONDS} seconds. Explicit timeouts use seconds, cap at ${BASH_TIMEOUT_CAP_SECONDS}, and stop the command there. Narrow timed-out searches instead of repeating them.`;
 export const SEARCH_GUIDANCE = "Search this workspace with find/grep/ls and explicit paths, not / or unrelated folders unless the task requires it. Docs may be stale; inspect the tree.";
-export const LEAN_COMMAND_GUIDANCE = `Bash: default ${DEFAULT_COMMAND_LIMIT_SECONDS}s; may background (result says). Explicit timeout: seconds, max ${BASH_TIMEOUT_CAP_SECONDS}, then stop. Narrow timed-out searches.`;
+export const LEAN_COMMAND_GUIDANCE = `Bash: default ${DEFAULT_COMMAND_LIMIT_SECONDS}s. Explicit timeout: seconds, max ${BASH_TIMEOUT_CAP_SECONDS}, then stop. Narrow timed-out searches.`;
 export const LEAN_SEARCH_GUIDANCE = "find/grep/ls: workspace paths, not / or unrelated folders unless required. Docs may be stale; inspect the tree.";
 
 export type GuidanceSetting = "auto" | "off";

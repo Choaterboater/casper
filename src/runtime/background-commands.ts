@@ -4,6 +4,7 @@
  * with), writes its output on to a log, lists it in /tasks, adds a short note to the conversation when it ends, and
  * stops it when the session ends.
  */
+import { AsyncLocalStorage } from "node:async_hooks";
 import { randomBytes } from "node:crypto";
 import { createWriteStream, type WriteStream } from "node:fs";
 import os from "node:os";
@@ -12,6 +13,26 @@ import { stayingAfterHangUp } from "../platform/hang-up";
 
 /** The limit for a command run without its own timeout. */
 export const DEFAULT_COMMAND_LIMIT_SECONDS = 120;
+/** A command the AI started with `background: true` moves to the background after this long, so a typo or a missing
+ * file still fails in the call's own output. */
+export const BACKGROUND_GRACE_SECONDS = 3;
+/** What the bash tool's `background` option says to the AI (fixed-tokens counts it). */
+export const BACKGROUND_HELP = "true: keep a long job running after this call (/tasks; a note when it ends). Not &, nohup, setsid or tmux";
+
+const requested = new AsyncLocalStorage<boolean>();
+/** The AI's bash call asked for the background (`background: true`): carried through the shell's own awaits. */
+export function withBackgroundRequest<T>(on: boolean, work: () => T): T { return requested.run(on, work); }
+export function backgroundRequested(): boolean { return requested.getStore() === true; }
+
+/** The command sends something to the background itself (`nohup`, `setsid`, `disown`, a lone `&`), which Casper ends
+ * with the call, or which escapes where Casper can't see or report it. `2>&1`, `&>`, `&&` and `|&` are not that. */
+export function detachesItself(command: string): boolean {
+  // Quoted text is an argument ("a=1&b=2" in a URL), not the shell's.
+  const bare = command.replace(/'[^']*'|"(?:[^"\\]|\\.)*"/g, "''");
+  return /(?:^|[\s;|&(])(?:nohup|setsid|disown)(?=\s|$|;)/.test(bare) || /(?<![&|<>])&(?![&>|])/.test(bare);
+}
+/** Added to such a command's output when the background is there to use instead. */
+export const DETACH_NOTE = "[Casper ends what a command leaves running when the call returns, or it runs on where Casper can't see or report it. For a job that should keep going after this call, run it with background: true.]";
 /** At most this many at once; beyond it a slow command is stopped at the limit, as before. */
 export const MAX_BACKGROUND_COMMANDS = 4;
 const TAIL_CHARS = 16_384;
@@ -27,6 +48,10 @@ export interface BackgroundCommandInfo {
   /** Where its output goes on (a pi-bash-*.log, so reads of it get command-output secret scrubbing). */
   log?: string;
 }
+
+/** How one ended, for the person's line: "cmd-1", "ended with exit code 0", when it started, and whether the person
+ * stopped it from /tasks. */
+export interface EndedCommand { id: string; how: string; startedAt: number; byPerson: boolean }
 
 export interface AdoptOptions {
   command: string;
@@ -76,8 +101,8 @@ export class BackgroundCommands {
     try { process.kill(process.pid, "SIGHUP"); } catch { process.exit(129); }
   };
 
-  /** `notify`: a note for the model when one ends (not when the session ends it). */
-  constructor(private readonly options: { notify(text: string, command: string): void | Promise<void>; limitSeconds?: number; max?: number }) {
+  /** `notify`: a note for the model when one ends (not when the session ends it), with what to tell the person. */
+  constructor(private readonly options: { notify(text: string, command: string, ended: EndedCommand): void | Promise<void>; limitSeconds?: number; max?: number }) {
     this.limitSeconds = options.limitSeconds ?? DEFAULT_COMMAND_LIMIT_SECONDS;
     this.max = options.max ?? MAX_BACKGROUND_COMMANDS;
   }
@@ -117,7 +142,8 @@ export class BackgroundCommands {
       : `ended with exit code ${exitCode ?? "none"}`;
     const tail = outputTail(entry.tail);
     const note = `[Background command ${entry.id} ${how}: ${entry.command.slice(0, 200)}]${tail ? `\nLast output:\n${tail}` : ""}${entry.log ? `\nFull output: ${entry.log}` : ""}`;
-    try { await this.options.notify(note, entry.command); } catch { /* the conversation is gone */ }
+    try { await this.options.notify(note, entry.command, { id: entry.id, how, startedAt: entry.startedAt, byPerson: entry.stoppedBy === "person" }); }
+    catch { /* the conversation is gone */ }
   }
 
   list(): BackgroundCommandInfo[] {

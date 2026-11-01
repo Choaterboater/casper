@@ -12,7 +12,7 @@ import type { SmokeReport } from "../services/smoke";
 import type { AppSmokeReport } from "../services/try-it";
 import { formatPageReport, pageFailureSummary } from "../services/page-report";
 import { SNAPSHOT_FILE_LIMIT } from "./changes";
-import { TESTS_WITHOUT_COMMAND, type AutoCheckSkip, type VerificationMode } from "../verify/mode";
+import { isAppDataPath, isOutputPath, TESTS_WITHOUT_COMMAND, type AutoCheckSkip, type VerificationMode } from "../verify/mode";
 import type { ChangeProof } from "../verify/proof";
 import type { AcceptanceResult } from "../verify/acceptance";
 import { ROUND_MAX_TURNS, type RequirementsReview } from "./review";
@@ -201,10 +201,22 @@ export interface TaskResult {
   outsideWrites?: string[];
   /** Folders outside the project you allowed a shell command to write (~/ form): allowed, not known written. */
   outsideAllowed?: string[];
+  /** Jobs this task started that still run in Casper's background (src/runtime/background-commands.ts): the work goes on
+   * after the receipt, so line 1 says so instead of a done-style pass. The command is shown without its secrets. */
+  stillRunning?: StillRunning[];
   /** Dangerous lines in the config files this task changed (reload, shutdown, erase …): shown, never a pass or a fail. */
   riskyLines?: RiskyLine[];
   /** How many more risky lines there were past the 20 listed. */
   riskyMore?: number;
+}
+
+/** A background job the task started, still running at its receipt: "cmd-1", what it runs, since when, its log. */
+export interface StillRunning { id: string; command: string; startedAt: number; log?: string }
+
+/** "node scripts/run.mjs --force (cmd-1)": a job's few words for a receipt line. */
+export function stillRunningText(jobs: readonly StillRunning[], safe: (text: string) => string = lineText): string {
+  const named = jobs.slice(0, 2).map((job) => `${safe(job.command).replace(/\s+/g, " ").slice(0, 80)} (${safe(job.id)})`);
+  return `${named.join(", ")}${jobs.length > 2 ? ` and ${jobs.length - 2} more` : ""}`;
 }
 
 /** A landed part of a crew that no reviewer finished: its number, its files and why ("the reviewer timed out"). */
@@ -406,6 +418,7 @@ export function formatTaskResult(task: TaskResult): string {
     ...(task.outsideAllowed?.length ? [`allowed shell writes to ${task.outsideAllowed.map(safe).join(", ")} (no undo copy)`] : []),
   ];
   if (outside.length) lines.push(receiptLine("outside", outside.join("; ")));
+  if (task.stillRunning?.length) lines.push(receiptLine("running", `${stillRunningText(task.stillRunning, safe)} in the background (/tasks)`));
   if (task.published?.length) lines.push(receiptLine("published", `${task.published.map(safe).join("; ")} (${PUBLISHED_NOTE})`));
   if (task.riskyLines?.length) lines.push(receiptLine("risky", task.riskyLines.map((risky) => `${safe(risky.file)}:${risky.line} ${safe(risky.text)} (${risky.reason})`).join(" · ")
     + (task.riskyMore ? ` · and ${task.riskyMore} more` : "")));
@@ -740,6 +753,11 @@ function receiptParts(task: TaskResult, options: ReceiptOptions, onScreen = fals
     }
     else if (task.autoSkipped === "app-data") why(`– Checks skipped — ${only("a running app's database files")}; ${slash("/verify")} runs them anyway.`, "Checks skipped", only("a running app's database files"), slash("/verify"));
     else if (task.autoSkipped === "docs-only") why(`– Checks skipped — ${only("documentation")}; ${slash("/verify")} runs them anyway.`, "Checks skipped", only("documentation"), slash("/verify"));
+    else if (task.autoSkipped === "output") {
+      const what = only(task.changedPaths?.every((file) => isOutputPath(file) || isAppDataPath(file)) ? "output files" : "output files and documentation");
+      why(`– Checks skipped — ${what}; ${slash("/verify")} runs them anyway.`, "Checks skipped", what, slash("/verify"));
+    }
+    else if (task.autoSkipped === "question") why(`– Checks skipped — ${ASKED_ONLY}; ${slash("/verify")} runs them anyway.`, "Checks skipped", ASKED_ONLY, slash("/verify"));
     else if (task.autoSkipped === "not-covered") why("– Not verified — no configured check covers the changed files.", "Not verified", "no configured check covers the changed files");
     else if (changed && task.untrustedFolder) {
       const reason = untrustedReason(task.untrustedFolder);
@@ -832,6 +850,12 @@ function receiptParts(task: TaskResult, options: ReceiptOptions, onScreen = fals
 function changedShort(paths: string[], safe: (text: string) => string): string {
   return paths.length <= 3 ? `changed ${paths.map(safe).join(", ")}` : `${paths.length} files changed`;
 }
+
+/** Why a question's turn ran no checks. */
+export const ASKED_ONLY = "this read as a question, and the AI's own tools changed no code or tests";
+
+/** Line 1's mark for work that goes on in the background: neither a pass (✓) nor a warning (⚠). */
+export const STILL_RUNNING_MARK = "◐";
 
 /** The full no-checks line, shown once per session; later receipts say it short. */
 export const NO_CHECKS_LINE = '– Not checked — no tests yet. Say "add tests".';
@@ -1008,6 +1032,21 @@ function withVerdict(task: TaskResult, body: string[], options: ReceiptOptions, 
         : promote("– Not verified", `– Not verified — ${notVerifiedReason(task)}`, "Not verified"); break;
     case "unchanged":
       lines = body.length ? promote("– No files changed", "– No files changed", "No files changed") : body; break;
+  }
+  // A job the task started goes on after this receipt: line 1 says so, never a done-style pass. What the checks said so
+  // far stays, under it. A failure or a stop keeps its own line 1 (the job's line follows it).
+  if (task.stillRunning?.length && task.execution === "completed" && !["failed", "cancelled"].includes(outcome)) {
+    const what = stillRunningText(task.stillRunning, safe);
+    const detail = `${what} in the background; Casper says here when it ends`;
+    const [was, ...rest] = lines.length ? lines : [""];
+    const status = was ? info.get(was)?.status : undefined;
+    if (was) info.set(was, { ...info.get(was), section: status === "No files changed" ? "changed" : was.startsWith("✓ ") || was.startsWith("– Checks passed") ? "checks" : "why" });
+    lines = [head(`${STILL_RUNNING_MARK} Still running — ${detail}`, "Still running", { detail, actions: ["/tasks"] }), ...was ? [was] : [], ...rest];
+    short = undefined;
+  } else if (task.stillRunning?.length) {
+    const line = `– Still running in the background: ${stillRunningText(task.stillRunning, safe)} (/tasks)`;
+    info.set(line, { section: "open", actions: ["/tasks"] });
+    lines = [...lines, line];
   }
   return { lines, ...(short ? { short } : {}) };
 }

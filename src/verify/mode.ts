@@ -4,6 +4,7 @@ import { CHECK_NAMES, type CheckName } from "./evidence";
 import { autoNamedChecks, modelNamedChecks, type NamedCheckSpec } from "./named";
 import type { VerificationScope } from "./scope";
 import { editAffects } from "./task";
+import { isCodePath, isTestPath } from "./proof";
 
 /** `auto`: Casper runs the selected checks after the model's edits. `offer`: the model may use
  * casper_check and the receipt suggests /verify. `off`: no managed checks during tasks. */
@@ -112,7 +113,7 @@ export function manualChecks(selected: readonly CheckName[], named?: Record<stri
 }
 
 /** Why auto mode ran nothing after a model turn. */
-export type AutoCheckSkip = "no-changes" | "no-checks" | "not-covered" | "docs-only" | "app-data";
+export type AutoCheckSkip = "no-changes" | "no-checks" | "not-covered" | "docs-only" | "app-data" | "output" | "question";
 
 /** Prose nothing runs: Markdown, plain text and the like. (Not yaml or json: a check may read those.) */
 const DOC_FILE = /\.(?:md|mdx|markdown|txt|rst|adoc)$/i;
@@ -122,6 +123,12 @@ export const isDocPath = (file: string): boolean => DOC_FILE.test(file);
  * go build for them. */
 const APP_DATA_FILE = /\.(?:db|sqlite3?|db3)(?:-(?:wal|shm|journal))?$/i;
 export const isAppDataPath = (file: string): boolean => APP_DATA_FILE.test(file);
+/** What a program writes when it runs, not what it runs from: a file in a top-level results, output, out, reports, logs,
+ * coverage or screenshots folder, or a .log or .out file (compare.out). Never code or a test, wherever it sits. A
+ * comparison that wrote 22 files under results/ ran a 45 s test suite for them. */
+const OUTPUT_FOLDER = /^(?:results?|outputs?|out|reports?|logs?|coverage|screenshots?)\//i;
+const OUTPUT_FILE = /\.(?:log|out)$/i;
+export const isOutputPath = (file: string): boolean => !isCodePath(file) && !isTestPath(file) && (OUTPUT_FOLDER.test(file) || OUTPUT_FILE.test(file));
 
 /** The checks auto mode runs after a model turn. `changedPaths` undefined means the change set
  * is unknown (a snapshot failed), so nothing can be skipped for being unaffected. A check with a
@@ -151,7 +158,7 @@ export function planAutoChecks(input: {
   };
   // Only prose changed: a check with no declared scope has no say in it (a project whose tests read its docs declares
   // them in its scope, and that scope is used below). Nothing else is skipped on a guess.
-  const docsOnly = Boolean(input.changedPaths?.length) && input.changedPaths!.every((file) => isDocPath(file) || isAppDataPath(file));
+  const docsOnly = Boolean(input.changedPaths?.length) && input.changedPaths!.every((file) => isDocPath(file) || isAppDataPath(file) || isOutputPath(file));
   let docsRuled = false;
   const run = candidates.filter((name) => {
     const scope = input.scopes?.[name as ProjectCommand] ?? detected.find((check) => check.name === name)?.scope;
@@ -160,5 +167,6 @@ export function planAutoChecks(input: {
     return input.changedPaths.some((file) => (scope.inputs.some((entry) => within(file, entry))
       && !scope.exclude?.some((entry) => within(file, entry))) || sameFolder(file, scope));
   });
-  return run.length ? { run } : { run, skipped: !docsRuled ? "not-covered" : input.changedPaths!.every(isAppDataPath) ? "app-data" : "docs-only" };
+  return run.length ? { run } : { run, skipped: !docsRuled ? "not-covered" : input.changedPaths!.every(isAppDataPath) ? "app-data"
+    : input.changedPaths!.every((file) => isDocPath(file) || isAppDataPath(file)) ? "docs-only" : "output" };
 }

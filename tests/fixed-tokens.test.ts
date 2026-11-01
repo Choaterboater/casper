@@ -9,7 +9,8 @@ import { browserDefaults } from "../src/browser/discovery";
 import { loadProjectContext } from "../src/project/context";
 import { systemPromptAppend, DEFAULT_SYSTEM_PROMPT_APPEND, LEAN_SYSTEM_PROMPT_APPEND } from "../src/app/prompt";
 import { projectGuidance, type GuidanceModel, type GuidanceSetting } from "../src/runtime/guidance";
-import { withStepTitle } from "../src/runtime/pi";
+import { withBackgroundOption, withStepTitle } from "../src/runtime/pi";
+import { COMMAND_GUIDANCE } from "../src/runtime/guidance";
 import type { AgentRuntime, RuntimeSession, RuntimeStartOptions, RuntimeTool } from "../src/runtime/types";
 import { SkillRegistry } from "../src/skills/registry";
 import { removeTempDir } from "./support/temp-dir";
@@ -33,6 +34,9 @@ const BUDGET = {
   delegateWithBuilders: 1_150,
   /** Decision 25: the shell's optional step title, added to Pi's bash tool for every request (129 characters). */
   stepTitle: 130,
+  /** The shell's `background` option (154 characters), paid for in part by the 47 the bash guidance gave up ("slow work may
+   * background (the result says so)": the result says it anyway). */
+  background: 160,
 };
 
 const cleanup: Array<() => unknown> = [];
@@ -184,4 +188,11 @@ test("the shell's optional step title adds only its own small budget to every re
   const base = createBashToolDefinition(process.cwd()).parameters;
   expect(JSON.stringify(withStepTitle(base)).length - JSON.stringify(base).length).toBeLessThan(BUDGET.stepTitle);
   expect(Object.keys(withStepTitle(base).properties)).toEqual([...Object.keys(base.properties), "description"]);
+});
+
+test("the shell's background option adds only its own small budget, and the bash guidance gave up its background words", () => {
+  const base = withStepTitle(createBashToolDefinition(process.cwd()).parameters);
+  expect(JSON.stringify(withBackgroundOption(base)).length - JSON.stringify(base).length).toBeLessThan(BUDGET.background);
+  expect(Object.keys(withBackgroundOption(base).properties)).toEqual([...Object.keys(base.properties), "background"]);
+  expect(COMMAND_GUIDANCE).not.toContain("background");
 });

@@ -5,7 +5,7 @@ import path from "node:path";
 import { isContextOverflow, type AssistantMessage } from "@earendil-works/pi-ai";
 import { looksLikeRefusedLogin } from "../ssh/auth-failed";
 import { READ_ONLY_STATE_CONFLICT } from "./types";
-import { DEFAULT_COMMAND_LIMIT_SECONDS } from "./background-commands";
+import { BACKGROUND_GRACE_SECONDS, BACKGROUND_HELP, backgroundRequested, DEFAULT_COMMAND_LIMIT_SECONDS, DETACH_NOTE, detachesItself, withBackgroundRequest } from "./background-commands";
 import { pidFile, STALLED_EXIT_CODE, stalledMessage, watchStall } from "./stalled-commands";
 import { matchConversation } from "../sessions/resume";
 import { PiModels } from "./pi-models";
@@ -823,6 +823,11 @@ export const STEP_TITLE_HELP = "Optional title, at most 8 words, shown with the 
 export function withStepTitle<P extends TProperties>(parameters: TObject<P>) {
   return Type.Object({ ...parameters.properties, description: Type.Optional(Type.String({ description: STEP_TITLE_HELP })) });
 }
+/** The bash tool's optional `background`: a job that should outlive the call starts in Casper's background commands
+ * (/tasks, a note when it ends) instead of `&`, nohup, setsid or tmux, which Casper ends with the call or can't see. */
+export function withBackgroundOption<P extends TProperties>(parameters: TObject<P>) {
+  return Type.Object({ ...parameters.properties, background: Type.Optional(Type.Boolean({ description: BACKGROUND_HELP })) });
+}
 export const SCRUB_FAILED_TEXT = "Output not shown: Casper could not check it for device secrets. Try a smaller read or another command.";
 
 /** The path context the file and command gates read. denyRead follows the app's current workspace when the
@@ -1212,9 +1217,9 @@ export class PiRuntime implements AgentRuntime {
             operations: casperBashOperations(options.shell, undefined, checkChanges, agentShellGuard),
             spawnHook: (context) => ({ ...context, env: withoutProviderKeys(context.env, options.shell?.keepEnv ?? []) }),
           });
-          const execute: typeof bash.execute = (id, ...args) =>
-            withToolReason(reasons.get(id) ?? "", () => bash.execute(id, ...args));
-          pi.registerTool(repairing({ ...bash, parameters: withStepTitle(bash.parameters), execute }));
+          const execute: typeof bash.execute = (id, ...args) => withToolReason(reasons.get(id) ?? "", () =>
+            withBackgroundRequest(Boolean(args[0] && Reflect.get(args[0], "background") === true), () => bash.execute(id, ...args)));
+          pi.registerTool(repairing({ ...bash, parameters: withBackgroundOption(withStepTitle(bash.parameters)), execute }));
         }
         if (options.scrubToolOutput) pi.on("tool_result", async (event, ctx) => {
           if (!SCRUBBED_TOOLS.has(event.toolName)) return;
@@ -1446,14 +1451,20 @@ export function casperBashOperations(shell: RuntimeShell | undefined, local: Bas
       }
       /** ssh's or sudo's private login: it may wait on Casper's password box. */
       const login = wrapped.ssh ?? wrapped.sudo;
-      const background = options.timeout === undefined ? shell?.background?.() : undefined;
-      const limit = options.timeout ?? background?.limitSeconds ?? DEFAULT_COMMAND_LIMIT_SECONDS;
+      // `background: true`: no time limit and no stall check; after a short grace it moves to the background.
+      const asked = backgroundRequested();
+      const background = options.timeout === undefined || asked ? shell?.background?.() : undefined;
+      if (asked && background && background.list().length >= background.max) {
+        if (wrapped.id) shell?.finished?.(wrapped.id);
+        throw new Error(`Not started: ${background.max} commands already run in the background. Stop one first (the person can use /tasks).`);
+      }
+      const limit = asked && background ? BACKGROUND_GRACE_SECONDS : options.timeout ?? background?.limitSeconds ?? DEFAULT_COMMAND_LIMIT_SECONDS;
       const startedAt = Date.now();
       let tail = "", seen = "", recent = "", last = "", stalled: string | undefined;
       /** Once in the background, its output goes there. */
       let moved: ((data: Buffer) => void) | undefined;
       // Not for a command given its own timeout, nor one on Casper's ssh login (the other machine's work can't be seen).
-      const stallSeconds = options.timeout === undefined && !login ? shell?.stallSeconds?.() : undefined;
+      const stallSeconds = options.timeout === undefined && !login && !(asked && background) ? shell?.stallSeconds?.() : undefined;
       const pid = stallSeconds ? pidFile(logDir) : undefined;
       const watch = stallSeconds && pid ? watchStall({ seconds: stallSeconds, root: pid.root, onStall: () => {
         stalled = stalledMessage(command, recent, stallSeconds);
@@ -1505,6 +1516,9 @@ export function casperBashOperations(shell: RuntimeShell | undefined, local: Bas
           }
           if (wrapped.ssh?.afterFail && result.exitCode !== 0) onData(Buffer.from(`\n${wrapped.ssh.afterFail}\n`));
           if (wrapped.sudo?.afterFail && result.exitCode !== 0) onData(Buffer.from(`\n${wrapped.sudo.afterFail}\n`));
+          // `nohup … &` dies with the call (or a setsid escapes where nothing reports it): the supported way, once.
+          if (!moved && !asked && shell?.background?.() && detachesItself(command)) onData(Buffer.from(`\n${DETACH_NOTE}\n`));
+          if (asked && !background && !moved) onData(Buffer.from("\n[Casper can't run commands in the background here (slow commands are off, or this is a helper), so this ran in the foreground.]\n"));
           // It needed a terminal: sent again, it gets one (or the AI reads why this run can't give it one).
           const needed = result.exitCode !== 0 && TERMINAL_NEEDED.test(last) ? shell?.neededTerminal?.(command) : undefined;
           if (needed) onData(Buffer.from(`\n${needed}\n`));
@@ -1561,7 +1575,7 @@ export function casperBashOperations(shell: RuntimeShell | undefined, local: Bas
         onData(Buffer.from(`\n[Stopped at the limit: ${background.max} slow commands already run in the background.]\n`));
         throw new Error(`timeout:${limit}`);
       }
-      return moveOut(handed, `Still running after ${limit} s, so it`);
+      return moveOut(handed, asked ? `As asked (background: true), after ${limit} s it` : `Still running after ${limit} s, so it`);
     },
   };
 }

@@ -145,6 +145,11 @@ is stopped at 2 minutes as before. A line you send the AI while one runs moves i
 once (when there is room), so the AI reads your line instead of waiting for the command. A command the
 AI gave its own time limit is stopped at it, and servers
 still go through the service tool. Every one is stopped, with whatever it started, when Casper exits.
+A job the AI means to outlive its call (a long comparison, a build of an hour) it starts with the shell's
+`background: true`: it moves to the background after 3 s (a quick failure still shows in the call), with no time
+limit and no stall check, and the receipt's line 1 says it still runs. `&`, `nohup`, `setsid` and tmux are not the
+way: Casper ends what a call leaves running when the call returns, or it runs where nothing reports it, and a command
+that tries gets a note pointing at `background: true`.
 It is on. Turn it off with `/settings` (it writes `slow_commands: false`) and a slow command is
 stopped at 2 minutes. A project file can't set it.
 

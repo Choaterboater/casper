@@ -14,14 +14,15 @@ import { riskyBaseline, riskyLinesIn } from "../network/risky-receipt";
 import path from "node:path";
 import { realpathSync } from "node:fs";
 import { SmokeChecks } from "../services/smoke";
-import { lineText, paint, terminalText, tint } from "../tui/format";
+import { lineText, paint, redactPreview, terminalText, tint } from "../tui/format";
+import { hideCommandSecrets } from "../secrets/files";
 import { ProjectMemory, type TaskOutcome } from "../memory/store";
 import type { ChildProject } from "../project/child";
 import type { RuntimeImage, RuntimeSession } from "../runtime/types";
 import { formatSelectedSkills } from "../skills/registry";
 import { classifyTask, formatTaskPrompt, underSpecifiedTarget } from "../task/classify";
 import { machineNames, rememberMachines } from "./machines";
-import { answerClaimsBrowserPass, receiptView, rememberSessionNotes, shortReceiptText, undoPathsShown, formatTaskResult, UNDO_NOT_PROJECT, workElsewhere, type ReceiptOptions, type ReceiptView, type TaskResult } from "../task/result";
+import { answerClaimsBrowserPass, receiptView, rememberSessionNotes, shortReceiptText, undoPathsShown, formatTaskResult, UNDO_NOT_PROJECT, workElsewhere, type ReceiptOptions, type ReceiptView, type StillRunning, type TaskResult } from "../task/result";
 import { changedSoFar, endingLine, mustStand, quietReceipt, taskEnding, withEarlierChanges } from "../task/ending";
 import { OBSERVED_EDITS_LIMIT, TaskObservations } from "../task/observations";
 import { isToolCallAsText, TOOL_CALL_AS_TEXT_LINE } from "../task/text-tool-call";
@@ -110,6 +111,8 @@ export async function runModelTask(app: CasperApp, prompt: string, options: { fl
   app.pastedImages = undefined;
   // Browser checks recorded or replayed from here on belong to this task; Casper's end replay covers only those.
   const taskStarted = performance.now();
+  /** Background jobs started from here on are this task's (the receipt says they still run). */
+  const taskBegan = Date.now();
   for (const note of attached.notes) app.output.write(`[image] ${terminalText(note)}\n`);
   // Whether the request names a target, and how much it asks, is read from what you typed: a saved picture's
   // `[image 1] is the file …` line names a file Casper made, not what to change.
@@ -226,6 +229,9 @@ export async function runModelTask(app: CasperApp, prompt: string, options: { fl
   if (notProject.signal.aborted) undoStart.snapshot = { unavailable: UNDO_NOT_PROJECT };
   edits.before = before;
   app.snapshotBase = before;
+  const liveFiles = liveSinceLastTask(app.taskEndTree, workspaceRoot, before);
+  // Set again only by a task that reaches its receipt: one that stopped short says nothing about the time since.
+  app.taskEndTree = undefined;
   app.outsideWork = new OutsideWork(workspaceRoot, app.homeDir(), systemTempDirs());
   // What the test command means before the change (package.json scripts, runner settings): a change that rewrites
   // it is not proven or acceptance-checked by it.
@@ -363,11 +369,15 @@ export async function runModelTask(app: CasperApp, prompt: string, options: { fl
     // What changed while none of the AI's tools that may write ran (it read, searched, waited on a question or ran a plain
     // ssh on another machine) is another program's: an editor, a second AI tool, a running app's database. It is named
     // on the receipt, and not checked, offered as "The work is in ..." or undone (src/task/attribution.ts).
-    if (before && afterModel && edits.tools && edits.windows) {
-      const split = await attributeChanges({ root: workspaceRoot, changes: diffSnapshots(before, afterModel), windows: edits.windows.windows(),
+    // So is a file that kept changing between the last task and this one (liveFiles): a job an earlier task started.
+    if (before && afterModel && edits.windows && (edits.tools || liveFiles.size)) {
+      const changes = diffSnapshots(before, afterModel);
+      const split = edits.tools ? await attributeChanges({ root: workspaceRoot, changes, windows: edits.windows.windows(),
         since: edits.windows.since, until: Date.now(), toolFiles: new Set(toolFiles(workspaceRoot, app.observations.edited(), "inside")),
         unsure: Boolean(edits.windows.unsure || app.backgroundCommands?.list().length || app.services?.live() || app.subagents.runs().length),
-        commands: app.observations.toolCalls.flatMap((call) => typeof call.input?.command === "string" ? [call.input.command] : []) }).catch(() => undefined);
+        commands: app.observations.toolCalls.flatMap((call) => typeof call.input?.command === "string" ? [call.input.command] : []), liveFiles }).catch(() => undefined)
+        // No tool of the AI's ran: a live file that changed is its writer's.
+        : { task: [], others: flatten(changes).filter((file) => liveFiles.has(file)), unsure: [] };
       if (split?.others.length) {
         changedNotByModel = split.others;
         othersAsFound = afterModel;
@@ -414,6 +424,10 @@ export async function runModelTask(app: CasperApp, prompt: string, options: { fl
         selected: context.verification.checks, commands: context.model.commands, scopes: context.model.verificationScopes,
         named: context.model.namedChecks, detected: autoDetectedChecks(context.model), changedPaths: changedByModel, root: workspaceRoot,
       });
+      // A question ("is it still running?") whose own edit and write tools changed nothing, and no code or tests: the
+      // checks have nothing of its to check. The model's own recorded checks still run.
+      if (autoChecks.run.length && readsAsQuestion(prompt, classification) && !app.observations.edited().length
+        && !changedByModel?.some((file) => isCodePath(file) || isTestPath(file))) autoChecks = { run: [], skipped: "question" };
       // Configured smoke checks run after a change; checks the model recorded always run.
       const smokeDue = Boolean(app.smokeTask?.recordedCount || (app.smokeTask?.size && autoChecks.skipped !== "no-changes"));
       // Pages are opened when the project facts say so (a web project, changed files that reach a page), never the prompt.
@@ -595,6 +609,8 @@ export async function runModelTask(app: CasperApp, prompt: string, options: { fl
     const branchMoved = headMoved(undoStart.head, await taskHead(workspaceRoot));
     const changedPaths = before && afterModel ? flatten(diffSnapshots(before, afterModel)) : undefined;
     const changedDuringChecks = afterModel && afterChecks && afterChecks !== afterModel ? flatten(diffSnapshots(afterModel, afterChecks)) : [];
+    // The folder as this task left it: what changes before the next one begins was written by something still running.
+    app.taskEndTree = afterChecks && !app.closing ? { root: workspaceRoot, tree: afterChecks } : undefined;
     const classifiedAfter = classifications();
     if (classifiedBefore === undefined || classifiedAfter !== classifiedBefore) app.observations.recordUntrackedModelUse();
     const observations = app.observations.snapshot(changedPaths, changedDuringChecks);
@@ -608,6 +624,9 @@ export async function runModelTask(app: CasperApp, prompt: string, options: { fl
       if (execution === "completed") execution = "failed";
     }
     const outsideChanges = await app.outsideWork?.finish().catch(() => []) ?? [];
+    // A one-shot run's background stops when it exits: only a session's job goes on after the receipt.
+    const stillRunning: StillRunning[] = app.interactive && !app.closing ? (app.backgroundCommands?.list() ?? []).filter((job) => job.startedAt >= taskBegan)
+      .map((job) => ({ id: job.id, command: redactPreview(hideCommandSecrets(job.command).text), startedAt: job.startedAt, ...(job.log ? { log: job.log } : {}) })) : [];
     app.outsideWork = undefined;
     const outsideWrites = outsideWritesReceipt(app.sandbox);
     // Parts builders landed that no reviewer finished: one plain line, never a failure.
@@ -634,7 +653,7 @@ export async function runModelTask(app: CasperApp, prompt: string, options: { fl
       ...(acceptance ? { acceptance } : {}), ...(checklist ? { checklist } : {}), ...bigModelReceipt(app),
       ...(app.planBuild ? { planSteps: app.planBuild.finish(execution) } : {}),
       ...(changedWhilePlanning?.length ? { changedWhilePlanning } : {}), ...(changedNotByModel ? { changedNotByModel } : {}), ...(changedUnsure ? { changedUnsure } : {}), ...(app.sandbox ? { sandbox: sandboxReceipt(app.sandbox)! } : {}),
-      ...outsideWrites, ...(outsideChanges.length ? { outsideChanges } : {}) };
+      ...outsideWrites, ...(outsideChanges.length ? { outsideChanges } : {}), ...(stillRunning.length ? { stillRunning } : {}) };
     rememberMachines(app, observations.remoteChanges);
     if (app.cleanupReports.length) app.lastTaskResult.cleanup = [...app.cleanupReports];
     app.lastFinishedTask = app.lastTaskResult;
@@ -1387,3 +1406,18 @@ export function proofSkipReason(options: { intent: string; testCommand?: string;
   return "Casper did not compare the tests with and without the change";
 }
 
+
+/** Files that changed after the last task in this folder ended and before this one began, while no task ran: something
+ * still running writes them (a job an earlier task started, an app). Code and tests are left out: those are your edits
+ * between tasks, and the AI changing them again is its own work. */
+export function liveSinceLastTask(last: { root: string; tree: ReadonlyMap<string, string> } | undefined, root: string, before: ReadonlyMap<string, string> | undefined): ReadonlySet<string> {
+  if (!last || !before || last.root !== root) return new Set();
+  const changes = diffSnapshots(new Map(last.tree), new Map(before));
+  return new Set([...changes.added, ...changes.modified, ...changes.removed].filter((file) => !isCodePath(file) && !isTestPath(file)));
+}
+
+/** A request that asks rather than tells: a question by Casper's reading, one ending in "?", or a bare "status". */
+export function readsAsQuestion(request: string, classification: Pick<TaskClassification, "intent">): boolean {
+  const text = request.trim();
+  return classification.intent === "inspect" || /\?\s*$/.test(text) || /^(?:status|progress)[.!]?$/i.test(text);
+}

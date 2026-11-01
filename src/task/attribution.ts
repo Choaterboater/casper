@@ -4,7 +4,8 @@
  * task's work and deleted by its undo. The task's tools that can write (any tool but reads, searches and a plain ssh)
  * are timed while they run; a file whose time of change falls while none of them ran is another program's. A file the
  * task's own edit and write tools named is always the task's. A running app's database and log files (serviceFile) are
- * the app's whenever they changed, unless the AI's tools or commands named them. A deleted file, an unreadable time, or anything while a
+ * the app's whenever they changed, unless the AI's tools or commands named them; so is a file that kept changing between
+ * tasks (liveFiles), unless the AI's edit and write tools named it. A deleted file, an unreadable time, or anything while a
  * command or service the task left running could still write, is one Casper can't tell: it stays the task's on the
  * receipt, and undo asks before touching it.
  */
@@ -77,6 +78,10 @@ export interface AttributionInput {
   unsure?: boolean;
   /** The AI's shell commands this task: a service's own file (serviceFile) they name stays theirs. */
   commands?: readonly string[];
+  /** Files that changed after the last task ended and before this one began, while no task ran: something that keeps
+   * running writes them (a job the AI started in an earlier task, an app). A change to one now is that writer's too,
+   * also while a command of this task ran (reading its log names it), unless the task's edit and write tools named it. */
+  liveFiles?: ReadonlySet<string>;
   /** The time a file or folder last changed, or undefined when it can't be read. */
   changedAt?: (absolute: string) => Promise<number | undefined>;
   slackMs?: number;
@@ -105,7 +110,8 @@ export async function attributeChanges(input: AttributionInput): Promise<Attribu
   // edit tools or its commands named the file, it is the app's.
   const theApps = (file: string) => serviceFile(file) && !input.toolFiles?.has(file)
     && !(input.commands ?? []).some((command) => command.includes(path.posix.basename(file).replace(/-(?:wal|shm|journal)$/, "")));
-  for (const file of [...input.changes.added, ...input.changes.modified, ...input.changes.removed]) if (theApps(file)) result.others.push(file);
+  const live = (file: string) => Boolean(input.liveFiles?.has(file)) && !input.toolFiles?.has(file);
+  for (const file of [...input.changes.added, ...input.changes.modified, ...input.changes.removed]) if (theApps(file) || live(file)) result.others.push(file);
   for (const file of [...input.changes.added, ...input.changes.modified]) {
     if (result.others.includes(file)) continue;
     if (input.toolFiles?.has(file)) { result.task.push(file); continue; }
