@@ -10,7 +10,7 @@ import { pidFile, STALLED_EXIT_CODE, stalledMessage, watchStall } from "./stalle
 import { matchConversation } from "../sessions/resume";
 import { PiModels } from "./pi-models";
 import { BASH_TIMEOUT_CAP_SECONDS, COMMAND_GUIDANCE, SEARCH_GUIDANCE, LEAN_COMMAND_GUIDANCE, LEAN_SEARCH_GUIDANCE, projectGuidance } from "./guidance";
-import { AgentShellGuard, AGENT_SHELL_GUIDANCE } from "./agent-shell-guard";
+import { AgentShellGuard, AGENT_SHELL_GUIDANCE, HELPER_SHELL_GUIDANCE } from "./agent-shell-guard";
 export { BASH_TIMEOUT_CAP_SECONDS } from "./guidance";
 import { configureLocalServers, dropLocalServers, forgetLocalServer, localServers, localServerSettled, localServersHereSettled, onLocalServer, registerLocalServers, rememberLocalServer, savedLocalServers } from "./local-models";
 import { addModelServers, forgetModelServer } from "./add-model-server";
@@ -1073,8 +1073,9 @@ export class PiRuntime implements AgentRuntime {
       const repairing = <D extends { name: string; parameters: unknown; prepareArguments?: (args: unknown) => unknown }>(definition: D): D =>
         ({ ...definition, prepareArguments: repair.hook(definition.name, definition.parameters, definition.prepareArguments) } as D);
       const toolRules = `Tool rules:\n${PI_TOOL_RULES.map((rule) => `- ${rule}`).join("\n")}`;
-      const addendum = { full: [COMMAND_GUIDANCE, toolRules, SEARCH_GUIDANCE, AGENT_SHELL_GUIDANCE].join("\n\n"),
-        lean: [LEAN_COMMAND_GUIDANCE, toolRules, LEAN_SEARCH_GUIDANCE, AGENT_SHELL_GUIDANCE].join("\n\n") };
+      const shellGuidance = bounded ? HELPER_SHELL_GUIDANCE : AGENT_SHELL_GUIDANCE;
+      const addendum = { full: [COMMAND_GUIDANCE, toolRules, SEARCH_GUIDANCE, shellGuidance].join("\n\n"),
+        lean: [LEAN_COMMAND_GUIDANCE, toolRules, LEAN_SEARCH_GUIDANCE, shellGuidance].join("\n\n") };
       const extensionFactory = (pi: ExtensionAPI) => {
         // Tools may execute only after the entire response streams. Some providers also reuse a text block
         // across calls, so snapshot at toolcall_start, then bind the final call id at toolcall_end.
@@ -1317,7 +1318,7 @@ export class PiRuntime implements AgentRuntime {
               COMMAND_GUIDANCE,
               toolRules,
               SEARCH_GUIDANCE,
-              AGENT_SHELL_GUIDANCE,
+              shellGuidance,
             ],
           },
         });
