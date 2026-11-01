@@ -108,7 +108,8 @@ During a task the model uses one `service` tool, with these actions:
 
 - **`start`** starts a declared service by name and waits for readiness. A stale or
   crashed one is restarted first. With `command` instead of a name, it starts an
-  **ad-hoc service** named `adhoc-<n>`. It runs at the project root with `PORT`/`HOST`
+  **ad-hoc service** named `adhoc-<n>`; a `name` (or `service`) the model gives it ("app")
+  is kept as its `alias`, and every action takes either. It runs at the project root with `PORT`/`HOST`
   and nothing else in `env`, has no scope (any edit makes it stale), and is ready at
   `ready` (default `{ http: / }`) within `timeoutMs` (default 30000). Starting the same
   command again joins the running one (restarting it first when an edit made it stale or
@@ -122,12 +123,20 @@ During a task the model uses one `service` tool, with these actions:
   optionally only lines containing `filter`), **`restart`** and **`stop`**. `status` also lists
   slow shell commands Casper moved to the background (see **Slow commands** in
   [CONFIGURATION.md](CONFIGURATION.md)), and `logs` and `stop` take one's id as `service` (`cmd-1`).
+- Every action takes the service as `service`, or as `name` or `id` the way some models send
+  it. With none named, it is the only service there is, or the only one running. A name no
+  service has goes to the only one running, and the result's `note` says so (not on `start`,
+  which starts what it names). Any other mistake in a call is answered with the call that
+  works, such as `Call it like this: {"action":"request","service":"api","method":"GET","path":"/"}`.
 - **`request`** sends one HTTP request (`GET`, `HEAD`, `POST`, `PUT`, `PATCH`,
   `DELETE` or `OPTIONS`). It is sent either to `service` plus `path` (which
   starts with a single `/` and contains no `\`), or to a `url` on `localhost`, `127.0.0.1` or `[::1]` over `http:`. A URL at a service's
-  address counts as that service. Anything else is refused. Before sending, Casper makes
-  the service fresh: a service that is stale from edits, has crashed or no longer answers
-  its readiness path is restarted, and the result says `restarted: true`. Redirects are
+  address counts as that service; a `url` that is only a path is the path, the fields may
+  come nested under `request` as `check` takes them, and a `url` next to a `service` whose
+  address it isn't (an old one) goes to that service. Anything else is refused. Before
+  sending, Casper makes the service fresh: a service that is stale from edits, has crashed
+  or no longer answers its readiness path is restarted, and the result says
+  `restarted: true`. Requests sent together share that one restart. Redirects are
   shown, not followed. The request times out after 10 s. The result shows the status,
   selected headers (`content-type`, `content-length`, `location`, `allow`,
   `cache-control`, `etag`, `last-modified`, `retry-after`, `www-authenticate`) and the count of the rest. It also shows the timing and the
@@ -141,6 +150,14 @@ During a task the model uses one `service` tool, with these actions:
   check after the change (see [VERIFICATION.md](VERIFICATION.md), "Smoke checks"). A check
   recorded after edits in the task, or during a repair round, is an observation, never evidence.
 
+A restart keeps the service's port: Casper waits up to 3 s for the stopped process to let
+go of it. If something else holds it by then, the service moves to a free port and the next
+call says so once, under `moved`: `api moved from <old> to <new> because its old port was
+still taken: anything that points at <old> (config, checks, another service) must use <new>.`
+A host the shell sandbox kept a service from reaching is named once, under `blocked`: the
+app's calls there fail in this run, which is not a bug in the app, so the model does not
+debug them; it tests those calls against a local stand-in service.
+
 A crash after readiness is not pushed into the model's turn. The next `service` call or
 smoke run reports it once, with the exit code and last log lines. A `service` call reports
 it under `crashed`, before a request restarts the service, and a crash that `/services`
@@ -149,7 +166,9 @@ the smoke report's `crashes` (the receipt says `api restarted after crash (exit 
 repair prompt that follows it includes the crash.
 
 The model's `edit` and `write` calls mark the services whose scope covers the file
-stale. A `bash` call marks every running service stale.
+stale. A `bash` call marks every running service stale, unless it only reads files in the
+project (`cat`, `grep`, `ls` and the other reads the shell runs without asking), which can't
+change what a service serves.
 
 The tool is offered when the project declares services, a service is running, the
 task mentions a dev, HTTP or web server, `localhost`, an endpoint or `curl`, or the plan you

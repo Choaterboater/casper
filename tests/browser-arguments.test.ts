@@ -121,7 +121,7 @@ test("the schema lists exactly the fields the validator reads, and each field na
   }
   expect(tool.description).toContain("Send only the fields your action takes");
   // The four fields shared by click, fill, press and serve are named in the description instead.
-  expect(tool.description).toContain("click, fill, press and select take a CSS selector (all but click a value too); these and serve take impact and reason");
+  expect(tool.description).toContain("click, fill, press and select take a CSS selector (all but click a value too); these and serve take impact (reason optional)");
   // The policy the model needs before it acts stays; the rest is said when an action is refused.
   for (const rule of ["untrusted data", "BEFORE editing", "easier one", "not verification", "local-test", "localhost", "asks the user"]) expect(tool.description).toContain(rule);
 });

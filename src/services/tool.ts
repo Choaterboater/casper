@@ -39,6 +39,33 @@ const string = (value: unknown, name: string): string => {
 };
 const optional = (value: unknown, name: string): string | undefined => value === undefined ? undefined : string(value, name);
 
+/** The call that works for `action`, shown in an error so a model that got the shape wrong sends it right next time. */
+export function serviceCall(action: string, service?: string): string {
+  const call = action === "start" && service === undefined ? { action, command: "npm start" }
+    : action === "request" ? { action, service: service ?? "<name>", method: "GET", path: "/" }
+    : action === "logs" ? { action, service: service ?? "<name>", lines: 40 }
+    : { action, service: service ?? "<name>" };
+  return `Call it like this: ${JSON.stringify(call)}`;
+}
+
+/** The service a call names: `service`, or `name` or `id` as some models send it. A check's name and a replay's id
+ * are their own fields; on a start by command, `name` is the name the AI gives the new service. */
+function namedService(args: Record<string, unknown>): unknown {
+  if (args.service !== undefined) return args.service;
+  if (args.action === "check" || args.action === "replay" || (args.action === "start" && args.command !== undefined)) return undefined;
+  return args.name ?? args.id;
+}
+
+/** A request's fields nested under `request` (the shape `check` takes), used where the call left them out. */
+function flatRequest(args: Record<string, unknown>): Record<string, unknown> {
+  const nested = args.request;
+  if (args.action !== "request" || !nested || typeof nested !== "object" || Array.isArray(nested)) return args;
+  const flat: Record<string, unknown> = { ...args };
+  delete flat.request;
+  for (const key of ["method", "path", "url", "headers", "body"]) if (flat[key] === undefined && (nested as Record<string, unknown>)[key] !== undefined) flat[key] = (nested as Record<string, unknown>)[key];
+  return flat;
+}
+
 /** Reads up to READ_BYTES, then stops the stream; `complete` says whether the whole body arrived. */
 export async function readBody(response: Response): Promise<{ bytes: Buffer; complete: boolean }> {
   if (!response.body) return { bytes: Buffer.alloc(0), complete: true };
@@ -78,29 +105,56 @@ export function serviceTool(manager: () => ServiceManager, lifetime?: AbortSigna
     return name;
   };
 
+  const running = (services: ServiceManager) => services.status()
+    .filter(service => !services.casperOnly(service.name) && (service.state === "ready" || service.state === "starting"));
+
+  /** The service a call means. None named: the only one there is, or the only one running. A name nobody has: the
+   * only one running, said in `note` (not on start, which starts what it names). Otherwise the error shows the call. */
+  function choose(services: ServiceManager, given: unknown, action: string): { name: string; note?: string } {
+    const names = services.aiNames();
+    const live = running(services);
+    if (given === undefined) {
+      if (names.length === 1) return { name: allowed(services, names[0]!) };
+      if (live.length === 1) return { name: live[0]!.name };
+      throw new Error(`Name the service: ${names.join(", ") || "none declared or started yet"}. ${serviceCall(names.length ? action : "start", names[0])}`);
+    }
+    if (typeof given !== "string" || !given) throw new Error(`service must be a service's name. ${serviceCall(action, live[0]?.name ?? names[0])}`);
+    const known = services.resolve(given);
+    if (known) return { name: allowed(services, known) };
+    if (action !== "start" && live.length === 1) return { name: live[0]!.name, note: `No service is named ${JSON.stringify(given)}; this went to ${live[0]!.name}, the only one running.` };
+    throw new Error(`No service named ${JSON.stringify(given)}; ${names.length ? `there are: ${names.join(", ")}` : "none is declared or started yet"}. ${serviceCall(names.length ? action : "start", names[0])}`);
+  }
+
   /** A request goes to a managed service's origin (by name and path, or by its URL) or to another loopback URL; nothing else. */
   async function request(services: ServiceManager, args: Record<string, unknown>, signal: AbortSignal) {
     const method = (optional(args.method, "method") ?? "GET").toUpperCase();
     if (!METHODS.includes(method)) throw new Error(`method must be one of ${METHODS.join(", ")}`);
-    let name = optional(args.service, "service"), url: URL, restarted = false;
-    if (args.url !== undefined) {
-      if (args.path !== undefined) throw new Error("Give path (with service) or url, not both");
-      try { url = new URL(string(args.url, "url")); } catch { throw new Error("url must be an absolute http://localhost, 127.0.0.1 or [::1] URL"); }
+    const given = namedService(args);
+    let name: string | undefined, note: string | undefined, url: URL, restarted = false;
+    // A url that is only a path ("/api/items") is the path.
+    const pathArg = args.path ?? (typeof args.url === "string" && args.url.startsWith("/") ? args.url : undefined);
+    const urlArg = pathArg === args.url ? undefined : args.url;
+    if (urlArg !== undefined) {
+      if (pathArg !== undefined) throw new Error("Give path (with service) or url, not both");
+      try { url = new URL(string(urlArg, "url")); } catch { throw new Error("url must be an absolute http://localhost, 127.0.0.1 or [::1] URL"); }
       if (url.protocol !== "http:" || !LOOPBACK.has(url.hostname)) {
         throw new Error("Requests are limited to Casper's services and loopback http:// URLs (localhost, 127.0.0.1, [::1])");
       }
       const owner = services.status().find(service => service.origin && new URL(service.origin).port === url.port);
-      if (name !== undefined && owner?.name !== name) throw new Error(`url is not ${name}'s address; give service and path instead`);
-      name = owner && allowed(services, owner.name);
+      if (given !== undefined) {
+        ({ name, note } = choose(services, given, "request"));
+        // An old address of the named service (it moved), or another's: the service named is the one meant.
+        if (owner?.name !== name) note = [note, `${url.origin} is not ${name}'s address; this went to ${name} at its own.`].filter(Boolean).join(" ");
+      } else name = owner && allowed(services, owner.name);
     } else {
-      const target = string(args.path, "path");
+      if (pathArg === undefined) {
+        const service = given === undefined ? running(services)[0]?.name ?? services.aiNames()[0] : services.resolve(String(given)) ?? String(given);
+        throw new Error(`request needs path (or a full loopback url). ${serviceCall("request", service)}`);
+      }
+      const target = string(pathArg, "path");
       // URL parsing reads a backslash as a slash (`/\host/x` would name a host), so it is refused, not rewritten.
       if (!/^\/(?!\/)[^\\]*$/.test(target)) throw new Error("path must start with a single / and contain no \\ (use url for a full loopback URL)");
-      if (name === undefined) {
-        const names = services.aiNames();
-        if (names.length !== 1) throw new Error(`Name the service: ${names.join(", ") || "none declared or started"}`);
-        name = names[0]!;
-      }
+      ({ name, note } = choose(services, given, "request"));
       url = new URL(target, "http://127.0.0.1");
     }
     if (name !== undefined) {
@@ -108,7 +162,7 @@ export function serviceTool(manager: () => ServiceManager, lifetime?: AbortSigna
       // Never test stale code: edits since the start (or a crash) restart the service first.
       ({ restarted } = await services.ensureFresh(name, signal));
       const origin = services.origin(name);
-      if (!origin) throw new Error(`Service ${name} is not ready`);
+      if (!origin) throw new Error(`Service ${name} is not ready. ${serviceCall("logs", name)}`);
       url = new URL(url.pathname + url.search, origin);
     }
     const headers = args.headers === undefined ? {} : args.headers;
@@ -121,11 +175,18 @@ export function serviceTool(manager: () => ServiceManager, lifetime?: AbortSigna
     else if (args.body !== undefined) { body = JSON.stringify(args.body); if (!sent.has("content-type")) sent.set("content-type", "application/json"); }
     const began = performance.now();
     // Redirects are shown, not followed: a Location may leave loopback.
-    const response = await fetch(url, { method, headers: sent, body, redirect: "manual", signal: AbortSignal.any([signal, AbortSignal.timeout(REQUEST_TIMEOUT_MS)]) });
+    const response = await fetch(url, { method, headers: sent, body, redirect: "manual", signal: AbortSignal.any([signal, AbortSignal.timeout(REQUEST_TIMEOUT_MS)]) })
+      .catch((error: unknown) => {
+        signal.throwIfAborted();
+        const reason = error instanceof Error ? error.message.split(". ")[0] : String(error);
+        if (!name) throw new Error(`Nothing answered at ${url.origin} (${reason})`);
+        const now = services.status().find(service => service.name === name);
+        throw new Error(`${name} did not answer at ${url.origin} (${reason}); it is ${now?.state ?? "gone"}${now?.origin && now.origin !== url.origin ? ` at ${now.origin}` : ""}. ${serviceCall("logs", name)}`);
+      });
     const { bytes, complete } = await readBody(response);
     const timeMs = Math.round(performance.now() - began);
     const shown = Object.fromEntries(SHOWN_HEADERS.flatMap(header => { const value = response.headers.get(header); return value === null ? [] : [[header, value]]; }));
-    return { ...(name ? { service: name } : {}), method, url: url.href, restarted, status: response.status, statusText: response.statusText,
+    return { ...(name ? { service: name } : {}), ...(note ? { note } : {}), method, url: url.href, restarted, status: response.status, statusText: response.statusText,
       headers: shown, otherHeaders: [...response.headers.keys()].filter(header => !SHOWN_HEADERS.includes(header)).length,
       body: showBody(bytes, complete, response.headers.get("content-type") ?? ""), timeMs };
   }
@@ -168,13 +229,14 @@ export function serviceTool(manager: () => ServiceManager, lifetime?: AbortSigna
       return { services: services.status().filter(service => !services.casperOnly(service.name)),
         ...(running.length ? { commands: running.map(({ id, command, log }) => ({ id, command, ...(log ? { log } : {}) })) } : {}) };
     }
-    if (typeof args.service === "string" && /^cmd-\d+$/.test(args.service) && (action === "logs" || action === "stop")) {
-      const id = args.service;
+    const given = namedService(args);
+    if (typeof given === "string" && /^cmd-\d+$/.test(given) && (action === "logs" || action === "stop")) {
+      const id = given;
       if (!background?.has(id)) throw new Error(`${id} is not running (it ended, or was never started)`);
       if (action === "stop") return { command: id, stopped: await background.stop(id, "model") };
       return { command: id, logs: background.logs(id, Math.min(200, Math.max(1, Number.isInteger(args.lines) ? Number(args.lines) : 40))) };
     }
-    if (action === "request") return request(services, args, signal);
+    if (action === "request") return request(services, flatRequest(args), signal);
     if (action === "check" || action === "replay") {
       const checks = smoke?.();
       if (!checks) throw new Error("Checks are recorded during a task with Casper's verification on");
@@ -184,7 +246,9 @@ export function serviceTool(manager: () => ServiceManager, lifetime?: AbortSigna
         check.baselineAfterEdits ? " This one was recorded after edits in this task, so it is an observation too: record checks before editing." : ""}` };
     }
     if (action === "start" && args.command !== undefined) {
-      if (args.service !== undefined) throw new Error("Give service (declared) or command (ad-hoc), not both");
+      // service or name next to a command is the name the AI gives it; a declared service starts by its name alone.
+      const alias = typeof args.service === "string" ? args.service : typeof args.name === "string" ? args.name : undefined;
+      if (alias !== undefined && services.declared(alias)) throw new Error(`${alias} is declared: start it by name alone. ${serviceCall("start", alias)}`);
       const ready = args.ready as Record<string, unknown> | undefined;
       let spec: ServiceSpec["ready"] | undefined;
       if (ready !== undefined) {
@@ -198,25 +262,35 @@ export function serviceTool(manager: () => ServiceManager, lifetime?: AbortSigna
       if (refused) throw new Error(refused);
       // Joining the same command then takes the declared start's path, so a stale one restarts.
       // The sandbox may fail to start on this very command: then it asks too, before it runs not sandboxed.
-      const started = await unlessSteered(launch => services.startCommand(command, { ready: spec, timeoutMs, ...(approve ? { approve: (inner: AbortSignal) => approve(command, inner, { reached: true }) } : {}) }, launch), signal);
+      const started = await unlessSteered(launch => services.startCommand(command, { ready: spec, timeoutMs, ...(alias ? { alias } : {}),
+        ...(approve ? { approve: (inner: AbortSignal) => approve(command, inner, { reached: true }) } : {}) }, launch), signal);
       // An ad-hoc service is named when its slot is made: found by its command.
       if (started === "line") return steered(services.status().find(service => service.name.startsWith("adhoc-") && service.command === command)?.name);
       return start(started.name);
     }
-    const name = string(args.service, "service");
-    if (action === "start") return start(allowed(services, name));
+    if (!["start", "restart", "stop", "logs"].includes(String(action))) throw new Error("action must be start, status, logs, restart, stop, request, check or replay");
+    const { name, note } = choose(services, given, String(action));
+    const noted = <T extends Record<string, unknown>>(result: T) => note ? { ...result, note } : result;
+    if (action === "start") return start(name);
     if (action === "restart") {
       const target = allowed(services, name);
       const restarted = await unlessSteered(inner => services.restart(target, inner), signal);
-      return restarted === "line" ? steered(target) : { service: restarted };
+      return restarted === "line" ? steered(target) : noted({ service: restarted });
     }
-    if (action === "stop") { const stopped = await services.stop(name); return { stopped, service: describe(services, name) }; }
-    if (action === "logs") {
-      const lines = Math.min(200, Math.max(1, Number.isInteger(args.lines) ? Number(args.lines) : 40));
-      const { text, truncated } = services.logs(name, { lines, ...(typeof args.filter === "string" && args.filter ? { filter: args.filter } : {}) });
-      return { service: name, logs: text, truncated };
-    }
-    throw new Error("action must be start, status, logs, restart, stop, request, check or replay");
+    if (action === "stop") { const stopped = await services.stop(name); return noted({ stopped, service: describe(services, name) }); }
+    const lines = Math.min(200, Math.max(1, Number.isInteger(args.lines) ? Number(args.lines) : 40));
+    const { text, truncated } = services.logs(name, { lines, ...(typeof args.filter === "string" && args.filter ? { filter: args.filter } : {}) });
+    return noted({ service: name, logs: text, truncated });
+  }
+
+  /** Said once, after the call: a service whose port moved (anything holding the old address is wrong now), and hosts
+   * the sandbox kept a service from reaching (its outside calls fail here, which is not the app's fault). */
+  function afterCall(services: ServiceManager): Record<string, string> {
+    const moved = services.takeMoves().map(({ name, from, to }) =>
+      `${name} moved from ${from} to ${to} because its old port was still taken: anything that points at ${from} (config, checks, another service) must use ${to}.`);
+    const blocked = services.takeBlocked().map(({ name, hosts }) =>
+      `Casper's sandbox kept ${name} from reaching ${hosts.join(", ")} in this run, so the app's calls there fail here. That is not a bug in the app: do not debug it; test those calls against a local stand-in service.`);
+    return { ...(moved.length ? { moved: moved.join(" ") } : {}), ...(blocked.length ? { blocked: blocked.join(" ") } : {}) };
   }
 
   return {
@@ -243,10 +317,10 @@ export function serviceTool(manager: () => ServiceManager, lifetime?: AbortSigna
       try {
         const signals = [lifetime, signal].filter((entry): entry is AbortSignal => Boolean(entry));
         const result = await run(services, args, signals.length ? AbortSignal.any(signals) : new AbortController().signal);
-        return { text: boundedObservation({ ...result, ...report }, "Service observation") };
+        return { text: boundedObservation({ ...result, ...report, ...afterCall(services) }, "Service observation") };
       } catch (error) {
         // Crash tails ride along here too, so the error is bounded like any observation.
-        return { isError: true, text: boundedObservation({ error: (error instanceof Error ? error.message : "Service operation failed").slice(0, 4096), ...report }, "Service error") };
+        return { isError: true, text: boundedObservation({ error: (error instanceof Error ? error.message : "Service operation failed").slice(0, 4096), ...report, ...afterCall(services) }, "Service error") };
       }
     },
   };

@@ -1,4 +1,5 @@
 import { isConfigFile as isDeviceConfig } from "../network/risky-receipt";
+import { appDataFile } from "../services/app-data";
 
 /**
  * Config files: the settings a project, its tools and its machines run with, as against its code. A receipt names the
@@ -67,4 +68,15 @@ export function configChanges(files: readonly string[]): ConfigChanges {
 /** How a receipt lists them: each config file, then the lockfiles as one entry ("bun.lock", "3 lockfiles"). */
 export function configEntries({ files, lockfiles }: ConfigChanges): string[] {
   return [...files, ...lockfiles.length > 1 ? [`${lockfiles.length} lockfiles`] : lockfiles];
+}
+
+/** Dependency lists and build settings: a repair may change them for good reason, so they are not flagged as app data. */
+const BUILD_SETTINGS = /^(?:package\.json|deno\.jsonc?|jsconfig\.json|tsconfig[\w.-]*\.json|pyproject\.toml|cargo\.toml|requirements[\w.-]*\.txt)$/i;
+
+/** Settings or data an app reads as it runs (config/*.yaml, .env, data.json, a SQLite file), not its code, lockfiles or
+ * dependency lists. A check or repair that changed one may have left test data in what ships. */
+export function isAppSettingsOrData(file: string): boolean {
+  const name = parts(file).at(-1) ?? "";
+  if (isLockfile(file) || BUILD_SETTINGS.test(name)) return false;
+  return appDataFile(file) || SETTINGS[0]!.test(name) || SETTINGS[2]!.test(name);
 }

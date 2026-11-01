@@ -319,3 +319,24 @@ test("a server the AI reached with its own shell brings the service tool from th
   await f.app.runOnce("fix the parser again");
   expect(seen).toEqual([false, false, true, false]);
 }, 30_000);
+
+test("a shell command that only reads project files leaves a running service fresh; one that may write marks it stale", async () => {
+  const f = await fixture();
+  const stale: boolean[] = [];
+  let commands: string[] = [];
+  f.runtime.action = async () => {
+    const tool = f.runtime.tools.find(entry => entry.name === "service")!;
+    await tool.execute({ action: "start", service: "api" }, new AbortController().signal);
+    for (const command of commands) {
+      f.runtime.emit({ type: "tool_end", toolName: "bash", input: { command }, isError: false });
+      const status = JSON.parse((await tool.execute({ action: "status" }, new AbortController().signal)).text).data;
+      stale.push(status.services[0].stale);
+    }
+  };
+  await f.app.start(f.project);
+  await writeFile(path.join(f.project, "notes.txt"), "x");
+  // Reading config and logs (the AI did this between most requests) must not restart the server it is testing.
+  commands = ["cat notes.txt", "ls -la && grep -n x notes.txt", "echo hi > notes.txt"];
+  await f.app.runOnce("start the dev server and check it");
+  expect(stale).toEqual([false, false, true]);
+}, 30_000);

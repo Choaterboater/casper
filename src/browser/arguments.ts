@@ -61,6 +61,19 @@ export function text(value: unknown, label: string, limit = 2048): string {
   if (typeof value !== "string" || Buffer.byteLength(value) > limit || /[\x00-\x1f\x7f]/.test(value)) throw new Error(`Browser ${label} must be one line of text under ${limit} bytes`);
   return value;
 }
+/** Free text on one line, such as a reason: line breaks and runs of spaces become one space, and text past `limit`
+ * bytes is cut (ending in …) rather than refused. Missing, it is `fallback`, or an error when there is none. */
+export function oneLine(value: unknown, label: string, limit: number, fallback?: string): string {
+  if (value === undefined || value === null || (typeof value === "string" && !value.trim())) {
+    if (fallback !== undefined) return oneLine(fallback, label, limit);
+    throw new Error(`Browser ${label} is missing`);
+  }
+  if (typeof value !== "string") throw new Error(`Browser ${label} must be text`);
+  const flat = value.replace(/[\x00-\x20\x7f]+/g, " ").trim();
+  if (Buffer.byteLength(flat) <= limit) return flat;
+  return `${Buffer.from(flat).subarray(0, limit - 3).toString("utf8").replace(/\uFFFD+$/, "").trimEnd()}…`;
+}
+
 /** Accepts a loopback host:port without a scheme (127.0.0.1:3000) as http. */
 export function webURL(value: unknown, label = "url"): string {
   const source = text(value, label);

@@ -18,7 +18,7 @@ import type { AcceptanceResult } from "../verify/acceptance";
 import { ROUND_MAX_TURNS, type RequirementsReview } from "./review";
 import { formatLimit } from "./spend";
 import { BRANCH_MOVED_LINE, GIT_MOVEMENT_UNKNOWN } from "./git-movement";
-import { configChanges, type ConfigChanges } from "./config-files";
+import { configChanges, isAppSettingsOrData, type ConfigChanges } from "./config-files";
 import { formatCost, formatDuration, lineText, redactPreview } from "../tui/format";
 import { planReceipt, planSummary, type PlanStepReport } from "../flows/plan-build";
 import type { OutsideChange } from "./outside-work";
@@ -334,6 +334,15 @@ function remoteNotRunVerdict(remotes: NonNullable<TaskResult["remoteNotRun"]>, s
 /** The browser checks that decide the result: all but the ones the AI withdrew as written wrong. */
 function countedBrowserChecks(checks: BrowserReport["checks"]): BrowserReport["checks"] {
   return checks.filter((check) => check.status !== "withdrawn");
+}
+
+/** "2 browser checks are stale: the server they ran on is gone", when those are all that keep the counted checks from
+ * passing; otherwise undefined. */
+function staleGone(checks: BrowserReport["checks"]): string | undefined {
+  const counted = countedBrowserChecks(checks);
+  const gone = counted.filter((check) => check.status !== "pass" && check.gone).length;
+  if (!gone || counted.some((check) => check.status !== "pass" && !check.gone)) return undefined;
+  return gone === 1 ? "1 browser check is stale: the server it ran on is gone" : `${gone} browser checks are stale: the server they ran on is gone`;
 }
 
 /** Why browser checks that all passed still leave the task incomplete: an edit or command ran after some or all of
@@ -732,6 +741,9 @@ function receiptParts(task: TaskResult, options: ReceiptOptions, onScreen = fals
     for (const part of line.split("\n")) info.set(part, { section: section(part), kind: "review" });
   }
   if (task.changedDuringChecks?.length) add("changed", `– Changed while checking: ${pathList(task.changedDuringChecks, safe, false)}`);
+  // A repair once put test data into an app's config to make a check pass: settings and data changed then need a look.
+  const settled = task.changedDuringChecks?.filter(isAppSettingsOrData) ?? [];
+  if (settled.length) add("open", `⚠ Checks and repairs changed app settings or data: ${pathList(settled, safe, false)}; look for test data left in them`);
   if (task.changedWhilePlanning?.length) add("changed", `– Changed while planning: ${pathList(task.changedWhilePlanning, safe, false)}`);
   if (task.changedNotByModel?.length) add("changed", `– ${CHANGED_BY_OTHERS} (not checked): ${pathList(task.changedNotByModel, safe, false)}`);
   // A plan step the model did not finish (often a question it stopped on) needs you; the rest of the plan is a note.
@@ -828,12 +840,15 @@ function receiptParts(task: TaskResult, options: ReceiptOptions, onScreen = fals
       // Incomplete: count what passed, name what did not finish, and say why a pass does not count
       // (a later edit or command made it stale, or Casper can't tie it to the final files).
       const passed = checks.filter((check) => check.status === "pass");
-      const open = checks.filter((check) => check.status !== "pass").map((check) => safe(check.name));
+      // Stale because the server it ran on is gone: not unfinished, and not a failure.
+      const gone = checks.filter((check) => check.status !== "pass" && check.gone).map((check) => safe(check.name));
+      const open = checks.filter((check) => check.status !== "pass" && !check.gone).map((check) => safe(check.name));
       const stale = passed.filter((check) => check.freshness === "stale").length;
       const untied = passed.filter((check) => check.freshness === "unavailable").length;
       // "all" and "them" only when they cover every check, never one that did not finish.
       const total = checks.length, every = (count: number) => count === total;
       const notes = [open.length ? `not finished: ${open.join(", ")}` : "",
+        gone.length ? `${gone.length} stale, ${gone.length === 1 ? "its" : "their"} server gone: ${gone.join(", ")}` : "",
         stale ? `${every(stale) ? "all" : stale} ran before a later edit or command (replay to count)` : "",
         untied ? `Casper can't tie ${every(untied) ? "them" : `${untied} of them`} to the final files` : ""].filter(Boolean);
       if (passed.length) add("checks", `– Browser checks: ${passed.length} of ${checks.length} passed${notes.length ? `; ${notes.join("; ")}` : ""}`);
@@ -999,6 +1014,9 @@ function withVerdict(task: TaskResult, body: string[], options: ReceiptOptions, 
         // The AI withdrew every browser check it recorded: nothing is left to show the page works.
         : task.browser?.status === "incomplete" && report?.status !== "incomplete" && task.browser.checks.length > 0
           && !countedBrowserChecks(task.browser.checks).length ? "– Incomplete — every browser check was withdrawn; none is left to show the page works"
+        // Checks whose server is gone, and nothing failed or left unfinished otherwise: stale, said as such.
+        : task.browser?.status === "incomplete" && report?.status !== "incomplete" && staleGone(task.browser.checks)
+          ? `– Incomplete — ${staleGone(task.browser.checks)}`
         // Every browser check ran and passed, but not on the final files: say that, not "not every check ran".
         : task.browser?.status === "incomplete" && report?.status !== "incomplete" && countedBrowserChecks(task.browser.checks).length > 0
           && countedBrowserChecks(task.browser.checks).every((check) => check.status === "pass") ? `– Incomplete — ${browserPassedVerdict(countedBrowserChecks(task.browser.checks))}`

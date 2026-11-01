@@ -111,6 +111,8 @@ export class ManagedProcess {
   private logMatched = false;
   private current: ManagedProcessState = "starting";
   private exitDetails?: { code: number | null; signal: NodeJS.Signals | null };
+  /** The sandbox that holds this run and its id there, for what the sandbox refused it. */
+  private held?: { sandbox: ShellSandbox; id: string };
   private readonly logBytes: number;
   private readonly label: string;
   constructor(private options: ManagedProcessOptions) {
@@ -128,6 +130,11 @@ export class ManagedProcess {
 
   get pid(): number | undefined { return this.child?.pid; }
   state(): ManagedProcessState { return this.current; }
+  /** Hosts the sandbox kept this run from reaching ("api.open-meteo.com"): its outside calls failed for that reason. */
+  refusedHosts(): string[] {
+    if (!this.held) return [];
+    return this.held.sandbox.refused(this.held.id).flatMap(line => /^wanted to reach ([^/\s]\S*)$/.exec(line)?.[1] ?? []);
+  }
   /** Set once the root exited on its own (a crash or clean exit), not when Casper stopped it. */
   exit(): { code: number | null; signal: NodeJS.Signals | null } | undefined { return this.exitDetails && { ...this.exitDetails }; }
 
@@ -166,7 +173,7 @@ export class ManagedProcess {
     let held = false;
     let heldId: string | undefined;
     if (sandbox?.on) {
-      try { const wrapped = await sandbox.wrap(command, { cwd, network: "host" }); command = wrapped.command; held = wrapped.held; if (held) heldId = wrapped.id; }
+      try { const wrapped = await sandbox.wrap(command, { cwd, network: "host" }); command = wrapped.command; held = wrapped.held; if (held) { heldId = wrapped.id; this.held = { sandbox, id: wrapped.id }; } }
       catch (error) {
         // The sandbox failed to start just now (it said so): start as later runs will, not sandboxed.
         if (!sandbox.failure) { await rm(home, { recursive: true, force: true }); throw new ManagedProcessError("exited", `${this.label} could not start: ${error instanceof Error ? error.message : String(error)}`, ""); }

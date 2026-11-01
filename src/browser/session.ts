@@ -15,7 +15,8 @@ import type { ArtifactDirectory } from "../visualize/artifacts";
 import { isolatedEnvironment } from "../platform/environment";
 import { browserUnavailable, discoverBrowser } from "./discovery";
 import { MetadataGuard, type Lookup } from "./metadata";
-import { actionUsage, browserArguments, text, webURL, type BrowserAction } from "./arguments";
+import { actionUsage, blank, browserArguments, oneLine, text, webURL, type BrowserAction } from "./arguments";
+import { freePort } from "../platform/managed-process";
 import { ownSpawnedTree, type OwnedProcesses, ProcessCleanupError, terminateTree } from "../platform/processes";
 
 /** A screenshot result's picture (base64 PNG), under a key JSON leaves out, so the browser tool can send it as an image. */
@@ -981,10 +982,12 @@ interface RecordedCheck { scenario: BrowserScenario; check: BrowserCheck; finger
   /** The app's data files when it was recorded: an end replay starts from them (src/browser/app-data.ts). */
   data?: AppData
   /** Recorded by an earlier task's browser and not run in this one. */
-  carried?: true }
+  carried?: true
+  /** The managed service whose address it was recorded on: a replay opens the same path wherever that service runs now. */
+  service?: string }
 
 /** A check for the next task's browser (BrowserSessionOptions.carried): what it runs, its last result and its data. */
-export interface CarriedCheck { readonly scenario: BrowserScenario; readonly check: BrowserCheck; readonly data?: AppData }
+export interface CarriedCheck { readonly scenario: BrowserScenario; readonly check: BrowserCheck; readonly data?: AppData; readonly service?: string }
 
 /** Checks a browser records, and checks it carries on to the next task's. */
 const MAX_CHECKS = 24;
@@ -1048,15 +1051,15 @@ export class BrowserSession {
   private deadline?: { hold: () => void; resume: () => void; renew: () => void };
   constructor(private readonly options: BrowserSessionOptions) {
     // Before any of this task's checks, in their recording order: a replacement must be recorded after what it replaces.
-    for (const { scenario, check, data } of options.carried?.slice(-MAX_CHECKS) ?? [])
+    for (const { scenario, check, data, service } of options.carried?.slice(-MAX_CHECKS) ?? [])
       this.scenarios.set(check.id, { scenario, check: structuredClone(check), revision: -1, recordedRevision: -1, order: ++this.recorded,
-        ranAt: Number.NEGATIVE_INFINITY, carried: true, ...(data ? { data } : {}) });
+        ranAt: Number.NEGATIVE_INFINITY, carried: true, ...(data ? { data } : {}), ...(service ? { service } : {}) });
   }
 
   /** The checks for the next task's browser in this conversation (options.carried): the newest MAX_CHECKS. */
   carried(): CarriedCheck[] {
     return [...this.scenarios.values()].sort((a, b) => a.order - b.order).slice(-MAX_CHECKS)
-      .map(({ scenario, check, data }) => ({ scenario, check: structuredClone(check), ...(data ? { data } : {}) }));
+      .map(({ scenario, check, data, service }) => ({ scenario, check: structuredClone(check), ...(data ? { data } : {}), ...(service ? { service } : {}) }));
   }
 
   assertCleanup(): void { if (this.cleanupError && !this.cleanupError.acknowledged) throw this.cleanupError; }
@@ -1309,7 +1312,9 @@ export class BrowserSession {
   private async serve(input: Record<string, unknown>, signal: AbortSignal): Promise<Record<string, unknown>> {
     if (input.script !== "dev" && input.script !== "start" && input.script !== "files") throw new Error("Browser serve needs script: \"dev\" or \"start\" (a package.json script name), or \"files\" for a folder of plain files");
     if (!["local-test", "consequential", "uncertain"].includes(String(input.impact))) throw new Error("Browser serve needs impact: local-test, consequential or uncertain");
-    const reason = text(input.reason, "reason", 512), url = webURL(input.url);
+    const reason = oneLine(input.reason, "reason", 512, `serve ${String(input.script)}`);
+    // No url: a free loopback port, which the result names.
+    const url = blank(input.url) ? `http://127.0.0.1:${await freePort("127.0.0.1")}/` : webURL(input.url);
     if (!localURL(url)) throw new Error("Browser serve url must be a loopback address like http://127.0.0.1:3000");
     // Plain files run no command, so nothing needs approving; Casper serves them and stops them with the session.
     if (input.script === "files") {
@@ -1596,7 +1601,8 @@ export class BrowserSession {
       await this.askMetadata(scenario.url, signal);
       if ([...this.scenarios.values()].filter(entry => !entry.carried).length >= MAX_CHECKS) throw new Error(`Browser check limit reached (${MAX_CHECKS} per session); replay the ids your checks returned instead of recording new ones`);
       id = randomUUID();
-      this.scenarios.set(id, { scenario, revision: this.revision, recordedRevision: this.revision, order: ++this.recorded, check: { id, name: scenario.name,
+      const service = this.serviceAt(scenario.url);
+      this.scenarios.set(id, { scenario, revision: this.revision, recordedRevision: this.revision, order: ++this.recorded, ...(service ? { service } : {}), check: { id, name: scenario.name,
         scenarioSha256: createHash("sha256").update(JSON.stringify(scenario)).digest("hex"), url: scenario.url, viewport: scenario.viewport,
         status: "incomplete", baseline: "incomplete", freshness: "unavailable", scope: scenario.scope, assertions: [] }, ranAt: performance.now() });
     } else {
@@ -1612,7 +1618,10 @@ export class BrowserSession {
     if (entry.carried) { delete entry.carried; entry.check = { ...entry.check, baseline: "incomplete" }; }
     // A check whose recording never finished (no server yet) is recorded by its first finished run.
     const recording = input.action === "check" || entry.check.baseline === "incomplete";
+    // How it ended last time, on the server it was recorded on: a pass there and a failure on a stand-in is not a failure.
+    const lastStatus = entry.check.status;
     const check: BrowserCheck = { ...entry.check, status: "incomplete", freshness: "unavailable", assertions: [], reason: undefined, notes: undefined };
+    delete check.gone;
     entry.check = check; entry.fingerprint = undefined; entry.revision = this.revision; entry.ranAt = performance.now();
     const startedAt = performance.now();
     let opened: Page | undefined;
@@ -1626,7 +1635,7 @@ export class BrowserSession {
       const page = opened = await this.newPage();
       this.logs.length = 0; this.requests.length = 0; this.dropped = 0;
       await page.setViewport(scenario.viewport);
-      const notOpened = await this.openCheck(page, scenario.url, input.action === "replay", check, signal);
+      const notOpened = await this.openCheck(page, scenario.url, input.action === "replay", check, signal, entry.service);
       if (notOpened.notOpened) throw new Error(`The page reached for a cloud metadata address (${notOpened.notOpened.join(", ")}) and the person said no`);
       // A web app's splash ("Loading…") is not the page: its steps and assertions wait for it to draw.
       await this.settle(page, signal);
@@ -1669,6 +1678,11 @@ export class BrowserSession {
               `${el.tagName.toLowerCase()}${el.id ? `#${el.id}` : ""}${[...el.classList].slice(0, 2).map(c => `.${c}`).join("")}${text ? ` "${text.slice(0, 60)}"` : ""}`);
           };
           if (a.kind === "no-horizontal-overflow" && !a.selector) return { pass: document.documentElement.scrollWidth <= innerWidth, actual: { width: document.documentElement.scrollWidth, viewport: innerWidth } };
+          // Text with no selector: some element of the page (open shadow roots too) reads exactly that.
+          if (a.kind === "text" && !a.selector) {
+            const pass = find("*", true).some(el => !el.closest("head") && norm(el.textContent) === norm(a.expected));
+            return { pass, actual: pass ? norm(a.expected) : "No element reads exactly that", ...(withNear && !pass ? { near: nearest() } : {}) };
+          }
           const matches = find(a.selector!);
           if (matches.length !== 1) return { pass: false, actual: `Expected one element; found ${matches.length}`, ...(withNear && !matches.length ? { near: nearest() } : {}) };
           const el = matches[0]!;
@@ -1709,6 +1723,13 @@ export class BrowserSession {
         if (recording) entry.recordedFingerprint = after.fingerprint;
       } else { check.freshness = before.fingerprint && after.fingerprint ? "stale" : "unavailable"; check.reason = before.reason ?? after.reason ?? "Declared inputs changed during browser reproduction."; }
       if (signIn) check.reason = signIn;
+      // Its own server is gone and Casper's server for the project, which may hold other data, failed a check that passed
+      // there: stale, not failed. Its result can't say the page is broken, so it never starts a repair (one did, and the
+      // AI put test data into the app's config to make it pass).
+      if (notOpened.standIn && check.status === "fail" && lastStatus === "pass") {
+        check.status = "incomplete"; check.freshness = "stale"; check.gone = notOpened.standIn;
+        check.reason = `Stale, not failed: the server it ran on (${notOpened.standIn}) is gone, and Casper's server for the project, which may hold other data, did not pass it. Replay it with its own server running to count it.`;
+      }
       if (recording) { check.baseline = check.status; entry.recordedRevision = entry.revision; }
       const result = structuredClone(check) as unknown as Record<string, unknown>;
       // The check is decided: reading the page after it can't change that, fail it or make it overrun.
@@ -1765,16 +1786,38 @@ export class BrowserSession {
    * the same path opens on the server Casper runs for this project (serve, or the page checks' slot), noted in the
    * check; with none up the replay throws ServerGone. A page on another computer is never redirected.
    */
-  private async openCheck(page: Page, url: string, replay: boolean, check: BrowserCheck, signal: AbortSignal): Promise<{ notOpened?: string[]; note?: string }> {
-    try { return await this.navigate(page, url, signal); }
+  private async openCheck(page: Page, url: string, replay: boolean, check: BrowserCheck, signal: AbortSignal, service?: string): Promise<{ notOpened?: string[]; note?: string; standIn?: string }> {
+    const target = replay && service ? await this.follow(service, url, check, signal) : url;
+    try { return await this.navigate(page, target, signal); }
     catch (error) {
-      if (!replay || !localURL(url) || !/ERR_CONNECTION_REFUSED/.test(String(error))) throw error;
-      const gone = new URL(url), services = this.options.services?.();
+      if (!replay || !localURL(target) || !/ERR_CONNECTION_REFUSED/.test(String(error))) throw error;
+      const gone = new URL(target), services = this.options.services?.();
       const managed = this.server?.origin() ?? (services && !services.closed ? services.origin(DEV_SLOT) : undefined);
       if (!managed || managed === gone.origin) throw new ServerGone(`Nothing answers at ${gone.origin} any more and Casper runs no server for this project; start it with serve and replay`);
       (check.notes ??= []).push(`opened on Casper's server ${managed}: nothing answers at ${gone.origin} any more`);
-      return await this.navigate(page, new URL(`${gone.pathname}${gone.search}${gone.hash}`, managed).href, signal);
+      return { ...await this.navigate(page, new URL(`${gone.pathname}${gone.search}${gone.hash}`, managed).href, signal), standIn: gone.origin };
     }
+  }
+
+  /** The running managed service (the AI's own, or the page checks' slot) at this loopback URL's address, if any. */
+  private serviceAt(url: string): string | undefined {
+    const services = this.options.services?.();
+    if (!services || services.closed || !localURL(url)) return undefined;
+    const origin = new URL(url).origin;
+    return services.status().find(entry => entry.origin === origin && (entry.state === "ready" || entry.state === "starting") && !services.casperOnly(entry.name))?.name;
+  }
+
+  /** A check's URL on the address its service has now (a restart may have moved it), made fresh first as a service
+   * request is. A service that no longer runs leaves the URL as recorded. */
+  private async follow(name: string, url: string, check: BrowserCheck, signal: AbortSignal): Promise<string> {
+    const services = this.options.services?.();
+    const now = services && !services.closed ? services.status().find(entry => entry.name === name) : undefined;
+    if (!services || !now || (now.state !== "ready" && now.state !== "starting")) return url;
+    try { await services.ensureFresh(name, signal); } catch { signal.throwIfAborted(); return url; }
+    const origin = services.origin(name), was = new URL(url);
+    if (!origin || origin === was.origin) return url;
+    (check.notes ??= []).push(`followed ${name} to ${origin}: it ran at ${was.origin} when this check was recorded`);
+    return new URL(`${was.pathname}${was.search}${was.hash}`, origin).href;
   }
 
   /**
@@ -1786,7 +1829,7 @@ export class BrowserSession {
    */
   private async withdraw(input: Record<string, unknown>): Promise<Record<string, unknown>> {
     const id = text(input.id, "id", 64);
-    const reason = text(input.reason, "reason", 200);
+    const reason = oneLine(input.reason, "reason", 200);
     const entry = this.scenarios.get(id);
     if (!entry) throw new Error("Unknown browser check id; withdraw an id a check returned in this conversation");
     const status = entry.check.status;
@@ -1844,7 +1887,7 @@ export class BrowserSession {
   private async interact(input: Record<string, unknown>, signal: AbortSignal, waitForTarget = false, watchBy = Infinity): Promise<Record<string, unknown>> {
     const selector = text(input.selector, "selector", 512);
     if (!["local-test", "consequential", "uncertain"].includes(String(input.impact))) throw new Error(`Browser ${String(input.action)} needs impact: local-test, consequential or uncertain`);
-    const reason = text(input.reason, "reason", 512);
+    const reason = oneLine(input.reason, "reason", 512, `${String(input.action)} ${selector}`);
     const action = String(input.action);
     const value = action === "click" ? undefined : text(input.value, "value", 1024);
     if (action === "click" && input.value !== undefined) throw new Error("Click does not accept a value");

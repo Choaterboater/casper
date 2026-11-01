@@ -162,6 +162,9 @@ export interface RepairInfo { attempt: number; maxAttempts: number; last: boolea
 const MAX_EXTRA_ATTEMPTS = 10;
 
 /** The page-notes turn: Casper runs the noted pages again itself after it, so the model's own browser check would only repeat that. */
+/** Said in every repair turn: a check that needs data the AI took out is not fixed by putting test data back into what
+ * ships (a real repair did that, and the product shipped a test widget and two test tiles). */
+export const NO_TEST_DATA = "Never put test data in the app's settings or data files to make a check pass.";
 export const PAGE_NOTES_RECHECKED = "Casper checks these pages again itself after your change; you need not run a browser check, replay or screenshot to confirm the notes.";
 const STALLED = "The last repair changed nothing and the failure is the same.";
 
@@ -413,7 +416,7 @@ export async function verifyAndRepair(options: VerificationOptions): Promise<Ver
       ...(sameFailure ? ["Same failure as the last round: your change did not affect it; try a different approach."] : []),
       `Casper verification repair ${repairAttempts}/${budget}.`,
       notes.length ? `Fix only the page notes below with the smallest change; ${failures.length ? "the other checks could not run here, which is not yours to fix" : "the checks pass"}. Do not weaken checks or hide content to silence a note. Preserve the original request and project rules. ${PAGE_NOTES_RECHECKED}`
-        : "Repair the failures below with the smallest change. Preserve the original request, project rules, and constraints. Do not weaken checks, remove tests, or change verification commands merely to obtain a pass. Casper will rerun selected checks without a valid scoped pass; use casper_check when available for managed check evidence.",
+        : `Repair the failures below with the smallest change. Preserve the original request, project rules, and constraints. Do not weaken checks, remove tests, or change verification commands merely to obtain a pass. ${NO_TEST_DATA} Casper will rerun selected checks without a valid scoped pass; use casper_check when available for managed check evidence.`,
       "Original request:", options.restate?.() ?? options.request,
       "Constraints:", options.constraints || "Preserve project architecture and existing behavior outside the requested change.",
       "Current Git changed files (may include pre-existing user changes; do not revert unrelated changes):",
