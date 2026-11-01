@@ -177,6 +177,9 @@ commit since. `/undo` does not cover `/crew apply`.
   the copy or a host you have not allowed is not run. Where Casper can't ask
   (one-shot, `--json`, a pipe) nothing is asked: the builder reads why and goes
   on, and the report lists it under "Not run".
+- It can't start another coding agent (`casper`, `claude`, `codex`, `omp` and
+  the like): `Not run: A helper doesn't start another coding agent.` Your own
+  session can, as an ordinary command ([decision 50](adr/0002/50-other-agents-are-ordinary-commands.md)).
 - It can't move your branches or make commits: Git's folder it shares with
   your folder is read-only to it.
 - The sandbox has one network gate for the whole session, and it can't tell

@@ -3,13 +3,20 @@ import path from "node:path";
 import { commandSegments, commandStart, splitShell } from "../sandbox/remote";
 
 const AGENTS = /^(?:casper|claude|codex|pi|omp|cursor-agent|aider|gemini|opencode)(?:\.(?:exe|cmd|bat))?$/i;
-export const AGENT_SHELL_GUIDANCE = "No launching coding agents or touching unrelated tmux unless the person asks; task-created tmux -L only. Builders too.";
+/** The person's own session (decision 0002/50): starting another coding agent is an ordinary command, judged and boxed
+ * like any other. Only someone else's tmux is left alone. */
+export const AGENT_SHELL_GUIDANCE = "Don't touch unrelated tmux unless the person asks; task-created tmux -L only.";
+/** A helper (builder, reviewer, explorer) starts no coding agents: the person's session decides that, so helpers never
+ * start agents that start agents. */
+export const HELPER_SHELL_GUIDANCE = "No starting other coding agents (casper, claude, codex, omp…) and no unrelated tmux; task-created tmux -L only.";
 /** An agent's own flags that only print something and exit: its version or its help. */
 const LOOKUP_FLAGS = new Set(["--version", "-V", "-v", "version", "--help", "-h", "help"]);
-const AGENT_NOTE = "Not run: Casper does not start another coding agent unless the person explicitly asks for it.";
+const HELPER_AGENT_NOTE = "Not run: A helper doesn't start another coding agent. Hand back to the main session; it can start one.";
 const TMUX_NOTE = "Not run: use a private tmux -L server created in this task, not someone else's server or session. The person can explicitly ask otherwise.";
 
-/** A text guard, not shell isolation. State belongs to one runtime and resets with the person's task request. */
+/** A text guard, not shell isolation. State belongs to one runtime and resets with the person's task request. In a helper
+ * (`builder`: any bounded sub-agent) it refuses starting another coding agent, whatever the request says; in the person's
+ * own session that is an ordinary command (the sandbox, the judge and the usual box decide). Both keep to their own tmux. */
 export class AgentShellGuard {
   private request = "";
   private taskKey: unknown;
@@ -33,7 +40,7 @@ export class AgentShellGuard {
   reason(command: string): string | undefined {
     for (const words of this.programs(command)) {
       const tool = path.basename(words[0] ?? "");
-      if (AGENTS.test(tool) && !(words.length === 2 && LOOKUP_FLAGS.has(words[1]!)) && !this.explicit(tool.replace(/\.(exe|cmd|bat)$/i, ""))) return AGENT_NOTE;
+      if (this.builder && AGENTS.test(tool) && !words.slice(1).some((word) => LOOKUP_FLAGS.has(word))) return HELPER_AGENT_NOTE;
       if (tool !== "tmux" || this.explicit("tmux")) continue;
       const name = words[1] === "-L" ? words[2] : undefined;
       if (!name || !/^[A-Za-z0-9_-]+$/.test(name)) return TMUX_NOTE;

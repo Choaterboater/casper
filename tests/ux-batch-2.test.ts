@@ -7,7 +7,7 @@ import { shownCommand, shellQuestion } from "../src/app/sandbox";
 import { SHELL_COMMAND_CHOICES } from "../src/app/safe-choices";
 import { readOnlyCommand, testRunKey } from "../src/sandbox/read-only";
 import { routineCommand } from "../src/sandbox/routine";
-import { AgentShellGuard, AGENT_SHELL_GUIDANCE } from "../src/runtime/agent-shell-guard";
+import { AgentShellGuard, AGENT_SHELL_GUIDANCE, HELPER_SHELL_GUIDANCE } from "../src/runtime/agent-shell-guard";
 import { casperBashOperations } from "../src/runtime/pi";
 import { promptEcho } from "../src/tui/surface";
 import { readableFooter } from "../src/tui/footer-layout";
@@ -131,29 +131,59 @@ test("command-line echo renders identically to typed request echo, including gly
   }
 });
 
-test("native bash guard refuses agents before approval/execution, including builders and wrappers", async () => {
-  for (const builder of [false, true]) {
-    const guard = new AgentShellGuard(builder, () => false);
-    guard.task("Fix the project");
-    let executed = false;
-    const operations = casperBashOperations(undefined, { exec: async () => { executed = true; return { exitCode: 0 }; } }, undefined, guard);
-    for (const command of ["claude task", "codex exec task", "pi -p task", "omp task", "cursor-agent task", "casper task", "env CI=1 claude task", "bash -lc 'codex exec task'", "/usr/local/bin/claude task", "npx claude task", "bunx codex exec task", "npm exec claude task", "sudo -u root claude task", "echo $(codex exec task)", "echo \"$(claude task)\"", "timeout 2 codex exec task", "npx --yes claude task", "bunx --bun codex exec task", "npm exec -- claude task", "npx -p example-agent-package claude task", "npx -c 'claude task'"]) {
-      await expect(operations.exec(command, process.cwd(), { onData() {}, signal: new AbortController().signal })).rejects.toThrow("does not start another coding agent");
-    }
-    expect(executed).toBe(false);
-    guard.task("Run codex to review this");
-    expect(Boolean(guard.reason("codex exec review"))).toBe(builder);
+/** The words of the request in the real session: omp named without "run"/"launch" before it, Casper not named at all. */
+const COMPARISON = "I want to compare ux vs uxi between omp building a replacement https://gethomepage.dev/ for me, use haiku 5.5 on each medium effort.";
+const AGENT_COMMANDS = ["omp -p --mode json --model anthropic/claude-haiku-5-5 --thinking medium \"hi\"", "casper -p --json \"build the dashboard\"",
+  "omp --help 2>&1 | head -50", "claude -p task", "codex exec task", "pi -p task", "cursor-agent task", "env CI=1 claude task", "npx claude task",
+  "bash -lc 'codex exec task'", "timeout 600 omp -p task > omp.log 2>&1"];
+
+test("starting another coding agent is an ordinary command in your own session: no special refusal, the usual box decides", async () => {
+  const guard = new AgentShellGuard(false, () => false);
+  // The request names omp without a launch word, and a picker answer ("Yes, run both") named Casper: neither mattered before.
+  guard.task(COMPARISON);
+  const asked: string[] = [], ran: string[] = [];
+  const shell = { wrap: async (command: string) => ({ command }), approve: async (command: string) => { asked.push(command); return undefined; } };
+  const operations = casperBashOperations(shell, { exec: async (command) => { ran.push(command); return { exitCode: 0 }; } }, undefined, guard);
+  for (const command of AGENT_COMMANDS) {
+    expect([command, guard.reason(command)]).toEqual([command, undefined]);
+    await operations.exec(command, process.cwd(), { onData() {}, signal: new AbortController().signal });
   }
-  expect(AGENT_SHELL_GUIDANCE).toContain("Builders too");
+  // Each went through the usual approval once, like any command, and ran.
+  expect(asked).toEqual(AGENT_COMMANDS);
+  expect(ran).toEqual(AGENT_COMMANDS);
+  // A No in the usual box still stops it, with the box's own words.
+  const declined = casperBashOperations({ wrap: async (command: string) => ({ command }), approve: async () => "Not run: the user said no." },
+    { exec: async () => ({ exitCode: 0 }) }, undefined, guard);
+  await expect(declined.exec(AGENT_COMMANDS[0]!, process.cwd(), { onData() {}, signal: new AbortController().signal })).rejects.toThrow("the user said no");
 });
 
-test("looking an agent up is not starting it: command -v, which, type, --version and --help run", () => {
+test("a normal task's commands ask exactly as often as before: the agent rule adds no question of its own", async () => {
   const guard = new AgentShellGuard(false, () => false);
-  guard.task("Check what is installed");
-  for (const command of ["command -v casper; command -v bash", "command -V claude", "which codex", "type -a casper", "whereis claude",
-    "casper --version", "casper -v", "claude --help", "codex -h", "hash casper 2>/dev/null"]) expect([command, guard.reason(command)]).toEqual([command, undefined]);
-  // Running it is still refused, even after a lookup on the same line.
-  for (const command of ["command -v casper && casper task", "command casper task"]) expect(guard.reason(command)).toContain("does not start another coding agent");
+  guard.task("Fix the failing test in sum.js");
+  let asks = 0;
+  const operations = casperBashOperations({ wrap: async (command: string) => ({ command }), approve: async () => { asks++; return undefined; } },
+    { exec: async () => ({ exitCode: 0 }) }, undefined, guard);
+  const commands = ["bun test", "sed -i s/a - b/a + b/ sum.js", "git diff", "omp -p 'review sum.js'"];
+  for (const command of commands) await operations.exec(command, process.cwd(), { onData() {}, signal: new AbortController().signal });
+  // One approval per command (the shell decides whether that is a box), never a second one for an agent.
+  expect(asks).toBe(commands.length);
+});
+
+test("a helper (builder, reviewer, explorer) still doesn't start another coding agent, so helpers can't start agents that start agents", async () => {
+  const guard = new AgentShellGuard(true, () => false);
+  guard.task(`Run omp and casper for this: ${COMPARISON}`);
+  let executed = false;
+  const operations = casperBashOperations(undefined, { exec: async () => { executed = true; return { exitCode: 0 }; } }, undefined, guard);
+  for (const command of [...AGENT_COMMANDS.filter((command) => !command.includes("--help")), "/usr/local/bin/claude task", "sudo -u root claude task",
+    "echo $(codex exec task)", "npx -c 'claude task'", "bunx --bun codex exec task", "npm exec -- claude task"]) {
+    await expect(operations.exec(command, process.cwd(), { onData() {}, signal: new AbortController().signal })).rejects.toThrow("A helper doesn't start another coding agent");
+  }
+  expect(executed).toBe(false);
+  // Looking one up is still fine for a helper.
+  for (const command of ["omp --help 2>&1 | head -50", "command -v casper", "claude --version"]) expect([command, guard.reason(command)]).toEqual([command, undefined]);
+  // The guidance: the lead's names only tmux; a helper's says it starts no agents.
+  expect(AGENT_SHELL_GUIDANCE).not.toMatch(/coding agent/i);
+  expect(HELPER_SHELL_GUIDANCE).toContain("No starting other coding agents");
 });
 
 test("tmux guard owns only successfully created named servers in the current task", () => {
@@ -170,10 +200,12 @@ test("tmux guard owns only successfully created named servers in the current tas
   guard.finished("tmux -L own kill-server", 0); expect(guard.reason("tmux -L own capture-pane")).toBeDefined();
   guard.finished(start, 0); guard.task("Another task"); expect(guard.reason("tmux -L own capture-pane")).toBeDefined();
   guard.task("Capture the existing tmux server"); expect(guard.reason("tmux -L existing capture-pane")).toBeUndefined();
-  guard.task("Do not launch claude"); expect(guard.reason("claude task")).toBeDefined();
+  // Starting an agent is no longer this guard's call in your own session (the usual box decides); a helper is still refused.
+  guard.task("Do not launch claude"); expect(guard.reason("claude task")).toBeUndefined();
+  expect(new AgentShellGuard(true, () => false).reason("claude task")).toContain("A helper doesn't start another coding agent");
   expect(guard.reason("claude --version")).toBeUndefined();
   guard.task("Do not change git. Run codex to review this"); expect(guard.reason("codex exec review")).toBeUndefined();
-  guard.task("Never use codex"); expect(guard.reason("codex exec review")).toBeDefined();
+  guard.task("Never use codex"); expect(guard.reason("codex exec review")).toBeUndefined();
   guard.task("Same words", {}); guard.finished(start, 0);
   guard.task("Same words", {}); expect(guard.reason("tmux -L own capture-pane")).toBeDefined();
 });
