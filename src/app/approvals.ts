@@ -176,7 +176,8 @@ export function editGateReason(app: CasperApp, toolName: string): string | undef
 /** Structured clarification channel: rich surface required, command abort raced, receipt recorded. */
 export function askToolFor(app: CasperApp): RuntimeTool {
   return askTool({
-    available: () => app.interactive && app.terminal.rich && !app.closing,
+    // A walk-away job holds the AI's question for you, like any box (decision 51).
+    available: () => app.interactive && (app.terminal.rich || app.terminal.away) && !app.closing,
     // One at a time with every other box, so a second question waits instead of being answered No.
     ask: (question, options, multi, signal) => oneAtATime(app, async () => {
       const signals = [signal, app.commandAbort?.signal].filter((value): value is AbortSignal => Boolean(value));

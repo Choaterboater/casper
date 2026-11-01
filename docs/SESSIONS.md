@@ -139,6 +139,42 @@ files written after the last snapshot, including ignored files. Casper never
 deletes recovery folders. Remove them yourself when you no longer need them.
 "Discard" means "do not apply", not "wipe from disk".
 
+## Walk away: a task that keeps going after the terminal closes
+
+On macOS and Linux, a task keeps going when its terminal goes away: you close the window or the laptop lid, SSH
+drops, or the tmux window is killed. There is nothing to turn on and nothing to answer. The same Casper stays,
+with the yes answers you gave this session, the servers it started and the slow commands it moved to the background;
+it finishes the task, saves the usual receipt (with Undo), and then exits. While the laptop sleeps nothing runs; the
+task carries on when it wakes. Say "keep going after I leave" and Casper says so in one line, without a model call.
+
+**When it ends or needs you,** you get a desktop notification (Notification Center on macOS, `notify-send` on Linux;
+`notifications: off` turns it off), and the next Casper you open, in any terminal, says so on its first row:
+
+```text
+Next: 1 See the job's result (fix the VLAN script · done) · 2 Saved pages (4)
+```
+
+- **In the job's folder**, 1 shows the AI's last words and the receipt, then `Next: 1 Show diff · 2 Undo` as after any
+  task. While the job still works, the row says `Job working here` and doesn't offer to continue its conversation.
+- **In another folder**, 1 shows its last words and receipt and names the folder where its Show diff and Undo are.
+- **"how's my job"** (or `/jobs`) lists every job: working, waiting on you, done or stopped.
+
+**Nothing that would ask you is allowed while you're away.** The auto-mode judge, the always-asks list, the sandbox
+and folder trust work as at the keyboard. A box the task would show (a command, a host, a change on a device, the
+spend pause, the AI's own question) waits, and the job with it, until you answer: the row says
+`1 Answer the job's question`, 1 shows the same box, and the job carries on after your answer. Esc leaves it
+waiting. A password or secret box (ssh, sudo, `casper_secret`) never travels between terminals: on a job that
+login or secret is refused, as in a run that can't ask.
+
+**Limits.** A job stops after 4 hours of work (time waiting on you doesn't count), and a question waits 24 hours;
+then the job ends with a receipt that says why. The spend rules are yours as always. One job a folder: a second
+Casper in the same folder whose terminal closes mid-task stops as before.
+
+**Where it doesn't apply.** On Windows a closed window still stops the task (Windows ends a console program soon
+after its window closes); "keep going after I leave" says so. One-shot runs (`casper -p`, `--json`) and scripts are
+unchanged. A job's log and record are kept in `~/.casper/projects/<project>/jobs/`, private to you; see
+[decision 51](adr/0002/51-walk-away-tasks.md).
+
 ## Policy
 
 Defaults:

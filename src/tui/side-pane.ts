@@ -2,6 +2,7 @@ import { appendFileSync, chmodSync, mkdtempSync, rmSync, statSync, writeFileSync
 import os from "node:os";
 import path from "node:path";
 import { hideCommandSecrets } from "../secrets/files";
+import { stayingAfterHangUp } from "../platform/hang-up";
 import { redactPreview } from "./format";
 import { hostCommand, type HostCommand, type HostTerminal } from "./host-terminal";
 
@@ -54,13 +55,18 @@ export class SidePane implements ActivityPane {
   private shown = new Set<string>();
   private bytes = 0;
   private readonly onExit = () => this.close();
-  private readonly onHangup = () => { this.close(); process.removeListener("SIGHUP", this.onHangup); process.kill(process.pid, "SIGHUP"); };
+  /** A Casper that stays after the hang-up (a walk-away job) is not hung up again. */
+  private readonly onHangup = () => {
+    this.close(); process.removeListener("SIGHUP", this.onHangup);
+    // The last listener ends Casper as a hang-up would; one that stays (a walk-away job) is not hung up again.
+    if (!stayingAfterHangUp() && process.listenerCount("SIGHUP") === 0) process.kill(process.pid, "SIGHUP");
+  };
 
   private constructor(readonly file: string, private readonly dir: string, private readonly closePane: () => void,
     private readonly now: () => Date) {
     process.once("exit", this.onExit);
-    // A hang-up with nobody else listening would end Casper without its exit handlers: close first, then hang up.
-    if (process.listenerCount("SIGHUP") === 0) process.once("SIGHUP", this.onHangup);
+    // A hang-up ends Casper without its exit handlers: close first, then hang up (unless Casper stays as a job).
+    process.once("SIGHUP", this.onHangup);
   }
 
   /** Opens the pane when Casper is inside tmux (its own pane known) or iTerm2 on a Mac; undefined otherwise. */

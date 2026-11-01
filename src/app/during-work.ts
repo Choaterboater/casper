@@ -1,6 +1,7 @@
 /** Typing while a task runs: lines the AI reads at its next step or that queue as the next request, commands that
  * run now, side questions, and the model and effort (/model, Shift+Tab, /effort). Moved from src/app.ts. */
 
+import { jobStatusWords, leavingReply, leavingWords } from "./jobs";
 import { removePastedSecrets } from "./pasted-secrets";
 import type { CasperApp } from "../app";
 import { effortProblem, nextEffort } from "../tui/effort";
@@ -145,6 +146,10 @@ export function submitDuringWork(app: CasperApp, line: string, plain = false): t
     });
     return true;
   }
+  // "keep going after I leave": said now, never sent to the AI; the task keeps going when the terminal closes.
+  if (leavingWords(line, pasted)) { queueMicrotask(() => app.output.write(leavingReply(process.platform, true))); return true; }
+  // "how's my job": /jobs now, as typed.
+  if (jobStatusWords(line, pasted)) { queueMicrotask(() => duringTask(() => runCommandDuringWork(app, "/jobs"))); return true; }
   // "trust this folder": done now, as /trust would be, and never sent to the AI.
   const trust = trustRequest(line, pasted);
   if (trust) {

@@ -87,13 +87,29 @@ export const PANE_MIN_COLUMNS = 120;
 
 export type TerminalOutput = RuntimePickerIO["output"] & { isTTY?: boolean };
 
+/** One question while the terminal is gone (a walk-away job, decision 51): held until you answer it from another Casper.
+ * The answer is what the box would have given (the picked labels, or typed words), or undefined when nobody answered. */
+export interface AwayQuestion {
+  kind: "approve" | "pick" | "ask" | "line";
+  preview?: string;
+  question: string;
+  choices: { label: string; description?: string }[];
+  multi?: boolean;
+  typed?: boolean;
+  from?: AskOrigin;
+  hint?: string;
+}
+export interface AwayAsker { ask(question: AwayQuestion, signal?: AbortSignal): Promise<string[] | undefined> }
+
 /** Terminal ownership boundary. Rich raw editor on a TTY; line input otherwise.
  * Lines typed during work go to the app (sent to the AI, queued, or run now), never to an approval; neither path
  * treats a stale draft as consent; plain
  * input typed before the first prompt is read (a person or a pipe may be ahead of startup). */
 export class InteractiveTerminal {
-  readonly color: boolean;
-  private readonly surface?: TerminalSurface;
+  color: boolean;
+  private surface?: TerminalSurface;
+  /** The terminal closed while a task ran and Casper stayed: questions go here, writes go to the job's log. */
+  private awayAsker?: AwayAsker;
   private rl?: readline.Interface;
   private closed = false;
   private busy = false;
@@ -130,7 +146,7 @@ export class InteractiveTerminal {
   /** The first problem receipt of the session has shown where its words are explained. */
   private receiptHintShown = false;
 
-  constructor(private readonly input: Readable, private readonly output: TerminalOutput,
+  constructor(private readonly input: Readable, private output: TerminalOutput,
     private readonly onInterrupt: () => void, private readonly onEOF: () => void, private readonly host?: TerminalHost) {
     const tty = Boolean((input as NodeJS.ReadStream).isTTY && output.isTTY && process.env.TERM !== "dumb");
     this.color = Boolean(output.isTTY && process.env.TERM !== "dumb" && process.env.NO_COLOR === undefined);
@@ -172,6 +188,46 @@ export class InteractiveTerminal {
       // them and then reads EOF itself.
       this.confirmation?.(undefined); if (!this.earlyLines.length) this.onEOF();
     });
+  }
+
+  /** The terminal's input ended or failed (it closed, or SSH dropped), not Ctrl+D. */
+  get inputEnded(): boolean { return this.surface?.inputEnded ?? false; }
+  /** Casper stays after the terminal went away: questions go to `asker`, everything written goes to `log` as plain text. */
+  get away(): boolean { return this.awayAsker !== undefined; }
+  leave(log: TerminalOutput, asker: AwayAsker): void {
+    if (this.awayAsker) return;
+    this.awayAsker = asker;
+    const surface = this.surface;
+    this.surface = undefined;
+    this.color = false;
+    // The title and the pane's tmux setting can't be given back to a terminal that is gone.
+    this.titleSaved = false; this.undoHost = () => {};
+    const pane = this.pane; this.pane = undefined; this.paneTried = true;
+    pane?.close();
+    this.output = log;
+    this.card = undefined; this.nextKeys = undefined;
+    surface?.drop();
+    if (this.rl && !this.closed) { this.closed = true; this.confirmation?.(undefined); this.rl.removeAllListeners("close"); this.rl.close(); }
+  }
+  /** A box the terminal closed under: asked again of whoever answers while it is gone, unless its asker gave up. */
+  private async orAway(answer: string[] | undefined, question: AwayQuestion, signal?: AbortSignal): Promise<string[] | undefined> {
+    if (answer !== undefined || !this.awayAsker || signal?.aborted) return answer;
+    const given = await this.awayAsker.ask(question, signal);
+    // Only the box's own choices count, unless it takes typed words (the AI's questions, a typed line).
+    const held = given && (question.typed || given.every(label => question.choices.some(choice => choice.label === label))) ? given : undefined;
+    this.recordAway(question.question, held);
+    return held;
+  }
+  /** While `run` shows a box, words typed as an approval's note go to `note` instead of the running task. */
+  async withNote<T>(note: (line: string) => void, run: () => Promise<T>): Promise<T> {
+    const previous = this.busySubmit;
+    this.setBusySubmit(line => { note(line); return true; });
+    try { return await run(); } finally { this.setBusySubmit(previous); }
+  }
+  /** A line for the running task, as if typed now (a job's note from the person who answered its box). */
+  submitDuringWork(line: string): void { this.busySubmit?.(line, true); }
+  private recordAway(question: string, answer: string[] | undefined): void {
+    this.write(`${answerRecordText(question, answer)}\n`);
   }
 
   setStatus(status: string, cwd = process.cwd()): void { this.surface?.setStatus(status, cwd); }
@@ -270,7 +326,7 @@ export class InteractiveTerminal {
 
   /** A person can answer Casper's numbered questions: the rich surface, or plain line input typed at a
    * terminal. Piped input can't: its lines were written before any question existed. */
-  get canAsk(): boolean { return this.surface !== undefined || Boolean((this.input as NodeJS.ReadStream).isTTY); }
+  get canAsk(): boolean { return this.awayAsker !== undefined || this.surface !== undefined || Boolean((this.input as NodeJS.ReadStream).isTTY); }
 
   /** Rich surface present (TTY input and output, TERM not dumb) and its current width. */
   get rich(): boolean { return this.surface !== undefined; }
@@ -442,6 +498,8 @@ export class InteractiveTerminal {
 
   readCommand(): Promise<string | undefined> {
     this.card = undefined;
+    // Nobody is at a terminal that went away: the job ends after its task.
+    if (this.awayAsker) return Promise.resolve(undefined);
     if (this.surface) return this.surface.readCommand();
     this.endAssistant(); this.busy = false;
     // Lines typed ahead were written before the row existed: they are requests, never picks from it.
@@ -468,7 +526,12 @@ export class InteractiveTerminal {
    */
   async approve(preview: string, question: string, options: ReadonlyArray<string | { label: string; description?: string }>, signal?: AbortSignal): Promise<string | undefined> {
     const choices = options.map(option => typeof option === "string" ? { label: option } : option);
-    if (this.surface) return this.surface.approve(preview, question, choices, signal);
+    const away: AwayQuestion = { kind: "approve", ...(preview.trim() ? { preview } : {}), question, choices, from: "approval" };
+    if (this.awayAsker) return this.askAway(away, signal);
+    if (this.surface) {
+      const answer = await this.surface.approve(preview, question, choices, signal);
+      return answer !== undefined || !this.awayAsker ? answer : this.askAway(away, signal);
+    }
     // A plain terminal on a TTY means the box can't be shown where it is answered (TERM=dumb, output redirected).
     if ((this.input as NodeJS.ReadStream).isTTY && this.rl && !this.closed) {
       this.write("[input] No: approval denied, because this terminal can't show the box (TERM=dumb, or output redirected).\n");
@@ -484,9 +547,25 @@ export class InteractiveTerminal {
   exclusiveHost(options?: { onYield?: () => void }): RuntimeModelPickerHost | undefined { return this.surface?.exclusiveHost(options); }
 
   /** Structured clarification on the rich surface; undefined when skipped or unavailable. */
-  ask(question: string, options: { label: string; description?: string }[], multi: boolean, signal?: AbortSignal, from: AskOrigin = "casper"): Promise<string[] | undefined> {
+  async ask(question: string, options: { label: string; description?: string }[], multi: boolean, signal?: AbortSignal, from: AskOrigin = "casper"): Promise<string[] | undefined> {
+    const away: AwayQuestion = { kind: "ask", question, choices: options, ...(multi ? { multi } : {}), ...(from === "ai" ? { typed: true } : {}), from };
+    if (this.awayAsker) {
+      const held = await this.awayAsker.ask(away, signal);
+      // Casper's own pickers take only their choices; the AI's questions also take typed words.
+      const answer = held && (away.typed || held.every(label => options.some(option => option.label === label))) ? held : undefined;
+      this.recordAway(question, answer);
+      return answer;
+    }
     // Only the AI's own questions take a typed answer; Casper's are pickers (keys only).
-    return this.surface ? this.surface.ask(question, options, multi, signal, from, from === "ai") : Promise.resolve(undefined);
+    if (!this.surface) return undefined;
+    return this.orAway(await this.surface.ask(question, options, multi, signal, from, from === "ai"), away, signal);
+  }
+  /** An approval held while the terminal is gone: a label it offered, else No (its first), as typed words would be. */
+  private async askAway(away: AwayQuestion, signal?: AbortSignal): Promise<string | undefined> {
+    const answer = await this.awayAsker!.ask(away, signal);
+    const picked = answer?.[0] === undefined ? undefined : away.choices.some(choice => choice.label === answer[0]) ? answer[0] : away.choices[0]?.label;
+    this.recordAway(away.question, picked === undefined ? undefined : [picked]);
+    return picked;
   }
 
   /**
@@ -497,8 +576,15 @@ export class InteractiveTerminal {
    * appeared never answer it.
    */
   async pick(question: string, options: { label: string; description?: string }[], signal?: AbortSignal, settings: PickRecord & { typed?: boolean } = {}): Promise<string | undefined> {
+    const away: AwayQuestion = { kind: "pick", question, choices: options, ...(settings.typed ? { typed: true } : {}), from: "casper" };
+    if (this.awayAsker) {
+      const answer = (await this.awayAsker.ask(away, signal))?.[0];
+      const picked = answer === undefined || settings.typed || options.some(option => option.label === answer) ? answer : undefined;
+      this.recordAway(question, picked === undefined ? undefined : [picked]);
+      return picked;
+    }
     // Rich: a picker takes keys only (a paste waits for after it), unless `typed` says a typed answer means something here.
-    if (this.surface) return (await this.surface.ask(question, options, false, signal, "casper", settings.typed ?? false, settings.record))?.[0];
+    if (this.surface) return (await this.orAway(await this.surface.ask(question, options, false, signal, "casper", settings.typed ?? false, settings.record), away, signal))?.[0];
     return this.plainPick(question, options, signal, false, settings.typed ?? false, settings.record);
   }
 
@@ -514,6 +600,7 @@ export class InteractiveTerminal {
     return this.surface ? this.surface.handOver(run) : Promise.reject(new Error("Terminal input is unavailable."));
   }
   async editPlan(file: string): Promise<void> {
+    if (this.awayAsker) throw new Error("Terminal input is unavailable.");
     if (this.surface) await this.surface.externalEditor(() => editPlanFile(file));
     else await editPlanFile(file);
   }
@@ -575,8 +662,13 @@ export class InteractiveTerminal {
   }
 
   /** An empty, one-line text input on either terminal. Empty Enter returns to the caller without spending tokens. */
-  askLine(question: string, hint: string, signal?: AbortSignal): Promise<string | undefined> {
-    if (this.surface) return this.surface.askLine(question, hint, signal);
+  async askLine(question: string, hint: string, signal?: AbortSignal): Promise<string | undefined> {
+    const away: AwayQuestion = { kind: "line", question, choices: [], typed: true, hint };
+    if (this.awayAsker) { const answer = (await this.awayAsker.ask(away, signal))?.[0]?.replace(/\s+/g, " ").trim() || undefined; this.recordAway(question, answer ? [answer] : undefined); return answer; }
+    if (this.surface) {
+      const line = await this.surface.askLine(question, hint, signal);
+      return line !== undefined ? line : (await this.orAway(undefined, away, signal))?.[0];
+    }
     if (this.earlyLines.length) {
       this.write(`[input] Discarded ${this.earlyLines.length} line(s) entered before this question appeared.\n`);
       this.earlyLines.length = 0;
@@ -606,6 +698,8 @@ export class InteractiveTerminal {
   }
 
   interrupt(): void {
+    // A job's Casper has no keyboard: an interrupt (kill -INT) stops its task, as Esc would.
+    if (this.awayAsker) { this.onInterrupt(); return; }
     if (this.surface) { this.surface.interrupt(); return; }
     if (this.closed) return;
     this.confirmation?.(undefined);

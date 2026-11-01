@@ -83,6 +83,7 @@ over the network, and `/references add` downloads files after asking you.
 | `/services` | Dev servers the project declares ([SERVICES.md](SERVICES.md)) |
 | `/preview` | Your web app on a phone on the same Wi-Fi; a public link only after a yes ([SERVICES.md](SERVICES.md#preview-on-your-phone)) |
 | `/tasks [stop <n>\|all]` | What runs in the background; stop one |
+| `/jobs [show\|answer <job>]` | Tasks that kept going after their terminal closed: see one's result, or answer the box it waits on; or say "how's my job" ([SESSIONS.md](SESSIONS.md#walk-away-a-task-that-keeps-going-after-the-terminal-closes)) |
 | `/pages [open\|remove <name>]` | Pages the AI made for this project, with their links ([Pages the AI makes](#pages-the-ai-makes)) |
 | `/pane [on\|off]` | The steps split beside Casper inside tmux or iTerm2 (only on a window 120+ columns wide); saved for every session. See [TMUX.md](TMUX.md) |
 | `/debug` | The local debugger ([DEBUGGER.md](DEBUGGER.md)) |

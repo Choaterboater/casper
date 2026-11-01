@@ -1,5 +1,5 @@
 /** The start's way back: a plain start in a folder's main session begins a new conversation, and when the folder has an
- * earlier one it offers one row, "Next: 1 Continue the Oct 21 conversation (…) · 2 Saved pages (12)". A lone 1 on the empty prompt runs
+ * earlier one it offers one row, "Next: 1 Continue the Oct 21 conversation (…) · 2 Saved pages (12)", after what a walk-away job left. A lone 1 on the empty prompt runs
  * /continue, which opens what --continue would, even when typed before the row shows, and so does a first line that only
  * asks to go back ("continue session", continueWords); anything else typed starts the new conversation; Enter runs nothing. */
 
@@ -9,6 +9,7 @@ import { pagesDirectory, savedPages } from "../pages/store";
 import type { RuntimeConversation } from "../runtime/types";
 import { buildNextRow, type NextItem } from "../tui/next-row";
 import { SessionWorkspaceManager } from "../sessions/manager";
+import { jobRowItems, jobWorkingHere } from "./jobs";
 
 export const NEW_CONVERSATION_HINT = "Anything you type starts a new conversation.";
 
@@ -33,10 +34,14 @@ export function continueLabel(modified: string, now = new Date()): string {
 export async function offerEarlierConversation(app: CasperApp): Promise<boolean> {
   if (app.closing || !app.interactive || app.runConversation || app.queuedPrompt !== undefined || !app.projectContext) return false;
   const context = app.projectContext;
-  const [newest, pages] = await Promise.all([newestConversation(app), savedPageCount(app)]);
+  const [found, pages, jobs, working] = await Promise.all([newestConversation(app), savedPageCount(app), jobRowItems(app).catch(() => []),
+    jobWorkingHere(app).catch(() => false)]);
+  // A job still working here is writing its conversation: no second Casper continues it until the job ends.
+  const newest = working ? undefined : found;
   // Too late once a request or command has started: the row is for the empty prompt at the start.
-  if ((!newest && !pages) || app.closing || app.commandActive || app.session || app.projectContext !== context) return false;
-  const more: NextItem[] = [];
+  if ((!newest && !pages && !jobs.length) || app.closing || app.commandActive || app.session || app.projectContext !== context) return false;
+  // A walk-away job's result or question comes first (decision 51).
+  const more: NextItem[] = [...jobs];
   if (newest) {
     const { title } = conversationLabel(newest);
     const messages = newest.messages === undefined ? "" : `${newest.messages} message${newest.messages === 1 ? "" : "s"}`;
@@ -45,7 +50,7 @@ export async function offerEarlierConversation(app: CasperApp): Promise<boolean>
   }
   if (pages) more.push({ label: "Saved pages", command: "/pages", note: String(pages) });
   app.terminal.offerNext(buildNextRow({ more, ...(newest ? { hint: NEW_CONVERSATION_HINT } : {}) }));
-  return Boolean(newest);
+  return Boolean(newest) && !jobs.length;
 }
 
 /** This folder's newest earlier conversation with messages, or undefined (none, a /branch folder, or unreadable). */

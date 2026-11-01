@@ -185,6 +185,11 @@ export const COMMAND_REGISTRY: readonly CommandSpec[] = [
     { name: "remove", args: "<name>", description: "Delete a page" },
     LIST("The same as /pages"),
   ] },
+  { name: "jobs", description: "Tasks that kept going after their terminal closed; see a result or answer one", afterCleanupError: NONE, subcommands: [
+    { name: "show", args: "<job>", description: "What a job did: its last words and receipt" },
+    { name: "answer", args: "<job>", description: "The question a job is waiting on" },
+    LIST("The same as /jobs"),
+  ] },
   { name: "tasks", description: "What runs in the background (dev servers, helpers, checks); stop one", afterCleanupError: NONE,
     subcommands: [{ name: "stop", args: "<n>|all", description: "Stop one of them, or all", afterCleanupError: true }] },
   { name: "debug", description: "Inspect local targets; launch and debug code", afterCleanupError: NONE, subcommands: [

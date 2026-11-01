@@ -85,6 +85,8 @@ import { requestAsItStands, withLinesBeforeModel } from "./steered-request";
  * read only their own typing. */
 export async function runModelTask(app: CasperApp, prompt: string, options: { flow?: Flow; planFirst?: boolean; savedPlan?: SavedPlan; words?: RequestWords; guide?: string; asked?: string; pasted?: readonly string[] } = {}): Promise<VerificationReport | undefined> {
   if (app.closing) return;
+  // A model task runs: if the terminal goes away now, it carries on as a job (src/app/away.ts).
+  app.modelTaskActive = true;
   // From here until the model's first turn, a line typed joins this request (app/during-work.ts steerOrQueue).
   if (!app.beforeFirstModelTurn) {
     app.beforeFirstModelTurn = true;

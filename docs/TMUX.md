@@ -58,6 +58,10 @@ tmux attach
 If you have more than one tmux session, `tmux ls` lists them and `tmux attach -t <name>` picks one.
 Casper and its side pane are where you left them.
 
+Without tmux (or when its window is killed), a task that was running keeps going on its own on macOS and Linux:
+open Casper again in any terminal and its first row shows the result, or the question it is waiting on. See
+[Walk away](SESSIONS.md#walk-away-a-task-that-keeps-going-after-the-terminal-closes).
+
 ## What runs in the background: /tasks
 
 `/tasks` shows one numbered list of what Casper keeps running: dev servers, slow commands moved to the

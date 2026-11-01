@@ -1445,6 +1445,21 @@ export class TerminalSurface {
     clearTimeout(this.exitArmed); this.exitArmed = undefined;
     if (this.note === EXIT_NOTE) { this.note = ""; this.render(); }
   }
+  /** The terminal's input ended or failed (it closed, or the connection dropped), as opposed to Ctrl+D. */
+  get inputEnded(): boolean { return this.terminal.inputEnded; }
+  /** The terminal is gone and Casper stays (a walk-away job): stop drawing and reading without writing to it or ending
+   * the session. An open box closes unanswered; whoever asked it asks again where the answer can come from. */
+  drop(): void {
+    if (this.closed) return;
+    if (this.exitArmed) clearTimeout(this.exitArmed);
+    if (this.noteTimer) clearTimeout(this.noteTimer);
+    clearInterval(this.spinnerTimer);
+    this.spinnerTimer = undefined;
+    this.closed = true;
+    this.terminal.inputEnded = true;
+    this.pendingAsk?.(undefined); this.pendingLine?.(undefined);
+    if (this.started) { try { this.tui.stop(); } catch { /* the terminal is gone */ } }
+  }
   close(): void {
     if (this.closed) return;
     if (this.exitArmed) clearTimeout(this.exitArmed);
