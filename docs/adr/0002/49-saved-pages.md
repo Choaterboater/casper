@@ -1,6 +1,6 @@
 # 49. Saved pages: found and reopened from any folder, in plain words or with one key
 
-Date: 2026-10-31. Status: proposed.
+Date: 2026-10-31. Status: accepted (merged 2026-11-01 in #560).
 
 **What:** the pages the AI makes (comparisons, dashboards, reports, mock-ups, and diagrams shown as pages) were
 already saved, one file a page in `~/.casper/pages/<project-key>/`, but only the folder you were in could list them, the

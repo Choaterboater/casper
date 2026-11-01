@@ -78,6 +78,7 @@
           </li>
           <li><a href="#released">Released</a>
             <ul>
+              <li><a href="#v0402">v0.4.2: walk away</a></li>
               <li><a href="#v0401">v0.4.1: boxes copy clean</a></li>
               <li><a href="#v0400">v0.4.0: sudo inside Casper</a></li>
               <li><a href="#v0309">v0.3.9: a crew you can watch</a></li>
@@ -136,7 +137,7 @@
         <h2 id="next-h">Next release</h2>
         <aside class="callout soon">
           <strong class="callout-title">Built, not released</strong>
-          <p>Nothing on the main branch is waiting: everything built so far is in v0.4.1. New work shows here before the next preview.</p>
+          <p>Nothing on the main branch is waiting: everything built so far is in v0.4.2. New work shows here before the next preview.</p>
         </aside>
       </section>
 
@@ -378,10 +379,25 @@
         and on the <a href="https://github.com/Choaterboater/casper/releases">Releases page</a>.</p>
         <div class="stack">
 
+        <details class="card release" id="v0402" aria-labelledby="v0402-h" open>
+          <summary class="release-heading">
+            <h3 id="v0402-h">v0.4.2 · Tasks that keep going after you close the terminal, saved pages from any folder, and other agents as ordinary commands</h3>
+            <span class="badge ok">current preview</span>
+          </summary>
+          <ul>
+            <li><strong>Walk away.</strong> On macOS and Linux, a task keeps going when you close the terminal or the window, or SSH drops. The same Casper finishes it with the answers you gave, saves its receipt with Undo, and sends a desktop notification.</li>
+            <li><strong>It waits for you.</strong> Nothing that would ask you is allowed while you're away: the box waits, and the next Casper you open, in any terminal, shows <code>Answer the job's question</code>. Passwords and secrets are never sent between terminals.</li>
+            <li><strong>The result, then Undo.</strong> The start's row offers <code>See the job's result</code>; in the job's folder, <code>Next: 1 Show diff · 2 Undo</code> follows. "how's my job" and <code>/jobs</code> list every job.</li>
+            <li><strong>Saved pages from any folder.</strong> <code>/pages</code> lists every folder's pages with the day each was made, the start's row offers <code>Saved pages</code>, and "show me the radar page from yesterday" reopens one.</li>
+            <li><strong>Other agents as ordinary commands.</strong> In your own session, starting <code>omp</code>, <code>claude</code>, <code>codex</code> or another coding agent goes through the sandbox, judge and box like any command. Helpers still start none.</li>
+            <li><strong>Limits.</strong> A walk-away job stops after 4 hours of work or 24 hours waiting on you; on Windows, closing the window still stops the task.</li>
+          </ul>
+        </details>
+
         <details class="card release" id="v0401" aria-labelledby="v0401-h" open>
           <summary class="release-heading">
             <h3 id="v0401-h">v0.4.1 · Claude Ultra sign-ins work again, boxes copy clean, and a tighter Linux sandbox</h3>
-            <span class="badge ok">current preview</span>
+            <span class="badge">previous preview</span>
           </summary>
           <ul>
             <li><strong>Claude Ultra sign-ins.</strong> A Claude Max sign-in that Claude Code now reports as <code>Claude Ultra</code> works with <code>claude-subscription</code> again.</li>
@@ -397,7 +413,7 @@
         <details class="card release" id="v0400" aria-labelledby="v0400-h" open>
           <summary class="release-heading">
             <h3 id="v0400-h">v0.4.0 · sudo and commands that need you run inside Casper, a hidden box for keys and tokens, Auto mode, Trust this folder?, and shorter approval boxes</h3>
-            <span class="badge">previous preview</span>
+            <span class="badge">released</span>
           </summary>
           <ul>
             <li><strong>sudo inside Casper.</strong> When <code>sudo</code> really asks for its password, Casper asks in its own hidden box; the password goes only to sudo, never to the AI.</li>
@@ -417,7 +433,7 @@
           </ul>
         </details>
 
-        <details class="card release" id="v0309" aria-labelledby="v0309-h" open>
+        <details class="card release" id="v0309" aria-labelledby="v0309-h">
           <summary class="release-heading">
             <h3 id="v0309-h">v0.3.9 · A crew you can watch, plain words for continue and export, and approval boxes that take keys</h3>
             <span class="badge">released</span>
@@ -1472,7 +1488,7 @@
   <footer class="site-footer">
     <div class="container footer-inner">
       <div>
-        <p><strong>Casper 0.4.1</strong> · early preview, unsigned</p>
+        <p><strong>Casper 0.4.2</strong> · early preview, unsigned</p>
         <p><a href="https://github.com/Choaterboater/casper/blob/main/LICENSE">MIT licence</a> · © 2026 Choaterboater</p>
         <p>Built on the <a href="https://github.com/earendil-works/pi">Pi SDK</a>. Other parts keep their own licences (<a href="https://github.com/Choaterboater/casper/blob/main/THIRD_PARTY_NOTICES.txt">notices</a>).</p>
       </div>
