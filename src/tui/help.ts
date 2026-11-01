@@ -223,6 +223,9 @@ Local commands:
   /pages [list]                     Pages the AI made in every folder (comparisons, dashboards, diagrams), numbered; a key opens one
   /pages open <name>                Show one in your browser (also with opening off); or ask: "show me the radar page"
   /pages remove <name>              Delete one; its open tab says (removed)
+  /jobs [list]                      Tasks that kept going after their terminal closed: working, waiting on you, or done
+  /jobs show <job>                  A job's last words and receipt (here: Show diff and Undo); or ask: "how's my job"
+  /jobs answer <job>                The box a job is waiting on; your answer goes to the job
   /tasks                            What runs in the background, numbered; asks 1 Keep them · 2 Stop 1 ...
   /tasks stop <n>|all               Stop one of them, or all, without the question
   /pane [on|off]                    The steps split beside Casper in tmux or iTerm2 (120+ columns); saved

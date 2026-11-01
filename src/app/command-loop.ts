@@ -41,6 +41,7 @@ import { exportHandledHere, exportRequest, exportWordsLine } from "./export-word
 import { stopAskingRequest } from "./stop-asking-words";
 import { reloadProject } from "./project-file";
 import { pagesCommand } from "./pages";
+import { jobsCommand, jobStatusWords, leavingReply, leavingWords } from "./jobs";
 import { lookCommand, lookTyped } from "./look";
 import { lookWords } from "../look/commands";
 import { rewind } from "./rewind";
@@ -146,6 +147,8 @@ export async function runInteractive(app: CasperApp, cwd = process.cwd(), firstR
     }
     settleQueuedLines(app);
   }
+  // A walk-away job: its task (and what you queued during it) is done; record the result and tell you.
+  if (app.away) await app.away.finish();
   app.terminal.close();
   app.interactive = false;
 }
@@ -237,6 +240,10 @@ export async function handlePrompt(app: CasperApp, prompt: string, typed?: { pas
       await setAutoMode(app, auto === "on");
       return report;
     }
+    // "keep going after I leave": nothing to set; a running task keeps going when the terminal closes (src/app/jobs.ts).
+    if (typed && !app.pastedImages?.size && leavingWords(prompt, typed.pasted)) { app.output.write(leavingReply()); return report; }
+    // "how's my job": /jobs, as if typed, with no model call.
+    if (typed && !app.pastedImages?.size && jobStatusWords(prompt, typed.pasted)) return report = await handleSlashCommand(app, "/jobs");
     // "trust this folder" or "stop trusting this folder": /trust, as if typed, with no model call (src/app/trust-words.ts).
     const trust = typed && !app.pastedImages?.size ? trustRequest(prompt, typed.pasted) : undefined;
     if (trust) {
@@ -279,6 +286,7 @@ export async function handlePrompt(app: CasperApp, prompt: string, typed?: { pas
       app.smokeTask = undefined;
       app.pageTask = undefined;
       app.taskEdits = undefined;
+      app.modelTaskActive = false;
       app.commandActive = false;
       app.workspaceTransition = false;
       updateFooter(app);
@@ -299,6 +307,7 @@ export function handleSlashCommand(app: CasperApp, typed: string): Promise<Verif
   if (/^\/settings(?:\s|$)/.test(prompt)) return settingsCommand(app, prompt.slice(9).trim() || undefined).then(() => undefined);
   if (prompt.trim() === "/theme") return settingsCommand(app, "Theme").then(() => undefined);
   if (/^\/pages(?:\s|$)/.test(prompt)) return pagesCommand(app, prompt.slice(6).trim()).then(() => undefined);
+  if (/^\/jobs(?:\s|$)/.test(prompt)) return jobsCommand(app, prompt.slice(5).trim()).then(() => undefined);
   if (/^\/preview(?:\s|$)/.test(prompt)) return previewCommand(app, prompt.slice(8).trim()).then(() => undefined);
   if (/^\/look(?:\s|$)/.test(prompt)) return lookCommand(app, prompt.slice(5).trim());
   const newProject = /^\/project\s+new(?:\s+([\s\S]*))?$/.exec(prompt.trim());

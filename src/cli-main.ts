@@ -20,7 +20,7 @@ import { CLI_HELP_TEXT, wrapHelp } from "./tui/help";
 import { CASPER_VERSION } from "./version";
 import licenseNotices from "../THIRD_PARTY_NOTICES.txt" with { type: "text" };
 
-export function installShutdownHandlers(app: { close(): Promise<void>; interrupt?(): boolean }): () => void {
+export function installShutdownHandlers(app: { close(): Promise<void>; interrupt?(): boolean; hangUp?(): boolean }): () => void {
   const shutdown = (exitCode: number) => {
     // Runtime startup/abort has no deadline in the adapter contract. Give
     // verifier cleanup time to finish, but do not let it trap SIGINT/SIGTERM.
@@ -30,11 +30,22 @@ export function installShutdownHandlers(app: { close(): Promise<void>; interrupt
   };
   const interrupt = () => { if (!app.interrupt?.()) shutdown(130); };
   const terminate = () => shutdown(143);
+  // The terminal closed or SSH dropped: a running task carries on as a walk-away job (decision 51). Otherwise Casper
+  // ends as a hang-up always ended it: the other listeners clean up and hang up again, or the default ending runs.
+  const hangUp = () => {
+    if (app.hangUp?.()) return;
+    process.removeListener("SIGHUP", hangUp);
+    if (process.listenerCount("SIGHUP") > 0) return;
+    // Windows raises SIGHUP when the console closes but can't send it: end as a hang-up would.
+    try { process.kill(process.pid, "SIGHUP"); } catch { process.exit(129); }
+  };
   process.on("SIGINT", interrupt);
   process.once("SIGTERM", terminate);
+  if (app.hangUp) process.on("SIGHUP", hangUp);
   return () => {
     process.removeListener("SIGINT", interrupt);
     process.removeListener("SIGTERM", terminate);
+    process.removeListener("SIGHUP", hangUp);
   };
 }
 
@@ -340,5 +351,7 @@ export async function runCli(): Promise<void> {
   } finally {
     try { await app.close(); }
     finally { removeShutdownHandlers(); }
+    // A walk-away job has no terminal left to hand back: it ends here, its result saved.
+    if (app.away) process.exit(0);
   }
 }

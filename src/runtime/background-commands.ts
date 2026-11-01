@@ -8,6 +8,7 @@ import { randomBytes } from "node:crypto";
 import { createWriteStream, type WriteStream } from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { stayingAfterHangUp } from "../platform/hang-up";
 
 /** The limit for a command run without its own timeout. */
 export const DEFAULT_COMMAND_LIMIT_SECONDS = 120;
@@ -67,6 +68,8 @@ export class BackgroundCommands {
   /** The terminal closed: kill them too (they run in their own process group, so no hang-up reaches them), then
    * hang up again for whoever else listens, or for the default ending (as the side pane does). */
   private readonly onHangup = () => {
+    // A Casper that stays (a walk-away job, decision 51) keeps them; they stop when it ends.
+    if (stayingAfterHangUp()) return;
     this.onExit();
     process.removeListener("SIGHUP", this.onHangup);
     // Windows raises SIGHUP when the console closes but can't send it: end as a hang-up would.

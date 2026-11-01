@@ -20,6 +20,9 @@ export class StreamTerminal implements Terminal {
   /** The terminal is in front (true) or not (false), from its focus reports (mode 1004); undefined until it sends
    * one, and again after input was lent out (a report may have gone to the other reader). */
   focused?: boolean;
+  /** The input itself ended or failed: the terminal closed or the connection dropped (not Ctrl+D, a key). */
+  inputEnded = false;
+  private readonly ended = () => { if (this.inputEnded) return; this.inputEnded = true; this.eof(); };
   constructor(private readonly io: RuntimePickerIO, private readonly eof: () => void) {}
   get columns(): number { return this.io.output.columns ?? 80; }
   get rows(): number { return this.io.output.rows ?? 24; }
@@ -37,7 +40,8 @@ export class StreamTerminal implements Terminal {
   suspendInput(): void {
     if (this.stopped) return;
     this.io.input.off("data", this.inputHandler);
-    this.io.input.off("end", this.eof);
+    this.io.input.off("end", this.ended);
+    this.io.input.off("error", this.ended);
     this.buffer?.destroy(); this.buffer = undefined;
     // The reader input is lent to gets no focus reports.
     this.write(FOCUS_OFF);
@@ -56,7 +60,9 @@ export class StreamTerminal implements Terminal {
     buffer.on("paste", text => { if (!this.stopped && this.buffer === buffer) this.onInput?.(`\x1b[200~${text}\x1b[201~`); });
     this.io.input.setRawMode?.(true);
     this.io.input.on("data", this.inputHandler);
-    this.io.input.once("end", this.eof);
+    this.io.input.once("end", this.ended);
+    // A read error on a terminal that hung up (EIO) ends input the same way, instead of throwing.
+    this.io.input.on("error", this.ended);
     this.io.input.resume();
     this.focused = undefined;
     this.write("\x1b[?2004h");
@@ -73,7 +79,10 @@ export class StreamTerminal implements Terminal {
     this.write(FOCUS_OFF);
   }
   async drainInput(): Promise<void> {}
-  write(data: string): void { this.io.output.write(this.io.color ? data : withoutColour(data)); }
+  write(data: string): void {
+    // After a hang-up the terminal is gone: a write there fails, and nothing on it can be read any more.
+    try { this.io.output.write(this.io.color ? data : withoutColour(data)); } catch (error) { if (!this.inputEnded) throw error; }
+  }
   moveBy(lines: number): void { if (lines) this.write(`\x1b[${Math.abs(lines)}${lines > 0 ? "B" : "A"}`); }
   hideCursor(): void { this.write("\x1b[?25l"); }
   showCursor(): void { this.write("\x1b[?25h"); }

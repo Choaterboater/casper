@@ -105,6 +105,7 @@ import type { PageSession } from "./pages/session";
 import { runVerification, checksPlan, saveFoundCheck } from "./app/verification";
 import type { AppSmokeTask } from "./app/try-it";
 import { runInteractive, handlePrompt, handleSlashCommand, cancelCurrent, writePrompt } from "./app/command-loop";
+import { leaveOnHangUp, type AwayJob, type WalkAwaySeams } from "./app/away";
 import { loadWorkspace, reloadReferences, reloadSkills, projectPrivatePaths, reportSkillWarnings, bannerChecks, reportNewerCasper } from "./app/wiring";
 import { PendingPictures } from "./pictures/pending";
 import { acquireRuntime, ensureRuntime, checkSignIn, observeEdit } from "./app/runtime-start";
@@ -174,6 +175,8 @@ export interface CasperAppOptions {
   pageSeams?: { desktop?: () => boolean; open?: (url: string) => boolean };
   /** Tests: where make_picture finds codex (PATH) and how it reaches the image services. */
   pictureSeams?: { env?: NodeJS.ProcessEnv; fetch?: typeof fetch; urls?: { openrouter?: string; openai?: string } };
+  /** Tests: the walk-away job's platform, notifications and limits (src/app/away.ts). */
+  walkAway?: WalkAwaySeams;
   /** Tests: Casper's hidden box (casper_secret's, or an ssh or sudo password) on a terminal without Casper's full screen (the value "typed", or undefined for Esc). */
   secretInput?: (box: { label: string; title: string; hint: string }) => Promise<string | undefined>;
   /** Opens pages for the page check: Chrome when installed, else HTTP only. Tests pass a fake. */
@@ -381,6 +384,11 @@ export class CasperApp {
   readonly pendingPictures = new PendingPictures(() => this.commandAbort?.signal);
   readonly pictureSeams?: CasperAppOptions["pictureSeams"];
   readonly secretInput?: CasperAppOptions["secretInput"];
+  readonly walkAway?: CasperAppOptions["walkAway"];
+  /** The terminal went away during a task and Casper stayed: the walk-away job (decision 51). */
+  away?: AwayJob;
+  /** A model task runs in this command (not a local command such as /settings): only it outlives the terminal. */
+  modelTaskActive = false;
   readonly modelRetryWait?: CasperAppOptions["modelRetryWait"];
   /** The dev-server lines are printed once per session. */
   readonly pageNotice: DevServerNotice = { shown: false };
@@ -527,6 +535,7 @@ export class CasperApp {
     this.pageSeams = options.pageSeams;
     this.pictureSeams = options.pictureSeams;
     this.secretInput = options.secretInput;
+    this.walkAway = options.walkAway;
     this.modelRetryWait = options.modelRetryWait;
     this.networkTools = options.networkTools;
     this.securitySeams = options.securitySeams;
@@ -587,7 +596,10 @@ export class CasperApp {
     const host = options.terminalHost ?? (detected && (detected.tmux || detected.iterm || detected.notify) ? { host: detected } : undefined);
     // The old Windows console draws every mark in ASCII (src/tui/glyphs.ts).
     this.terminal = new InteractiveTerminal(this.input, options.output ?? glyphOutput(process.stdout),
-      () => cancelCurrent(this), () => { if (this.commandActive && !this.closing) void this.close().catch(() => {}); }, host);
+      () => cancelCurrent(this), () => {
+        // The terminal itself went away during a task (not Ctrl+D): the task carries on as a job where it can.
+        if (this.commandActive && !this.closing && !(this.terminal.inputEnded && this.hangUp())) void this.close().catch(() => {});
+      }, host);
     this.terminal.setEffortCycle(() => cycleEffort(this));
     // notifications: off (/settings) quiets the bell and the desktop notification, read each time it would ring.
     this.terminal.setNotifications(() => this.projectContext?.notifications !== false);
@@ -734,6 +746,9 @@ export class CasperApp {
   }
 
   async runInteractive(cwd = process.cwd(), firstRequest?: string): Promise<void> { return runInteractive(this, cwd, firstRequest); }
+
+  /** The terminal hung up: true when Casper stays and the running task becomes a walk-away job (src/app/away.ts). */
+  hangUp(): boolean { return leaveOnHangUp(this, () => cancelCurrent(this), this.walkAway); }
 
   /** OS SIGINT and terminal Ctrl-C share cancellation, without disposing the session. */
   interrupt(): boolean {
