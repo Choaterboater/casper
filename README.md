@@ -143,8 +143,9 @@ Ctrl+D on an empty prompt exits. [Keys and commands](docs/TERMINAL_UX.md#quick-r
   its own folder. [Sessions](docs/SESSIONS.md)
 - **Pages in your browser.** When seeing beats reading (options side by side, a mock-up, a
   dashboard, a report for others), the AI makes a page by itself and it opens in your
-  browser; a change reloads it. Local only, with an off switch in `/settings`.
-  [Pages](docs/TERMINAL_UX.md#pages-the-ai-makes)
+  browser; a change reloads it. Pages stay saved: ask for one again ("show me the radar page
+  from yesterday") or press a number on `/pages`, from any folder. Local only, with an off
+  switch in `/settings`. [Pages](docs/TERMINAL_UX.md#pages-the-ai-makes)
 - **Look at a page.** `/look critique` scores a page at phone and desktop width, `/look guidelines`
   checks it against Vercel's Web Interface Guidelines; `/look polish`, `adapt`, `harden` and the
   others fix it and screenshot it again, in the real browser. After a critique (and your answers

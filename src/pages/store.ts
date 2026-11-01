@@ -121,6 +121,73 @@ export async function listPages(directory: string): Promise<PageFile[]> {
   return pages.filter((page): page is PageFile => page !== undefined).sort((a, b) => b.modified.getTime() - a.modified.getTime());
 }
 
+/** A page folder's name: the project's state folder name, `<folder>-<16 hex>` (src/project/model.ts); never a path. */
+const PROJECT_KEY = /^[A-Za-z0-9._-]{1,200}-[0-9a-f]{16}$/;
+export const isProjectKey = (name: string): boolean => PROJECT_KEY.test(name);
+
+export interface SavedPage extends PageFile {
+  /** The page folder's name (the project key). */
+  project: string;
+  /** The project folder's own name: "homeassist". */
+  folder: string;
+  /** In the folder Casper is open in. */
+  here: boolean;
+  /** What /pages open and casper_page open take: the name here, `<project>/<name>` for another folder. */
+  ref: string;
+}
+
+/** The folder of saved pages named `project`, or undefined when that is not a real page folder (a link, a file, a name
+ * that is not a project key). */
+export async function savedPageDirectory(homeDir: string, project: string): Promise<string | undefined> {
+  if (!PROJECT_KEY.test(project)) return undefined;
+  const base = path.join(homeDir, ".casper", "pages");
+  const directory = path.join(base, project);
+  if (path.dirname(directory) !== base) return undefined;
+  const stats = await lstat(directory).catch(() => undefined);
+  return stats?.isDirectory() ? directory : undefined;
+}
+
+/** Every folder's saved pages: those of `here` (this project's page folder) first, then the newest, then by name. */
+export async function savedPages(homeDir: string, here: string): Promise<SavedPage[]> {
+  const base = path.join(homeDir, ".casper", "pages");
+  const entries = await readdir(base).catch(() => [] as string[]);
+  const folders = await Promise.all(entries.map(async (project) => {
+    const directory = path.join(base, project) === here ? here : await savedPageDirectory(homeDir, project);
+    if (!directory) return [];
+    const isHere = directory === here;
+    return (await listPages(directory)).map((page): SavedPage => ({ ...page, project, folder: project.replace(/-[0-9a-f]{16}$/, ""),
+      here: isHere, ref: isHere ? page.name : `${project}/${page.name}` }));
+  }));
+  return folders.flat().sort((a, b) => Number(b.here) - Number(a.here) || b.modified.getTime() - a.modified.getTime() || a.name.localeCompare(b.name));
+}
+
+/** The saved pages `words` mean, in the order given: "" all of them; a ref or a page name exactly; else the pages whose
+ * names have the most of the words ("the radar page from yesterday" finds planes-radar). */
+export function findSaved(pages: readonly SavedPage[], words: string): SavedPage[] {
+  const asked = words.trim();
+  if (!asked) return [...pages];
+  if (asked.includes("/")) return pages.filter((page) => page.ref === asked || `${page.project}/${page.name}` === asked);
+  const exact = pages.filter((page) => page.name === pageName(asked));
+  if (exact.length) return exact;
+  const wanted = asked.toLowerCase().split(/[^a-z0-9]+/).filter((word) => word.length >= 3);
+  const scored = pages.map((page) => {
+    const parts = page.name.split("-");
+    return { page, score: wanted.filter((word) => parts.some((part) => part.startsWith(word))).length };
+  });
+  const best = Math.max(0, ...scored.map((item) => item.score));
+  return best ? scored.filter((item) => item.score === best).map((item) => item.page) : [];
+}
+
+/** "today", "yesterday", "Oct 20", or "Dec 2, 2025" in another year. */
+export function pageDay(date: Date, now = new Date()): string {
+  const start = (day: Date) => new Date(day.getFullYear(), day.getMonth(), day.getDate()).getTime();
+  const days = Math.round((start(now) - start(date)) / 86_400_000);
+  if (days === 0) return "today";
+  if (days === 1) return "yesterday";
+  const shown = date.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+  return date.getFullYear() === now.getFullYear() ? shown : `${shown}, ${date.getFullYear()}`;
+}
+
 /** The page's saved text, or undefined. */
 export async function readPage(directory: string, name: string): Promise<string | undefined> {
   const page = await pageFile(directory, name);

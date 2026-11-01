@@ -19,6 +19,8 @@ export interface RichAppSetup {
   trusted?: boolean;
   /** Files written into the project first (package.json, .casper/project.yaml). */
   files?: Record<string, string>;
+  /** Files written into the throwaway home first (.casper/pages/<key>/<name>.html). */
+  homeFiles?: Record<string, string>;
   /** The project is a git repository of its own. */
   git?: boolean;
   /** The folder holding the project is trusted (the project itself is not saved as trusted). */
@@ -39,6 +41,10 @@ export async function richApp(makeRuntime: (project: string) => AgentRuntime, op
   for (const [name, text] of Object.entries(setup.files ?? {})) {
     await mkdir(path.dirname(path.join(project, name)), { recursive: true });
     await writeFile(path.join(project, name), text);
+  }
+  for (const [name, text] of Object.entries(setup.homeFiles ?? {})) {
+    await mkdir(path.dirname(path.join(home, name)), { recursive: true });
+    await writeFile(path.join(home, name), text);
   }
   if (setup.git) expect(Bun.spawnSync(["git", "init", "-q", project], { env: cleanEnv() }).exitCode).toBe(0);
   // Git names a repository by its real path (macOS's /var is /private/var), as Casper's project root does.

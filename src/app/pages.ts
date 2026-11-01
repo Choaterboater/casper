@@ -1,11 +1,13 @@
-/** Pages the AI makes (casper_page) and /pages: the session's page folder, server and browser opening. */
+/** Pages the AI makes (casper_page) and /pages: the session's page folder, servers and browser opening, and the saved
+ * pages of every folder. */
 
 import type { CasperApp } from "../app";
 import { PageSession } from "../pages/session";
-import { pagesDirectory } from "../pages/store";
+import { pageDay, pagesDirectory } from "../pages/store";
 import { pageTool } from "../pages/tool";
 import type { RuntimeTool } from "../runtime/types";
 import { terminalText } from "../tui/format";
+import { buildNextRow } from "../tui/next-row";
 import { MermaidProvider } from "../visualize/mermaid";
 import { diagramPageFor, diagramPageName } from "../visualize/page";
 import type { RenderedVisualization } from "../visualize/router";
@@ -48,29 +50,35 @@ export async function showDiagramPage(app: CasperApp, rendered: RenderedVisualiz
 
 const USAGE = "Usage: /pages | /pages open <name> | /pages remove <name>";
 
-/** /pages: this project's pages with their links; /pages open <name>; /pages remove <name>. No model; runs during a
- * task too. */
+/** /pages: every folder's saved pages, this folder's first, numbered, with the day and the folder; the row under it
+ * opens one with a key. /pages open <name>; /pages remove <name> (a name, or <folder-key>/<name> from the row). No
+ * model; runs during a task too. */
 export async function pagesCommand(app: CasperApp, args: string): Promise<void> {
   const write = (text: string) => app.output.write(text);
   const [action, name, ...extra] = args.split(/\s+/).filter(Boolean);
   const session = pageSession(app);
   if (!action || action === "list") {
     if (name) { write(`${USAGE}\n`); return; }
-    const pages = await session.list();
+    const pages = await session.saved();
     if (!pages.length) {
       const off = app.projectContext?.aiPages === false ? " Pages the AI makes is off (/settings)." : " Ask for one: \"show me the options side by side\".";
-      write(`[pages] No pages for this project yet.${off}\n`);
+      write(`[pages] No saved pages yet.${off}\n`);
       return;
     }
-    write(`Pages (${terminalText(session.directory)}):\n${pages.map((page) => `  ${page.name.padEnd(24)} ${page.link}`).join("\n")}\n/pages open <name> shows one · /pages remove <name> deletes it\n`);
+    const width = Math.min(40, Math.max(...pages.map((page) => page.name.length)));
+    const day = Math.max(...pages.map((page) => pageDay(page.modified).length));
+    const keyed = pages.slice(0, 9);
+    write(`Saved pages, this folder first, then newest:\n${pages.map((page, index) =>
+      `  ${index < keyed.length ? String(index + 1) : " "}  ${page.name.padEnd(width)}  ${pageDay(page.modified).padEnd(day)}  ${page.here ? "this folder" : terminalText(page.folder)}`).join("\n")}\n`);
+    if (app.interactive) app.terminal.offerNext(buildNextRow({ more: keyed.map((page) => ({ label: `Open ${page.name}`, command: `/pages open ${page.ref}` })) }));
     return;
   }
   if ((action !== "open" && action !== "remove") || !name || extra.length) { write(`${USAGE}\n`); return; }
   if (action === "remove") {
-    write(await session.remove(name) ? `[pages] Removed ${name}.\n` : `[pages] No page ${terminalText(name)}. /pages lists them.\n`);
+    write(await session.remove(name) ? `[pages] Removed ${terminalText(name)}.\n` : `[pages] No page ${terminalText(name)}. /pages lists them.\n`);
     return;
   }
+  // Its line ("[page] name → link") comes from the session.
   const opened = await session.open(name);
-  if (typeof opened === "string") { write(`[pages] ${terminalText(opened)}\n`); return; }
-  write(`[page] ${name} → ${opened.link}${opened.opened ? "" : " (open it in your browser)"}\n`);
+  if (typeof opened === "string") write(`[pages] ${terminalText(opened)}\n`);
 }

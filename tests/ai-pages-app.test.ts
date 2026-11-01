@@ -65,11 +65,11 @@ test("casper_page is offered by default; ai_pages: off takes it out of the AI's 
   expect(off.runtime.tools.map((tool) => tool.name)).not.toContain("casper_page");
 });
 
-test("/pages lists this project's pages with their links, opens one in the browser and removes one; it runs during a task", async () => {
+test("/pages lists the saved pages, opens one in the browser and removes one; it runs during a task", async () => {
   const run = await app();
   run.casper.interactive = true;
   await run.casper.handleSlashCommand("/pages");
-  expect(run.text()).toContain("[pages] No pages for this project yet.");
+  expect(run.text()).toContain("[pages] No saved pages yet.");
   const tool = run.runtime.tools.find((candidate) => candidate.name === "casper_page")!;
   const made = await tool.execute({ name: "db-options", html: PAGE });
   expect(made.text).toContain("It is open in the user's browser.");
@@ -80,7 +80,7 @@ test("/pages lists this project's pages with their links, opens one in the brows
 
   run.clear();
   await run.casper.handleSlashCommand("/pages");
-  expect(run.text()).toMatch(/^Pages \(.+\):\n {2}db-options {15}http:\/\/127\.0\.0\.1:\d+\/db-options\.html\n/);
+  expect(run.text()).toBe("Saved pages, this folder first, then newest:\n  1  db-options  today  this folder\nNext: 1 Open db-options\n");
   run.clear();
   await run.casper.handleSlashCommand("/pages open db-options");
   expect(run.text()).toMatch(/^\[page\] db-options → http:\/\/127\.0\.0\.1:\d+\/db-options\.html\n$/);

@@ -1102,10 +1102,26 @@ tiers, links at right angles and port labels ([Network diagrams](VISUALIZATION.m
 - **The page server** starts with the first page of a session: `127.0.0.1` only, on a free port,
   and it stops when Casper quits. A one-shot run (`casper -p "<request>"`) starts no server: the page
   is saved and its file address printed; `/pages open <name>` in a session shows it.
-- **`/pages`** lists this project's pages with their links; `/pages open <name>` shows one (also
-  with opening turned off: you asked); `/pages remove <name>` deletes one, and its open tab says
-  `(removed)`. They run at once, also during a task. No model.
-- **Cost.** The tool is one short line in each request. How to build a good page (one
+- **Saved pages, from any folder.** Pages stay saved after Casper quits. `/pages` lists every
+  folder's pages, this folder's first, then the newest, each with the day it was made and its
+  folder; the row under it opens one with a key. Ask in plain words too ("show me the radar page
+  from yesterday"): the AI finds it and opens it, or shows the list when several match. At the
+  start, the row offers `Saved pages (N)` beside `Continue …` when there are any
+  ([decision 49](adr/0002/49-saved-pages.md)).
+
+  ```text
+  Saved pages, this folder first, then newest:
+    1  db-options          today      this folder
+    2  planes-radar        yesterday  homeassist
+    3  ha-dashboard-audit  Oct 20     homeassist
+  Next: 1 Open db-options · 2 Open planes-radar · 3 Open ha-dashboard-audit
+  ```
+
+  `/pages open <name>` shows one (also with opening turned off: you asked); `/pages remove <name>`
+  deletes one, and its open tab says `(removed)`. A page in another folder is
+  `<folder-key>/<name>`, as the row sends it. A page from another folder opens on a page server for
+  that folder alone. They run at once, also during a task. No model.
+- **Cost.** The tool is one short line in each request, with `open` for a saved page. How to build a good page (one
   self-contained file, light and dark, phone width, real data, nothing private) comes back from
   the tool itself the first time it is used in a conversation (again after `/clear` or `/resume`),
   so it costs nothing until a page is made.
