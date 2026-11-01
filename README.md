@@ -36,20 +36,20 @@ Casper itself is free and open source. A task spends money only with your own mo
 macOS / Linux:
 
 ```sh
-curl -fsSL https://github.com/Choaterboater/casper/releases/download/v0.4.1/install.sh | sh
+curl -fsSL https://github.com/Choaterboater/casper/releases/download/v0.4.2/install.sh | sh
 ```
 
 Windows (x64 or ARM64), in PowerShell:
 
 ```powershell
-[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; irm https://github.com/Choaterboater/casper/releases/download/v0.4.1/install.ps1 | iex
+[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; irm https://github.com/Choaterboater/casper/releases/download/v0.4.2/install.ps1 | iex
 ```
 
 No admin rights, Bun or source checkout needed. The installer checks the file's SHA-256 (with
 `gh` signed in, also where it was built; for releases signed with the
 [release key](docs/RELEASE.md#the-release-key), none yet, the signature too) and keeps your old install
-if anything is wrong. These commands pin **v0.4.1**; after that,
-`casper update` gets the newest preview. `install.sh` takes `--dir <path>`, `--version 0.4.1`,
+if anything is wrong. These commands pin **v0.4.2**; after that,
+`casper update` gets the newest preview. `install.sh` takes `--dir <path>`, `--version 0.4.2`,
 `--sha256 <hex>` and `--force`. [Installer details](docs/RELEASE.md#installer-contract).
 
 Use the one-line command above rather than downloading a program in your browser: the installer
@@ -83,7 +83,7 @@ From the shell:
 ```sh
 casper "Explain this project"  # start a session with this first request
 casper --no-verify   # no Casper-run checks this run
-casper --version     # casper 0.4.1 (/absolute/path/of/the/binary/or/cli.ts)
+casper --version     # casper 0.4.2 (/absolute/path/of/the/binary/or/cli.ts)
 casper doctor        # check Casper's own setup and fix what it can (no model)
 ```
 
@@ -227,7 +227,9 @@ Ctrl+D on an empty prompt exits. [Keys and commands](docs/TERMINAL_UX.md#quick-r
 
 ## What's new
 
-v0.4.1: a Claude Code plan sign-in that Claude Code reports as `Claude Ultra` works with `claude-subscription` again, and a refusal names the plan Claude Code reported; every box is an open box at the left edge, so a mouse copy takes no border or indent; on Linux a command held by the sandbox can no longer make its own user namespace. See [release notes](docs/RELEASE.md).
+v0.4.2: on macOS and Linux a task keeps going when you close the terminal or SSH drops, and the next Casper you open shows its result with Undo, or the box it waits on; saved pages reopen from any folder, in plain words or with one key; starting another coding agent in your session is an ordinary command. See [release notes](docs/RELEASE.md).
+
+v0.4.2: a Claude Code plan sign-in that Claude Code reports as `Claude Ultra` works with `claude-subscription` again, and a refusal names the plan Claude Code reported; every box is an open box at the left edge, so a mouse copy takes no border or indent; on Linux a command held by the sandbox can no longer make its own user namespace. See [release notes](docs/RELEASE.md).
 
 v0.4.0: when sudo asks for its password, Casper asks in its own hidden box, and editors, logins and y/n prompts get Casper's terminal; the AI asks for a key or token in the same hidden box, and a token in a paste is caught before it is sent; Auto mode lets a model judge run ordinary build commands in a trusted folder; Casper asks "Trust this folder?" before a folder's own commands run; approval boxes ask with three short rows; "copy that" copies the answer's block, and a running app's database and logs no longer count as the task's changes. See [release notes](docs/RELEASE.md).
 

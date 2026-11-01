@@ -1,6 +1,6 @@
 # 51. Walk away: a task keeps going after its terminal closes
 
-Date: 2026-11-01. Status: proposed.
+Date: 2026-11-01. Status: accepted (merged 2026-11-01 in #562).
 
 **What:** on macOS and Linux, when the terminal goes away while a task runs (the window or the lid closes, SSH drops,
 the tmux window is killed), Casper doesn't quit. The same process stays and the task becomes a *job*:

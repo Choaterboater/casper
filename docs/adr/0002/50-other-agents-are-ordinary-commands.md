@@ -1,6 +1,6 @@
 # 50. Starting another coding agent is an ordinary command in your own session
 
-Date: 2026-11-01. Status: proposed (owner's choice; needs the owner's review before merge). Supersedes the agent part of
+Date: 2026-11-01. Status: accepted (merged 2026-11-01 in #561). Supersedes the agent part of
 [decision 15](15-agent-and-tmux-ownership.md) for the person's own session; its tmux part and its rule for helpers stay.
 
 **What:** in your own session, a shell command that starts another coding agent (`casper`, `claude`, `codex`, `omp`,

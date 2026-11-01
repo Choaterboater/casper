@@ -14,11 +14,29 @@ when releasing. Existing historical notes below stay as written; feature tests c
 reference docs, not a per-PR release-note or roadmap entry. Release-prep checks verify the version and
 installer targets (`tests/release-install.test.ts`, `tests/release-targets.test.ts`).
 
-Casper distributes an unsigned **v0.4.1 preview**, not a stable release. The installers
-download from `https://github.com/Choaterboater/casper/releases/download/v0.4.1`,
+Casper distributes an unsigned **v0.4.2 preview**, not a stable release. The installers
+download from `https://github.com/Choaterboater/casper/releases/download/v0.4.2`,
 because GitHub's `latest/download` link skips preview releases. The first published
 preview was **v0.1.0**. A published release is never changed; every fix ships under a
 new version.
+
+## v0.4.2: tasks that keep going after you close the terminal, saved pages from any folder, and other agents as ordinary commands
+
+### Added
+
+- On macOS and Linux, a task keeps going when you close the terminal or SSH drops, then saves its receipt with Undo and notifies you.
+- A box such a task would show waits; the next Casper you open, in any terminal, offers `Answer the job's question`.
+- The start's row offers `See the job's result`, with Show diff and Undo in the job's own folder.
+- "keep going after I leave" and "how's my job" work in plain words, and `/jobs` lists every job.
+- "show me the radar page from yesterday" reopens a saved page from any folder, and the start's row offers `Saved pages`.
+
+### Changed
+
+- `/pages` lists the saved pages of every folder, this folder's first, with the day each was made and one key to open it.
+- In your own session, starting another coding agent such as `omp -p` or `claude` is an ordinary command, asked or judged like any other.
+- A helper still never starts another coding agent, and its refusal says to hand back to the main session.
+- A walk-away job stops after 4 hours of work or 24 hours waiting, and refuses ssh, sudo and secret boxes.
+- On Windows, closing the window still stops the task, and "keep going after I leave" says so.
 
 ## v0.4.1: Claude Ultra sign-ins work again, boxes copy clean, and a tighter Linux sandbox
 
