@@ -78,6 +78,7 @@
           </li>
           <li><a href="#released">Released</a>
             <ul>
+              <li><a href="#v0404">v0.4.4: live sessions</a></li>
               <li><a href="#v0403">v0.4.3: still running</a></li>
               <li><a href="#v0402">v0.4.2: walk away</a></li>
               <li><a href="#v0401">v0.4.1: boxes copy clean</a></li>
@@ -138,7 +139,7 @@
         <h2 id="next-h">Next release</h2>
         <aside class="callout soon">
           <strong class="callout-title">Built, not released</strong>
-          <p>Nothing on the main branch is waiting: everything built so far is in v0.4.3. New work shows here before the next preview.</p>
+          <p>Nothing on the main branch is waiting: everything built so far is in v0.4.4. New work shows here before the next preview.</p>
         </aside>
       </section>
 
@@ -380,10 +381,28 @@
         and on the <a href="https://github.com/Choaterboater/casper/releases">Releases page</a>.</p>
         <div class="stack">
 
+        <details class="card release" id="v0404" aria-labelledby="v0404-h" open>
+          <summary class="release-heading">
+            <h3 id="v0404-h">v0.4.4 · A live Claude Code session per conversation, checks that start their app again, and a Claude plan that stays signed in</h3>
+            <span class="badge ok">current preview</span>
+          </summary>
+          <ul>
+            <li><strong>One live Claude Code session.</strong> With a Claude plan, a conversation runs in one Claude Code session that keeps its own thinking between steps, instead of a fresh start with the whole conversation every time. Casper still runs every tool, and compaction, forks and resumes start a new session from Casper's own record.</li>
+            <li><strong>A Claude plan that stays signed in.</strong> One failed status check, or one signed-out answer, no longer signs you out, and a repair whose model fails no longer marks the run failed.</li>
+            <li><strong>Less wasted work on small models.</strong> No unrelated skills, no second review of files the AI just wrote, and a plain note when the sandbox hides other processes.</li>
+            <li><strong>Jobs the AI detaches are tracked.</strong> A job a command leaves running is found, listed in <code>/tasks</code> and shown as <code>◐ Still running</code>.</li>
+            <li><strong>Checks that start their app again.</strong> At the end of a task, a check whose own app had stopped is replayed on that app, started again with the settings it was recorded with, then stopped.</li>
+            <li><strong>Failures that are failures.</strong> A check is stale only when its app can't start; one that needed OK on a confirm dialog, or whose selector matches several elements, is not counted as a failure; and the receipt says why a replay didn't finish.</li>
+            <li><strong>A first line that refers back.</strong> At the start, a short line such as "re run test" or "do that again" continues today's conversation, and one that only names a check says which check it runs.</li>
+            <li><strong>Receipts that match the work.</strong> Moved files are one line, output folders ask for no proof, and checks skipped for output files are a grey first line.</li>
+            <li><strong>Measured.</strong> In the same blind build on Haiku 5.5: 107k output tokens (was 167k), 9 minutes (was 19), 6 of 6 shared checks in all three runs, 51 turns (was 25), and no test data left behind.</li>
+          </ul>
+        </details>
+
         <details class="card release" id="v0403" aria-labelledby="v0403-h" open>
           <summary class="release-heading">
             <h3 id="v0403-h">v0.4.3 · Receipts that say when work is still running, and a service and browser small models can use</h3>
-            <span class="badge ok">current preview</span>
+            <span class="badge">previous preview</span>
           </summary>
           <ul>
             <li><strong>Still running, said plainly.</strong> When work a task started still runs in the background, the receipt's first line is <code>◐ Still running</code> with what it is; one line says when it ends, and the Next row offers to carry on.</li>
@@ -400,7 +419,7 @@
         <details class="card release" id="v0402" aria-labelledby="v0402-h" open>
           <summary class="release-heading">
             <h3 id="v0402-h">v0.4.2 · Tasks that keep going after you close the terminal, saved pages from any folder, and other agents as ordinary commands</h3>
-            <span class="badge">previous preview</span>
+            <span class="badge">released</span>
           </summary>
           <ul>
             <li><strong>Walk away.</strong> On macOS and Linux, a task keeps going when you close the terminal or the window, or SSH drops. The same Casper finishes it with the answers you gave, saves its receipt with Undo, and sends a desktop notification.</li>
@@ -412,7 +431,7 @@
           </ul>
         </details>
 
-        <details class="card release" id="v0401" aria-labelledby="v0401-h" open>
+        <details class="card release" id="v0401" aria-labelledby="v0401-h">
           <summary class="release-heading">
             <h3 id="v0401-h">v0.4.1 · Claude Ultra sign-ins work again, boxes copy clean, and a tighter Linux sandbox</h3>
             <span class="badge">released</span>
@@ -1506,7 +1525,7 @@
   <footer class="site-footer">
     <div class="container footer-inner">
       <div>
-        <p><strong>Casper 0.4.3</strong> · early preview, unsigned</p>
+        <p><strong>Casper 0.4.4</strong> · early preview, unsigned</p>
         <p><a href="https://github.com/Choaterboater/casper/blob/main/LICENSE">MIT licence</a> · © 2026 Choaterboater</p>
         <p>Built on the <a href="https://github.com/earendil-works/pi">Pi SDK</a>. Other parts keep their own licences (<a href="https://github.com/Choaterboater/casper/blob/main/THIRD_PARTY_NOTICES.txt">notices</a>).</p>
       </div>

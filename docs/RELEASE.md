@@ -14,11 +14,39 @@ when releasing. Existing historical notes below stay as written; feature tests c
 reference docs, not a per-PR release-note or roadmap entry. Release-prep checks verify the version and
 installer targets (`tests/release-install.test.ts`, `tests/release-targets.test.ts`).
 
-Casper distributes an unsigned **v0.4.3 preview**, not a stable release. The installers
-download from `https://github.com/Choaterboater/casper/releases/download/v0.4.3`,
+Casper distributes an unsigned **v0.4.4 preview**, not a stable release. The installers
+download from `https://github.com/Choaterboater/casper/releases/download/v0.4.4`,
 because GitHub's `latest/download` link skips preview releases. The first published
 preview was **v0.1.0**. A published release is never changed; every fix ships under a
 new version.
+
+## v0.4.4: a live Claude Code session per conversation, checks that start their app again, and a Claude plan that stays signed in
+
+### Added
+
+- With a Claude plan, a conversation runs in one live Claude Code session that keeps its own thinking between steps.
+- A job the AI detaches from its command is found, listed in `/tasks` and shown as `◐ Still running`.
+- At the end of a task, a check whose own app had stopped is replayed on that app, started again and then stopped.
+- When the sandbox hides other processes from a command, its result says so and names what works instead.
+- A short first line that refers back, such as "re run test", continues today's conversation.
+
+### Changed
+
+- A Claude plan stays signed in when one status check fails or once reports signed out.
+- A repair round whose model fails no longer marks the whole run as failed.
+- Moved or renamed files are one receipt line and start no checks or proof.
+- Code in output folders such as `builds/` or `results/` asks for no proof and starts no app smoke.
+- Checks skipped because only output files changed are a grey first line with no `/verify` push.
+- A task stopped before it changed anything ends with one grey line.
+- `/continue` right after `/resume` stays in the conversation you went back to.
+- `/resume` and `/continue` end by saying nothing is running and what to type next.
+- A small model no longer gets unrelated skills, or reviews the files it wrote again, on every step.
+- A settings line that only names a secrets file is no longer reported as a secret.
+- End replays put back the settings files each check was recorded with and restart the app that reads them.
+- A check is stale only when its app can't start again, and the receipt says why a replay didn't finish.
+- A check that needed OK on a confirm dialog, or whose selector matches several elements, is not counted as a failure.
+- In the same blind build on Haiku 5.5, Casper used 107k output tokens (was 167k) and 9 minutes (was 19).
+- It passed 6 of 6 shared checks in all three runs, in 51 turns (was 25), with no test data left behind.
 
 ## v0.4.3: receipts that say when work is still running, and a service and browser small models can use
 
