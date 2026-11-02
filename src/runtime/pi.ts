@@ -6,7 +6,7 @@ import { randomUUID } from "node:crypto";
 import { isContextOverflow, type AssistantMessage } from "@earendil-works/pi-ai";
 import { looksLikeRefusedLogin } from "../ssh/auth-failed";
 import { READ_ONLY_STATE_CONFLICT } from "./types";
-import { BACKGROUND_GRACE_SECONDS, BACKGROUND_HELP, backgroundRequested, DEFAULT_COMMAND_LIMIT_SECONDS, DETACH_NOTE, detachesItself, withBackgroundRequest } from "./background-commands";
+import { BACKGROUND_GRACE_SECONDS, BACKGROUND_HELP, backgroundRequested, DEFAULT_COMMAND_LIMIT_SECONDS, DETACH_NOTE, detachesItself, PROCESS_LIST_NOTE, processesHidden, withBackgroundRequest } from "./background-commands";
 import { alive, COMMAND_MARK, jobRoots, leftRunning } from "./left-running";
 import { pidFile, STALLED_EXIT_CODE, stalledMessage, watchStall } from "./stalled-commands";
 import { matchConversation } from "../sessions/resume";
@@ -22,6 +22,7 @@ import { withLoginDisplay, type LoginDisplay } from "../tui/login";
 import type { ModelServerActions } from "./pi-models";
 import { applyClaudeCodeVersion } from "./claude-code-version";
 import { registerClaudeSubscription } from "./claude-subscription";
+import type { ClaudeSessions } from "./claude-session";
 import { applyLatestOpenRouterModels, startOpenRouterModels } from "./openrouter-models";
 import { applyLatestAccountModels, startAccountModels } from "./account-models";
 import { authenticatePi } from "./pi-auth";
@@ -855,6 +856,8 @@ export async function savedConversations(cwd: string): Promise<RuntimeConversati
 export class PiRuntime implements AgentRuntime {
   private runtime?: AgentSessionRuntime;
   private models?: PiModels;
+  /** The live Claude Code sessions of this runtime's claude-subscription provider (decision 54). */
+  private claudeSessions?: ClaudeSessions;
   /** The session's model catalog, for adding a model server to it from /login. */
   private catalog?: ModelRuntime;
   private wrapper?: PiRuntimeSession;
@@ -1026,7 +1029,7 @@ export class PiRuntime implements AgentRuntime {
     if (!bounded) configureLocalServers({ auto: options.localModels !== false, saved: options.modelServers ?? [] });
     const local = options.localModels === false && !savedLocalServers().length ? undefined : localServers({ cachedOnly: Boolean(bounded) });
     const modelRuntime = await ModelRuntime.create({ authPath: `${agentDir}/auth.json`, modelsPath: `${agentDir}/models.json`, signal: bounded?.signal });
-    await registerClaudeSubscription(modelRuntime, () => this.runtime?.cwd ?? options.cwd);
+    this.claudeSessions = await registerClaudeSubscription(modelRuntime, () => this.runtime?.cwd ?? options.cwd);
     const models = this.models = new PiModels(modelRuntime, agentDir, this.home);
     if (!bounded) this.catalog = modelRuntime;
     if (local) {
@@ -1389,6 +1392,8 @@ export class PiRuntime implements AgentRuntime {
 
   async dispose(): Promise<void> {
     this.lifetime.abort();
+    // Live Claude Code sessions end with this runtime: their processes would keep Casper running.
+    this.claudeSessions?.closeAll(); this.claudeSessions = undefined;
     await this.wrapper?.abort();
     await this.authWork;
     await this.models?.close(); this.models = undefined; this.catalog = undefined;
@@ -1483,6 +1488,8 @@ export function casperBashOperations(shell: RuntimeShell | undefined, local: Bas
       const limit = asked && background ? BACKGROUND_GRACE_SECONDS : options.timeout ?? background?.limitSeconds ?? DEFAULT_COMMAND_LIMIT_SECONDS;
       const startedAt = Date.now();
       let tail = "", seen = "", recent = "", last = "", stalled: string | undefined;
+      /** The end of the output so far, until it shows the sandbox hiding other processes. */
+      let processes = "", hidden = false;
       /** Once in the background, its output goes there. */
       let moved: ((data: Buffer) => void) | undefined;
       // Not for a command given its own timeout, nor one on Casper's ssh login (the other machine's work can't be seen).
@@ -1495,6 +1502,7 @@ export function casperBashOperations(shell: RuntimeShell | undefined, local: Bas
       const onData = (data: Buffer) => {
         if (wrapped.id || wrapped.ssh?.afterAuthFail) tail = (tail + data.toString("utf8")).slice(-16_384);
         if (shell?.neededTerminal) last = (last + data.toString("utf8")).slice(-4_096);
+        if (!hidden && !moved) hidden = processesHidden(processes = (processes + data.toString("utf8")).slice(-512));
         if (watch) { watch.output(); recent = (recent + data.toString("utf8")).slice(-4_096); }
         if (moved) { moved(data); return; }
         if (background) seen = (seen + data.toString("utf8")).slice(-16_384);
@@ -1538,6 +1546,8 @@ export function casperBashOperations(shell: RuntimeShell | undefined, local: Bas
             const line = await shell.refused(wrapped.id, tail);
             if (line) onData(Buffer.from(`\n${line}\n`));
           }
+          // Not only on a failure: `ps aux | grep … || echo none` ends 0 with no process list.
+          if (hidden && !moved) onData(Buffer.from(`\n${PROCESS_LIST_NOTE}\n`));
           if (wrapped.ssh?.afterFail && result.exitCode !== 0) onData(Buffer.from(`\n${wrapped.ssh.afterFail}\n`));
           if (wrapped.sudo?.afterFail && result.exitCode !== 0) onData(Buffer.from(`\n${wrapped.sudo.afterFail}\n`));
           // What the command left running by itself (a detached spawn, setsid) becomes a background job Casper reports.

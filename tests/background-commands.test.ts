@@ -6,7 +6,7 @@ import path from "node:path";
 import { loadConfiguration } from "../src/config/load";
 import { removeTempDir } from "./support/temp-dir";
 import { createBashToolDefinition } from "@earendil-works/pi-coding-agent";
-import { BackgroundCommands, DETACH_NOTE, withBackgroundRequest } from "../src/runtime/background-commands";
+import { BackgroundCommands, DETACH_NOTE, PROCESS_LIST_NOTE, withBackgroundRequest } from "../src/runtime/background-commands";
 import { casperBashOperations } from "../src/runtime/pi";
 import type { RuntimeShell } from "../src/runtime/types";
 import { serviceTool } from "../src/services/tool";
@@ -101,6 +101,17 @@ test.skipIf(!unix)("a job the command detached itself (as the comparison's runne
   expect(commands.list()).toEqual([]);
   // A plain command leaves nothing to find.
   expect(await run("echo plain")).not.toContain("left running");
+}, 30_000);
+
+test.skipIf(!unix)("when the sandbox hides or protects other processes (ps, pgrep, pkill, kill), the result says so plainly and names what works", async () => {
+  const { run } = setup();
+  // What macOS's sandbox printed in real runs; the AI then spent turns looking for other ways to find the process.
+  for (const output of ["sysmon request failed with error: sysmond service not found\npkill: Cannot get process list", "/bin/bash: line 1: /bin/ps: Operation not permitted",
+    "/bin/bash: line 1: kill: (38104) - Operation not permitted"]) {
+    // Seen with any exit code: `ps aux | grep … || echo none` ends 0.
+    for (const code of [3, 0]) expect(await run(`cat <<'EOF'\n${output}\nEOF\nexit ${code}`)).toContain(PROCESS_LIST_NOTE);
+  }
+  for (const command of ["echo 'kill the bug'", "echo ok"]) expect(await run(command)).not.toContain(PROCESS_LIST_NOTE);
 }, 30_000);
 
 test.skipIf(!unix)("a command with its own timeout is still stopped at it, and a quick one is untouched", async () => {

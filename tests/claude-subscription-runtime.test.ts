@@ -109,11 +109,20 @@ test("subscription proposals retain Casper's native tools, approvals, private-pa
     const cli = path.join(root, process.platform === "win32" ? "synthetic claude.exe" : "synthetic claude");
     await copyFile(compiled, cli);
     const child = Bun.spawn([process.execPath, path.join(import.meta.dir, "fixtures/claude-subscription-runtime.ts")], { cwd,
-      env: { ...isolatedEnvironment(home), CASPER_CLAUDE_PATH: cli, PI_CODING_AGENT_DIR: path.join(home, ".casper/agent"), PI_OFFLINE: "1", CASPER_OFFLINE: "1" },
+      env: { ...isolatedEnvironment(home), CASPER_CLAUDE_PATH: cli, PI_CODING_AGENT_DIR: path.join(home, ".casper/agent"), PI_OFFLINE: "1", CASPER_OFFLINE: "1",
+        CASPER_TEST_CLAUDE_LOG: path.join(root, "claude.log") },
       stdout: "pipe", stderr: "pipe", timeout: 60_000 });
     const [stdout, stderr, exit] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
     expect({ exit, stderr }).toEqual({ exit: 0, stderr: "" });
     const result = JSON.parse(stdout);
+    // One live Claude Code session (decision 54): the task's one message, then every call answered through the proposal
+    // server in the same process. The requests after it (more context, compaction) don't go on from it: each new
+    // session is seeded with the transcript.
+    const log = (await readFile(path.join(root, "claude.log"), "utf8")).trim().split("\n").map(line => JSON.parse(line) as { pid: number; user?: string; tool?: string });
+    const task = log.slice(0, 7);
+    expect(task.map(entry => entry.user === undefined ? entry.tool : "user")).toEqual(["user", "read", "read", "read", "write", "write", "bash"]);
+    expect(new Set(task.map(entry => entry.pid)).size).toBe(1);
+    expect(log.slice(7).every(entry => entry.user !== undefined && entry.pid !== task[0]!.pid)).toBe(true);
     expect(result.ends.map((end: { toolName: string; isError: boolean }) => [end.toolName, end.isError])).toEqual([
       ["read", true], ["read", false], ["read", true], ["write", true], ["write", false], ["bash", true],
     ]);
