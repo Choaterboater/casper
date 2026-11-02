@@ -8,6 +8,7 @@ import { looksLikeRefusedLogin } from "../ssh/auth-failed";
 import { READ_ONLY_STATE_CONFLICT } from "./types";
 import { UPDATES_HINT, BACKGROUND_GRACE_SECONDS, BACKGROUND_HELP, backgroundRequested, DEFAULT_COMMAND_LIMIT_SECONDS, DETACH_NOTE, detachesItself, PROCESS_LIST_NOTE, processesHidden, withBackgroundRequest } from "./background-commands";
 import { alive, COMMAND_MARK, jobRoots, leftRunning } from "./left-running";
+import { followLogHint, remoteLog, TIME_LIMIT_NOTE, wrapsTimeLimit } from "./command-hints";
 import { pidFile, STALLED_EXIT_CODE, stalledMessage, watchStall } from "./stalled-commands";
 import { matchConversation } from "../sessions/resume";
 import { PiModels } from "./pi-models";
@@ -62,6 +63,7 @@ import { withoutProviderKeys } from "../platform/environment";
 import { createOwnedBashOperations } from "./local-bash";
 import { TERMINAL_NEEDED } from "../terminal/needs-terminal";
 import { ProcessCleanupError } from "../platform/processes";
+import { waitLabel } from "../sandbox/waits";
 import { cacheRetentionFor, type PromptCacheSetting } from "./cache";
 import { LoopGuard } from "./loop-guard";
 import { ToolHistory, TOOL_HISTORY_ENTRY } from "./tool-history";
@@ -1555,6 +1557,10 @@ export function casperBashOperations(shell: RuntimeShell | undefined, local: Bas
           for (const job of jobs) onData(Buffer.from(`\n[Casper found what this command left running: ${job.command.slice(0, 120)} (pid ${job.pid}). It runs on as ${job.id}: /tasks lists it, and Casper adds a note when it ends. Next time, use background: true. ${UPDATES_HINT}]\n`));
           // `nohup … &` dies with the call (or a setsid escapes where nothing reports it): the supported way, once.
           if (!moved && !jobs.length && !asked && shell?.background?.() && detachesItself(command)) onData(Buffer.from(`\n${DETACH_NOTE}\n`));
+          // A wrapper for a time limit (macOS has no `timeout`), or a remote job's log read in a wait loop: the tool's own way, once.
+          if (!moved && wrapsTimeLimit(command)) onData(Buffer.from(`\n${TIME_LIMIT_NOTE}\n`));
+          const followLog = !moved && !asked && shell?.background?.() ? remoteLog(command) : undefined;
+          if (followLog) onData(Buffer.from(`\n${followLogHint(followLog)}\n`));
           if (asked && !background && !moved) onData(Buffer.from("\n[Casper can't run commands in the background here (slow commands are off, or this is a helper), so this ran in the foreground.]\n"));
           // It needed a terminal: sent again, it gets one (or the AI reads why this run can't give it one).
           const needed = result.exitCode !== 0 && TERMINAL_NEEDED.test(last) ? shell?.neededTerminal?.(command) : undefined;
@@ -1575,8 +1581,12 @@ export function casperBashOperations(shell: RuntimeShell | undefined, local: Bas
           await wrapped.sudo?.done?.().catch(() => {});
         }
       })();
-      if (!background) return await run;
-      const adopt = () => options.signal?.aborted ? undefined
+      // A command that only waits or polls (sleeps and checks: src/sandbox/waits.ts) is stopped by a line the person
+      // sends, with its own time limit, on Casper's ssh login or with no room in the background too: stopping it loses
+      // only the wait. Every other command moves to the background or runs on, as below.
+      const waits = shell?.whenSteered ? waitLabel(command) : undefined;
+      if (!background && !waits) return await run;
+      const adopt = () => options.signal?.aborted || !background ? undefined
         : background.adopt({ command, startedAt, output: seen, done: run, stop: () => stop.abort(), ...(logDir ? { logDir } : {}) });
       /** `why` ends where "moved to the background" starts; from now on its output goes there. */
       const moveOut = (handed: NonNullable<ReturnType<typeof adopt>>, why: string) => {
@@ -1587,22 +1597,30 @@ export function casperBashOperations(shell: RuntimeShell | undefined, local: Bas
         return { exitCode: 0 };
       };
       let timer: ReturnType<typeof setTimeout> | undefined;
-      const late = new Promise<"late">((resolve) => { timer = setTimeout(() => resolve("late"), limit * 1000); });
+      const late = new Promise<"late">((resolve) => { if (background) timer = setTimeout(() => resolve("late"), limit * 1000); });
       // A line the person sends moves it to the background now, as the limit does, so the AI reads the line: Pi reads
       // one only once every call of the step has ended. Not on Casper's ssh or sudo login, which may still ask for a password;
-      // with no room in the background the command runs on and the line waits, as before.
+      // with no room in the background the command runs on and the line waits, as before. A wait is stopped instead.
       const line = Promise.withResolvers<"line">();
-      const unlisten = login ? undefined : shell?.whenSteered?.(() => line.resolve("line"));
+      const unlisten = login && !waits ? undefined : shell?.whenSteered?.(() => line.resolve("line"));
       let first: Awaited<typeof run> | "late" | "line";
       try {
         first = await Promise.race([run, late, line.promise]);
+        if (first === "line" && waits) {
+          const after = Math.round((Date.now() - startedAt) / 1000);
+          stop.abort();
+          await run.catch(error => { if (error instanceof ProcessCleanupError) throw error; });
+          shell?.stoppedWait?.(waits);
+          onData(Buffer.from(`\n[The person sent you a message, so Casper stopped this command after ${after} s: it only waited or checked, and changed nothing. Read the message; run the check again if you still need it.]\n`));
+          return { exitCode: 0 };
+        }
         if (first === "line") {
           const handed = adopt();
           if (handed) return moveOut(handed, `The person sent you a message, so after ${Math.round((Date.now() - startedAt) / 1000)} s this`);
           first = await Promise.race([run, late]);
         }
       } finally { clearTimeout(timer); unlisten?.(); }
-      if (first !== "late") return first;
+      if (first !== "late" || !background) return first as Awaited<typeof run>;
       options.signal?.removeEventListener("abort", forward);
       const handed = adopt();
       if (!handed) {

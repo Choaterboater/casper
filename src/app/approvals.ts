@@ -7,7 +7,7 @@ import { terminalText } from "../tui/format";
 import { NotExecutedError } from "../capabilities/result";
 import type { ServerQuestionHandler } from "../mcp/manager";
 import { changeScopeText } from "../mcp/access";
-import { formatApproval, kindBox, maskText, planLabel, TOO_LONG_TEXT, tooLongToShow } from "../capabilities/approval";
+import { formatApproval, kindBox, maskSecrets, maskText, planLabel, TOO_LONG_TEXT, tooLongToShow } from "../capabilities/approval";
 import { KIND_TEXT } from "../capabilities/kinds";
 import type { ConfirmCapability, ConfirmKind } from "../capabilities/broker";
 import type { RuntimeTool } from "../runtime/types";
@@ -68,6 +68,9 @@ export function approvalStopped(app: CasperApp, signal?: AbortSignal): boolean {
  * confirm flagged, and the last preview. Only the user's typed answer counts; the model's ask tool
  * never reaches this prompt. Nobody asked (one-shot, too long, closing) is never "you said no".
  */
+/** Values a change box shows on the rich terminal before "… N more values · Ctrl+T shows all". */
+const BOX_VALUES = 8;
+
 export async function confirmCapability(app: CasperApp, ...[call, signal]: Parameters<ConfirmCapability>): ReturnType<ConfirmCapability> {
   const header = `MCP · ${call.plan.server} · ${call.plan.tool}  [${planLabel(call.plan)}]`;
   if (tooLongToShow(call.arguments)) {
@@ -83,11 +86,19 @@ export async function confirmCapability(app: CasperApp, ...[call, signal]: Param
     const products = new Set(access?.products.map((item) => item.product));
     const scope = !access ? undefined : call.product ? changeScopeText({ ...access, products: access.products.filter((item) => item.product === call.product) })
       : products.size > 1 ? undefined : changeScopeText(access);
+    // The rich terminal shows the first few values, and Ctrl+T all of them as sent (secrets hidden); the plain one has
+    // no Ctrl+T, so it shows every value.
+    const rich = app.terminal.rich;
+    const toolProduct = call.product ? PRODUCT_LABELS[call.product] : call.words?.product;
     const box = formatApproval(call.plan, call.lastPreview, {
-      product: app.mcp?.productLabel(call.plan.server), ...(call.product ? { toolProduct: PRODUCT_LABELS[call.product] } : {}),
+      product: app.mcp?.productLabel(call.plan.server), ...(toolProduct ? { toolProduct } : {}),
       ...(scope ? { scope } : {}), ...(call.tool ? { tool: call.tool } : {}),
-      ...(call.showOnly ? { showOnly: true } : {}),
+      ...(call.showOnly ? { showOnly: true } : {}), ...(call.words ? { words: call.words } : {}), ...(rich ? { maxValues: BOX_VALUES } : {}),
     });
+    if (rich) {
+      const single = call.plan.routed.length === 1 && !call.plan.routerUnclear ? call.plan.routed[0] : undefined;
+      app.events.showOnExpand({ title: terminalText(box.preview.split("\n")[0]!), body: JSON.stringify(maskSecrets(single?.arguments ?? call.arguments).value, null, 2), diff: false });
+    }
     // The same channel as /mcp writes: only a key pressed after the box appeared answers it.
     const first = await recordedBox(app, box.preview, box.question, box.labels, signal);
     const picked = first.answer;

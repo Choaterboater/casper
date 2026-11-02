@@ -358,7 +358,7 @@ test("plain terminal: no start line while Casper asks about the call, or once it
   }) as unknown as typeof setTimeout);
   try {
     const t = fakeTerminal(false);
-    const ssh = { command: "ssh root@build-server uptime" };
+    const ssh = { command: "ssh root@build-server 'systemctl restart app'" };
     // "Reach build-server?" is open when the timer fires: nothing lands in the answer being typed.
     t.handle(start("a", "bash", ssh));
     t.terminal.questionsShown += 1; t.terminal.questionOpen = true;
@@ -367,7 +367,7 @@ test("plain terminal: no start line while Casper asks about the call, or once it
     // Answered, and the command runs long: the question already named it.
     t.terminal.questionOpen = false;
     t.handle(end("a", "bash", ssh));
-    expect(t.screen).toEqual(["✓ bash · ssh root@build-server …"]);
+    expect(t.screen).toEqual(["✓ bash · ssh root@build-server …", "◆ Changed on build-server: started or stopped a service (systemctl restart app)"]);
     // A call with no question still says it started.
     t.handle(start("b", "bash", { command: "bun test" }));
     timers.shift()!();
@@ -429,4 +429,15 @@ test("rich terminal: the live rows carry the builders line, and drop it when the
   goals = [];
   view.refreshBuilders();
   expect(box.at(-1)).toBeUndefined();
+});
+
+test("an ssh that only looked at a server names what it ran there, said as looked only", () => {
+  const ended = (command: string, isError = false) => formatToolActivity({ type: "tool_end", toolName: "bash", input: { command }, isError }, 400);
+  expect(ended("ssh -o BatchMode=yes nas 'uname -m; (docker --version; sudo -n docker --version) 2>&1; id; ls -d /volume*/ 2>&1; ls /volume1 2>&1 | head -30'"))
+    .toBe("✓ Ran on nas: uname, docker --version, id, ls (looked only)");
+  expect(ended("perl -e 'alarm 25; exec @ARGV' ssh nas 'systemctl is-active docker; docker ps -q | wc -l'")).toBe("✓ Ran on nas: systemctl is-active, docker ps (looked only)");
+  // One that may change things, or failed, keeps its usual line (and the change shows as its ◆ row).
+  expect(ended("ssh nas 'mkdir -p /volume1/docker/app'")).toBe("✓ bash · ssh nas …");
+  expect(ended("ssh nas 'uptime'", true)).toStartWith("✗ bash · ssh nas …");
+  expect(ended("ssh nas")).toBe("✓ bash · ssh nas");
 });

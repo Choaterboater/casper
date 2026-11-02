@@ -93,7 +93,8 @@ test("the docs say what auto mode does and how to turn it off", async () => {
   for (const heading of ["# 47. Auto mode", "**What:**", "**Why:**", "**Guard rails:**", "**A finding:**"]) expect(decision).toContain(heading);
   expect(await read("docs/SECURITY.md")).toContain("**Auto mode.** With the sandbox off, in a folder you trust");
   expect(await read("docs/CONFIGURATION.md")).toContain("`auto_mode: off`");
-  expect(await read("docs/TERMINAL_UX.md")).toContain("`✓ judge: runs the project's tests`");
+  // An allow leaves no line (decision 61): Ctrl+T on the step and /status keep why.
+  expect(await read("docs/TERMINAL_UX.md")).toContain("no line shows (Ctrl+T on the step starts with `✓ judge: <why>`");
   // The fixed list that never reaches the judge is named, and the real cost of a check.
   for (const file of ["docs/SECURITY.md", "docs/adr/0002/47-auto-mode-judge.md"]) {
     expect(await read(file)).toContain("src/sandbox/always-asks.ts");

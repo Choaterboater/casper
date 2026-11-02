@@ -14,7 +14,7 @@ import { seccompHelper } from "../sandbox/seccomp";
 import type { TaskResult } from "../task/result";
 import { terminalText } from "../tui/format";
 import { JUDGE_REASON_PREFIX, MODEL_REASON_PREFIX } from "../tui/choices";
-import { stepLine, type JudgeResult } from "../sandbox/judge";
+import type { JudgeResult } from "../sandbox/judge";
 import { alwaysAsks } from "../sandbox/always-asks";
 import { modelReasonSummary } from "../tui/model-reason";
 import { blockedBySandbox } from "../verify/command";
@@ -67,6 +67,9 @@ export interface SandboxHost {
   /** Auto mode's judge (docs/adr/0002/47-auto-mode-judge.md), only for a command that would show the box while someone
    * can answer it: undefined while auto mode is off or the folder isn't trusted. It only allows or asks. */
   judge?(command: string, signal?: AbortSignal): Promise<JudgeResult | undefined>;
+  /** The judge allowed this command: no line on the screen (docs/adr/0002/61-quiet-judge.md); its reason is kept for
+   * /status and the step's Ctrl+T view. */
+  judgeAllowed?(command: string, reason: string): void;
   /** Text snapshotted before this tool call; its last nonempty line titles the approval box. */
   precedingText?(): string | undefined;
   /** The private ssh login: Casper's own hidden box for a password or passphrase ssh asks for. Unset: a run that can't ask. */
@@ -494,7 +497,7 @@ export function runtimeShell(host: SandboxHost, sandbox: ShellSandbox, given: Sa
       // through a shell, a force push, deleting or changing files outside the project, publishing, and the like.
       const judged = host.stopAsking?.() || !host.judge || alwaysAsks(command, { root: sandbox.root, home: sandbox.home }) ? undefined
         : await host.judge(command, signal);
-      if (judged?.verdict === "allow") { host.write(`${stepLine(judged.reason)}\n`); return undefined; }
+      if (judged?.verdict === "allow") { host.judgeAllowed?.(command, judged.reason); return undefined; }
       const kept = testRun ? "bun test (project test files)" : shortCommand(exact);
       // A yes leaves no line of its own (the command's own line shows it ran); a remembered one leaves one short line.
       const record = (answer: string) => answer === YES_ONCE || answer === YES_EVERYTHING ? "" : answer === YES_SESSION ? `✓ allowed until you quit: ${kept}` : undefined;

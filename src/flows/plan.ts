@@ -106,6 +106,12 @@ const BASH_COMMANDS: Record<string, (args: string[]) => boolean> = {
   },
 };
 
+/** One command's words (quotes already removed) name a look command on the list above, with none of its writing flags. */
+export function lookCommand([name, ...args]: readonly string[]): boolean {
+  const check = name !== undefined && Object.hasOwn(BASH_COMMANDS, name) ? BASH_COMMANDS[name] : undefined;
+  return Boolean(check?.([...args]));
+}
+
 const POWERSHELL_COMMANDS = new Set(["get-childitem", "gci", "dir", "ls", "get-content", "gc", "cat", "type",
   "select-string", "sls", "get-location", "pwd", "test-path", "get-item", "resolve-path", "measure-object"]);
 

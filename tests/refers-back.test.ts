@@ -64,7 +64,7 @@ test("\"re run test\" at the start, with today's conversation on offer, continue
   await withEnv({ TERM: "xterm-256color" }, async () => {
     const app = await richApp(project => runtime(TODAY, resumed, prompts, project), { savedConversations: async () => TODAY });
     try {
-      await app.until(text => text.includes("Continue today's conversation (launch omp and Casper for the comparison · 83 messages)"));
+      await app.until(text => text.includes("Continue today's conversation (launch omp and Casper for the comparison, 83 messages)"));
       app.input.write("re run test\r");
       await app.until(() => prompts.length === 1);
       expect(resumed).toEqual(["a0a0a0a0-0000"]);

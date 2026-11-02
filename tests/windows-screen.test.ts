@@ -344,7 +344,8 @@ conpty("ConPTY: a line typed during work is queued, and Esc stops the task and g
   // The echo above also reads "❯ next idea", and a frame caught mid-scroll can end on a blank row: wait for the note,
   // then for the line between the editor's rules.
   await s.until("Your 1 queued line is back in the prompt");
-  await s.waitFor("the line back in the prompt", () => /^─+\n❯ next idea\n─+$/m.test(s.visible()) && quietFooter(s));
+  // The cursor waits on a new line under it, so what is typed next never runs onto it.
+  await s.waitFor("the line back in the prompt", () => /^─+\n❯ next idea\n[ \t]*\n─+$/m.test(s.visible()) && quietFooter(s));
   // Sent again, it runs as its own task.
   s.press("enter");
   await s.until("Echo: next idea");

@@ -28,7 +28,7 @@ test("a side question is a line the person starts with ?; a bare ?, a ? inside t
 const SECRET = "sk-or-v1-0123456789abcdef0123456789abcdef";
 
 /** A model that, during its task, reads a file and waits on `gate`; complete() is the side model. */
-async function fixture(config = "") {
+async function fixture(config = "", extra: { turns?: Array<{ role: "user" | "assistant"; text: string }>; tools?: Array<{ name: string; input: Record<string, string>; output: string }> } = {}) {
   const root = await mkdtemp(path.join(os.tmpdir(), "casper-side-"));
   const home = path.join(root, "home"); const project = path.join(root, "shop-api");
   await mkdir(path.join(home, ".casper"), { recursive: true }); await mkdir(path.join(project, ".casper"), { recursive: true });
@@ -53,12 +53,17 @@ async function fixture(config = "") {
       return { text: "The other end closed the connection.\nRetry or check the server log.", usage: { tokens: 42, estimatedCost: 0.0003 }, model: "fixture/fast" };
     },
     steer: async (text) => { steered.push(text); return true; },
+    ...(extra.turns ? { recentTurns: (count: number) => extra.turns!.slice(-count) } : {}),
     prompt: async (text) => {
       prompts.push(text);
       working = true;
       emit({ type: "assistant_response_start", provider: "fixture", model: "main" });
       emit({ type: "tool_start", toolName: "read", toolCallId: "1", input: { path: `secrets/${SECRET}.txt` } });
       emit({ type: "tool_end", toolName: "read", toolCallId: "1", isError: false, output: { text: `KEY=${SECRET}` } as never });
+      (extra.tools ?? []).forEach((tool, index) => {
+        emit({ type: "tool_start", toolName: tool.name, toolCallId: `t${index}`, input: tool.input });
+        emit({ type: "tool_end", toolName: tool.name, toolCallId: `t${index}`, input: tool.input, isError: false, output: { text: tool.output, truncated: false } });
+      });
       await gate.promise;
       emit({ type: "assistant_text_delta", delta: "Done.\n" });
       emit({ type: "assistant_response_end", stopReason: "stop" });
@@ -142,6 +147,38 @@ test("during work: ? goes to the side model, never to the working AI; the summar
     await f.idleAfter("Done.");
     // The question never reached the conversation.
     expect(f.prompts.join("\n")).not.toContain("ECONNRESET");
+  } finally { await f.cleanup(); }
+});
+
+test("/btw sees the recent conversation and what recent tools printed, with secrets hidden and a small cap", async () => {
+  // A real session: the AI said "All 45,381 files arrived" after counting over ssh, then "/btw what are the 45381 files"
+  // got "I can't see the session's output" and a guess.
+  const long = "word ".repeat(400);
+  const f = await fixture("", {
+    turns: [
+      ...Array.from({ length: 10 }, (_, index) => ({ role: "assistant" as const, text: `older reply ${index} ${long}` })),
+      { role: "user", text: `Casper wrapper text\n\nUser request:\ncopy the data folder to the server\n\nmore wrapper ${long}` },
+      { role: "assistant", text: `${long}\nAll 45,381 files arrived (the small size difference is filesystem block rounding). Token ${SECRET}` },
+    ],
+    tools: [
+      ...Array.from({ length: 9 }, (_, index) => ({ name: "bash", input: { command: `echo step ${index} ${long}` }, output: long })),
+      { name: "bash", input: { command: "ssh host \"find data -type f | wc -l\"" }, output: `45381\nKEY=${SECRET}\n${long}` },
+    ],
+  });
+  try {
+    f.input.write("copy the data folder to the server\r");
+    await f.idleAfter("Done.");
+    f.input.write("/btw what are the 45381 files\r");
+    await f.until(() => f.asked.some((call) => call.user === "what are the 45381 files"));
+    const system = f.asked.find((call) => call.user === "what are the 45381 files")!.systemPrompt;
+    expect(system).toContain("copy the data folder to the server");
+    expect(system).toContain("All 45,381 files arrived");
+    expect(system).toContain("find data -type f | wc -l");
+    expect(system).toMatch(/find data -type f \| wc -l[^\n]*45381/);
+    expect(system).not.toContain(SECRET);
+    expect(system).not.toContain("Casper wrapper text");
+    // Small on purpose: a few thousand characters, however long the conversation and the outputs.
+    expect(system.length).toBeLessThanOrEqual(6_000);
   } finally { await f.cleanup(); }
 });
 

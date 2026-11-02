@@ -70,6 +70,9 @@ export interface ReceiptEvent {
   remoteChanges: Array<{ host: string; changes: string[] }>;
   /** Commands to other machines Casper stopped before they reached them; empty when none. */
   remoteNotRun: Array<{ host: string; commands: number }>;
+  /** Changes sent through MCP servers (a network product's writes) in plain words, with how to undo each when known;
+   * present only when there are some. */
+  mcpChanges?: Array<{ where: string; what: string; undo: string | null; unknown: boolean }>;
   /** A secret appeared in a command the AI sent: change it after this task. */
   secretInCommand: boolean;
   /** Files the AI's writes and edits added a secret to (never the value); empty when none. */
@@ -255,7 +258,9 @@ export function storedTaskResult(task: TaskResult): TaskResult {
       : JSON.stringify(assertion.actual) ?? "").slice(0, 512) })) })) };
   if (copy.proofSkipped) copy.proofSkipped = redactPreview(copy.proofSkipped);
   // Read from commands whose secrets were already hidden (see observationInput); redactPreview would mangle "token add".
-  if (copy.remoteChanges) copy.remoteChanges = copy.remoteChanges.map((remote) => ({ host: terminalText(remote.host), changes: remote.changes.map((change) => terminalText(change)) }));
+  if (copy.remoteChanges) copy.remoteChanges = copy.remoteChanges.map((remote) => ({ host: terminalText(remote.host), changes: remote.changes.map((change) => terminalText(change)), ...(remote.looked ? { looked: true as const } : {}) }));
+  if (copy.mcpChanges) copy.mcpChanges = copy.mcpChanges.map((change) => ({ ...change, where: terminalText(change.where), what: terminalText(redactPreview(change.what)),
+    ...(change.undo ? { undo: terminalText(redactPreview(change.undo)) } : {}) }));
   if (copy.remoteNotRun) copy.remoteNotRun = copy.remoteNotRun.map((remote) => ({ host: terminalText(remote.host), commands: remote.commands }));
   return copy;
 }
@@ -289,6 +294,8 @@ export function receiptEvent(report: VerificationReport | undefined, task: TaskR
     spendLimit: task?.spendLimit ? { ...task.spendLimit } : null,
     remoteChanges: (task?.remoteChanges ?? []).map((remote) => ({ host: terminalText(remote.host), changes: remote.changes.map((change) => terminalText(change)) })),
     remoteNotRun: (task?.remoteNotRun ?? []).map((remote) => ({ host: terminalText(remote.host), commands: remote.commands })),
+    ...(task?.mcpChanges?.length ? { mcpChanges: task.mcpChanges.map((change) => ({ where: terminalText(change.where), what: terminalText(change.what),
+      undo: change.undo ? terminalText(change.undo) : null, unknown: change.unknown === true })) } : {}),
     secretInCommand: task?.secretInCommand === true,
     secretInFiles: (task?.secretInFiles ?? []).map((file) => terminalText(file)),
     ...(task?.cleanup?.length ? { cleanup: redactCleanup(task.cleanup) } : {}),

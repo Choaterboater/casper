@@ -45,6 +45,8 @@ export function processesHidden(output: string): boolean {
 }
 /** At most this many at once; beyond it a slow command is stopped at the limit, as before. */
 export const MAX_BACKGROUND_COMMANDS = 4;
+/** The status row's job line is redrawn at most this often. */
+const OUTPUT_EVERY_MS = 1_000;
 const TAIL_CHARS = 16_384;
 /** The log stops growing here, so a command that prints for hours cannot fill the disk. */
 const LOG_BYTES = 64 * 1024 * 1024;
@@ -117,7 +119,9 @@ export class BackgroundCommands {
   /** `notify`: a note for the model when one ends (not when the session ends it), with what to tell the person. */
   constructor(private readonly options: { notify(text: string, command: string, ended: EndedCommand): void | Promise<void>; limitSeconds?: number; max?: number;
     /** The list changed (one started or ended): the status row shows the newest. */
-    changed?: () => void }) {
+    changed?: () => void;
+    /** One printed more: the status row shows its latest line. At most about once a second. */
+    output?: () => void }) {
     this.limitSeconds = options.limitSeconds ?? DEFAULT_COMMAND_LIMIT_SECONDS;
     this.max = options.max ?? MAX_BACKGROUND_COMMANDS;
   }
@@ -142,11 +146,24 @@ export class BackgroundCommands {
     return { id, ...(log ? { log } : {}), write: (data) => {
       const text = data.toString("utf8");
       entry.tail = (entry.tail + text).slice(-TAIL_CHARS);
+      this.printed();
       if (!entry.file) return;
       entry.written += data.length;
       if (entry.written <= LOG_BYTES) entry.file.write(data);
       else { entry.file.end(`\n[Casper stopped writing this log at ${LOG_BYTES / 1024 / 1024} MB; the command still runs.]\n`); entry.file = undefined; }
     } };
+  }
+
+  private printedAt = 0;
+  private printedTimer?: ReturnType<typeof setTimeout>;
+  /** Output arrived: tell the status row now, or once the second since the last time is up. */
+  private printed(): void {
+    if (!this.options.output || this.printedTimer) return;
+    const wait = this.printedAt + OUTPUT_EVERY_MS - Date.now();
+    const show = () => { this.printedTimer = undefined; this.printedAt = Date.now(); if (!this.closed) this.options.output?.(); };
+    if (wait <= 0) { show(); return; }
+    this.printedTimer = setTimeout(show, wait);
+    this.printedTimer.unref?.();
   }
 
   private async end(entry: Running, exitCode: number | null | undefined): Promise<void> {
@@ -189,6 +206,7 @@ export class BackgroundCommands {
   /** The session is ending: every one is stopped, with no note. */
   async close(): Promise<void> {
     this.closed = true;
+    if (this.printedTimer) { clearTimeout(this.printedTimer); this.printedTimer = undefined; }
     const entries = [...this.running.values()];
     for (const entry of entries) { entry.stoppedBy = "close"; entry.stop(); }
     await Promise.all(entries.map((entry) => entry.ended));

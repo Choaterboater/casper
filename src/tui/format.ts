@@ -4,6 +4,9 @@ import type { MarkdownTheme } from "@earendil-works/pi-tui";
 import type { RuntimeEvent, RuntimeStatus } from "../runtime/types";
 import { roleCode, type ThemeRole } from "./theme";
 import { commandCheck, githubLabel, outcomeNote, testFailureSummary } from "./tool-status";
+import { remoteReadOnly } from "../sandbox/read-only";
+import { commandStart, perlAlarmExec, segmentTargets, splitShell } from "../sandbox/remote";
+import { sshSent } from "../task/remote-changes";
 
 /** Prompt gutter glyphs. Idle accepts input; busy keeps the same width so the box never shifts. */
 export const PROMPT_GLYPH = "❯";
@@ -203,6 +206,7 @@ function scriptCommands(script: string): ScriptCommand[] {
  * leaving out `cd`, `export`, `echo` headings, loop words and comments; a heredoc script reads "python3 script (12 lines)".
  * /output shows the whole command. */
 export function commandLabel(command: string, max = 80): string {
+  command = seeThrough(command);
   if (/[\n;&|<()]/.test(command)) {
     // A hidden secret is one word here, so "-p <secret hidden>" never leaves "hidden>" as the program.
     const commands = scriptCommands(command.replaceAll(HIDDEN, HIDDEN_WORD))
@@ -227,6 +231,56 @@ export function commandLabel(command: string, max = 80): string {
   }
   const text = command.replace(/\s+/g, " ").trim().replaceAll(HIDDEN, HIDDEN_WORD);
   return singleLabel(text.split(/\s*(?:&&|\|\||;|\|)\s*/).filter(Boolean), max, true).replaceAll(HIDDEN_WORD, HIDDEN);
+}
+
+/** The command inside a time limit or a shell around the whole line: `perl -e 'alarm 25; exec @ARGV' ssh nas …` (macOS has
+ * no timeout, so the AI sets perl's alarm), `perl -e 'alarm 20; exec "ssh", "nas", "uptime"'`, `timeout 30 …`,
+ * `gtimeout -k 5 30 …`, `nohup …` and `sh -c "…"`. Anything else is the command as it is. */
+export function seeThrough(command: string): string {
+  let text = command.trim();
+  for (let guard = 0; guard < 4; guard++) {
+    const before = text;
+    text = text
+      .replace(/^perl\s+-e\s+(['"])(?=(?:(?!\1)[\s\S])*\balarm\b)(?:(?!\1)[\s\S])*\bexec\s*\(?\s*@ARGV\b(?:(?!\1)[\s\S])*\1\s+(?:\d+(?:\.\d+)?\s+)?/, "")
+      .replace(/^g?timeout\s+(?:(?:-[sk]\s+\S+|-\S+)\s+)*\d+(?:\.\d+)?[smhd]?\s+/, "")
+      .replace(/^nohup\s+/, "");
+    const shell = /^(?:ba|z|da|k)?sh\s+-c\s+(?:"((?:\\.|[^"\\])*)"|'([^']*)')\s*$/.exec(text);
+    if (shell) text = shell[1] !== undefined ? shell[1].replace(/\\(["\\$`])/g, "$1") : shell[2]!;
+    const perl = /^perl\s+-e\s/.test(text) ? perlAlarmExec(splitShell(text).segments[0]?.words ?? [], 0) : undefined;
+    if (perl) text = perl.length === 1 ? perl[0]! : perl.map(word => /^[\w@%+=:,./-]+$/.test(word) ? word : `'${word.replaceAll("'", "'\\''")}'`).join(" ");
+    text = text.trim();
+    if (text === before) break;
+  }
+  return text;
+}
+
+/** Programs whose first word after them says what they do (`docker ps`, `systemctl status`, `git log`). */
+const VERB_PROGRAMS = new Set(["docker", "podman", "systemctl", "git", "ip", "kubectl", "journalctl", "zpool", "zfs"]);
+
+/** "Ran on nas: uname, docker --version, ls (looked only)" for an ssh whose commands there all only looked (the read
+ * check Casper uses here, remoteReadOnly), with nothing else on the line but reads of what it printed. */
+export function lookedLabel(command: string, max = 120): string | undefined {
+  const sent = sshSent(command);
+  const hosts = new Set(sent.map(entry => entry.destination.typed));
+  if (!sent.length || hosts.size !== 1 || sent.some(entry => !entry.pieces.length || entry.pieces.some(piece => !piece.looks))) return undefined;
+  // Nothing on this computer but reads of what came back (`| head`, `2>&1`).
+  const local = splitShell(seeThrough(command)).segments.filter(segment => !segmentTargets(segment.words).tool);
+  if (local.some(segment => !remoteReadOnly(segment.text))) return undefined;
+  const names: string[] = [];
+  for (const { pieces } of sent) {
+    for (const piece of pieces) {
+      const words = splitShell(piece.text.replace(/[()]/g, " ")).segments[0]?.words ?? [];
+      const start = commandStart(words);
+      const program = (words[start] ?? "").split("/").pop() ?? "";
+      if (!program || /^(?:echo|printf|cd|true|false|sleep|do|done|then|fi|else|if|while|until|for|[A-Za-z_]\w*=.*)$/.test(program)) continue;
+      const rest = words.slice(start + 1).filter(word => !/^(?:[12&]?>>?\S*|\d?<\S*)$/.test(word));
+      const verb = VERB_PROGRAMS.has(program) ? rest.find(word => !word.startsWith("-")) : undefined;
+      const name = rest.length === 1 && /^(?:--version|-V|version)$/.test(rest[0]!) ? `${program} ${rest[0]}` : verb ? `${program} ${verb}` : program;
+      if (!names.includes(name)) names.push(name);
+    }
+  }
+  const host = terminalText(redactPreview([...hosts][0]!));
+  return `Ran on ${host}: ${fitLabels(names.length ? names.map(name => terminalText(redactPreview(name))) : ["ssh"], Math.max(20, max - host.length - 24))} (looked only)`;
 }
 
 /** "git status, git log, bun test", or as many as fit with "+N more", in at most `max` characters. */
@@ -444,6 +498,12 @@ export function formatToolActivity(event: ToolEvent, elapsedMs?: number, fit: To
   const github = !event.isError && ["bash", "powershell"].includes(event.toolName) && githubLabel(event.input, event.output?.text);
   if (github) {
     const label = [...`✓ ${github}${elapsed}`];
+    return fit.width !== undefined && label.length > fit.width ? `${label.slice(0, Math.max(0, fit.width - 1)).join("")}…` : label.join("");
+  }
+  // An ssh that only looked at a server: one neutral line naming what ran there.
+  const looked = !event.isError && event.toolName === "bash" && typeof event.input?.command === "string" ? lookedLabel(event.input.command) : undefined;
+  if (looked) {
+    const label = [...`✓ ${looked}${elapsed}`];
     return fit.width !== undefined && label.length > fit.width ? `${label.slice(0, Math.max(0, fit.width - 1)).join("")}…` : label.join("");
   }
   const size = event.lines ? ` · +${event.lines.added} -${event.lines.removed}` : "";

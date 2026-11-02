@@ -6,6 +6,7 @@
  */
 import { hideCommandSecrets, scrubPlainSecrets } from "../secrets/files";
 import type { ModelUsage } from "../runtime/model-usage";
+import { unescapeMarkdown } from "../tui/format";
 
 export type JudgeVerdict = "allow" | "ask";
 export interface JudgeResult { verdict: JudgeVerdict; reason: string; usage?: ModelUsage | null }
@@ -59,7 +60,8 @@ export function parseJudgeAnswer(text: string): { verdict: JudgeVerdict; reason:
   try { parsed = JSON.parse(match[0]); } catch { return undefined; }
   if (!parsed || typeof parsed !== "object") return undefined;
   const { verdict, reason } = parsed as { verdict?: unknown; reason?: unknown };
-  const said = typeof reason === "string" ? reason.replace(/\s+/g, " ").trim() : "";
+  // A model writes Markdown escapes (photo\_1.jpg); the reason is shown as plain text, so they come off.
+  const said = typeof reason === "string" ? unescapeMarkdown(reason).replace(/\s+/g, " ").trim() : "";
   if (typeof verdict !== "string" || !["allow", "ask", "block", "deny", "no", "refuse"].includes(verdict)) return undefined;
   // An allow must say what the command does; without that it is not an answer to trust.
   if (verdict === "allow" && !said) return undefined;

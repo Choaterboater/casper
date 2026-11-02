@@ -59,3 +59,14 @@ test("the JSON receipt redacts secrets in the proof's failing output and the rev
   expect(task.proof.without.output).toContain("sk-live-abcdefghijkl");
   expect(task.review.done[0]).toContain("hunter22");
 });
+
+test("the JSON receipt carries every change sent through an MCP server, in plain words with its undo", () => {
+  const event = receiptEvent(undefined, { execution: "completed", changedPaths: [], mcpChanges: [
+    { where: "Mist", what: "site Lab-Site now uses RF template Standard-RF-80MHz (was Standard-RF)", undo: "set it back to Standard-RF" },
+    { where: "Mist", what: "ran the 5 GHz radio channel plan (RRM) at site Lab-Site", unknown: true }] }, 0);
+  expect(event.mcpChanges).toEqual([
+    { where: "Mist", what: "site Lab-Site now uses RF template Standard-RF-80MHz (was Standard-RF)", undo: "set it back to Standard-RF", unknown: false },
+    { where: "Mist", what: "ran the 5 GHz radio channel plan (RRM) at site Lab-Site", undo: null, unknown: true }]);
+  expect(event.text).toContain("– Changed in Mist: site Lab-Site now uses RF template Standard-RF-80MHz (was Standard-RF). To undo: set it back to Standard-RF");
+  expect(receiptEvent(undefined, { execution: "completed", changedPaths: [] }, 0)).not.toHaveProperty("mcpChanges");
+});

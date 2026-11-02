@@ -60,6 +60,22 @@ export function pastTense(title: string): string {
   return `${/^[A-Z]/.test(verb) ? `${past[0]!.toUpperCase()}${past.slice(1)}` : past}${rest}`;
 }
 
+/** Verbs that double their last letter before -ing, beyond those that do before -ed. */
+const DOUBLED_ING = new Set([...DOUBLED, "run", "rerun", "get", "set", "reset", "put", "split", "cut", "shut"]);
+
+/** "Check the build log" → "checking the build log", for a step that is still to come. Undefined when the words don't
+ * start with a verb Casper knows; words that already start with one ("checking …") are kept, in lower case. */
+export function ingForm(words: string): string | undefined {
+  const match = /^([A-Za-z]+)([\s\S]*)$/.exec(words.trim());
+  if (!match) return undefined;
+  const lower = match[1]!.toLowerCase(), rest = match[2]!;
+  if (/^[a-z]{2,}ing$/.test(lower) && (REGULAR.has(lower.slice(0, -3)) || REGULAR.has(`${lower.slice(0, -3)}e`) || lower.slice(0, -3) in IRREGULAR
+    || DOUBLED_ING.has(lower.slice(0, -4)))) return `${lower}${rest}`;
+  if (!(lower in IRREGULAR) && !REGULAR.has(lower) && lower !== "tail" && lower !== "recheck") return undefined;
+  const ing = DOUBLED_ING.has(lower) ? `${lower}${lower.at(-1)}ing` : /[^e]e$/.test(lower) ? `${lower.slice(0, -1)}ing` : `${lower}ing`;
+  return `${ing}${rest}`;
+}
+
 /** What a group of finished steps did, by kind, each kind once and in the order it first ran: reads, searches, folders
  * listed, commands run, edits, pages fetched, web searches, checks, and any other tool by its name. The same name is
  * said once. */

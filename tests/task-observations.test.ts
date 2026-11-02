@@ -291,7 +291,8 @@ test("commands to another machine that Casper stopped are said on the receipt: n
   observations.observeToolEnd(bash("ssh sw2 'false'", true), {});
   const snapshot = observations.snapshot([]);
   expect(snapshot.remoteNotRun).toEqual([{ host: "sw1", commands: 2 }]);
-  expect(snapshot.remoteChanges).toEqual([{ host: "sw2", changes: [] }]);
+  // `false` only looks there.
+  expect(snapshot.remoteChanges).toEqual([{ host: "sw2", changes: [], looked: true }]);
   const receipt = formatReceipt({ execution: "completed", ...snapshot });
   // Never a clean pass: the verdict is Incomplete and names the machine; the line below gives the count.
   expect(receipt.split("\n")[0]).toBe("– Incomplete — commands to sw1 did not run");
@@ -336,6 +337,23 @@ test("a question-only task that changed another machine over ssh still prints th
   } finally { await removeTempDir(root); }
 });
 
+test("a machine where every command over ssh only looked says looked only; one more command that may change things and it doesn't", async () => {
+  const { formatReceipt, receiptView } = await import("../src/task/result");
+  const observations = new TaskObservations();
+  observations.observeToolEnd(bash("ssh -o BatchMode=yes nas-example 'uname -m; (docker --version; sudo -n docker --version) 2>&1; id; ls /volume1 2>&1 | head -30'"), {});
+  observations.observeToolEnd(bash("perl -e 'alarm 25; exec @ARGV' ssh nas-example 'systemctl is-active docker; docker ps -q | wc -l'"), {});
+  observations.observeToolEnd(bash("ssh pc-example 'ver 2>nul; uname -a 2>&1'"), {});
+  observations.observeToolEnd(bash("ssh build-server 'mkdir -p /srv/app'"), {});
+  observations.observeToolEnd(bash("ssh build-server 'ls /srv/app'"), {});
+  const snapshot = observations.snapshot([]);
+  expect(snapshot.remoteChanges).toEqual([{ host: "nas-example", changes: [], looked: true }, { host: "pc-example", changes: [], looked: true }, { host: "build-server", changes: [] }]);
+  const receipt = formatReceipt({ execution: "completed", ...snapshot });
+  expect(receipt).toContain("– Ran commands on nas-example over ssh; looked only");
+  expect(receipt).toContain("– Ran commands on build-server over ssh; Casper can't tell");
+  const devices = receiptView({ execution: "completed", ...snapshot }).items.filter((item) => item.section === "devices").map((item) => [item.name, item.detail]);
+  expect(devices).toEqual([["nas-example", "looked only"], ["pc-example", "looked only"], ["build-server", "ran commands over ssh; Casper can't tell from the command text whether they changed anything there"]]);
+});
+
 test("commands run over ssh with no change Casper can read still get a receipt line; a refused or blocked one does not", async () => {
   const { formatReceipt, REMOTE_UNKNOWN } = await import("../src/task/result");
   const observations = new TaskObservations();
@@ -361,4 +379,66 @@ test("an approved MCP change or a powershell command leaves writes open when the
   const shell = new TaskObservations();
   shell.observeToolEnd({ ...bash("Set-Content x.txt hi"), toolName: "powershell" }, undefined);
   expect(shell.snapshot(undefined).possibleMutations).toBe(true);
+});
+
+test("every MCP write that ran is on the receipt in plain words with its undo, also in a folder Casper can't compare and for a question", async () => {
+  const { formatReceipt, receiptView } = await import("../src/task/result");
+  const observations = new TaskObservations();
+  observations.recordChangeCall({ where: "Mist", what: "created RF template Standard-RF-80MHz", undo: "delete RF template Standard-RF-80MHz" })("ran");
+  observations.recordChangeCall({ where: "Mist", what: "site Lab-Site now uses RF template Standard-RF-80MHz (was Standard-RF)", undo: "set it back to Standard-RF" })("ran");
+  observations.recordChangeCall({ where: "Mist", what: "ran the 5 GHz radio channel plan (RRM) at site Lab-Site" })("ran");
+  // Refused or failed: nothing changed there, nothing said.
+  observations.recordChangeCall({ where: "Mist", what: "deleted WLAN Guest" })("failed");
+  observations.recordChangeCall({ where: "fixture", what: "set_ssid corp" })("unknown");
+  const snapshot = observations.snapshot(undefined);
+  expect(snapshot.possibleMutations).toBe(true);
+  const task = { execution: "completed" as const, ...snapshot, autoSkipped: "question" as const,
+    snapshotFailure: { reason: "not a project folder (over 20,000 files)", edited: [] } };
+  const receipt = formatReceipt(task);
+  expect(receipt).toContain("– Changed in Mist: created RF template Standard-RF-80MHz. To undo: delete RF template Standard-RF-80MHz");
+  expect(receipt).toContain("– Changed in Mist: site Lab-Site now uses RF template Standard-RF-80MHz (was Standard-RF). To undo: set it back to Standard-RF");
+  expect(receipt).toContain("– Changed in Mist: ran the 5 GHz radio channel plan (RRM) at site Lab-Site\n");
+  expect(receipt).toContain("– Sent to fixture (Casper can't tell whether it finished): set_ssid corp");
+  expect(receipt).not.toContain("WLAN Guest");
+  expect(formatTaskResult(task)).toContain("in Mist      created RF template Standard-RF-80MHz (to undo: delete RF template Standard-RF-80MHz); site Lab-Site now uses");
+  const devices = receiptView(task).items.filter((item) => item.section === "devices").map((item) => `${item.name}: ${item.detail}`);
+  expect(devices).toEqual(["In Mist: created RF template Standard-RF-80MHz. To undo: delete RF template Standard-RF-80MHz",
+    "In Mist: site Lab-Site now uses RF template Standard-RF-80MHz (was Standard-RF). To undo: set it back to Standard-RF",
+    "In Mist: ran the 5 GHz radio channel plan (RRM) at site Lab-Site", "In fixture: set_ssid corp (Casper can't tell whether it finished)"]);
+  // A tracked folder whose files didn't change says the same.
+  expect(formatReceipt({ execution: "completed", ...observations.snapshot([]) })).toContain("– Changed in Mist: created RF template");
+});
+
+test("a question-only task whose MCP write ran still prints the receipt with that change", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "casper-mcp-receipt-"));
+  try {
+    await mkdir(path.join(root, "home"));
+    let app: CasperApp | undefined;
+    const runtime: AgentRuntime = {
+      async start(): Promise<RuntimeSession> {
+        const listeners = new Set<(event: Parameters<Parameters<RuntimeSession["subscribe"]>[0]>[0]) => void>();
+        return {
+          async prompt() {
+            for (const listener of listeners) listener({ type: "assistant_response_start" });
+            // What the broker reports for an approved write through the network server.
+            app!.observations.recordChangeCall({ where: "Mist", what: "ran the 5 GHz radio channel plan (RRM) at site Lab-Site" })("ran");
+            for (const listener of listeners) listener({ type: "assistant_response_end", stopReason: "stop" });
+          },
+          async abort() {}, setTools() {}, subscribe: (listener) => { listeners.add(listener); return () => listeners.delete(listener); },
+          getState: () => ({ cwd: root, isStreaming: false }),
+        };
+      },
+      async dispose() {},
+    };
+    let written = "";
+    app = new CasperApp({
+      verificationMode: "off", runtimeFactory: () => runtime, output: { write: (text: string) => { written += text; } },
+      loadProjectContext: (project) => loadProjectContext(project, { homeDir: path.join(root, "home") }),
+      loadSkillRegistry: (context) => SkillRegistry.discover({ projectRoot: context.info.root, homeDir: path.join(root, "home") }),
+    });
+    try {
+      await app.runOnce("why is the wifi at the lab site slow?", root);
+      expect(written).toContain("– Changed in Mist: ran the 5 GHz radio channel plan (RRM) at site Lab-Site");
+    } finally { await app.close(); }
+  } finally { await removeTempDir(root); }
 });

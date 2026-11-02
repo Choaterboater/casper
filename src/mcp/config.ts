@@ -108,6 +108,16 @@ function realFolder(folder: string): string {
   try { return realpathSync.native(folder); } catch { return path.resolve(folder); }
 }
 
+/**
+ * True when a file is in your own ~/.casper folder (also through a link). Opened from the home folder, the
+ * project's .casper/mcp.json is ~/.casper/mcp.json: it is your own file, never a project file.
+ */
+export function inCasperHome(file: string, home: string): boolean {
+  const casper = path.join(home, ".casper");
+  return [[casper, file], [realFolder(casper), path.join(realFolder(path.dirname(file)), path.basename(file))]]
+    .some(([folder, candidate]) => !isOutside(path.relative(folder!, candidate!)));
+}
+
 function personalFolder(value: unknown, projectRoot: string, home: string): string {
   if (typeof value !== "string" || !value.trim()) throw new Error("invalid cwd");
   if (value === "${PROJECT_ROOT}") return projectRoot;
@@ -255,7 +265,10 @@ export async function discoverMCPConfiguration(options: {
   };
   for (const file of files) await read(file, own);
   for (const file of ["mcp.json", ".mcp.json", ".casper/mcp.json"]) {
-    await read({ source: path.join(options.projectRoot, file), scope: "project", label: file }, projectFiles);
+    const source = path.join(options.projectRoot, file);
+    // Opened from the home folder: ~/.casper/mcp.json was read above as your own file.
+    if (inCasperHome(source, home)) continue;
+    await read({ source, scope: "project", label: file }, projectFiles);
   }
   // Same name in several personal layers: say which one is used, when an import is involved.
   const personalLayers = [...layers, ...own];

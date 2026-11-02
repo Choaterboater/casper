@@ -65,7 +65,8 @@ async function brokerRun(options: {
     ...options.invent ? { FAKE_INVENT_PRODUCT: options.invent } : {},
     ...options.env,
   });
-  const definition: MCPServerDefinition = { name: "network", source: path.join(home, ".casper/mcp.json"), scope: options.scope ?? "user", cwd: home, disabled: false,
+  const source = options.scope === "project" ? path.join(home, "project/.casper/mcp.json") : path.join(home, ".casper/mcp.json");
+  const definition: MCPServerDefinition = { name: "network", source, scope: options.scope ?? "user", cwd: home, disabled: false,
     transport: { type: "stdio", ...networkServerEntry(home), command: entry } };
   const manager = new MCPManager({ servers: [definition], diagnostics: [] }, { timeoutMs: 15_000, homeDir: home });
   cleanup.push(() => manager.close());
@@ -197,6 +198,24 @@ test("review: a project's casper-network-mcp never gets the login question; logi
   expect(await readLogins(run.home)).toEqual({});
   expect(run.transcript).toContain("login_missing");
   expect(run.toolResultText).not.toContain("Mist login added");
+  expect(run.toolResultText).not.toContain("Casper did not give");
+});
+
+test("a project's network server with your logins saved: its login_missing says in one line why it has none", async () => {
+  const home = await tempHome();
+  await saveLogin(home, "mist", { MIST_HOST: "https://api.mist.com", MIST_API_TOKEN: "tok_EXAMPLE_0123456789" });
+  await saveLogin(home, "central", { CENTRAL_BASE_URL: "https://us1.api.central.arubanetworks.com", CENTRAL_CLIENT_ID: "client_EXAMPLE", CENTRAL_CLIENT_SECRET: "secret_EXAMPLE_0123" });
+  const why = `Casper did not give this server your saved Mist and Central logins: it comes from a file in this project, not your own ~/.casper/mcp.json. The logins are saved; don't ask for a token.`;
+  const run = await brokerRun({ interactive: true, home, scope: "project", answers: ["2"] });
+  expect(run.prompts).toEqual([]);
+  expect(run.transcript).toContain("login_missing");
+  expect(run.toolResultText.split("\n").filter((line) => line.includes("Casper did not give"))).toEqual([expect.stringContaining(why)]);
+  expect(run.transcript).not.toContain("tok_EXAMPLE_0123456789");
+  const access = await brokerRun({ interactive: true, home, scope: "project", call: { id: "mcp:network:access_check", arguments: {} } });
+  expect(access.toolResultText).toContain(why);
+  // Your own server gets the logins, so it never gets this line.
+  const own = await brokerRun({ interactive: true, home, call: { id: "mcp:network:access_check", arguments: {} }, reach: { mist: { access: "read" } } });
+  expect(own.toolResultText).not.toContain("Casper did not give");
 });
 
 test("review: when the AI calls access_check first, it is told Casper asks for missing logins", async () => {

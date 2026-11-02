@@ -240,7 +240,9 @@ Your own skills load next to the bundled ones, ranked as described in
 don't count toward a skill's name, tags or description: a repository named `casper-network-mcp` doesn't pick a
 skill tagged `mcp`. A long request (a build spec of a few pages) shares words with any long description by chance, so
 there a skill counts only when the request names it, or its name, tags and description share at least 8% of the
-request's words; words of any English text (`any`, `not`, `into`) never count. Keep tags specific; a word as broad as `mcp` matches more requests than you mean. To use the stricter network picking rule, copy the
+request's words; words of any English text or request (`any`, `not`, `into`, `my`, `check`) never count. One word of
+a longer name (`mcp` of `mcp-builder`) picks a skill only for a request that makes or changes something, not for a
+question such as "what is pac mcp". Keep tags specific; a word as broad as `mcp` matches more requests than you mean. To use the stricter network picking rule, copy the
 `casper-skill` block from a bundled skill into your front-matter.
 
 **Replacing a bundled skill.** A skill in `~/.casper/skills/` with the same name as a bundled one

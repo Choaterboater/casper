@@ -126,7 +126,7 @@ A project file can't set it. See [SECURITY.md](SECURITY.md) for the full list.
 
 With the sandbox off, in a folder you trust, a command that would still ask `Run this command?` goes to a
 model judge first: your current model, at low effort, in a short separate call whose tokens join the task's.
-Ordinary build work runs, with a dim `✓ judge: …` line saying what it does; anything doubtful asks you, with
+Ordinary build work runs with no line (Ctrl+T on the step and `/status` say why the judge allowed it); anything doubtful asks you, with
 the judge's reason. The judge never refuses on its own, and a failure or timeout asks. A fixed list (sudo, a
 download run through a shell, a force push, changes outside the project, publishing and the like; see
 [SECURITY.md](SECURITY.md)) always asks, whatever the judge would say. A check is about 360 tokens in and 50 out. It is on. Turn it off
@@ -142,8 +142,9 @@ it moves to the background instead of being stopped: the AI gets its output so f
 ends the AI gets a short note with its exit code and last lines of output. Its input is closed, so a
 command waiting for you to type ends instead. At most 4 run this way at once; past that a slow command
 is stopped at 2 minutes as before. A line you send the AI while one runs moves it to the background at
-once (when there is room), so the AI reads your line instead of waiting for the command. A command the
-AI gave its own time limit is stopped at it, and servers
+once (when there is room), so the AI reads your line instead of waiting for the command; one that only
+waits or polls (a `sleep`, a loop of sleeps and checks) is stopped instead, even with its own time limit.
+A command the AI gave its own time limit is stopped at it, and servers
 still go through the service tool. Every one is stopped, with whatever it started, when Casper exits.
 A job the AI means to outlive its call (a long comparison, a build of an hour) it starts with the shell's
 `background: true`: it moves to the background after 3 s (a quick failure still shows in the call), with no time
@@ -443,7 +444,8 @@ A command that needs you at the terminal (an editor, `less` or `man` on its own,
 its usual box, with no question of its own. One line says what starts, Casper's screen pauses, and it comes back when
 the command exits; the AI reads the exit code and the last lines the screen showed (scrubbed; what you type is never
 recorded). A command that failed because it had no terminal gets one when the AI sends it again. `ssh host sudo …` is
-handed over with `-t`, and sudo on that machine asks at its own prompt.
+handed over with `-t`, and sudo on that machine asks at its own prompt. `sudo -n` (`--non-interactive`) there, and
+any ssh with `-o BatchMode=yes`, never ask anything, so they run as usual and the AI reads all their output.
 
 To run something yourself, type `!` and the command (`!sudo apt update`) or say it (`let me run sudo apt update`,
 `I'll run make deploy`): it runs at once in Casper's terminal, with no box, and the AI reads how it ended with your next
@@ -1511,7 +1513,7 @@ only while you trust the folder: as in Claude Code, trusting the folder is the r
 - Pi packages and custom Pi skill paths are not imported.
 - A declared skill with mistakes still produces a warning. Startup summarizes the warnings it hasn't said before
   on this computer (`[skills] 2 new warnings; use /skills diagnostics`), so the same unreadable skill in another tool's
-  folder is said once, not at every start; one that goes away and comes back is new again. `/skills diagnostics`
+  folder is said once, not at every start, and not again after a start in another folder. `/skills diagnostics`
   shows every warning in full detail.
 
 Example `~/.casper/skills/mcp-authoring/SKILL.md`:
@@ -1533,7 +1535,10 @@ Other frontmatter keys are kept. At startup Casper reads only the frontmatter, n
 
 **How skills are picked.** For each request, Casper ranks eligible skills by the request's words,
 the skill's tags, name and description, the kind of task, and the project's languages. A broad
-task-kind or language match alone does not load a skill. `disable-model-invocation: true` keeps a
+task-kind or language match alone does not load a skill. A tag or the skill's whole name counts on its own; one word
+of a longer name (`mcp` of `mcp-builder`) counts on its own only when the request makes or changes something, so a
+question such as "what is pac mcp" picks no builder skill. Otherwise the description needs two of the request's words,
+and words of any request (`my`, `check`, `see`, `why`) never count. `disable-model-invocation: true` keeps a
 skill out of automatic selection, even after review.
 
 Set how many skills load per request in the global, profile or project file:

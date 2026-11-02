@@ -22,7 +22,7 @@ takes nothing after its name says so (`Usage: /theme, with nothing after it.`).
 | Esc | Stop the current work |
 | Ctrl+C | Cancel work; when idle, clear the draft; twice on an empty prompt exits |
 | Ctrl+D | Exit when the prompt is empty |
-| Ctrl+T | Show the last step in full: an edit's whole diff, what a command printed, a failed check's log, the provider's own words after an `[error]`, or a plan's optional Details (works during work too) |
+| Ctrl+T | Show what is new in full: each finished step not shown yet (an edit's whole diff, what a command printed, a failed check's log, the provider's own words after an `[error]`, or a plan's optional Details), then what a running command printed so far. A block already shown is never printed again: the next Ctrl+T shows only output since then, and with nothing new a short note says so (works during work too) |
 | Ctrl+G | In a plan, open its saved Markdown in `VISUAL` or `EDITOR`; reread it and show the plan again on return |
 | Ctrl+L | Redraw the screen |
 | Ctrl+V (Alt+V on Windows) | Paste a picture from the clipboard; it shows as `[image 1]` and goes with the request. A file you copied in Finder, Explorer or a file manager goes in as its path, and a picture file goes with the request like a dropped one. With neither on the clipboard, its text is pasted |
@@ -265,12 +265,18 @@ workflows, `.casper/project.yaml`, Ansible inventories and variables, Junos `.se
 gets a box of its own, `◆ Changed config`, with up to 40 diff rows per file and then `… N more lines · Ctrl+T shows all`,
 secrets hidden as in the edit box; a lockfile is one row, `◆ lockfile updated (bun.lock)`. A shell command that changed
 another machine or a device shows a row as soon as it ends, `◆ Changed on build-server: installed a service (…)` or
-`◆ Changed on sw1: sent 3 config lines`, with the commands it sent in a box (secrets hidden): the receipt's
-remote-change rules, or device lines that enter config mode, commit or delete. Plain server reads sent over ssh
-(`hostname`, `uname -a`, `uptime`, `df -h`, `docker ps`, `ip a`, `systemctl status` and the like, with `2>&1` or
-`2>/dev/null`, or piped into `head`, `tail`, `grep`, `wc` or `sort`) are no config lines and show no row. Each change Casper sends to an MCP server,
-also after `Yes to everything`, is a row with what was sent, masked as in its box: `◆ Changed in mist: update_site_setting
-site-1`. Setup on this computer gets named rows when the command worked: `◆ installed left-pad`,
+`◆ Changed on sw1: sent 3 config lines` for a network device, `◆ Changed on nas: ran 1 command that may change things`
+for a server, with only those commands in a box (secrets hidden). Each command sent over ssh goes through the read
+check Casper uses for commands here (`ls`, `cat`, `grep`, `find`, version-only, with redirects that only drop output),
+plus programs that only look at a server (`docker ps`, `docker compose version`, `systemctl is-active`, `ip a`, `ss`,
+`journalctl`, `getent`, Windows' `ver`) and `sudo -n` before any of them. An ssh whose commands all only looked shows
+one neutral line, `✓ Ran on nas: uname, docker --version, ls (looked only)`, and no row; the receipt's Devices row
+says `looked only`. A time limit or shell around the line (`perl -e 'alarm 25; exec @ARGV' ssh …`, `timeout 30`,
+`gtimeout`, `env`, `nohup`, `sh -c "…"`) is seen through: the step names the command inside. Each change Casper sends to an MCP server,
+also after `Yes to everything`, is a row in plain words: `◆ Changed in Mist: site Lab-Site now uses RF template
+Standard-RF-80MHz (was Standard-RF)`, with `To undo: set it back to Standard-RF` on the line under it when Casper can tell,
+or for another server's tool `◆ Changed in network: set_port sw1`. What was sent, masked as in its box, shows only with
+Ctrl+T, never as a box of JSON ([MCP.md](MCP.md)). Setup on this computer gets named rows when the command worked: `◆ installed left-pad`,
 `◆ committed "fix port" (a1b2c3d)`, `◆ pushed main to origin`, `◆ switched to fix-port`, `◆ deleted 3 files: a, b, c`.
 At `/details quiet` they are rows without their boxes. The old Windows console draws `◆` as `#`.
 A missing guessed path, an empty search, a search pattern that didn't parse (`– grep · foo( — pattern not valid`; the AI
@@ -343,8 +349,9 @@ A row that does not fit names file names instead of paths, then gives each kind 
 words between them stay one group: a turn of only tool calls, blank space before the words, or words held for
 the plan screen does not fold them. A group with no words above it gets a `●` row of its own. Edits with no diff
 to show (a new file written whole) are named in the row (`edited new.py`). A failed edit the model tried again
-at once is shown nowhere. Ctrl+T shows the last box in full (the group's whole diff, or everything the failed
-step printed), or else the last step. `/output all` lists every call of the last task on its own line. A command Casper refused before it ran (a private place such as `~/.ssh`, another machine
+at once is shown nowhere. Ctrl+T shows each step not shown yet in full (the group's whole diff, or everything the failed
+step printed), oldest first and at most the last five, then a running command's output so far; when the screen says what
+Ctrl+T shows (`Ctrl+T shows the log`), it shows that. `/output all` lists every call of the last task on its own line. A command Casper refused before it ran (a private place such as `~/.ssh`, another machine
 you said No to, or one a script run can't ask about) is not a failure: it reads
 `○ bash · cat ~/.ssh/config — not run`, with the reason said to you on the next line, and is not
 counted as failed. A skipped check keeps its `○ … — skipped` line.
@@ -419,6 +426,11 @@ prompt picks the step, and anything else you type is simply your next request. C
 and free; only a step marked "uses tokens" asks the model anything. No row comes after a task that ends asking you
 something or paused after saying what it does next: its numbers could pass for the options the AI just offered
 ([When a task is not done yet](VERIFICATION.md#when-a-task-is-not-done-yet)).
+
+When the AI's answer ends with a line `Next step: <a step it can take>`, that step goes on the row (after Show diff and Undo), under a
+receipt or a plain answer: `Next: 1 Read the switch's port 1/1/5 over ssh (asks for the switch login) (uses tokens)`.
+Its key sends the step as your next request; nothing runs on its own. A step that is yours to do (`reconnect it,
+then tell me`), a slash command or a line over 160 characters is left out.
 
 After a `/look` report that names fixes for its issues, the row is `Next: 1 Fix all of it (uses tokens)`, also under a
 plain answer with no receipt: `1` runs `/look fix`, everything it found in one task. It waits until the report's
@@ -928,7 +940,9 @@ only. See [platform support](PLATFORM_SUPPORT.md) for host-validation limits.
   after the box closes, so a 60-line paste never lands in the box. Typing and pastes go in only on the line a row
   opens once it is picked: Other on a question that takes a typed answer, or an approval's No.
 - Auto mode (on in a folder you trust, with the sandbox off): before `Run this command?` shows, a model judge looks at the
-  command. When it lets the command run, one dim line says what it does (`✓ judge: runs the project's tests`); when it
+  command. When it lets the command run, no line shows (Ctrl+T on the step starts with `✓ judge: <why>`, and `/status` has a
+  `judge` row); `sleep` and a GET to this computer's own server never reach it
+  ([decision 61](adr/0002/61-quiet-judge.md)). When it
   wants you to decide, the box shows as usual with `The judge says: …` on its dim line instead of the model's. Type
   `auto mode off` (or use `/settings`) to go back to the box for every such command
   ([decision 47](adr/0002/47-auto-mode-judge.md)).
@@ -1036,6 +1050,11 @@ only. See [platform support](PLATFORM_SUPPORT.md) for host-validation limits.
   (`[browser] Closing the sign-in window so Casper reads your line; …`). A service start stops waiting for readiness
   and keeps starting. Other steps finish first, as before: a command with its own time limit or on Casper's ssh login,
   a slow command when 4 already run in the background, MCP calls, helpers (`delegate`) and checks (`casper_check`).
+- A shell command that only waits or polls is stopped instead, whatever its time limit: a `sleep`, a loop of sleeps
+  and checks that change nothing (`while …; do ssh nas 'docker ps'; sleep 15; done`), `ssh host sleep 30`, and
+  `timeout` or `perl -e 'alarm …'` around a read. One grey line says so (`– Stopped the wait (sleep 15 loop) to read
+  your message`) and the AI is told. A command that may change something (a write, a restart, a POST, a redirect to a
+  file, anything Casper can't read) is never stopped this way.
 
 Daily commands include `/help`, `/status`, `/project`, `/diff`, `/verify`, `/skills`,
 `/mcp`, `/lsp`, `/browser`, `/permissions`, `/model`, `/effort` and:
@@ -1052,8 +1071,8 @@ Daily commands include `/help`, `/status`, `/project`, `/diff`, `/verify`, `/ski
 
 Each start in a folder is a new conversation, as in Claude Code, Codex, Copilot CLI and Pi; only a `/branch`
 experiment's folder reopens its branch's own. When the folder has an earlier conversation, the start offers one row,
-`Next: 1 Continue the Oct 21 conversation (<title> · 12 messages)` (or `Continue today's conversation`,
-`Continue yesterday's conversation`) with `Anything you type starts a new conversation, unless it refers back to this
+`Next: 1 Continue the Oct 21 conversation (<title>, 12 messages)` (or `Continue today's conversation`,
+`Continue yesterday's conversation`; a conversation with no title, or only a stray number for one, shows just its count) with `Anything you type starts a new conversation, unless it refers back to this
 one ("run it again").` under it: a lone `1` on the empty prompt runs `/continue` (sent before the row shows, it waits up to 3 s for it), and so does a
 first line that only asks to go back (`continue`, `continue session`, `pick up where we left off`). With today's or
 yesterday's conversation on offer, a short first line that refers back (`re run test`, `do that again`, `fix it`) is

@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { MCPManager, type MCPManagerOptions, type ServerQuestion, type ServerQuestionAnswer } from "../src/mcp/manager";
 import type { MCPServerDefinition } from "../src/mcp/config";
-import { CapabilityBroker, type ApprovalAnswer, type ConfirmCapability, type ConfirmKind } from "../src/capabilities/broker";
+import { CapabilityBroker, type ApprovalAnswer, type ChangeCallHandler, type ConfirmCapability, type ConfirmKind } from "../src/capabilities/broker";
 import { formatApproval } from "../src/capabilities/approval";
 import { numberPrompt } from "../src/tui/terminal";
 import { rejection } from "./support/settle";
@@ -31,7 +31,7 @@ function definition(name: string, mode: string, file: string): MCPServerDefiniti
 }
 async function setup(options: {
   mode?: string; name?: string; confirm?: ConfirmCapability; elicit?: MCPManagerOptions["elicit"]; manager?: MCPManagerOptions; writesGate?: boolean;
-  confirmKind?: ConfirmKind; onChangeCall?: (server: string, tool: string, sent: unknown) => void; planning?: () => boolean;
+  confirmKind?: ConfirmKind; onChangeCall?: ChangeCallHandler; planning?: () => boolean;
 } = {}) {
   const file = await callsFile();
   const name = options.name ?? "network";
@@ -557,4 +557,25 @@ test("an approved change call hands its arguments to the change row masked as it
   await broker.invoke(id("set_ssid"), { ssid: "corp", wpa_passphrase: "fixture-passphrase-1234" });
   expect(JSON.stringify(sent)).toContain("corp");
   expect(JSON.stringify(sent)).not.toContain("fixture-passphrase-1234");
+});
+
+test("a network write's plain words reach its box and its change row: the value before is read first, ids named from what was read", async () => {
+  const ORG = "00000000-0000-0000-0000-000000000000", SITE = "00000000-0000-0000-0000-000000000001";
+  const NEW = "00000000-0000-0000-0000-000000000003";
+  const shown: unknown[] = [];
+  const confirm: ConfirmCapability = async (call) => { shown.push(call.words); return "yes"; };
+  const changes: unknown[] = [];
+  const { broker, file, id } = await setup({ confirm, onChangeCall: (_server, tool, _sent, words) => { changes.push([tool, words]); return (ran: string) => changes.push(ran); } });
+  await broker.invoke(id("invoke_read_tool"), { name: "mist_list_org_rf_templates", arguments: { org_id: ORG } });
+  await broker.invoke(id("invoke_tool"), { name: "mist_update_site_info", arguments: { site_id: SITE, body: { name: "Lab-Site", rftemplate_id: NEW } } });
+  const words = { product: "Mist", box: "Set site Lab-Site's RF template to Standard-RF-80MHz (now Standard-RF)",
+    after: "site Lab-Site now uses RF template Standard-RF-80MHz (was Standard-RF)", undo: "set it back to Standard-RF" };
+  expect(shown).toEqual([words]);
+  expect(changes).toEqual([["mist_update_site_info", words], "ran"]);
+  // The value before went through the read router with the ids only, before the change; nothing asked about it.
+  expect(toolCalls(await calls(file)).map((entry) => [entry.tool, (entry.arguments as { name?: string; arguments?: unknown }).name, (entry.arguments as { arguments?: unknown }).arguments])).toEqual([
+    ["invoke_read_tool", "mist_list_org_rf_templates", { org_id: ORG }],
+    ["invoke_read_tool", "mist_get_site_info", { site_id: SITE }],
+    ["invoke_tool", "mist_update_site_info", { site_id: SITE, body: { name: "Lab-Site", rftemplate_id: NEW } }],
+  ]);
 });

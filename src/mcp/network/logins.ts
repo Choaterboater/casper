@@ -271,6 +271,20 @@ export function getsLogins(definition: MCPServerDefinition): boolean {
   return matchPreset(definition)?.preset.logins === true;
 }
 
+/**
+ * One line for the AI when Casper's network server runs without the logins you saved because a project file
+ * defines it, so the AI never says a login is missing or asks for a token. Undefined in every other case.
+ */
+export async function withheldLoginsNote(definition: MCPServerDefinition, homeDir: string): Promise<string | undefined> {
+  if (definition.scope !== "project" || definition.transport.type !== "stdio" || matchPreset(definition)?.preset.logins !== true) return undefined;
+  const { logins, named } = await readLoginFile(homeDir).catch(() => ({ logins: {} as Logins, named: {} as NamedLogins }));
+  const saved = NETWORK_PRODUCTS.filter((product) => logins[product] || (product === "central" && Object.keys(named).length));
+  if (!saved.length) return undefined;
+  const names = saved.map((product) => PRODUCT_LABELS[product]);
+  const list = names.length === 1 ? names[0] : `${names.slice(0, -1).join(", ")} and ${names.at(-1)}`;
+  return `Casper did not give this server your saved ${list} ${saved.length === 1 ? "login" : "logins"}: it comes from a file in this project, not your own ~/.casper/mcp.json. The ${saved.length === 1 ? "login is" : "logins are"} saved; don't ask for a token.`;
+}
+
 /** The env a server starts with: its own (with ${VAR}s filled in), plus the saved logins when it gets them. */
 export async function spawnEnvFor(definition: MCPServerDefinition, homeDir: string, warn?: (text: string) => void): Promise<Record<string, string>> {
   if (definition.transport.type !== "stdio") return {};

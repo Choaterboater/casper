@@ -155,8 +155,8 @@ test("ssh wrapped in another shell, a subshell, a loop or xargs is still found; 
 test("an alias and its address are one machine on the receipt, named by both", () => {
   expect(remoteChanges("ssh build-server 'systemctl enable --now sampleapp' && ssh root@198.51.100.20 reboot", home)).toEqual([{
     host: "198.51.100.20 (build-server)", address: "198.51.100.20",
-    changes: ["turned a service on or off at boot (systemctl enable --now sampleapp)", "restarted or shut down the machine (reboot)"] }]);
-  expect(remoteChanges("ssh root@$H uptime", home)).toEqual([{ host: "$H", address: "$H", changes: [] }]);
+    changes: ["turned a service on or off at boot (systemctl enable --now sampleapp)", "restarted or shut down the machine (reboot)"], looked: false }]);
+  expect(remoteChanges("ssh root@$H uptime", home)).toEqual([{ host: "$H", address: "$H", changes: [], looked: true }]);
 });
 
 test("ssh -o Hostname= names the machine ssh really reaches, not the alias's address", () => {
@@ -253,4 +253,10 @@ test("a plain scp keeps clear of git's files, links that lead out, and what the 
     await Promise.all(Array.from({ length: 2100 }, (_, index) => writeFile(path.join(root, "big", `f${index}`), "")));
     expect(alone("scp -r big build-server:/tmp/x")).toBe(false);
   } finally { await removeTempDir(base); }
+});
+
+test("sudo -n, -i and -e take no value: the ssh after them is still found", () => {
+  for (const command of ["sudo -n ssh nas uptime", "sudo -i ssh nas uptime", "sudo -n -u admin ssh nas uptime"]) {
+    expect([command, remoteTargets(command, home).map((target) => target.host)]).toEqual([command, ["nas"]]);
+  }
 });

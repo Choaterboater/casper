@@ -148,7 +148,7 @@ test("first change: the box names the product and the login's reach; 2 turns wri
   });
   expect(s.boxes).toHaveLength(1);
   const box = s.boxes[0]!;
-  expect(box).toStartWith("Change in Mist: mist update wlan\n");
+  expect(box).toStartWith("Change in Mist: Set WLAN w1's VLAN to 30\n");
   expect(box).toContain("Your login can change: Branch-12 site\n");
   expect(choiceLines(box)).toEqual(["No", "Yes, this once", "Yes, for this session", approveAllLabel("Network")]);
   expect(await s.ran("mist_update_wlan")).toBe(1);
@@ -186,8 +186,8 @@ test("after a 3 on a config change, a second config change runs without a box; a
     }],
   });
   expect(s.boxes).toHaveLength(2);
-  expect(s.boxes[0]).toStartWith("Change in Mist: mist update wlan\n");
-  expect(s.boxes[1]).toStartWith("Change in Mist: mist bounce switch port\n");
+  expect(s.boxes[0]).toStartWith("Change in Mist: Set WLAN w1's VLAN to 30\n");
+  expect(s.boxes[1]).toStartWith("Change in Mist: Bounce switch port ge-0/0/7\n");
   expect(choiceLines(s.boxes[1]!)).toEqual(["No", "Yes, this once", approveAllLabel("Network")]);
   expect(await s.ran("mist_update_wlan")).toBe(1);
   expect(await s.ran("mist_update_site_setting")).toBe(1);
@@ -224,7 +224,7 @@ test("a disruptive tool asks every time even after 'Yes, for this session'", asy
   });
   expect(s.boxes).toHaveLength(3);
   for (const box of s.boxes.slice(1)) {
-    expect(box).toStartWith("Change in Mist: mist bounce switch port\n");
+    expect(box).toStartWith("Change in Mist: Bounce switch port ge-0/0/7\n");
     expect(choiceLines(box)).toEqual(["No", "Yes, this once", approveAllLabel("Network")]);
   }
   expect(await s.ran("mist_bounce_switch_port")).toBe(2);
@@ -263,7 +263,7 @@ test("Ctrl+X restarts it read-only and ends the grant", async () => {
   expect(pinned).toContain("--read-only");
   expect(s.output).toContain("[mcp] Writes off for network. Every change asks you again.");
   expect(s.boxes).toHaveLength(2);
-  expect(s.boxes[1]).toStartWith("Change in Mist: mist update site setting\n");
+  expect(s.boxes[1]).toStartWith("Change in Mist: Update site settings at site s1: NTP 192.0.2.10\n");
   expect(await s.ran("mist_update_site_setting")).toBe(0);
 });
 
@@ -367,7 +367,7 @@ test("without a find_tool hit, the box takes the product from the tool's name, a
     }],
   });
   expect(s.boxes).toHaveLength(2);
-  expect(s.boxes[0]).toStartWith("Change in ClearPass: clearpass update role\n");
+  expect(s.boxes[0]).toStartWith("Change in ClearPass: Update role 1\n");
   expect(s.boxes[0]).not.toContain("Your login can change");
   // A tool of no known product on a server with more than one: the reach is unknown, so no line.
   expect(s.boxes[1]).not.toContain("Your login can change");

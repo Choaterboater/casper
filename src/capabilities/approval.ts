@@ -15,6 +15,7 @@
  */
 import { APPROVE_CHOICES, APPROVE_ONCE_CHOICES, APPROVE_ONCE_PREVIEW_CHOICES, APPROVE_PREVIEW_CHOICES, approveAllLabel, junosShowLabel, kindAllowChoices } from "../app/safe-choices";
 import type { MCPTool } from "../mcp/manager";
+import type { ChangeWords } from "../network/change-words";
 import { isSecretKey as isScrubbedKey, scrubText } from "../secrets/scrub";
 import { redactPreview, terminalText } from "../tui/format";
 import { asksEveryTime, KIND_TEXT, namesLinkCheck, type ChangeKind } from "./kinds";
@@ -411,11 +412,23 @@ export function toolWords(name: string): string {
   return name.replace(/([a-z0-9])([A-Z])/g, "$1 $2").split(/[_\-\s.]+/).filter(Boolean).join(" ").toLowerCase();
 }
 
-/** One "  key   value" line per argument, secrets already masked. */
-function valueLines(value: unknown): string[] {
+/** One "  key   value" line per value, secrets already masked: a nested object's values each on their own line under
+ * its dotted path ("body.band_5.bandwidth 80"), never the object as one wrapped line of JSON. Past `max` lines, one
+ * line says how many more and that Ctrl+T shows them all. */
+function valueLines(value: unknown, max = Infinity): string[] {
   if (!value || typeof value !== "object" || Array.isArray(value)) return value === undefined ? [] : [`  ${JSON.stringify(value)}`];
-  return Object.entries(value as Record<string, unknown>).map(([key, item]) =>
-    `  ${key.padEnd(16)} ${typeof item === "string" ? item : JSON.stringify(item)}`);
+  const lines: string[] = [];
+  const walk = (object: Record<string, unknown>, prefix: string, depth: number) => {
+    for (const [key, item] of Object.entries(object)) {
+      const path = `${prefix}${key}`;
+      if (item && typeof item === "object" && !Array.isArray(item) && Object.keys(item).length && depth < MAX_DEPTH) walk(item as Record<string, unknown>, `${path}.`, depth + 1);
+      else lines.push(`  ${path.padEnd(16)} ${typeof item === "string" ? item : JSON.stringify(item)}`);
+    }
+  };
+  walk(value as Record<string, unknown>, "", 0);
+  if (lines.length <= max) return lines;
+  const more = lines.length - max;
+  return [...lines.slice(0, max), `  … ${more} more ${more === 1 ? "value" : "values"} · Ctrl+T shows all`];
 }
 
 function list(items: string[]): string {
@@ -443,12 +456,15 @@ export type ApprovalChoice = "no" | "preview" | "yes" | "yes-session" | "allow-a
  * change gets no "for this session" answer. The technical line (server, tool, label) closes the box.
  */
 export function formatApproval(plan: ApprovalPlan, lastPreview?: LastPreview,
-  options: FormatOptions & { product?: string; toolProduct?: string; scope?: string; tool?: Pick<MCPTool, "_meta">; showOnly?: boolean } = {}):
+  options: FormatOptions & { product?: string; toolProduct?: string; scope?: string; tool?: Pick<MCPTool, "_meta">; showOnly?: boolean;
+    /** The change in plain words; `maxValues`: values shown before "… N more values · Ctrl+T shows all" (rich terminal). */
+    words?: Pick<ChangeWords, "box">; maxValues?: number } = {}):
 { preview: string; question: string; labels: string[]; choices: string[]; answers: Record<string, ApprovalChoice> } {
   const single = plan.routed.length === 1 && !plan.routerUnclear ? plan.routed[0]! : undefined;
   // The product the one real tool belongs to, when the server said ("Mist"); "Yes to everything" still names the
   // whole server, because that is what it covers.
-  const lines = [`Change in ${options.toolProduct ?? options.product ?? plan.server}: ${toolWords(single?.name ?? plan.tool)}`];
+  // A network product's write says what it does in plain words first (src/network/change-words.ts).
+  const lines = [`Change in ${options.toolProduct ?? options.product ?? plan.server}: ${single && options.words ? options.words.box : toolWords(single?.name ?? plan.tool)}`];
   // Where the login can change things (access-check v2); the server enforces it.
   if (options.scope) lines.push(`Your login can change: ${options.scope}`);
   if (plan.routerUnclear && !plan.routed.length) lines.push(`Runs: a tool Casper can't see (through ${plan.tool})`);
@@ -459,7 +475,7 @@ export function formatApproval(plan: ApprovalPlan, lastPreview?: LastPreview,
   }
   // A single routed call shows its own arguments; anything else shows what was sent.
   const masked = maskSecrets(single ? single.arguments : plan.arguments, options);
-  lines.push(...valueLines(masked.value));
+  lines.push(...valueLines(masked.value, options.maxValues));
   if (masked.hidden.length) {
     lines.push(`Hidden: ${masked.hidden.join(", ")}. The server still gets the real value${masked.hidden.length > 1 ? "s" : ""}.`);
   }

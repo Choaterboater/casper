@@ -15,7 +15,8 @@ import { CallToolRequestSchema, ListToolsRequestSchema, type Tool } from "@model
  *   the real server's SDK sends a list: one text block per hit, and structuredContent {result: hits}.
  * Like the real server's gate, --read-only refuses changes but lets the listed troubleshooting tools through
  *   (FAKE_TROUBLESHOOT: comma-separated names; default cx_show, cx_ping).
- * FAKE_EXPIRED, FAKE_401: see below.
+ * FAKE_EXPIRED, FAKE_401: see below. FAKE_RESULTS: JSON by tool name, the result a routed call to that tool answers
+ *   (one text block of its JSON, or the text itself when it is a string).
  */
 const readOnly = process.argv.includes("--read-only");
 const calls = process.env.FAKE_CALLS_FILE;
@@ -75,6 +76,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     const body = { error: `${product} answered 401 to GET ${url}: {"error": "invalid_token"}`, status: 401, detail: { error: "invalid_token" }, request_id: null, url };
     return { ...text(body), structuredContent: { result: body } };
   }
+  const answer = (JSON.parse(process.env.FAKE_RESULTS ?? "{}") as Record<string, unknown>)[name];
+  if (answer !== undefined) return typeof answer === "string" ? { content: [{ type: "text" as const, text: answer }] } : text(answer);
   const troubleshooting = (process.env.FAKE_TROUBLESHOOT ?? "cx_show,cx_ping").split(",");
   if (request.params.name === "invoke_tool" && readOnly && !troubleshooting.includes(name)) return text({ error: "This server is read-only. Nothing was sent." });
   // FAKE_ECHO_ENV: a successful result that repeats that variable's value (a tool that lists API clients).

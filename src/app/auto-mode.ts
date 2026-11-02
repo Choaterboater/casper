@@ -7,7 +7,7 @@ import type { CasperApp } from "../app";
 import { editUserConfig } from "../config/user-write";
 import type { RuntimeEvent } from "../runtime/types";
 import { judgeCommand, type JudgeResult } from "../sandbox/judge";
-import { terminalText } from "../tui/format";
+import { terminalText, unescapeMarkdown } from "../tui/format";
 import { reloadProject } from "./project-file";
 import { requestAsItStands } from "./steered-request";
 
@@ -36,6 +36,30 @@ export async function judgeForApp(app: CasperApp, command: string, signal?: Abor
   if (result.usage !== undefined) app.observations.recordModelCall(result.usage);
   else app.observations.recordUntrackedModelUse();
   return result;
+}
+
+/** How many of the judge's allows a session keeps for /status and Ctrl+T. */
+const ALLOWS_KEPT = 20;
+
+/** The judge allowed a command: no line on the screen (docs/adr/0002/61-quiet-judge.md). Its reason is kept for /status
+ * and the step's Ctrl+T view, without the Markdown escapes the model writes (`photo\_0.webp`): it sits above what the
+ * command printed, as plain text. */
+export function noteJudgeAllowed(app: Pick<CasperApp, "judgeAllows">, command: string, reason: string): void {
+  app.judgeAllows = [...app.judgeAllows, { command, reason: unescapeMarkdown(reason) }].slice(-ALLOWS_KEPT);
+}
+
+/** Why the judge allowed this command, when it did this session (the latest time). */
+export function judgeReasonFor(app: Pick<CasperApp, "judgeAllows">, command: string): string | undefined {
+  return [...app.judgeAllows].reverse().find((entry) => entry.command === command)?.reason;
+}
+
+/** /status's judge row, once the judge has allowed something this session. */
+export function judgeStatusLine(app: Pick<CasperApp, "judgeAllows">): string | undefined {
+  const last = app.judgeAllows.at(-1);
+  if (!last) return undefined;
+  const count = app.judgeAllows.length;
+  const what = `${count}${count === ALLOWS_KEPT ? "+" : ""} ${count === 1 ? "command" : "commands"}`;
+  return ` judge     ${what} allowed this session (no line each); the last: ${terminalText(last.command.replace(/\s+/g, " ").slice(0, 60))} · ${terminalText(last.reason.replace(/\s+/g, " ").slice(0, 120))}`;
 }
 
 const POLITE = String.raw`(?:(?:please|pls|ok|okay|casper)[,\s]+)*`;

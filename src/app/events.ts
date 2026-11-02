@@ -11,6 +11,7 @@ import { shellChanges, type StepChange } from "./changes";
 import os from "node:os";
 import path from "node:path";
 import { tildePath } from "../new/scaffold";
+import { waitPurpose, waitSeconds, waitWords } from "./wait-step";
 import { isOutside } from "../platform/inside";
 import { explainModelError } from "../runtime/model-errors";
 import { ToolCallTags } from "../task/text-tool-call";
@@ -47,6 +48,8 @@ export interface RuntimeEventCallbacks {
   announceLongChecks?(): boolean;
   /** A short headline of the model's reasoning in the status row (reasoning_headline, decision 24). Unset: yes. */
   reasoningHeadline?(): boolean;
+  /** Why auto mode's judge allowed this command, for the step's Ctrl+T view (an allow shows no line). */
+  judgeReason?(command: string): string | undefined;
 }
 
 /** A check Casper itself is running, for the live rows (rich) or the once-a-minute line (plain). */
@@ -80,6 +83,8 @@ interface Step {
   start?: ToolStart;
   /** The last line of a running command's output so far (rich terminal, not quiet). */
   tail?: string;
+  /** When its output line was last drawn. */
+  tailAt?: number;
   /** A poll's last meaningful output line, said with its finished line. */
   result?: string;
   /** Its live row (running, then finished). */
@@ -92,6 +97,8 @@ interface Step {
   output?: string;
   /** What Ctrl+T shows for it in full. */
   expanded?: ExpandedStep;
+  /** What Ctrl+T showed of its output while it ran (secrets hidden): the next Ctrl+T, and its end, show only what follows. */
+  shownOutput?: string;
   /** An edit's size and diff, for the edit box. */
   lines?: { added: number; removed: number };
   diff?: string;
@@ -146,6 +153,24 @@ export const PLAIN_START_AFTER_MS = 2000;
 
 /** Starts the live row that shows a running command's latest output (the surface draws it dim). */
 export const TAIL_MARK = "↳ ";
+/** A running command's output line is drawn at most this often. */
+const TAIL_REDRAW_MS = 1_000;
+/** Finished steps Ctrl+T has not shown yet, newest kept: one press shows at most these. */
+const UNSEEN_KEPT = 5;
+/** Ctrl+T's "nothing new" note. */
+export const NOTHING_NEW = "Nothing new since the last Ctrl+T";
+
+/** What a running command printed since Ctrl+T last showed `before` of it: `now` is its latest output (its last 2,000
+ * characters, so the start can move on), and what follows the longest start of `now` that ends `before` is new. All of
+ * `now` when they share too little to tell. */
+export function newOutput(now: string, before: string | undefined): string {
+  if (before === undefined) return now;
+  if (now.startsWith(before)) return now.slice(before.length).replace(/^\n/, "");
+  for (let at = Math.min(now.length, before.length); at >= Math.min(now.length, 64) && at > 0; at--) {
+    if (before.endsWith(now.slice(0, at))) return now.slice(at).replace(/^\n/, "");
+  }
+  return now;
+}
 
 /** "2 builders working: fix the parser, add tests": the first line of each goal, short, the first few named.
  * Running reviewers come first: "1 reviewer, 2 builders working: ...". */
@@ -176,7 +201,9 @@ export function intentLine(words: string): string | undefined {
 }
 
 /** What a running step is doing, for the status row: "Running bun test", "Reading src/x.ts", "web_fetch docs.x.com". */
-function doing(step: Step, fit: { root?: string }, commands?: Partial<Record<ProjectCommand, string>>): string {
+function doing(step: Step, fit: { root?: string }, commands?: Partial<Record<ProjectCommand, string>>, intent?: string): string {
+  const wait = step.kind === "command" ? waitSeconds(step.input?.command) : undefined;
+  if (wait !== undefined) return waitWords(wait, waitPurpose(step.description, intent));
   const human = runningCheck(step.input, commands) ?? githubLabel(step.input, "", true);
   if (human && (step.kind === "command" || step.toolName === "casper_check")) return redactPreview(human).replace(/\s+/g, " ");
   if (step.toolName === "delegate") return "Delegating · helper working";
@@ -223,6 +250,9 @@ export class RuntimeEventView {
   private endedWithNewline = true;
   private displayedError?: string;
   private expanded?: ExpandedStep;
+  /** Blocks Ctrl+T has not shown yet, oldest first, and how many older ones were let go. */
+  private unseen: ExpandedStep[] = [];
+  private unseenDropped = 0;
   /** Folders outside the project the model looked in: said once each, when its turn ends. */
   private readonly outsideFolders = new Set<string>();
   private outsideToSay: string[] = [];
@@ -308,7 +338,7 @@ export class RuntimeEventView {
     const plain = plainSteps(this.steps.map(step => {
       const tail = step.endedAt === undefined ? tailRow(step) : undefined;
       return { ...step, ...(tail ? { tailRow: tail } : {}) };
-    }), now, { fit: this.fit(2), commands: this.callbacks.projectCommands?.() ?? {} });
+    }), now, { fit: this.fit(2), commands: this.callbacks.projectCommands?.() ?? {}, ...(this.intent ? { intent: this.intent } : {}) });
     const extra: string[] = this.planProgress ? [terminalText(this.planProgress)] : [];
     // Checks Casper runs itself: a line each once they have run 10 s, with the last line they printed.
     for (const check of [...this.checks.values()].slice(0, BOX_CHECKS)) {
@@ -330,7 +360,12 @@ export class RuntimeEventView {
     plain.push(...extra);
     const status = this.statusText(now, builders);
     const headline = status !== undefined && status === this.status ? this.statusHeadline : undefined;
-    this.terminal.setWork(lines.length || status ? { rows: lines, plain, ...(status ? { status } : {}), ...(status && this.intent ? { intent: this.intent } : {}),
+    // A wait that says what it is for in the AI's own words: they don't lead the row a second time.
+    const newest = this.steps.filter(step => step.endedAt === undefined && step.start).at(-1);
+    const waitSaysIntent = newest?.kind === "command" && waitSeconds(newest.input?.command) !== undefined && !waitPurpose(newest.description)
+      && waitPurpose(undefined, this.intent) !== undefined;
+    const intent = status && this.intent && !(waitSaysIntent && status !== this.status) ? this.intent : undefined;
+    this.terminal.setWork(lines.length || status ? { rows: lines, plain, ...(status ? { status } : {}), ...(intent ? { intent } : {}),
       ...(headline ? { headline } : {}) } : undefined);
   }
 
@@ -344,7 +379,7 @@ export class RuntimeEventView {
       const goals = this.callbacks.builderGoals?.() ?? [];
       const activity = newest.toolName === "delegate" && goals.length
         ? `Delegating · ${goals.map((_, index) => `Builder ${index + 1}`).join(", ")} working`
-        : doing(newest, this.fit(), this.callbacks.projectCommands?.());
+        : doing(newest, this.fit(), this.callbacks.projectCommands?.(), this.intent);
       return `${activity} · ${formatElapsed(now - newest.startedAt)}${running.length > 1 ? ` (+${running.length - 1} more)` : ""}`;
     }
     const check = [...this.checks.values()][0];
@@ -467,7 +502,11 @@ export class RuntimeEventView {
     const failed = done.filter(step => step.failed && !step.retried && step.expanded).at(-1);
     const patches = done.filter(step => !step.failed && step.diff).map(step => step.diff!);
     if (failed) this.expanded = failed.expanded;
-    else if (patches.length > 1) this.expanded = { title: `Edited ${new Set(fold.edits.map(edit => edit.path)).size} files`, body: patches.join("\n"), diff: true };
+    else if (patches.length > 1) {
+      // Ctrl+T shows the group's edits as one diff, not each edit again.
+      this.unseen = this.unseen.filter(block => !done.some(step => step.diff && step.expanded === block));
+      this.queue(this.expanded = { title: `Edited ${new Set(fold.edits.map(edit => edit.path)).size} files`, body: patches.join("\n"), diff: true });
+    }
     this.endedWithNewline = true;
     this.renderBox();
   }
@@ -488,7 +527,7 @@ export class RuntimeEventView {
     const explained = explainModelError(message);
     if (!explained) { this.output.write(`[error] ${redactPreview(message)}\n`); return; }
     if (this.terminal.rich) {
-      this.expanded = { title: "Provider error", body: redactPreview(message), diff: false };
+      this.point({ title: "Provider error", body: redactPreview(message), diff: false });
       this.output.write(`[error] ${explained.line} Ctrl+T shows the provider's message.\n`);
     } else this.output.write(`[error] ${explained.line}\n  provider: ${redactPreview(message)}\n`);
   }
@@ -501,18 +540,59 @@ export class RuntimeEventView {
     this.displayedError = message;
   }
 
-  /** ctrl+t: the last finished step in full, or undefined before the first one. */
+  /** The last finished step in full, or undefined before the first one. */
   lastStep(): ExpandedStep | undefined { return this.expanded; }
 
-  /** What ctrl+t shows next, set by Casper itself (the plan's cases and details). */
-  showOnExpand(step: ExpandedStep): void { this.expanded = step; }
+  /** What ctrl+t shows next, set by Casper itself (the plan's cases and details). The same block again is not news. */
+  showOnExpand(step: ExpandedStep): void {
+    const last = this.expanded;
+    if (last && last.title === step.title && last.body === step.body && last.diff === step.diff) return;
+    this.point(step);
+  }
+
+  /** The screen says what Ctrl+T shows ("Ctrl+T shows the log"): the next Ctrl+T shows that, not older steps first. */
+  private point(step: ExpandedStep): void {
+    this.expanded = step;
+    this.unseen = [step]; this.unseenDropped = 0;
+  }
+
+  /** A block for the next Ctrl+T, once. */
+  private queue(step: ExpandedStep): void {
+    if (this.unseen.includes(step)) return;
+    this.unseen.push(step);
+    if (this.unseen.length > UNSEEN_KEPT) { this.unseen.shift(); this.unseenDropped++; }
+  }
+
+  /** Ctrl+T: each finished step not shown yet (oldest first, `earlier` older ones let go), then what each running command
+   * printed since the last Ctrl+T. A block is never shown twice; with none, `note` says why. */
+  expand(): { blocks: ExpandedStep[]; earlier: number; note?: string } {
+    const blocks = this.unseen;
+    const earlier = this.unseenDropped;
+    this.unseen = []; this.unseenDropped = 0;
+    const now = this.now();
+    let silent: string | undefined;
+    for (const step of this.steps) {
+      if (step.endedAt !== undefined || !step.start || step.kind !== "command") continue;
+      const label = `${formatToolActivity(step.start, undefined, this.fit()).slice(BUSY_GLYPH.length + 1)} · running · ${formatElapsed(now - step.startedAt)}`;
+      const text = step.tail === undefined ? "" : redactPreview(step.tail).replace(/\n+$/, "");
+      if (!text.trim()) { silent ??= `${label} · no output yet`; continue; }
+      const fresh = newOutput(text, step.shownOutput);
+      if (!fresh.trim()) continue;
+      blocks.push({ title: `${label}${step.shownOutput !== undefined ? " · output since the last Ctrl+T" : ""}`, body: fresh, diff: false });
+      step.shownOutput = text;
+    }
+    if (blocks.length) return { blocks, earlier };
+    return { blocks, earlier, note: silent ?? (this.expanded ? NOTHING_NEW : "no step to show yet") };
+  }
 
   /** A change Casper sent for the AI outside a shell command (an MCP write, after a box's yes or Yes to everything):
-   * a ◆ row in the open group that stays in view at every level, with what was sent (secrets already hidden) for its
-   * box. The plain terminal prints the row. */
+   * a ◆ row in the open group, in plain words, that stays in view at every level. What was sent (secrets already
+   * hidden) shows only with Ctrl+T, never as a box of raw JSON. The plain terminal prints the row. */
   noteChange(row: string, sent: readonly string[] = []): void {
-    const change: StepChange = { row: lineText(redactPreview(row)), ...(sent.length ? { sent: sent.map(line => redactPreview(line)) } : {}) };
-    if (sent.length) this.expanded = { title: change.row, body: change.sent!.join("\n"), diff: false };
+    // How to undo it on its own line under the row, so a narrow screen never cuts it off.
+    const [main, undo] = lineText(redactPreview(row)).split(/\. (?=To undo: )/, 2) as [string, string?];
+    const change: StepChange = { row: undo ? `${main}\n  ${undo}` : main };
+    if (sent.length) this.queue(this.expanded = { title: main, body: sent.map(line => redactPreview(line)).join("\n"), diff: false });
     if (!this.terminal.rich) {
       this.endSpeech(); this.ensureLineBreak();
       this.output.write(`${CHANGE_GLYPH} ${change.row}\n`);
@@ -520,7 +600,7 @@ export class RuntimeEventView {
       return;
     }
     const now = this.now();
-    this.steps.push({ toolName: CHANGE_STEP, kind: "other", startedAt: now, endedAt: now, line: `${CHANGE_GLYPH} ${change.row}`, changes: [change] });
+    this.steps.push({ toolName: CHANGE_STEP, kind: "other", startedAt: now, endedAt: now, line: `${CHANGE_GLYPH} ${main}`, changes: [change] });
     this.renderBox();
   }
 
@@ -704,11 +784,17 @@ export class RuntimeEventView {
         break;
       }
       case "tool_progress": {
-        // Rich terminal only, bash only, never in quiet: the plain terminal and --json get no extra lines.
-        if (!this.terminal.rich || event.toolName !== "bash" || this.level() === "quiet") break;
+        // Rich terminal only, bash only: the plain terminal and --json get no extra lines. Quiet shows no line, but Ctrl+T
+        // still shows the output so far.
+        if (!this.terminal.rich || event.toolName !== "bash") break;
         const step = this.steps.find(candidate => candidate.endedAt === undefined && (event.toolCallId ? candidate.id === event.toolCallId : candidate.toolName === event.toolName));
         if (!step) break;
         step.tail = event.text;
+        if (this.level() === "quiet") break;
+        // At most about once a second: the box's own one-second redraw shows a newer line in between.
+        const now = this.now();
+        if (step.tailAt !== undefined && now - step.tailAt < TAIL_REDRAW_MS) break;
+        step.tailAt = now;
         this.renderBox();
         break;
       }
@@ -752,8 +838,12 @@ export class RuntimeEventView {
           ? `${NOTE_GLYPH}${formatToolActivity({ type: "tool_start", toolName: event.toolName, ...(event.input ? { input: event.input } : {}), ...(event.description ? { description: event.description } : {}) }, undefined, this.fit(inset + suffix.length)).slice(BUSY_GLYPH.length)}${suffix}${refusal ? ` · ${redactPreview(refusal).slice(0, 180)}` : ""}`
           : formatToolActivity(note ? event : detail ? shown : { ...shown, output: undefined }, timed ? elapsed : undefined, this.fit(inset));
         const label = formatToolActivity({ type: "tool_start", toolName: event.toolName, ...(event.input ? { input: event.input } : {}), ...(event.description ? { description: event.description } : {}) }, undefined, this.fit()).slice(BUSY_GLYPH.length + 1);
+        // Auto mode's judge allowed it with no line: Ctrl+T says why, above what it printed.
+        const judged = !notRun && stepKind(event.toolName) === "command" && typeof event.input?.command === "string" ? this.callbacks.judgeReason?.(event.input.command) : undefined;
+        const printedText = (refusal ?? event.output?.text ?? "").replace(/\n$/, "");
         this.expanded = event.diff && !event.isError ? { title: label, body: event.diff, diff: true }
-          : { title: `${label}${notRun ? " · not run" : note ? ` · ${note}` : event.isError ? " · failed" : ""}`, body: (refusal ?? event.output?.text ?? "").replace(/\n$/, "") || "(no output text)", diff: false };
+          : { title: `${label}${notRun ? " · not run" : note ? ` · ${note}` : event.isError ? " · failed" : ""}`,
+            body: judged ? `✓ judge: ${lineText(redactPreview(judged))}\n${printedText || "(no output text)"}` : printedText || "(no output text)", diff: false };
         // What a shell command changed beyond this project's code (another machine, a device, this computer's setup):
         // rows that stay in view, at every level.
         const changes = !notRun && stepKind(event.toolName) === "command" && typeof event.input?.command === "string"
@@ -805,7 +895,11 @@ export class RuntimeEventView {
         step.title = endLine(0, false, false);
         if (event.input) step.input = event.input;
         if (step.failed && event.output?.text) step.output = event.output.text;
-        step.expanded = this.expanded;
+        const full = step.expanded = this.expanded;
+        // Ctrl+T shows it once: whole, or what it printed after a Ctrl+T showed some of it while it ran.
+        const rest = step.shownOutput === undefined ? undefined : newOutput(redactPreview(printedText).replace(/\n+$/, ""), step.shownOutput);
+        if (rest === undefined) this.queue(full);
+        else if (rest.trim()) this.queue({ title: `${full.title} · output since the last Ctrl+T`, body: rest, diff: false });
         if (event.lines && !event.isError) step.lines = event.lines;
         if (event.diff && !event.isError) step.diff = event.diff;
         if (changes.length) step.changes = changes;

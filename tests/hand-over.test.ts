@@ -252,6 +252,20 @@ test("which commands need the terminal: editors, pagers alone, REPLs alone, -it,
   for (const command of not) expect([command, terminalNeed(command)]).toEqual([command, undefined]);
 });
 
+test("sudo -n over ssh, and any ssh with BatchMode=yes, never take the terminal: nothing there can ask", () => {
+  const never = [
+    "ssh -o BatchMode=yes -o ConnectTimeout=8 nas 'uname -m; (docker --version; sudo -n docker --version) 2>&1; docker compose version 2>&1; id'",
+    "ssh nas 'sudo -n docker ps'", "ssh nas sudo --non-interactive systemctl status docker", "ssh nas 'sudo -nu root docker ps'",
+    "ssh -o BatchMode=yes nas 'sudo docker ps'", "ssh -oBatchMode=yes nas sudo true", "ssh -o batchmode=YES nas sudo true",
+    "ssh -o 'BatchMode yes' nas sudo true", "ssh -t -o BatchMode=yes nas sudo true",
+  ];
+  for (const command of never) expect([command, terminalNeed(command)]).toEqual([command, undefined]);
+  // A sudo that can still ask keeps the terminal, even next to one that can't.
+  for (const command of ["ssh nas 'sudo -n true; sudo apt update'", "ssh -o BatchMode=no nas sudo apt update", "ssh nas 'sudo -u n apt update'"]) {
+    expect([command, terminalNeed(command)]).toEqual([command, "remote-sudo"]);
+  }
+});
+
 viaBash("an interactive command gets the terminal right after its usual box, with a one-line note; the AI reads its exit code and last lines", async () => {
   const handOver = lender();
   const w = await world({ handOver: handOver.value, answers: ["Yes, this once"] });

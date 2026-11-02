@@ -2,7 +2,13 @@ import { afterEach, expect, test } from "bun:test";
 import { mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { EventEmitter } from "node:events";
+import { PassThrough } from "node:stream";
 import { createBashToolDefinition } from "@earendil-works/pi-coding-agent";
+import { CasperApp } from "../src/app";
+import { currentShell, stoppedWaitLine } from "../src/app/runtime-start";
+import { styleLine } from "../src/tui/terminal";
+import { tint } from "../src/tui/format";
 import { deliberateChoices } from "../tools/adr-index";
 import { SteerWaits } from "../src/app/steer-waits";
 import { BackgroundCommands } from "../src/runtime/background-commands";
@@ -48,10 +54,12 @@ test("a wait listens until it ends: a line ends every wait listening then, once 
 
 function shell(options: { max?: number; ssh?: boolean } = {}) {
   const notes: string[] = [];
+  const stopped: string[] = [];
   const waits = new SteerWaits();
   const commands = new BackgroundCommands({ notify: (note) => { notes.push(note); }, limitSeconds: 60, ...(options.max === undefined ? {} : { max: options.max }) });
   cleanups.push(() => commands.close());
-  const held: RuntimeShell = { wrap: async (command) => ({ command, ...(options.ssh ? { ssh: {} } : {}) }), background: () => commands, whenSteered: waits.listen };
+  const held: RuntimeShell = { wrap: async (command) => ({ command, ...(options.ssh ? { ssh: {} } : {}) }), background: () => commands, whenSteered: waits.listen,
+    stoppedWait: (what) => { stopped.push(what); } };
   const bash = createBashToolDefinition(process.cwd(), { operations: casperBashOperations(held) });
   const run = async (command: string, timeout?: number) => {
     try {
@@ -59,12 +67,43 @@ function shell(options: { max?: number; ssh?: boolean } = {}) {
       return result.content.flatMap((block) => block.type === "text" ? [block.text] : []).join("");
     } catch (error) { return `error: ${(error as Error).message}`; }
   };
-  return { notes, commands, waits, run };
+  return { notes, stopped, commands, waits, run };
 }
+
+test.skipIf(!unix)("a line sent while a command only waits or polls stops it at once, even with its own time limit or on Casper's ssh login; the AI is told and one plain line says so", async () => {
+  for (const way of ["slow commands", "own limit", "ssh login", "no room"] as const) {
+    const { stopped, commands, waits, run } = shell(way === "ssh login" ? { ssh: true } : way === "no room" ? { max: 0 } : {});
+    const startedAt = Date.now();
+    const call = run('n=0; while [ "$n" -lt 20 ]; do echo "check $n"; sleep 1; n=$((n+1)); done; echo finished', way === "own limit" ? 60 : undefined);
+    // The line comes once the loop has printed its first check and sleeps: what it printed so far is kept.
+    expect(await until(() => Date.now() - startedAt > 1_500 && waits.steered() > 0)).toBe(true);
+    const text = await call;
+    expect({ way, stopped: text.includes("[The person sent you a message, so Casper stopped this command after ") }).toEqual({ way, stopped: true });
+    expect(text).toContain(" s: it only waited or checked, and changed nothing. Read the message; run the check again if you still need it.]");
+    expect(text).toContain("check 0");
+    expect(text).not.toContain("finished");
+    expect(Date.now() - startedAt).toBeLessThan(10_000);
+    expect(stopped).toEqual(["sleep 1 loop"]);
+    // Stopped, not moved: nothing runs on in the background.
+    expect(commands.list()).toEqual([]);
+    expect(waits.steered()).toBe(0);
+  }
+}, 60_000);
+
+test.skipIf(!unix)("a command that may change something is never stopped by a line: with its own time limit it runs on and the line waits", async () => {
+  for (const command of ["sleep 1; rm -f casper-no-such-file; echo finished", "for n in 1; do curl -s -X POST http://127.0.0.1:9/ ; sleep 1; done; echo finished"]) {
+    const { stopped, waits, run } = shell();
+    let done = false, told = 0;
+    const call = run(command, 30).finally(() => { done = true; });
+    while (!done) { told += waits.steered(); await Bun.sleep(50); }
+    expect({ command, text: (await call).trim().split("\n").at(-1), told, stopped }).toEqual({ command, text: "finished", told: 0, stopped: [] });
+  }
+}, 30_000);
 
 test.skipIf(!unix)("a line sent while a slow command runs moves it to the background at once; it keeps running and its note comes when it ends", async () => {
   const { notes, commands, waits, run } = shell();
-  const call = run("echo started; sleep 3; echo finished");
+  // Not a command that only waits (rm), so it is moved, not stopped.
+  const call = run("echo started; sleep 3; rm -f casper-no-such-file; echo finished");
   // The line comes while it runs, long before the 60 s limit.
   expect(await until(() => waits.steered() > 0)).toBe(true);
   const text = await call;
@@ -84,7 +123,7 @@ test.skipIf(!unix)("with no room in the background, on Casper's ssh login or wit
   for (const way of ["no room", "ssh login", "own limit"] as const) {
     const { notes, commands, waits, run } = shell(way === "no room" ? { max: 0 } : way === "ssh login" ? { ssh: true } : {});
     let done = false, told = 0;
-    const call = run("sleep 1; echo finished", way === "own limit" ? 30 : undefined).finally(() => { done = true; });
+    const call = run("sleep 1; rm -f casper-no-such-file; echo finished", way === "own limit" ? 30 : undefined).finally(() => { done = true; });
     while (!done) { told += waits.steered(); await Bun.sleep(50); }
     expect({ way, text: await call }).toEqual({ way, text: "finished\n" });
     expect(commands.list()).toEqual([]);
@@ -93,6 +132,17 @@ test.skipIf(!unix)("with no room in the background, on Casper's ssh login or wit
     expect({ way, told }).toEqual({ way, told: way === "no room" ? 1 : 0 });
   }
 }, 30_000);
+
+test("the line a stopped wait leaves on the screen is one plain grey note", async () => {
+  const output = new PassThrough();
+  const written: string[] = [];
+  const app = new CasperApp({ input: Object.assign(new PassThrough(), { isTTY: false }), output: Object.assign(new EventEmitter(), { isTTY: false, write: (text: string) => { written.push(text); return true; } }) as never });
+  cleanups.push(async () => { await app.close(); output.destroy(); });
+  currentShell(app).stoppedWait!("sleep 15 loop");
+  expect(written.join("")).toContain("– Stopped the wait (sleep 15 loop) to read your message\n");
+  expect(stoppedWaitLine("sleep 15 loop")).toBe("– Stopped the wait (sleep 15 loop) to read your message");
+  expect(styleLine(stoppedWaitLine("sleep 15 loop"), true)).toBe(tint(stoppedWaitLine("sleep 15 loop"), "muted", true));
+});
 
 const SERVER = path.join(import.meta.dir, "fixtures", "service-server.ts");
 const COMMAND = `"${process.execPath}" "${SERVER}"`;
@@ -159,7 +209,11 @@ test("the docs say which waits a line ends, that nothing is stopped, and which s
     "moves to the background and keeps running", "`[browser] Closing the sign-in window so Casper reads your line; …`",
     "A service start stops waiting for readiness and keeps starting.", "a command with its own time limit or on Casper's ssh login",
     "a slow command when 4 already run in the background, MCP calls, helpers (`delegate`) and checks (`casper_check`)"]) expect(terminal).toContain(text);
+  expect(terminal).toContain("A shell command that only waits or polls is stopped instead, whatever its time limit");
+  expect(terminal).toContain("`– Stopped the wait (sleep 15 loop) to read your message`");
+  expect(terminal).toContain("A command that may change something (a write, a restart, a POST, a redirect to a file, anything Casper can't read) is never stopped this way.");
   expect(await read("docs/CONFIGURATION.md")).toContain("A line you send the AI while one runs moves it to the background at once (when there is room)");
+  expect(await read("docs/CONFIGURATION.md")).toContain("one that only waits or polls (a `sleep`, a loop of sleeps and checks) is stopped instead, even with its own time limit.");
   const browser = await read("docs/BROWSER.md");
   expect(browser).toContain("A line you send the AI while the window is open closes it as if you had");
   expect(browser).toContain("(`window closed`, `cancelled`, `timed out` or `person wrote`)");
@@ -167,4 +221,5 @@ test("the docs say which waits a line ends, that nothing is stopped, and which s
   const choices = await deliberateChoices();
   expect(choices).toContain("# 26. A line you send ends a step that only waits");
   expect(choices).toContain("A finding: a line that stops work instead of ending a wait");
+  expect(choices).toContain("# 60. A line you send stops a command that only waits");
 });

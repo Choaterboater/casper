@@ -254,7 +254,9 @@ class PromptEditor extends Editor {
 }
 
 /** A job running in the background, for the status row. */
-export interface FooterJob { id: string; label: string; startedAt: number; more?: number }
+export interface FooterJob { id: string; label: string; startedAt: number; more?: number;
+  /** Its latest output line, secrets already hidden. */
+  line?: string }
 
 /** "just started", "4m", "1h12m". */
 function jobTime(ms: number): string {
@@ -687,7 +689,7 @@ export class TerminalSurface {
     const idle = this.status.endsWith(IDLE_TAIL);
     const details = idle ? this.status.slice(0, -IDLE_TAIL.length) : this.status;
     // A job in the background stays in view, its time with it: "◐ cmd-1 running 12m · node scripts/run.mjs".
-    const job = this.job ? ` · ${this.muted(`◐ ${this.job.id} running ${jobTime(Date.now() - this.job.startedAt)} · ${this.job.label}${this.job.more ? ` (+${this.job.more} more)` : ""}`)}` : "";
+    const job = this.job ? ` · ${this.muted(`◐ ${this.job.id} running ${jobTime(Date.now() - this.job.startedAt)} · ${this.job.label}${this.job.more ? ` (+${this.job.more} more)` : ""}${this.job.line ? ` → ${lineText(terminalText(this.job.line))}` : ""}`)}` : "";
     const layout = (state: string) => readableFooter(`${state}${job}`, details || "Casper", width, this.io.color, this.badge);
     if (this.waiting && !this.note) return layout(this.accent("? waiting for you"));
     // One state mark: the spinner while working.
@@ -768,7 +770,7 @@ export class TerminalSurface {
     this.render();
   }
   setJob(job?: FooterJob): void {
-    if (job?.id === this.job?.id && job?.label === this.job?.label && job?.more === this.job?.more) return;
+    if (job?.id === this.job?.id && job?.label === this.job?.label && job?.more === this.job?.more && job?.line === this.job?.line) return;
     this.job = job;
     // Idle draws nothing on its own: its minutes move on twice a minute while a job runs.
     if (job && !this.jobTimer) { this.jobTimer = setInterval(() => this.render(), 30_000); this.jobTimer.unref?.(); }
@@ -1016,11 +1018,12 @@ export class TerminalSurface {
   setAttentionAfter(ms: number): void { this.attentionAfterMs = ms; }
 
   /** Put text back in the prompt (queued lines of a stopped task), ahead of anything typed since. `pasted` is what
-   * was pasted into those lines: it stays pasted, so its words still count for nothing. */
-  restoreDraft(text: string, pasted: readonly string[] = []): void {
+   * was pasted into those lines: it stays pasted, so its words still count for nothing. `newLine`: with nothing typed,
+   * the cursor waits on a new line after them, so the next words don't run onto the last one (Enter trims that line). */
+  restoreDraft(text: string, pasted: readonly string[] = [], newLine = false): void {
     if (this.closed || !text) return;
     const typed = this.editor.getExpandedText();
-    this.editor.setText(typed ? `${text}\n${typed}` : text);
+    this.editor.setText(typed ? `${text}\n${typed}` : newLine ? `${text.replace(/\n+$/, "")}\n` : text);
     this.editor.pasted.push(...pasted);
     this.render();
   }

@@ -33,6 +33,8 @@ export interface NextRow {
 }
 
 const plain = (text: string) => lineText(text).replace(/\s+/g, " ").trim();
+/** A step's own words: never the " · " that separates steps, or a digit after it would read as another key. */
+const stepText = (text: string) => plain(text).replaceAll(" · ", ", ");
 
 /** The row, or undefined when there is nothing to offer. Steps past 9 are left out: one key picks a step. */
 export function buildNextRow(input: { undo?: NextItem; diff?: NextItem; more?: readonly NextItem[]; hint?: string }): NextRow | undefined {
@@ -41,10 +43,10 @@ export function buildNextRow(input: { undo?: NextItem; diff?: NextItem; more?: r
   if (input.undo) slots.push([UNDO_SLOT, input.undo]);
   const firstExtra = input.diff || input.undo ? FIRST_EXTRA_SLOT : 1;
   (input.more ?? []).forEach((item, index) => slots.push([firstExtra + index, item]));
-  const shown = slots.filter(([key, item]) => key <= LAST_SLOT && plain(item.label) && item.command.trim());
+  const shown = slots.filter(([key, item]) => key <= LAST_SLOT && stepText(item.label) && item.command.trim());
   if (!shown.length) return undefined;
   const keys = new Map(shown.map(([key, item]) => [String(key), item.command.trim()]));
-  const row = `Next: ${shown.map(([key, item]) => `${key} ${plain(item.label)}${item.note ? ` (${plain(item.note)})` : ""}`).join(" · ")}`;
+  const row = `Next: ${shown.map(([key, item]) => `${key} ${stepText(item.label)}${item.note && stepText(item.note) ? ` (${stepText(item.note)})` : ""}`).join(" · ")}`;
   // "Why 3:", never a bare "3:", which read as a second choice numbered 3; a row of one step says "Why:".
   const why = shown.filter(([, item]) => item.why && plain(item.why)).map(([key, item]) => `  ${shown.length === 1 ? "Why" : `Why ${key}`}: ${plain(item.why!)}`);
   const hint = input.hint && plain(input.hint) ? [`  ${plain(input.hint)}`] : [];
@@ -58,11 +60,11 @@ export const PRESS_A_NUMBER = "press a number";
  * The row's keys drawn so they stand out from the receipt around them: each number a key cap (bold, reversed, in the
  * theme's selection colour), the steps spaced apart, then a grey "· press a number". With colour off (NO_COLOR) a
  * cap is "[1]", the same width. `keys` is the row without "Next: " ("1 Show diff · 2 Undo"); text that is not a
- * numbered step is left as it is.
+ * row of numbered steps, keys rising, is left as it is.
  */
 export function keyCaps(keys: string, color: boolean): string {
   const steps = keys.split(" · ");
-  if (!steps.every((step) => /^[1-9] \S/.test(step))) return keys;
+  if (!steps.every((step, index) => /^[1-9] \S/.test(step) && (!index || step[0]! > steps[index - 1]![0]!))) return keys;
   const cap = (key: string) => color ? tint(` ${key} `, "selection", color, "1;7") : `[${key}]`;
   return `${steps.map((step) => `${cap(step[0]!)} ${step.slice(2)}`).join("   ")}   ${tint(`· ${PRESS_A_NUMBER}`, "muted", color)}`;
 }

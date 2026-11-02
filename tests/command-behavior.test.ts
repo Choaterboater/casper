@@ -227,6 +227,17 @@ test("idle and during a task: /effort refuses a word that is no level, and a lev
   } finally { gate.resolve(); await app.close(); }
 }, 60_000);
 
+test("/status names the judge's last allow, which left no line on the screen", async () => {
+  const gate = Promise.withResolvers<void>();
+  const app = await richApp(() => fixtureRuntime(gate.promise, seen()));
+  try {
+    await app.until(text => text.includes("idle"));
+    app.app.judgeAllows = [{ command: "python3 app.py", reason: "starts the project's own dev server, as asked" }];
+    const status = await typed(app, "/status", "(a copy is made before each task; /undo, /diff)");
+    expect(status).toContain(" judge 1 command allowed this session (no line each); the last: python3 app.py");
+  } finally { gate.resolve(); await app.close(); }
+}, 60_000);
+
 test("/project alone is /status: one summary", async () => {
   const gate = Promise.withResolvers<void>();
   const app = await richApp(() => fixtureRuntime(gate.promise, seen()));

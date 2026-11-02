@@ -1,4 +1,5 @@
 import path from "node:path";
+import { judgeStatusLine } from "./auto-mode";
 import { untrustedReason } from "../project/trust";
 import { savedLocalServers } from "../runtime/local-models";
 import { addLabHosts, labConfigPlace, labImportList, parseLabFile } from "../network/lab-import";
@@ -93,6 +94,8 @@ export interface OutputWriter {
 /** Everything the extracted slash-command handlers touch on the app. The app stays the
  * owner of all state; this interface makes the (wide) coupling explicit instead of private. */
 export interface CommandHost {
+  /** What auto mode's judge allowed this session, for /status (src/app/auto-mode.ts). */
+  readonly judgeAllows?: ReadonlyArray<{ command: string; reason: string }>;
   /** Whether you trust the open folder: an untrusted one runs none of its checks (src/app/folder-trust.ts). */
   readonly folderTrust?: import("../project/trust").FolderTrust;
   /** Machines this conversation reached over ssh, newest last (the request hint); /clear and /resume forget them. */
@@ -582,6 +585,8 @@ export async function runSlashCommand(host: CommandHost, prompt: string): Promis
       host.output.write(` context   ${usage?.context?.percent == null ? "—" : `${usage.context.percent.toFixed(0)}%~`} · ${usage ? `${formatTokenSplit(usage.tokens)}${cost ? ` · ${cost}` : ""}` : "— tokens"} (/context, /usage)\n`);
       host.output.write(" policy    native coding tools enabled (/permissions)\n");
       host.output.write(` shell     ${host.sandbox ? sandboxStatusLine(host.sandbox) : "not started"}\n`);
+      const judge = host.judgeAllows ? judgeStatusLine({ judgeAllows: [...host.judgeAllows] }) : undefined;
+      if (judge) host.output.write(`${judge}\n`);
       host.output.write(` checks    ${describeChecksPlan(await host.checksPlan(host.projectContext!))}\n`);
       host.output.write(` visualize ${host.visualization!.providerNames().join(", ")} (/visualize)${host.projectContext!.diagrams === false ? "; AI's diagram tool off (/settings)" : ""}\n`);
       host.output.write(" memory    explicit facts and local task summaries (/memory)\n references read-only local sources (/references)\n");

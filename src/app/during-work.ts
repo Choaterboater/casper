@@ -44,7 +44,8 @@ export function settleQueuedLines(app: CasperApp): void {
   const pictures = lines.filter(line => app.lineImages.delete(line)).length;
   if (pictures) app.output.write(`[cancel] A picture you pasted during the task didn't come back with its line; paste it again (Ctrl+V).\n`);
   const count = `${lines.length} queued line${lines.length === 1 ? "" : "s"}`;
-  if (app.terminal.restoreDraft(lines.join("\n"), takeLinePastes(app, lines))) app.output.write(`[cancel] Your ${count} ${lines.length === 1 ? "is" : "are"} back in the prompt; Enter sends ${lines.length === 1 ? "it" : "them"}.\n`);
+  // On a new line after them: what is typed next is a new line, not the end of the last one.
+  if (app.terminal.restoreDraft(lines.join("\n"), takeLinePastes(app, lines), true)) app.output.write(`[cancel] Your ${count} ${lines.length === 1 ? "is" : "are"} back in the prompt; Enter sends ${lines.length === 1 ? "it" : "them"}.\n`);
   else app.output.write(`[cancel] Dropped your ${count}; type ${lines.length === 1 ? "it" : "them"} again to send.\n`);
 }
 
