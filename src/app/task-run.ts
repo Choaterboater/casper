@@ -27,7 +27,7 @@ import { answerClaimsBrowserPass, receiptView, rememberSessionNotes, shortReceip
 import { changedSoFar, endingLine, mustStand, quietReceipt, taskEnding, withEarlierChanges } from "../task/ending";
 import { OBSERVED_EDITS_LIMIT, TaskObservations } from "../task/observations";
 import { isToolCallAsText, TOOL_CALL_AS_TEXT_LINE } from "../task/text-tool-call";
-import { diffSnapshots, tooManyFiles, type TreeChanges } from "../task/changes";
+import { diffSnapshots, findMoves, tooManyFiles, withoutMoves, type TreeChanges } from "../task/changes";
 import { attributeChanges, withoutFiles, WriteWindows } from "../task/attribution";
 import { OutsideWork } from "../task/outside-work";
 import { headMoved, taskHead } from "../task/git-movement";
@@ -60,7 +60,7 @@ import { emptyFolderNote, planQuestions, readPlan, savePlan, updatePlan, wantsSp
 import { PlanBuild } from "../flows/plan-build";
 import { PROJECT_YAML, saveProjectCommand } from "../project/config-write";
 import type { TaskClassification } from "../task/classify";
-import { planAutoChecks, TESTS_WITHOUT_COMMAND } from "../verify/mode";
+import { inOutputFolder, planAutoChecks, TESTS_WITHOUT_COMMAND } from "../verify/mode";
 import { outsideWritesReceipt, sandboxReceipt } from "./sandbox";
 import { explainModelError } from "../runtime/model-errors";
 import { tildePath } from "../new/scaffold";
@@ -423,7 +423,7 @@ export async function runModelTask(app: CasperApp, prompt: string, options: { fl
     const toolLanded = !before && app.snapshotFailure !== undefined && edited.length < OBSERVED_EDITS_LIMIT ? toolFiles(workspaceRoot, edited, "inside") : undefined;
     if (!stopped && toolLanded?.length && !app.closing) workFolder = await childProjectOfTask(app, context, toolLanded, { unlisted: true });
     if (!stopped && app.checkTask && verificationMode === "auto" && !workFolder) {
-      const changedByModel = before && afterModel ? flatten(diffSnapshots(before, afterModel)) : undefined;
+      const changedByModel = before && afterModel ? flatten(taskChanges(before, afterModel)) : undefined;
       autoChecks = planAutoChecks({
         selected: context.verification.checks, commands: context.model.commands, scopes: context.model.verificationScopes,
         named: context.model.namedChecks, detected: autoDetectedChecks(context.model), changedPaths: changedByModel, root: workspaceRoot,
@@ -436,7 +436,7 @@ export async function runModelTask(app: CasperApp, prompt: string, options: { fl
       const smokeDue = Boolean(app.smokeTask?.recordedCount || (app.smokeTask?.size && autoChecks.skipped !== "no-changes"));
       // Pages are opened when the project facts say so (a web project, changed files that reach a page), never the prompt.
       // A removed page is not opened: only files that exist now can reach a page.
-      const pagePlan = before && afterModel ? await planPages(app, context, pagePaths(diffSnapshots(before, afterModel))) : undefined;
+      const pagePlan = before && afterModel ? await planPages(app, context, pagePaths(taskChanges(before, afterModel))) : undefined;
       const pagesDue = Boolean(before && pagePlan && "service" in pagePlan && pagePlan.pages.open.length);
       app.pageTask = pagesDue ? { context, root: workspaceRoot, before: before! } : undefined;
       pageNotes = pagesDue ? undefined : pageNotesFor(app, pagePlan);
@@ -451,7 +451,7 @@ export async function runModelTask(app: CasperApp, prompt: string, options: { fl
         ({ verification, shown: pagesShown, after: afterLook } = await lookAtPages(app, session, prompt, autoChecks.run, verification, workspaceRoot));
         // Code the AI changed while looking at the pages is part of the change the proof compares.
         const afterWork = afterLook ?? afterModel;
-        const changedCode = Boolean(before && afterWork && changesCode(diffSnapshots(before, afterWork)));
+        const changedCode = Boolean(before && afterWork && changesCode(taskChanges(before, afterWork, true)));
         const redefined = testCommand && definitionBefore
           ? definitionChanges(definitionBefore, await testDefinition(workspaceRoot, testCommand).catch(() => new Map<string, string>())) : [];
         if (proving && changedCode && redefined.length && verification.status === "pass") {
@@ -481,7 +481,7 @@ export async function runModelTask(app: CasperApp, prompt: string, options: { fl
       verification = await runVerification(app, app.checkTask.checks, true, prompt, app.checkTask);
     }
     // The work landed in a project inside this folder (sample-tools in Documents): its own checks run for this receipt.
-    const landed = before && afterModel ? flatten(diffSnapshots(before, afterModel)) : toolLanded;
+    const landed = before && afterModel ? flatten(taskChanges(before, afterModel)) : toolLanded;
     if (!stopped && landed && !app.closing) {
       workFolder ??= await childProjectOfTask(app, context, landed);
       if (workFolder && !verification && app.checkTask && verificationMode === "auto") {
@@ -541,7 +541,7 @@ export async function runModelTask(app: CasperApp, prompt: string, options: { fl
       if (!stoppedNow()) {
         // The repair may reach code whose checks were not relevant to the original edits: plan from the final tree.
         const now = masked(before && await app.snapshotWorkspace(workspaceRoot) || undefined);
-        const finalPaths = before && now ? flatten(diffSnapshots(before, now)) : undefined;
+        const finalPaths = before && now ? flatten(taskChanges(before, now)) : undefined;
         if (app.checkTask && verificationMode === "auto") {
           const refreshed = finalPaths && await projectAfterSetup(app, context, finalPaths);
           if (refreshed) {
@@ -551,7 +551,7 @@ export async function runModelTask(app: CasperApp, prompt: string, options: { fl
           autoChecks = planAutoChecks({ selected: context.verification.checks, commands: context.model.commands,
             scopes: context.model.verificationScopes, named: context.model.namedChecks, detected: autoDetectedChecks(context.model),
             changedPaths: finalPaths, root: workspaceRoot });
-          const pagePlan = before && now ? await planPages(app, context, pagePaths(diffSnapshots(before, now))) : undefined;
+          const pagePlan = before && now ? await planPages(app, context, pagePaths(taskChanges(before, now))) : undefined;
           app.pageTask = before && pagePlan && "service" in pagePlan && pagePlan.pages.open.length ? { context, root: workspaceRoot, before } : undefined;
         }
         if (workFolder && finalPaths) workFolder = await childProjectOfTask(app, context, finalPaths);
@@ -564,7 +564,7 @@ export async function runModelTask(app: CasperApp, prompt: string, options: { fl
         if (verification.status === "pass" && !stoppedNow()) {
           const now = before && await app.snapshotWorkspace(workspaceRoot);
           if (stoppedNow()) return verification;
-          const changedCode = Boolean(before && now && changesCode(diffSnapshots(before, now)));
+          const changedCode = Boolean(before && now && changesCode(taskChanges(before, now, true)));
           if (proving && changedCode) {
             ({ proof } = await proveChange(app, { baseline, baselineUnavailable, before: before!, root: workspaceRoot,
               command: testCommand!, request: prompt, checks: autoChecks?.run ?? [], verification, session, definitionBefore, repair: false }));
@@ -612,6 +612,8 @@ export async function runModelTask(app: CasperApp, prompt: string, options: { fl
     const afterChecks = (verification || appSmoke) && afterModel && !app.closing ? masked(await app.snapshotWorkspace(workspaceRoot)) : afterModel;
     const branchMoved = headMoved(undoStart.head, await taskHead(workspaceRoot));
     const changedPaths = before && afterModel ? flatten(diffSnapshots(before, afterModel)) : undefined;
+    // Files moved or renamed (`mv run run-1/run`): one line on the receipt, not a change list.
+    const moved = before && afterModel ? findMoves(before, afterModel, diffSnapshots(before, afterModel)) : [];
     const changedDuringChecks = afterModel && afterChecks && afterChecks !== afterModel ? flatten(diffSnapshots(afterModel, afterChecks)) : [];
     // The folder as this task left it: what changes before the next one begins was written by something still running.
     app.taskEndTree = afterChecks && !app.closing ? { root: workspaceRoot, tree: afterChecks } : undefined;
@@ -657,7 +659,7 @@ export async function runModelTask(app: CasperApp, prompt: string, options: { fl
       ...(acceptance ? { acceptance } : {}), ...(checklist ? { checklist } : {}), ...bigModelReceipt(app),
       ...(app.planBuild ? { planSteps: app.planBuild.finish(execution) } : {}),
       ...(changedWhilePlanning?.length ? { changedWhilePlanning } : {}), ...(changedNotByModel ? { changedNotByModel } : {}), ...(changedUnsure ? { changedUnsure } : {}), ...(app.sandbox ? { sandbox: sandboxReceipt(app.sandbox)! } : {}),
-      ...outsideWrites, ...(outsideChanges.length ? { outsideChanges } : {}), ...(stillRunning.length ? { stillRunning } : {}) };
+      ...outsideWrites, ...(outsideChanges.length ? { outsideChanges } : {}), ...(moved.length ? { moved } : {}), ...(stillRunning.length ? { stillRunning } : {}) };
     rememberMachines(app, observations.remoteChanges);
     if (app.cleanupReports.length) app.lastTaskResult.cleanup = [...app.cleanupReports];
     app.lastFinishedTask = app.lastTaskResult;
@@ -685,7 +687,15 @@ export async function runModelTask(app: CasperApp, prompt: string, options: { fl
       app.heldCards = app.heldCards.filter((held) => held.root === workspaceRoot);
       const options = () => receiptOptions(app, workspaceRoot);
       // A stop at --max-turns or at the spend limit is always said on a receipt.
-      if ((classification.intent !== "general" && !answeredOnly) || execution !== "completed" || wroteToolCall || app.taskTurnLimit !== undefined || app.taskSpendStop !== undefined || verification || browser?.checks.length || observations.possibleMutations || observations.changedPaths?.length || observations.changedDuringChecks?.length || observations.observedEdits.length || observations.observedChecks.length
+      // Stopped before anything happened (you skipped the AI's question, or pressed Esc while it only read): one neutral
+      // line, not a Stopped card with nothing on it.
+      const stoppedEmpty = execution === "cancelled" && answeredOnly && !verification && !browser?.checks.length && !observations.changedDuringChecks?.length
+        && !outsideChanges.length && !observations.published?.length && !observations.remoteChanges?.length && !observations.remoteNotRun?.length
+        && !observations.secretInCommand && !observations.secretInFiles?.length && !app.cleanupReports.length && !branchMoved && !app.heldCards.length;
+      if (stoppedEmpty) {
+        app.terminal.offerNext(undefined);
+        app.output.write(`${STOPPED_NOTHING_CHANGED}\n`);
+      } else if ((classification.intent !== "general" && !answeredOnly) || execution !== "completed" || wroteToolCall || app.taskTurnLimit !== undefined || app.taskSpendStop !== undefined || verification || browser?.checks.length || observations.possibleMutations || observations.changedPaths?.length || observations.changedDuringChecks?.length || observations.observedEdits.length || observations.observedChecks.length
         || app.planBuild || branchMoved || outsideChanges.length || observations.published?.length || observations.remoteChanges?.length || observations.remoteNotRun?.length || observations.secretInCommand || observations.secretInFiles?.length || app.cleanupReports.length) {
         // A folder the task made too big to compare is not a project folder either: no undo, for the same reason.
         if (!changedPaths && app.snapshotFailure && tooManyFiles(app.snapshotFailure)) undoStart.snapshot = { unavailable: UNDO_NOT_PROJECT };
@@ -1424,4 +1434,17 @@ export function liveSinceLastTask(last: { root: string; tree: ReadonlyMap<string
 export function readsAsQuestion(request: string, classification: Pick<TaskClassification, "intent">): boolean {
   const text = request.trim();
   return classification.intent === "inspect" || /\?\s*$/.test(text) || /^(?:status|progress)[.!]?$/i.test(text);
+}
+
+/** The line a task that was stopped before it changed or ran anything ends with, instead of a receipt card. */
+export const STOPPED_NOTHING_CHANGED = "– Stopped. Nothing was changed.";
+
+/** What the task changed from `before` to `after`, without files it only moved; `forProof`: also without the top-level
+ * output folders (builds/, runs/, results/ …), whose code is what a program made, not this task's change. */
+function taskChanges(before: Map<string, string>, after: Map<string, string>, forProof = false): TreeChanges {
+  const all = diffSnapshots(before, after);
+  const changes = withoutMoves(all, findMoves(before, after, all));
+  if (!forProof) return changes;
+  const own = (file: string) => !inOutputFolder(file);
+  return { added: changes.added.filter(own), modified: changes.modified.filter(own), removed: changes.removed.filter(own) };
 }

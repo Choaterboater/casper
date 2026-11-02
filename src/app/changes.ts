@@ -84,7 +84,8 @@ export function shellChanges(command: string, output: string, ok: boolean, home?
     if (!what) continue;
     changes.push({ row: `Changed on ${short(host)}: ${what}`, sent: (entry?.lines.length ? entry.lines : [command]).slice(0, MAX_SENT).map(line => redactPreview(line)) });
   }
-  if (ok) changes.push(...setupChanges(command, output).map(row => ({ row })));
+  // The same change said once (a scratch folder removed at the start and again at the end).
+  if (ok) changes.push(...[...new Set(setupChanges(command, output))].map(row => ({ row })));
   return changes;
 }
 

@@ -134,6 +134,40 @@ test("subscription availability trusts only native Claude Code's signed-in plan 
   }
 });
 
+test("a status check that fails or times out keeps the last answer: a signed-in subscription never reads as missing for it", async () => {
+  // A real /resume showed "auth credentials missing; use /login" while Claude Code was signed in and answering: the
+  // check's `claude auth status` failed (5 s limit, Claude Code busy) and a failure read as not signed in.
+  const native = path.join(root, "flaky.exe"); await writeFile(native, "synthetic");
+  let answer: "signed-in" | "fails" | "signed-out" | "blip" = "signed-in";
+  const isolated = await ModelRuntime.create({ authPath: path.join(root, "flaky-auth.json"), modelsPath: null, refreshOnCreate: false });
+  await registerClaudeSubscription(isolated, root, { env: { CASPER_CLAUDE_PATH: native }, recheckMs: 1, status: async () => {
+    if (answer === "fails") throw new Error("Command failed: claude auth status (timed out)");
+    // One "signed out" mid-renewal, then signed in again.
+    if (answer === "blip") { answer = "signed-in"; return { loggedIn: false, authMethod: "claude.ai", subscriptionType: "max" }; }
+    return { loggedIn: answer === "signed-in", authMethod: "claude.ai", subscriptionType: "max" };
+  } });
+  await isolated.getAvailable();
+  expect(isolated.hasConfiguredAuth(CLAUDE_SUBSCRIPTION)).toBe(true);
+  answer = "fails";
+  await isolated.refresh({ allowNetwork: false, providers: [CLAUDE_SUBSCRIPTION] });
+  await isolated.getAvailable();
+  expect(isolated.hasConfiguredAuth(CLAUDE_SUBSCRIPTION)).toBe(true);
+  // Casper's own run 2 of the comparison: its repair round stopped on "Claude subscription needs native Claude Code
+  // installed and signed in" while the run was signed in and working. One signed-out answer is asked again.
+  answer = "blip";
+  await isolated.getAvailable();
+  expect(isolated.hasConfiguredAuth(CLAUDE_SUBSCRIPTION)).toBe(true);
+  // A real "not signed in" still counts at once.
+  answer = "signed-out";
+  await isolated.getAvailable();
+  expect(isolated.hasConfiguredAuth(CLAUDE_SUBSCRIPTION)).toBe(false);
+  // And with no answer ever, a failure is still not a sign-in.
+  const fresh = await ModelRuntime.create({ authPath: path.join(root, "never-auth.json"), modelsPath: null, refreshOnCreate: false });
+  await registerClaudeSubscription(fresh, root, { env: { CASPER_CLAUDE_PATH: native }, status: async () => { throw new Error("timed out"); } });
+  await fresh.getAvailable();
+  expect(fresh.hasConfiguredAuth(CLAUDE_SUBSCRIPTION)).toBe(false);
+});
+
 test("subscription environment explicitly clears API, gateway, cloud and inherited identity overrides", () => {
   const original = { PATH: "fixture", ANTHROPIC_API_KEY: "synthetic", ANTHROPIC_BASE_URL: "https://example.invalid",
     ANTHROPIC_CUSTOM_HEADERS: "synthetic", CLAUDE_CODE_USE_BEDROCK: "1", CLAUDE_CODE_OAUTH_TOKEN: "synthetic", CLAUDE_CODE_ENTRYPOINT: "cli", CLAUDE_CONFIG_DIR: "fixture" };

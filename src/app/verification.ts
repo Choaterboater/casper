@@ -112,7 +112,12 @@ export async function runVerification(app: CasperApp, checks: readonly CheckName
         const back = big ? await switchToBigModel(app, session, big) : undefined;
         if (big && !back) app.output.write(`[model] Casper could not switch to your big model ${terminalText(big.label)}; this repair runs on the current model.\n`);
         phase(app, "repair", "start");
+        // A repair round whose model fails is the repair's failure, said on the check line ("Repair runtime failed: …"),
+        // never "the model run failed": the task's own turn had finished.
+        const failedBefore = app.taskRuntimeFailed;
+        let repairFailed: unknown;
         try { await session.prompt(prompt, controller.signal, { request, maxTurns: app.maxTurns }); }
+        catch (error) { repairFailed = error; }
         finally {
           // A picture the repair made is there before the checks run again.
           await settlePictures(app, controller.signal);
@@ -123,7 +128,10 @@ export async function runVerification(app: CasperApp, checks: readonly CheckName
           app.bigModelUse = { model: big.label, attempts: (app.bigModelUse?.attempts ?? 0) + 1,
             oneOff: Boolean(big.oneOff) && (app.bigModelUse?.oneOff ?? true) };
         }
-        if (app.taskRuntimeFailed && !app.taskRuntimeCancelled) throw new Error("Repair model stopped unsuccessfully; changes retained.");
+        const stopped = app.taskRuntimeFailed && !app.taskRuntimeCancelled;
+        if (!failedBefore) app.taskRuntimeFailed = false;
+        if (repairFailed) throw repairFailed;
+        if (stopped) throw new Error("Repair model stopped unsuccessfully; changes retained.");
         return back && big ? { model: big.label } : undefined;
       } : undefined,
       onRepair: (attempt, max, notes) => {

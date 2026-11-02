@@ -36,7 +36,8 @@ const DEVICES_READ = "from the commands Casper saw, not checked there";
 const NOTES_SHOWN = 3;
 
 /** `accent`: work that goes on in the background (Still running), neither a pass nor a warning. */
-export type CardTone = "success" | "warning" | "error" | "accent";
+/** `muted`: checks rightly skipped, nothing to act on. */
+export type CardTone = "success" | "warning" | "error" | "accent" | "muted";
 
 export interface ReceiptCard {
   tone: CardTone;
@@ -54,10 +55,11 @@ export interface CardRow { label: string; values: string[] }
  * background, amber for everything between. */
 export function receiptTone(view: ReceiptView): CardTone {
   const status = view.verdict?.status;
-  return status === "Verified" || status === "Checks passed" ? "success" : status === "Failed" ? "error" : status === "Still running" ? "accent" : "warning";
+  return status === "Verified" || status === "Checks passed" ? "success" : status === "Failed" ? "error" : status === "Still running" ? "accent"
+    : status === "Checks skipped" ? "muted" : "warning";
 }
 
-const MARK: Record<CardTone, string> = { success: "✓", warning: "⚠", error: "✗", accent: STILL_RUNNING_MARK };
+const MARK: Record<CardTone, string> = { success: "✓", warning: "⚠", error: "✗", accent: STILL_RUNNING_MARK, muted: "–" };
 const ROLE: Record<string, ThemeRole> = { "✓": "success", "✗": "error", "⚠": "warning" };
 /** A line without its mark: the row's label and the colour say what the mark said. */
 const words = (line: string) => line.replace(/^[✓✗⚠–↻] /, "");

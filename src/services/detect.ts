@@ -1,3 +1,4 @@
+import { inOutputFolder } from "../verify/mode";
 import { lstat, readdir, readFile } from "node:fs/promises";
 import path from "node:path";
 import type { ServiceSpec } from "./config";
@@ -279,6 +280,8 @@ export function runtimeChanges(files: readonly string[]): string[] {
   return files.map(file => file.replace(/\\/g, "/").replace(/^\.\//, "")).filter(file => file && !file.startsWith("/") && !isOutside(file)
     && !/(^|\/)(?:tests?|__tests__|specs?|e2e|cypress|playwright|node_modules|dist|build|coverage|\.git|\.casper|\.next|\.nuxt|\.venv|venv|__pycache__)\//i.test(file)
     && !/^docs\//i.test(file)
+    // A program's output (a comparison's builds under builds/ or runs/, its results and logs) is not this app.
+    && !inOutputFolder(file)
     && !/\.(?:test|spec|stories)\.[^/]+$|(^|\/)test_[^/]*\.py$|_test\.py$|(^|\/)conftest\.py$/i.test(file)
     && (!/\.(?:md|markdown|txt|rst|adoc)$|(^|\/)(?:LICENSE|NOTICE|CHANGELOG|AUTHORS)[^/]*$/i.test(file)
       || /(^|\/)(?:pages|app|routes)\/.*\.mdx?$/.test(file)));

@@ -206,6 +206,43 @@ function errorCode(error: unknown): string | undefined {
   return error && typeof error === "object" && "code" in error ? String(error.code) : undefined;
 }
 
+/** Files moved or renamed: an added file whose content is that of a removed one (`mv run run-1/run`). A move is no
+ * change of code: it is left out of checks, the proof and the config list, and said on the receipt as one line. */
+export function findMoves(before: ReadonlyMap<string, string>, after: ReadonlyMap<string, string>, changes: TreeChanges): Array<{ from: string; to: string; rewritten?: true }> {
+  const gone = new Map<string, string[]>();
+  // Its old path removed, or written anew since (a relaunched run writes runs/ again after the old one moved aside).
+  for (const file of [...changes.removed, ...changes.modified]) {
+    const digest = before.get(file);
+    if (digest !== undefined) gone.set(digest, [...gone.get(digest) ?? [], file]);
+  }
+  const moves: Array<{ from: string; to: string; rewritten?: true }> = [];
+  const rewritten = new Set(changes.modified);
+  for (const file of changes.added) {
+    const from = gone.get(after.get(file) ?? "\0")?.shift();
+    if (from) moves.push({ from, to: file, ...(rewritten.has(from) ? { rewritten: true as const } : {}) });
+  }
+  return moves;
+}
+
+/** `changes` without the moved files: where they went, and where they came from when that is gone. A path written anew
+ * after its file moved away stays a change. */
+export function withoutMoves(changes: TreeChanges, moves: ReadonlyArray<{ from: string; to: string }>): TreeChanges {
+  if (!moves.length) return changes;
+  const moved = new Set(moves.flatMap((move) => [move.from, move.to]));
+  const keep = (file: string) => !moved.has(file);
+  return { added: changes.added.filter(keep), modified: changes.modified, removed: changes.removed.filter(keep) };
+}
+
+/** "run-1/": where moved files went, as the deepest folder they share, or up to two top folders. */
+export function movedInto(moves: ReadonlyArray<{ to: string }>): string {
+  const parts = moves.map((move) => move.to.split("/").slice(0, -1));
+  let shared = parts[0] ?? [];
+  for (const folder of parts) { let at = 0; while (at < shared.length && shared[at] === folder[at]) at++; shared = shared.slice(0, at); }
+  if (shared.length) return `${shared.join("/")}/`;
+  const tops = [...new Set(moves.map((move) => move.to.split("/")[0]!))];
+  return tops.length <= 2 ? tops.map((top) => `${top}/`).join(" and ") : "several folders";
+}
+
 /** Added/modified/removed paths, sorted. Removals cannot be content-compared. */
 export function diffSnapshots(before: Map<string, string>, after: Map<string, string>): TreeChanges {
   const added: string[] = [];

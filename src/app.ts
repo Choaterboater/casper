@@ -405,7 +405,7 @@ export class CasperApp {
   sessionWorkspaceStart?: Promise<SessionWorkspaceManager>;
   /** Last normal coding/chat request; local commands other than /receipt clear it. Not acceptance evidence. */
   lastTaskRequest?: string;
-  /** The conversation /continue or --continue opened: /continue in it stays, rather than going back to the one left. */
+  /** The conversation /continue, /resume or --continue/--resume opened: /continue in it stays, rather than going back to the one left. */
   continuedConversation?: string;
   continueQuietly?: string;
   /** The other way to read the first request ("run test": the project's check, or the conversation offered at the

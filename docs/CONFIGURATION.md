@@ -149,7 +149,11 @@ A job the AI means to outlive its call (a long comparison, a build of an hour) i
 `background: true`: it moves to the background after 3 s (a quick failure still shows in the call), with no time
 limit and no stall check, and the receipt's line 1 says it still runs. `&`, `nohup`, `setsid` and tmux are not the
 way: Casper ends what a call leaves running when the call returns, or it runs where nothing reports it, and a command
-that tries gets a note pointing at `background: true`.
+that tries gets a note pointing at `background: true`. Every command the AI runs carries a marker in its environment
+(`CASPER_COMMAND_ID`), so a job it detached anyway (a `setsid`, a spawn with `detached: true`) is found after the call
+on macOS and Linux and tracked like one started with `background: true`: `/tasks` lists it, the receipt says `◐ Still
+running`, and a note comes when it ends. On macOS Apple's own programs hide their environment, so the job found is the
+first node, python or bun it starts.
 It is on. Turn it off with `/settings` (it writes `slow_commands: false`) and a slow command is
 stopped at 2 minutes. A project file can't set it.
 

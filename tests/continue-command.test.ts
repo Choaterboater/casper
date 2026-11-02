@@ -57,6 +57,8 @@ test("/continue goes back to the newest other conversation in this folder, not t
       await app.until(text => text.includes("idle"));
       app.input.write("/continue\r");
       await app.until(text => text.includes("I changed auth.ts"));
+      // One model line, not the /status block: credentials and the selection's source only matter when wrong.
+      expect(app.screen()).not.toMatch(/auth {6}credentials configured|selection conversation/);
       // Like --continue, a new conversation with no reply is dropped rather than saved for the next /continue.
       expect(resumed).toEqual([["b0b0b0b0-0000", { keepUnwritten: false }]]);
       expect(app.screen()).toContain("[session] Back in \"Fix the login bug\". Your files are not changed; /resume lists the others.");
@@ -132,6 +134,8 @@ function withPrompts(base: AgentRuntime, prompts: string[]): AgentRuntime {
     },
   };
 }
+/** What /continue says in the conversation you went back to. */
+const STAY_LINE = "[session] You're in the conversation you went back to, so you stay in it. /resume lists the others.";
 const ROW = `Next: 1 ${continueLabel(EARLIER[0]!.modified)} (Fix the login bug · 12 messages)`;
 
 test("a plain start begins a new conversation and offers one row to continue the last one: 1 continues it", async () => {
@@ -244,7 +248,7 @@ const TWO: RuntimeConversation[] = [
   { id: "current", name: "Fix the login bug", modified: "2026-10-04T11:00:00Z", messages: 4 },
 ];
 
-test("/continue again in the conversation /continue opened stays there, instead of jumping back to the one you left", async () => {
+test("/continue in the conversation /continue or /resume went back to stays there, instead of jumping back to the one you left", async () => {
   const resumed: Array<[string, unknown]> = [];
   await withEnv({ TERM: "xterm-256color" }, async () => {
     const app = await richApp(project => following(TWO, resumed, project));
@@ -254,14 +258,16 @@ test("/continue again in the conversation /continue opened stays there, instead 
       await app.until(text => text.includes("Back in \"Write the Docker script\""));
       app.input.write("/continue\r");
       await app.until(text => text.includes("so you stay in it"));
-      expect(app.screen()).toContain("[session] You're in the conversation /continue opened, so you stay in it. /resume lists the others.");
+      expect(app.screen()).toContain(STAY_LINE);
       expect(resumed.map(([id]) => id)).toEqual(["a0a0a0a0-0000"]);
-      // /resume moves on, and from there /continue goes back as before.
+      // The conversation /resume went back to is one you chose too: /continue right after it stays there. A real session
+      // resumed the comparison, typed /continue, and was taken back to the conversation it had just left.
       app.input.write("/resume current\r");
       await app.until(text => text.includes("Back in \"Fix the login bug\""));
+      const before = app.screen().split(STAY_LINE).length;
       app.input.write("/continue\r");
-      await app.until(text => text.split("Back in \"Write the Docker script\"").length === 3);
-      expect(resumed.map(([id]) => id)).toEqual(["a0a0a0a0-0000", "current", "a0a0a0a0-0000"]);
+      await app.until(text => text.split(STAY_LINE).length === before + 1);
+      expect(resumed.map(([id]) => id)).toEqual(["a0a0a0a0-0000", "current"]);
     } finally { await app.close(); }
   });
 }, 30_000);
@@ -274,15 +280,15 @@ test("after casper --continue, /continue stays in the conversation it opened", a
       await app.until(text => text.includes("idle"));
       app.input.write("/continue\r");
       await app.until(text => text.includes("so you stay in it"));
-      expect(app.screen()).toContain("[session] You're in the conversation /continue opened, so you stay in it. /resume lists the others.");
+      expect(app.screen()).toContain(STAY_LINE);
     } finally { await app.close(); }
   });
 }, 30_000);
 
 test("the docs say /continue stays in the conversation it opened", async () => {
   const read = async (file: string) => (await readFile(path.join(import.meta.dir, "..", "docs", file), "utf8")).replace(/\s+/g, " ");
-  expect(await read("SESSIONS.md")).toContain("In the conversation `/continue` or `--continue` opened, `/continue` stays there and says so, rather than going back to the one you left; `/resume` lists the others.");
-  expect(await read("TERMINAL_UX.md")).toContain("In the conversation `/continue` or `--continue` opened, it stays there and says so |");
+  expect(await read("SESSIONS.md")).toContain("In the conversation `/continue`, `/resume`, `--continue` or `--resume` opened, `/continue` stays there and says so, rather than going back to the one you left; `/resume` lists the others.");
+  expect(await read("TERMINAL_UX.md")).toContain("In the conversation `/continue`, `/resume`, `--continue` or `--resume` opened, it stays there and says so |");
 });
 
 test("1 typed before the continue row shows waits for it, and continues the last conversation", async () => {

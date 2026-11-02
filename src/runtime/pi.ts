@@ -2,10 +2,12 @@ import { existsSync, lstatSync, readFileSync, realpathSync } from "node:fs";
 import { lstat, realpath } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { randomUUID } from "node:crypto";
 import { isContextOverflow, type AssistantMessage } from "@earendil-works/pi-ai";
 import { looksLikeRefusedLogin } from "../ssh/auth-failed";
 import { READ_ONLY_STATE_CONFLICT } from "./types";
 import { BACKGROUND_GRACE_SECONDS, BACKGROUND_HELP, backgroundRequested, DEFAULT_COMMAND_LIMIT_SECONDS, DETACH_NOTE, detachesItself, withBackgroundRequest } from "./background-commands";
+import { alive, COMMAND_MARK, jobRoots, leftRunning } from "./left-running";
 import { pidFile, STALLED_EXIT_CODE, stalledMessage, watchStall } from "./stalled-commands";
 import { matchConversation } from "../sessions/resume";
 import { PiModels } from "./pi-models";
@@ -1415,6 +1417,25 @@ function pathFirst(env: NodeJS.ProcessEnv, folder?: string): NodeJS.ProcessEnv {
 }
 
 /** Added to a finished command's output when what it started could not be confirmed stopped. */
+/** Processes the command left running carrying `marker`: each root becomes a background job (stopped by its group, ended
+ * when it is gone). None on Windows, without background commands, or when none are left. */
+async function adoptLeftRunning(marker: string, background: ReturnType<NonNullable<RuntimeShell["background"]>>): Promise<Array<{ id: string; pid: number; command: string }>> {
+  if (!background || process.platform === "win32") return [];
+  const roots = jobRoots(await leftRunning(marker)).filter((entry) => alive(entry.pid));
+  const adopted: Array<{ id: string; pid: number; command: string }> = [];
+  for (const root of roots) {
+    const done = (async () => { while (alive(root.pid)) await Bun.sleep(1_000); return { exitCode: null }; })();
+    const stop = () => {
+      // Its own group (setsid, a detached spawn) when it leads one; otherwise the process alone.
+      try { process.kill(root.group > 1 && root.group !== process.pid ? -root.group : root.pid, "SIGTERM"); } catch { try { process.kill(root.pid, "SIGTERM"); } catch { /* gone */ } }
+      setTimeout(() => { try { if (alive(root.pid)) process.kill(root.pid, "SIGKILL"); } catch { /* gone */ } }, 3_000).unref?.();
+    };
+    const handed = background.adopt({ command: root.command, startedAt: Date.now(), output: "", done, stop });
+    if (handed) adopted.push({ id: handed.id, pid: root.pid, command: root.command });
+  }
+  return adopted;
+}
+
 export const CLEANUP_NOTE = "[The command finished, but Casper could not confirm that every process it started has stopped. Casper shows them to the person before the next task.]";
 
 /**
@@ -1451,6 +1472,7 @@ export function casperBashOperations(shell: RuntimeShell | undefined, local: Bas
       }
       /** ssh's or sudo's private login: it may wait on Casper's password box. */
       const login = wrapped.ssh ?? wrapped.sudo;
+      const marker = randomUUID();
       // `background: true`: no time limit and no stall check; after a short grace it moves to the background.
       const asked = backgroundRequested();
       const background = options.timeout === undefined || asked ? shell?.background?.() : undefined;
@@ -1490,11 +1512,13 @@ export function casperBashOperations(shell: RuntimeShell | undefined, local: Bas
       const run = (async () => {
         try {
           // The private ssh login's pointer goes to this one command, after the shell's environment was cleaned.
-          const env = wrapped.ssh?.env || wrapped.env || wrapped.sudo?.env
-            ? pathFirst({ ...baseEnv(), ...wrapped.env, ...wrapped.ssh?.env, ...wrapped.sudo?.env }, wrapped.sudo?.pathFirst) : options.env;
+          const env = { ...wrapped.ssh?.env || wrapped.env || wrapped.sudo?.env
+            ? pathFirst({ ...baseEnv(), ...wrapped.env, ...wrapped.ssh?.env, ...wrapped.sudo?.env }, wrapped.sudo?.pathFirst) : baseEnv(),
+          // What this command's processes leave running on their own carries it (src/runtime/left-running.ts).
+          [COMMAND_MARK]: marker };
           let result: { exitCode: number | null };
           try {
-            result = await local.exec(pid ? pid.run(wrapped.command) : wrapped.command, cwd, { ...options, signal: stop.signal, timeout: background ? undefined : limit, ...(env ? { env } : {}), onData });
+            result = await local.exec(pid ? pid.run(wrapped.command) : wrapped.command, cwd, { ...options, signal: stop.signal, timeout: background ? undefined : limit, env, onData });
           } catch (error) {
             if (error instanceof ProcessCleanupError) {
               shell?.onCleanupFailure?.(error);
@@ -1516,8 +1540,11 @@ export function casperBashOperations(shell: RuntimeShell | undefined, local: Bas
           }
           if (wrapped.ssh?.afterFail && result.exitCode !== 0) onData(Buffer.from(`\n${wrapped.ssh.afterFail}\n`));
           if (wrapped.sudo?.afterFail && result.exitCode !== 0) onData(Buffer.from(`\n${wrapped.sudo.afterFail}\n`));
+          // What the command left running by itself (a detached spawn, setsid) becomes a background job Casper reports.
+          const jobs = moved ? [] : await adoptLeftRunning(marker, shell?.background?.());
+          for (const job of jobs) onData(Buffer.from(`\n[Casper found what this command left running: ${job.command.slice(0, 120)} (pid ${job.pid}). It runs on as ${job.id}: /tasks lists it, and Casper adds a note when it ends. Next time, use background: true.]\n`));
           // `nohup … &` dies with the call (or a setsid escapes where nothing reports it): the supported way, once.
-          if (!moved && !asked && shell?.background?.() && detachesItself(command)) onData(Buffer.from(`\n${DETACH_NOTE}\n`));
+          if (!moved && !jobs.length && !asked && shell?.background?.() && detachesItself(command)) onData(Buffer.from(`\n${DETACH_NOTE}\n`));
           if (asked && !background && !moved) onData(Buffer.from("\n[Casper can't run commands in the background here (slow commands are off, or this is a helper), so this ran in the foreground.]\n"));
           // It needed a terminal: sent again, it gets one (or the AI reads why this run can't give it one).
           const needed = result.exitCode !== 0 && TERMINAL_NEEDED.test(last) ? shell?.neededTerminal?.(command) : undefined;

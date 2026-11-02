@@ -417,7 +417,7 @@ export class InteractiveTerminal {
     if (!this.surface || !card) {
       if (!this.surface) { this.writeReceipt(text); return; }
       const lines = terminalText(text).split("\n");
-      const tone = /^✓/.test(lines[0] ?? "") ? "success" : /^(?:✗|\[error\])/.test(lines[0] ?? "") ? "error" : lines[0]?.startsWith(STILL_RUNNING_MARK) ? "accent" : "warning";
+      const tone = /^✓/.test(lines[0] ?? "") ? "success" : /^(?:✗|\[error\])/.test(lines[0] ?? "") ? "error" : lines[0]?.startsWith(STILL_RUNNING_MARK) ? "accent" : lines[0]?.startsWith("– Checks skipped") ? "muted" : "warning";
       const edge = tint("▌", tone, this.color);
       // A block of its own: a blank row before it.
       this.surface.write(lines.map(line => line ? `${edge} ${this.styleLine(line, true)}` : line).join("\n"), "group");

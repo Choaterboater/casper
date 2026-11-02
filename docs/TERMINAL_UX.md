@@ -220,6 +220,10 @@ Each mark at the start of a line means one thing, in one colour (the `default` t
 | `–` | grey (dim) | a note: expected (a search that found nothing), skipped, not verified, not checked, recovered (a retry) |
 | `◆` | accent, bold | a change that stays in view: config, a device, another machine or the setup on this computer |
 | `◐` | accent, bold | work in the background: a receipt whose job still runs (`◐ Still running — …`), and the line when it ends |
+
+A receipt whose checks were rightly skipped (only docs, data or a program's output changed, or a question) is grey with
+`–` on line 1 (`– Checks skipped — only output files changed (…)`), not amber; and a task stopped before it did
+anything ends with one grey line, `– Stopped. Nothing was changed.`, not a Stopped card.
 | `○` | amber | did not run (refused, stopped at the spend limit) |
 | `✗` | amber | a step failed, and the AI is still working |
 | `▌ ✗` | red | the task's result failed (the receipt), or an error stopped work (`[error]`) |
@@ -1044,7 +1048,7 @@ Daily commands include `/help`, `/status`, `/project`, `/diff`, `/verify`, `/ski
 | `/clear` | Fresh saved conversation; files stay as they are (`/undo` puts a task's files back); the earlier conversation stays resumable |
 | `/resume` | Pick a saved conversation from a numbered list (title · when · messages; 1 stays here); then the last few turns show |
 | `/resume <id>` | Go back to that conversation; the first few characters of its ID are enough |
-| `/continue` | Go back to this folder's most recent other conversation (not the one you are in, nor an empty one `/clear` left); then the last few turns show. With none it says so and nothing changes. In the conversation `/continue` or `--continue` opened, it stays there and says so |
+| `/continue` | Go back to this folder's most recent other conversation (not the one you are in, nor an empty one `/clear` left); then the last few turns show. With none it says so and nothing changes. In the conversation `/continue`, `/resume`, `--continue` or `--resume` opened, it stays there and says so |
 
 Each start in a folder is a new conversation, as in Claude Code, Codex, Copilot CLI and Pi; only a `/branch`
 experiment's folder reopens its branch's own. When the folder has an earlier conversation, the start offers one row,

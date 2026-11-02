@@ -82,15 +82,22 @@ for `.sqlite`) is what an app running next to its code writes all the time; when
 says `Checks skipped — only a running app's database files changed (...)`. The database file itself counts as data too.
 
 **Only output changed.** Files a program writes when it runs, not what it runs from: everything in a top-level
-`results`, `output`, `out`, `reports`, `logs`, `coverage` or `screenshots` folder and any `.log` or `.out` file, never
-code or tests wherever they sit. When only those (with docs or database files) changed, the receipt says
-`Checks skipped — only output files changed (results/report.html, …); /verify runs them anyway.` A comparison that
+`results`, `output`, `out`, `reports`, `logs`, `coverage`, `screenshots`, `builds`, `dist` or `runs` folder and any
+`.log` or `.out` file, never code or tests wherever they sit. When only those (with docs or database files) changed, the receipt says
+`Checks skipped — only output files changed (results/report.html, …)` as line 1, grey: nothing to act on. A comparison that
 wrote 22 files under `results/` ran a 45 s test suite for them.
 
 **A question.** A request that reads as a question (Casper's question intent, a closing `?`, or a bare `status`) whose
 AI's own `edit` and `write` tools changed nothing, and that changed no code or tests, runs no checks:
-`Checks skipped — this read as a question, and the AI's own tools changed no code or tests; /verify runs them anyway.`
+`Checks skipped — this read as a question, and the AI's own tools changed no code or tests`.
 Checks the AI recorded itself (`casper_check`) still run. `tests/background-receipt.test.ts` covers both.
+
+**Moves and a program's output are not the change.** A file moved or renamed (found by its content: `mv runs
+run-1/runs`) is one receipt line, `✓ Moved 150 files into run-1/`, and is left out of the checks, the proof, the app
+smoke and the Config row. Code a program wrote into a top-level output folder (a comparison's builds under `builds/` or
+`runs/`) asks for no proof and starts no app smoke; checks that changed files there are not flagged as test data left in
+the app. Undo's files with one reason are said once (`… and 2 more (a nested repository, each)`).
+`tests/relaunch-receipt.test.ts` and `tests/receipt-skipped.test.ts` cover these.
 
 **Changed by something else.** Casper notes when each of the AI's tools that may write runs (any tool but reads,
 searches and one plain `ssh <machine> '...'`). A file whose time of change falls while none of them ran (the AI

@@ -66,3 +66,10 @@ test("an MCP change row names the server, the real tool and what it acts on, whe
   expect(mcpChangeRow("network", "set_port", { arguments: { device: "sw1", port: "ge-0/0/1" } })).toBe("Changed in network: set_port sw1");
   expect(mcpChangeRow("network", "set_ssid", { enabled: true })).toBe("Changed in network: set_ssid");
 });
+
+test("the same change said once: a command that removes its scratch folder at the start and again at the end", () => {
+  // "◆ deleted /tmp/csmoke-proof" was printed twice for one step.
+  const rows = shellChanges("rm -rf /tmp/csmoke-proof; mkdir /tmp/csmoke-proof; cp -r scripts /tmp/csmoke-proof; node --test; rm -rf /tmp/csmoke-proof", "", true)
+    .map((change) => change.row);
+  expect(rows).toEqual(["deleted /tmp/csmoke-proof"]);
+});
