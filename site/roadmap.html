@@ -78,6 +78,7 @@
           </li>
           <li><a href="#released">Released</a>
             <ul>
+              <li><a href="#v0405">v0.4.5: looks are not changes</a></li>
               <li><a href="#v0404">v0.4.4: live sessions</a></li>
               <li><a href="#v0403">v0.4.3: still running</a></li>
               <li><a href="#v0402">v0.4.2: walk away</a></li>
@@ -139,7 +140,7 @@
         <h2 id="next-h">Next release</h2>
         <aside class="callout soon">
           <strong class="callout-title">Built, not released</strong>
-          <p>Nothing on the main branch is waiting: everything built so far is in v0.4.4. New work shows here before the next preview.</p>
+          <p>Nothing on the main branch is waiting: everything built so far is in v0.4.5. New work shows here before the next preview.</p>
         </aside>
       </section>
 
@@ -381,10 +382,28 @@
         and on the <a href="https://github.com/Choaterboater/casper/releases">Releases page</a>.</p>
         <div class="stack">
 
+        <details class="card release" id="v0405" aria-labelledby="v0405-h" open>
+          <summary class="release-heading">
+            <h3 id="v0405-h">v0.4.5 · An ssh that only looks is no change, a live line for what a command prints, and network changes in plain words</h3>
+            <span class="badge ok">current preview</span>
+          </summary>
+          <ul>
+            <li><strong>Looks are not changes.</strong> Commands sent over ssh go through the same read check as here: <code>uname</code>, <code>docker ps</code> or <code>ls</code> on a server is one neutral line, <code>✓ Ran on nas: … (looked only)</code>, and the receipt says <code>looked only</code>. A command that may change things keeps its ◆ row, counted.</li>
+            <li><strong>The output stays with the AI.</strong> <code>sudo -n</code> over ssh, and any ssh with <code>BatchMode=yes</code>, never take the terminal, and a time limit or shell around a command (perl's alarm, <code>timeout</code>, <code>sh -c</code>) is seen through.</li>
+            <li><strong>What it is doing, live.</strong> A dim line under the running step shows the command's latest output, the status row shows a background job's last line, waits say what they wait for, and Ctrl+T shows the running step's output so far without repeating a block.</li>
+            <li><strong>Your line stops a wait.</strong> A line you send while a command only waits or polls stops it at once; a command that may change things is never stopped.</li>
+            <li><strong>Network changes in plain words.</strong> A change through the network MCP server reads like <code>Site Lab-Site now uses RF template Standard-RF-80MHz (was Standard-RF)</code>, with how to undo, in the box, the row and the receipt; the raw JSON is behind Ctrl+T.</li>
+            <li><strong>Dead ends offer a way round.</strong> When a device shows offline, the AI is told to try another way in, and the step it offers goes on the Next row.</li>
+            <li><strong>Your logins from your home folder.</strong> Started from your home folder, <code>~/.casper/mcp.json</code> is your own file, so the network server gets your saved logins.</li>
+            <li><strong>Quieter.</strong> An allow from auto mode's judge leaves no line (<code>/status</code> and Ctrl+T keep why), a question in your home folder that changed nothing ends with one grey line, and skills are picked only when they fit.</li>
+            <li><strong>Checks bring back what they need.</strong> The end replay starts other services a check needed, a check step may accept its own confirm dialog, and the app smoke puts back the settings files the app writes.</li>
+          </ul>
+        </details>
+
         <details class="card release" id="v0404" aria-labelledby="v0404-h" open>
           <summary class="release-heading">
             <h3 id="v0404-h">v0.4.4 · A live Claude Code session per conversation, checks that start their app again, and a Claude plan that stays signed in</h3>
-            <span class="badge ok">current preview</span>
+            <span class="badge">previous preview</span>
           </summary>
           <ul>
             <li><strong>One live Claude Code session.</strong> With a Claude plan, a conversation runs in one Claude Code session that keeps its own thinking between steps, instead of a fresh start with the whole conversation every time. Casper still runs every tool, and compaction, forks and resumes start a new session from Casper's own record.</li>
@@ -402,7 +421,7 @@
         <details class="card release" id="v0403" aria-labelledby="v0403-h" open>
           <summary class="release-heading">
             <h3 id="v0403-h">v0.4.3 · Receipts that say when work is still running, and a service and browser small models can use</h3>
-            <span class="badge">previous preview</span>
+            <span class="badge">released</span>
           </summary>
           <ul>
             <li><strong>Still running, said plainly.</strong> When work a task started still runs in the background, the receipt's first line is <code>◐ Still running</code> with what it is; one line says when it ends, and the Next row offers to carry on.</li>
@@ -416,7 +435,7 @@
           </ul>
         </details>
 
-        <details class="card release" id="v0402" aria-labelledby="v0402-h" open>
+        <details class="card release" id="v0402" aria-labelledby="v0402-h">
           <summary class="release-heading">
             <h3 id="v0402-h">v0.4.2 · Tasks that keep going after you close the terminal, saved pages from any folder, and other agents as ordinary commands</h3>
             <span class="badge">released</span>
@@ -1525,7 +1544,7 @@
   <footer class="site-footer">
     <div class="container footer-inner">
       <div>
-        <p><strong>Casper 0.4.4</strong> · early preview, unsigned</p>
+        <p><strong>Casper 0.4.5</strong> · early preview, unsigned</p>
         <p><a href="https://github.com/Choaterboater/casper/blob/main/LICENSE">MIT licence</a> · © 2026 Choaterboater</p>
         <p>Built on the <a href="https://github.com/earendil-works/pi">Pi SDK</a>. Other parts keep their own licences (<a href="https://github.com/Choaterboater/casper/blob/main/THIRD_PARTY_NOTICES.txt">notices</a>).</p>
       </div>

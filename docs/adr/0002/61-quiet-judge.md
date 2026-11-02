@@ -1,6 +1,6 @@
 # 61. The judge's allow is quiet, and waits and local GETs never reach it
 
-Date: 2026-11-02. Status: proposed. Amends [47](47-auto-mode-judge.md) (auto mode: a model judge for commands that would ask).
+Date: 2026-11-02. Status: accepted (merged 2026-11-02 in #576). Amends [47](47-auto-mode-judge.md) (auto mode: a model judge for commands that would ask).
 
 ## Decision
 

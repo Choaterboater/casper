@@ -1,6 +1,6 @@
 # 65. A question in a folder Casper never checks gets no card
 
-Date: 2026-11-02. Status: proposed. Amends 33 (no receipt card until the task is done): its "no card when the card
+Date: 2026-11-02. Status: accepted (merged 2026-11-02 in #576). Amends 33 (no receipt card until the task is done): its "no card when the card
 would only say that no files changed" now also covers a folder Casper can't compare.
 
 ## Decision

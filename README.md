@@ -36,20 +36,20 @@ Casper itself is free and open source. A task spends money only with your own mo
 macOS / Linux:
 
 ```sh
-curl -fsSL https://github.com/Choaterboater/casper/releases/download/v0.4.4/install.sh | sh
+curl -fsSL https://github.com/Choaterboater/casper/releases/download/v0.4.5/install.sh | sh
 ```
 
 Windows (x64 or ARM64), in PowerShell:
 
 ```powershell
-[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; irm https://github.com/Choaterboater/casper/releases/download/v0.4.4/install.ps1 | iex
+[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; irm https://github.com/Choaterboater/casper/releases/download/v0.4.5/install.ps1 | iex
 ```
 
 No admin rights, Bun or source checkout needed. The installer checks the file's SHA-256 (with
 `gh` signed in, also where it was built; for releases signed with the
 [release key](docs/RELEASE.md#the-release-key), none yet, the signature too) and keeps your old install
-if anything is wrong. These commands pin **v0.4.4**; after that,
-`casper update` gets the newest preview. `install.sh` takes `--dir <path>`, `--version 0.4.4`,
+if anything is wrong. These commands pin **v0.4.5**; after that,
+`casper update` gets the newest preview. `install.sh` takes `--dir <path>`, `--version 0.4.5`,
 `--sha256 <hex>` and `--force`. [Installer details](docs/RELEASE.md#installer-contract).
 
 Use the one-line command above rather than downloading a program in your browser: the installer
@@ -83,7 +83,7 @@ From the shell:
 ```sh
 casper "Explain this project"  # start a session with this first request
 casper --no-verify   # no Casper-run checks this run
-casper --version     # casper 0.4.4 (/absolute/path/of/the/binary/or/cli.ts)
+casper --version     # casper 0.4.5 (/absolute/path/of/the/binary/or/cli.ts)
 casper doctor        # check Casper's own setup and fix what it can (no model)
 ```
 
@@ -227,6 +227,8 @@ Ctrl+D on an empty prompt exits. [Keys and commands](docs/TERMINAL_UX.md#quick-r
 | Contributing | [How Casper is built](docs/ARCHITECTURE.md) · [Working on Casper](docs/DEVELOPING.md) |
 
 ## What's new
+
+v0.4.5: an ssh that only looks at a server is one neutral line and the receipt says `looked only`; `sudo -n` and `BatchMode=yes` keep Casper's terminal; a dim line under the running step shows what the command prints, and a line you send stops a command that only waits; changes made through a network MCP server read in plain words, with how to undo, and are listed on the receipt. See [release notes](docs/RELEASE.md).
 
 v0.4.4: with a Claude plan a conversation runs in one live Claude Code session that keeps its own thinking, and the plan stays signed in when one status check fails; at the end of a task a check whose app had stopped is replayed on that app, started again, and a check that needed OK on a dialog or whose selector matches several elements is not a failure; a short first line that refers back, such as "re run test", continues today's conversation. In the same blind build on Haiku 5.5, Casper used 107k output tokens (was 167k) and 9 minutes (was 19). See [release notes](docs/RELEASE.md).
 

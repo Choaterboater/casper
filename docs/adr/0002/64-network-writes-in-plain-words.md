@@ -1,6 +1,6 @@
 # 64. A network write says what it does in plain words; what was sent is behind Ctrl+T
 
-Date: 2026-11-02. Status: proposed. Amends the MCP change box and change rows as docs/MCP.md and docs/TERMINAL_UX.md
+Date: 2026-11-02. Status: accepted (merged 2026-11-02 in #576). Amends the MCP change box and change rows as docs/MCP.md and docs/TERMINAL_UX.md
 described them (no earlier decision records them); decisions 43 and 45 (how boxes are answered) are unchanged.
 
 ## Decision

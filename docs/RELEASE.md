@@ -14,11 +14,46 @@ when releasing. Existing historical notes below stay as written; feature tests c
 reference docs, not a per-PR release-note or roadmap entry. Release-prep checks verify the version and
 installer targets (`tests/release-install.test.ts`, `tests/release-targets.test.ts`).
 
-Casper distributes an unsigned **v0.4.4 preview**, not a stable release. The installers
-download from `https://github.com/Choaterboater/casper/releases/download/v0.4.4`,
+Casper distributes an unsigned **v0.4.5 preview**, not a stable release. The installers
+download from `https://github.com/Choaterboater/casper/releases/download/v0.4.5`,
 because GitHub's `latest/download` link skips preview releases. The first published
 preview was **v0.1.0**. A published release is never changed; every fix ships under a
 new version.
+
+## v0.4.5: an ssh that only looks is no change, a live line for what a command prints, and network changes in plain words
+
+### Added
+
+- While a job runs in the background, the status row says so with its time and its latest output line.
+- A dim line under the running step shows the command's latest output, about once a second.
+- A step that waits and then looks says what it saw on its row.
+- A check step may accept the confirm dialog it opens, on this computer's pages only.
+- A network read that shows a device offline tells the AI to try another way in, offered on the Next row.
+- `/status` has a judge row saying what auto mode's judge allowed and why.
+
+### Changed
+
+- An ssh that only looks, such as `uname`, `docker ps` or `ls`, is one neutral line, and the receipt says `looked only`.
+- `sudo -n` over ssh, and any ssh with `BatchMode=yes`, keep Casper's terminal, so the AI reads all their output.
+- A time limit or shell around a command, such as perl's alarm, `timeout` or `sh -c`, is seen through.
+- Changes made through a network MCP server read in plain words in the box, the row and the receipt, with how to undo.
+- A line you send stops a command that only waits or polls, at once.
+- Waits say what they wait for, such as `Waiting 90 s, then checking the build log`.
+- Ctrl+T shows the running step's output so far and never shows the same block twice.
+- An allow from auto mode's judge leaves no line, and `sleep` or a GET to your own app never reaches it.
+- A question in your home folder that changed nothing ends with one grey line, not an amber card.
+- Started from your home folder, `~/.casper/mcp.json` is your own file, so the network server gets your saved logins.
+- `/btw` sees the recent conversation and a short summary of recent tool results.
+- Lines put back in the prompt after a cancel leave the cursor on a new line.
+- Skills are picked only on words that really name them, and skill warnings show once per computer.
+- The Next row shows an earlier conversation's message count plainly.
+- The end replay starts other services a check needed, such as a mock, and stops them after.
+- A text assertion whose element holds the text inside other text is written wrong, not failed.
+- The app smoke puts back settings files the app writes, and a start command that exits at once is not checked.
+- Checks that pass with no app code changed say `✓ Checks passed`, and output folders start no check.
+- A job Casper didn't start ends saying it can't see the exit code.
+- `/model refresh` waits for every provider's list, and on Windows a held question still reaches the other terminal.
+- `CASPER_OFFLINE=1` also stops the background update check.
 
 ## v0.4.4: a live Claude Code session per conversation, checks that start their app again, and a Claude plan that stays signed in
 
