@@ -112,6 +112,9 @@ export async function runModelTask(app: CasperApp, prompt: string, options: { fl
   app.pastedImages = undefined;
   // Browser checks recorded or replayed from here on belong to this task; Casper's end replay covers only those.
   const taskStarted = performance.now();
+  // The start's other reading of this request (command-loop), for this task's Next row only.
+  const otherReading = app.otherReading;
+  app.otherReading = undefined;
   /** Background jobs started from here on are this task's (the receipt says they still run). */
   const taskBegan = Date.now();
   for (const note of attached.notes) app.output.write(`[image] ${terminalText(note)}\n`);
@@ -677,7 +680,7 @@ export async function runModelTask(app: CasperApp, prompt: string, options: { fl
       const lookFix = noteLookFixes(app, ending);
       // An answer that is mostly one block to paste (a command, a prompt for later): "Copy the prompt" on the row, free.
       const copy = app.interactive && !ending && !app.toolAfterAnswer ? copyStep(app.lastAnswer) : undefined;
-      const extras = [lookFix, copy].filter((item): item is NextItem => item !== undefined);
+      const extras = [otherReading, lookFix, copy].filter((item): item is NextItem => item !== undefined);
       // Work held in another folder (a switch since) is not this work.
       app.heldCards = app.heldCards.filter((held) => held.root === workspaceRoot);
       const options = () => receiptOptions(app, workspaceRoot);

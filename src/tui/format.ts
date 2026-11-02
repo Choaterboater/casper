@@ -496,3 +496,20 @@ export function formatRuntimeStartLine(status: RuntimeStatus, shown?: string): s
   if (!auth && shown !== undefined && (shown === line || shown === identity)) return undefined;
   return `[model] ${line}${auth}`;
 }
+
+/** Markdown's backslash escapes taken off: "\\`code\\`" is "`code`", "I\\'ll" is "I'll". A backslash before anything else stays.
+ * For the AI's words shown as plain text (a box's question, a step's title, the status row). */
+export function unescapeMarkdown(text: string): string {
+  return text.replace(/\\([`*_'"\\[\](){}#+\-.!|<>~])/g, "$1");
+}
+
+/** The AI's Markdown with the escapes it put inside inline code taken off: \`casper\\_check\` is \`casper_check\`, \`\\~/x\` is
+ * \`~/x\`. Markdown keeps a code span's backslashes, so they showed; only \\_ and \\~ go, which code never needs escaped
+ * (a regex's \\. or \\* stays). Fenced blocks are left exactly as written. */
+export function unescapeCodeSpans(markdown: string): string {
+  let fenced = false;
+  return markdown.split("\n").map((line) => {
+    if (/^\s*(?:```|~~~)/.test(line)) { fenced = !fenced; return line; }
+    return fenced ? line : line.replace(/(`+)([^`]+?)\1/g, (span, ticks: string, body: string) => `${ticks}${body.replace(/\\([_~])/g, "$1")}${ticks}`);
+  }).join("\n");
+}

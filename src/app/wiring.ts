@@ -8,6 +8,8 @@ import type { CasperApp } from "../app";
 import os from "node:os";
 import { resolveEntry } from "../sandbox/policy";
 import path from "node:path";
+import { createHash } from "node:crypto";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { terminalText } from "../tui/format";
 import { mcpChangeRow } from "./changes";
 import { ReferenceLibrary } from "../references/library";
@@ -251,10 +253,29 @@ export function projectPrivatePaths(app: CasperApp): string[] {
   return (app.projectContext.sandbox?.project.denyRead ?? []).map((entry) => resolveEntry(entry, root, app.sessionHomeDir ?? os.homedir()));
 }
 
+/** Where the skill warnings already said on this computer are kept (hashes, never the text), so a start says only new ones. */
+export const SKILL_WARNINGS_SEEN = path.join(".casper", "skill-warnings-seen.json");
+
+/** "[skills] 2 new warnings; use /skills diagnostics", for warnings not said before on this computer: the same unreadable
+ * skill in another tool's folder is said once, not at every start. One that goes away and comes back is new again. */
 export function reportSkillWarnings(app: CasperApp): void {
-  const warnings = app.skillRegistry!.diagnostics.filter((warning) => !app.reportedSkillWarnings.has(warning));
+  const all = app.skillRegistry!.diagnostics;
+  const fresh = all.filter((warning) => !app.reportedSkillWarnings.has(warning));
+  if (!fresh.length) return;
+  for (const warning of fresh) app.reportedSkillWarnings.add(warning);
+  const file = path.join(app.homeDir(), SKILL_WARNINGS_SEEN);
+  const hash = (warning: string) => createHash("sha256").update(warning).digest("hex").slice(0, 32);
+  let seen = new Set<string>();
+  try {
+    const parsed: unknown = JSON.parse(readFileSync(file, "utf8"));
+    if (Array.isArray(parsed)) seen = new Set(parsed.filter((entry): entry is string => typeof entry === "string"));
+  } catch { /* none said yet */ }
+  const warnings = fresh.filter((warning) => !seen.has(hash(warning)));
+  try {
+    mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
+    writeFileSync(file, `${JSON.stringify(all.map(hash).slice(0, 500))}\n`, { mode: 0o600 });
+  } catch { /* said again next start */ }
   if (!warnings.length) return;
-  for (const warning of warnings) app.reportedSkillWarnings.add(warning);
   app.output.write(`[skills] ${warnings.length} new warning${warnings.length === 1 ? "" : "s"}; use /skills diagnostics\n`);
 }
 

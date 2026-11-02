@@ -9,6 +9,7 @@ import { loadProjectContext } from "../src/project/context";
 import { SkillRegistry } from "../src/skills/registry";
 import { removeTempDir } from "./support/temp-dir";
 import type { AgentRuntime, RuntimeConversation } from "../src/runtime/types";
+import { RESUMED_READY } from "../src/app/commands";
 import { CONTINUE_TYPED, continueNamed, formatTaskPrompt } from "../src/task/classify";
 import { COMMANDS, runsDuringWork } from "../src/tui/commands";
 import { FULL_HELP_TEXT, HELP_TEXT } from "../src/tui/help";
@@ -145,6 +146,8 @@ test("a plain start begins a new conversation and offers one row to continue the
       expect(resumed).toEqual([]);
       app.input.write("1");
       await app.until(text => text.includes("Back in \"Fix the login bug\""));
+      // It ends saying nothing runs until you type, so the prompt doesn't look stuck.
+      await app.until(text => text.includes(RESUMED_READY));
       // What --continue would pick: the newest with replies, never the empty one /clear left.
       expect(resumed).toEqual([["b0b0b0b0-0000", { keepUnwritten: false }]]);
       expect(prompts).toEqual([]);

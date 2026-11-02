@@ -7,6 +7,8 @@ const STOP_WORDS = new Set([
   "it", "of", "on", "or", "our", "that", "the", "their", "this", "to", "use", "using", "with",
   "you", "your", "skill", "skills", "task", "when", "guidance", "instructions",
   "add", "build", "create", "implement", "fix", "modify", "update", "change", "help",
+  // Doing something again says nothing about what it is about: "re run test" is not research ("you're") or a rerun skill.
+  "re", "run", "rerun", "again", "redo", "retry", "repeat", "please", "now",
 ]);
 
 function words(text: string): Set<string> {
@@ -39,8 +41,11 @@ export function scoreSkill(
     return 0;
   }
 
-  const topicScore = overlap(words([skill.name, ...skill.tags].join(" ")), taskWords) * 4
-    + overlap(words(skill.description), taskWords);
+  const named = overlap(words([skill.name, ...skill.tags].join(" ")), taskWords);
+  const described = overlap(words(skill.description), taskWords);
+  // One word of the request in a long description is chance ("test" is in a TDD skill, a test-migration skill and
+  // "stress-test"): the description counts with two of the request's words, or with the skill's name or tags.
+  const topicScore = named * 4 + (named || described >= 2 ? described : 0);
   const intentScore = skill.intents.includes(classification.intent) ? 3 : 0;
   // Broad intent/stack matches only boost a topical match; otherwise every
   // implementation skill for this language would load for an unrelated task.

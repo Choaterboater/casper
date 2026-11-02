@@ -63,16 +63,23 @@ conversation, the start offers one row to go back to it:
 
 ```text
 Next: 1 Continue the Oct 21 conversation (Fix the login bug · 12 messages)
-  Anything you type starts a new conversation.
+  Anything you type starts a new conversation, unless it refers back to this one ("run it again").
 ```
 
 A lone `1` on the empty prompt continues it (the conversation `/continue` and
 `--continue` pick), even when typed and sent before the row shows: Casper waits a
-moment for the row first. So does a first line that only asks to go back, in plain
+moment for the row first. On a row with only `1 Saved pages`, an early `1` lists the pages the same way. After
+`/resume` or `/continue`, the last line is `Ready: nothing is running; type what to do next in this conversation.` So does a first line that only asks to go back, in plain
 words: `continue`, `continue session`, `resume my last session`, `pick up where we left off`.
+When the conversation on offer is today's or yesterday's, a short first line that refers back to its work
+(`re run test`, `run it again`, `do that again`, `same as before`, `fix it`) goes there too: Casper continues it and sends
+the line, with one line `[session] Continuing today's conversation (<title>): "re run test" refers back to it.` and no
+question. A short line that only names one of the project's checks (`run test`) runs that check in a new conversation and
+says so (`[task] "run test" runs this project's test check (npm run test) in a new conversation.`); the Next row after it
+offers `1 Ask in today's conversation instead`, which sends the same words there (`/continue <request>` does that too).
 Anything else you type starts the new one (`continue the refactor` is a request), later in a
 conversation `continue` means keep going, and Enter runs nothing
-([decision 42](adr/0002/42-a-plain-start-is-new.md)). When you start Casper
+([decision 42](adr/0002/42-a-plain-start-is-new.md), [decision 53](adr/0002/53-a-start-that-refers-back.md)). When you start Casper
 inside an experiment's worktree folder, it resumes that branch's saved
 conversation: that folder is for that branch. A Git worktree you made yourself (`git worktree add`) is a folder
 of its own: it starts on its own `main`, and its saved conversation is kept

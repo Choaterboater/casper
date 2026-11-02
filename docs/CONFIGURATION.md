@@ -1496,8 +1496,10 @@ only while you trust the folder: as in Claude Code, trusting the folder is the r
   (not parent folders), and a symlink leading outside the project is refused. Symlinks inside the
   project work.
 - Pi packages and custom Pi skill paths are not imported.
-- A declared skill with mistakes still produces a warning. Startup summarizes new warnings;
-  `/skills diagnostics` shows the full detail.
+- A declared skill with mistakes still produces a warning. Startup summarizes the warnings it hasn't said before
+  on this computer (`[skills] 2 new warnings; use /skills diagnostics`), so the same unreadable skill in another tool's
+  folder is said once, not at every start; one that goes away and comes back is new again. `/skills diagnostics`
+  shows every warning in full detail.
 
 Example `~/.casper/skills/mcp-authoring/SKILL.md`:
 

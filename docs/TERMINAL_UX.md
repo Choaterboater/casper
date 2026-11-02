@@ -1049,10 +1049,16 @@ Daily commands include `/help`, `/status`, `/project`, `/diff`, `/verify`, `/ski
 Each start in a folder is a new conversation, as in Claude Code, Codex, Copilot CLI and Pi; only a `/branch`
 experiment's folder reopens its branch's own. When the folder has an earlier conversation, the start offers one row,
 `Next: 1 Continue the Oct 21 conversation (<title> · 12 messages)` (or `Continue today's conversation`,
-`Continue yesterday's conversation`) with `Anything you type starts a new conversation.`
-under it: a lone `1` on the empty prompt runs `/continue` (sent before the row shows, it waits up to 3 s for it), and so does a
-first line that only asks to go back (`continue`, `continue session`, `pick up where we left off`); anything else typed is the new conversation's first request, and
-Enter runs nothing ([decision 42](adr/0002/42-a-plain-start-is-new.md)).
+`Continue yesterday's conversation`) with `Anything you type starts a new conversation, unless it refers back to this
+one ("run it again").` under it: a lone `1` on the empty prompt runs `/continue` (sent before the row shows, it waits up to 3 s for it), and so does a
+first line that only asks to go back (`continue`, `continue session`, `pick up where we left off`). With today's or
+yesterday's conversation on offer, a short first line that refers back (`re run test`, `do that again`, `fix it`) is
+sent into it with one `[session] Continuing today's conversation (…)` line, and one that only names a project check
+(`run test`) says which check it runs and offers `1 Ask in today's conversation instead` on its Next row. Anything else typed is the new conversation's first request, and
+Enter runs nothing ([decision 42](adr/0002/42-a-plain-start-is-new.md), [decision 53](adr/0002/53-a-start-that-refers-back.md)).
+The AI's words drop Markdown's escapes wherever they show: in its answers' inline code (`casper\_check` reads
+`casper_check`, `\~/x` reads `~/x`; a fenced block stays as written), a step's title and the status row
+(`tests/markdown-escapes.test.ts`).
 | `/branch`, `/switch <name>` | Existing named-workspace navigation and its approval policy |
 | `/output [n]` | Full command and output of the last task's n-th most recent tool call (1 = latest; 20 retained per task); out-of-range n is a usage error |
 

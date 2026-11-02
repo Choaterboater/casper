@@ -6,7 +6,7 @@ import type { RuntimeImage, RuntimeModelPickerHost, RuntimePickerIO, RuntimePick
 import { imageLabel, imageMimeType, MAX_IMAGE_BYTES, MAX_IMAGES, promptPath } from "../app/images";
 import { readClipboardFiles } from "./clipboard-files";
 import { commandMenu, COMMANDS, findCommand, fitDescriptions, type MenuCommand, menuRunsDuringWork } from "./commands";
-import { BUSY_GLYPH, dim, formatElapsed, hasLineControls, hasTerminalControls, lineText, markdownTheme, PROMPT_GLYPH, terminalText, tint } from "./format";
+import { BUSY_GLYPH, dim, formatElapsed, hasLineControls, hasTerminalControls, lineText, markdownTheme, PROMPT_GLYPH, terminalText, tint, unescapeMarkdown } from "./format";
 import { answerRecord, answerRecordText, choiceHint, choiceNumber, KEY_PICK_MAX, keyChoice, OTHER_CHOICE, pickKeysHint, reasonPrefix, typedChoice, type PickRecord } from "./choices";
 import { typedDuringTask } from "./give-way";
 import { GLYPHS } from "./glyphs";
@@ -259,10 +259,7 @@ export type AskOrigin = "ai" | "casper" | "approval";
 /** Keys pressed this soon after a box opens are ignored: they were typed before it appeared (mid-sentence), so they
  * never answer it. tests/support/preload.ts sets 0 for the suite; tests/one-input-style.test.ts checks the real wait. */
 export const askDefaults = { guardMs: 300 };
-/** Markdown's backslash escapes taken off: "\\`code\\`" is "`code`", "I\\'ll" is "I'll". A backslash before anything else stays. */
-export function unescapeMarkdown(text: string): string {
-  return text.replace(/\\([`*_'"\\[\](){}#+\-.!|<>~])/g, "$1");
-}
+export { unescapeMarkdown } from "./format";
 
 /** The muted first line of every question the AI asks, so it never looks like a Casper approval. */
 export const AI_ASKS_LABEL = "The AI asks:";

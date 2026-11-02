@@ -1,4 +1,4 @@
-import { lineText, redactPreview } from "../tui/format";
+import { lineText, redactPreview, unescapeMarkdown } from "../tui/format";
 import { homedir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -34,7 +34,7 @@ export function stepTitle(toolName: string, args: unknown): string | undefined {
   if (toolName !== "bash" && toolName !== "powershell") return undefined;
   const value = typeof args === "object" && args !== null ? Reflect.get(args, "description") : undefined;
   if (typeof value !== "string") return undefined;
-  const text = lineText(redactPreview(value)).replace(/\s+/g, " ").trim();
+  const text = unescapeMarkdown(lineText(redactPreview(value))).replace(/\s+/g, " ").trim();
   if (!text) return undefined;
   const chars = Array.from(text);
   return chars.length > 80 ? `${chars.slice(0, 79).join("")}…` : text;
