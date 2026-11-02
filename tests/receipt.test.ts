@@ -479,6 +479,32 @@ test("a browser check whose server is gone is said as stale, not failed, and the
   expect(taskExitCode(undefined, task)).toBe(2);
 });
 
+test("a browser check that failed after Casper answered Cancel to its confirm dialog is said as not checked, and the task is incomplete (exit 2), not failed", () => {
+  const browser = { status: "incomplete", checks: [
+    { name: "Remove the weather widget", status: "incomplete", freshness: "fresh", baseline: "incomplete", cancelled: "confirm" },
+    { name: "Market search", status: "pass", freshness: "fresh", baseline: "pass" }] } as unknown as TaskResult["browser"];
+  const task = done({ changedPaths: ["server.js"], browser });
+  const receipt = formatReceipt(task);
+  expect(receipt.split("\n")[0]).toBe("– Incomplete — 1 browser check not checked: Casper answers Cancel to the confirm dialog it opens");
+  expect(receipt).toContain("– Browser checks: 1 of 2 passed; 1 not checked, Casper answered Cancel to its confirm dialog: Remove the weather widget");
+  expect(receipt).not.toContain("Failed");
+  expect(taskExitCode(undefined, task)).toBe(2);
+});
+
+test("a browser check written wrong or not replayed at the end is said as such, and the task is incomplete (exit 2), not failed", () => {
+  const browser = { status: "incomplete", checks: [
+    { name: "Bookmark row", status: "incomplete", freshness: "fresh", baseline: "pass", writtenWrong: "assertion 1's selector matches 2 elements" },
+    { name: "Edit dialog", status: "incomplete", freshness: "fresh", baseline: "pass", notReplayed: "step 2: Browser selector must match exactly one element; it matches 0" },
+    { name: "Market search", status: "pass", freshness: "fresh", baseline: "pass" }] } as unknown as TaskResult["browser"];
+  const task = done({ changedPaths: ["server.js"], browser });
+  const receipt = formatReceipt(task);
+  expect(receipt.split("\n")[0]).toBe("– Incomplete — 1 browser check written wrong: a selector matches several elements; 1 browser check not replayed at the end");
+  expect(receipt).toContain("1 written wrong: Bookmark row (assertion 1's selector matches 2 elements)");
+  expect(receipt).toContain("not replayed: Edit dialog (step 2: Browser selector must match exactly one element; it matches 0)");
+  expect(receipt).not.toContain("Failed");
+  expect(taskExitCode(undefined, task)).toBe(2);
+});
+
 test("settings or data files changed while checking and repairing are flagged, apart from code, lockfiles and dependency lists", () => {
   const receipt = formatReceipt(done({ changedPaths: ["server.js"], changedDuringChecks: ["config/services.yaml", "config/widgets.yaml", "public/style.css", "package.json", "package-lock.json", "data/items.json"] }));
   expect(receipt).toContain("⚠ Checks and repairs changed app settings or data: config/services.yaml, config/widgets.yaml, data/items.json; look for test data left in them");

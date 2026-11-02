@@ -29,6 +29,14 @@ export interface BrowserCheck {
   withdrawn?: string;
   /** The address of the server it last ran on, gone when Casper replayed it: its failure on Casper's own server is stale. */
   gone?: string;
+  /** A native dialog that needed OK (confirm, prompt): Casper answered Cancel and the check then failed, so it was not
+   * checked. Never a failure: the page may well work for a person who answers OK. */
+  cancelled?: "confirm" | "prompt";
+  /** A selector that matches several elements ("assertion 1's selector matches 2 elements"): a check written wrong,
+   * not a failure of the page. */
+  writtenWrong?: string;
+  /** Why Casper's end replay of it could not finish: said on the receipt instead of keeping an earlier result. */
+  notReplayed?: string;
   /** What its steps met: a click that changed nothing, a native dialog Casper dismissed. Notes, never a failure. */
   notes?: string[];
   assertions: Array<{ kind: string; status: "pass" | "fail"; actual: unknown
