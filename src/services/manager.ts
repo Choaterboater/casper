@@ -56,7 +56,7 @@ interface Slot {
   /** The name the AI gave this ad-hoc service (ServiceStatus.alias). */
   alias?: string;
   /** The freshness check in progress: parallel requests wait for it instead of each restarting the service. */
-  freshening?: Promise<{ restarted: boolean }>;
+  freshening?: Promise<unknown>;
   /** The port it had before a start had to pick another one, until a tool call reports the move. */
   movedFrom?: number;
   /** Hosts the sandbox kept it from reaching that a tool call already reported. */
@@ -239,11 +239,25 @@ export class ServiceManager {
     this.detected.delete(name);
   }
 
+  /** Restarts it, in turn with freshness checks: a request sent with the restart waits for it, rather than starting
+   * the stopped service on its old port and making the restart move it. */
   async restart(name: string, signal: AbortSignal): Promise<ServiceStatus> {
     const slot = this.slot(name);
+    return this.inTurn(slot, () => this.relaunch(slot, name, signal));
+  }
+
+  private async relaunch(slot: Slot, name: string, signal: AbortSignal): Promise<ServiceStatus> {
     await this.stop(name);
     await slot.work?.catch(() => {});
     return this.launch(slot, signal);
+  }
+
+  /** One restart or freshness check at a time per service. */
+  private inTurn<T>(slot: Slot, work: () => Promise<T>): Promise<T> {
+    const previous = slot.freshening;
+    const run = (async () => { await previous?.catch(() => {}); return work(); })();
+    slot.freshening = run;
+    return run.finally(() => { if (slot.freshening === run) slot.freshening = undefined; });
   }
 
   /** Stops the service's process tree and aborts a startup in progress, even one still
@@ -282,17 +296,14 @@ export class ServiceManager {
     const slot = this.slot(name);
     // One check at a time per service: parallel requests after an edit share one restart, instead of each
     // stopping the server the one before it just started (and the requests in flight with it).
-    const previous = slot.freshening;
-    const run = (async () => { await previous?.catch(() => {}); return this.freshen(slot, name, signal); })();
-    slot.freshening = run;
-    try { return await run; } finally { if (slot.freshening === run) slot.freshening = undefined; }
+    return this.inTurn(slot, () => this.freshen(slot, name, signal));
   }
 
   private async freshen(slot: Slot, name: string, signal: AbortSignal): Promise<{ restarted: boolean }> {
     await slot.work?.catch(() => {});
     if (slot.state === "ready" && !slot.stale && await this.answers(slot, signal)) return { restarted: false };
     const restarted = slot.state === "ready" || slot.state === "crashed";
-    await (restarted ? this.restart(name, signal) : this.start(name, signal));
+    await (restarted ? this.relaunch(slot, name, signal) : this.start(name, signal));
     return { restarted };
   }
 

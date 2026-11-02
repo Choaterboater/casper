@@ -78,6 +78,12 @@ function plainKeyName(name: string): boolean {
   return parts.at(-1) === "key" && !parts.includes("public");
 }
 
+/** A value that only names a file (`secrets.yaml`, `config/keys.env`, `tls/server.key`): where a secret is kept, not the
+ * secret. Hiding `secrets: 'secrets.yaml'` cost a small model three turns working out what its own file was called. */
+function fileName(value: string): boolean {
+  return /^(?:[\w.-]+\/)*[\w-][\w.-]*\.(?:ya?ml|json|jsonc|toml|ini|env|conf|cfg|txt|pem|key|crt|cer|p12|pfx|db|sqlite3?|[cm]?js|ts|py|rb|sh|xml|csv|log|properties)$/i.test(value);
+}
+
 /** 16 or more letters and digits (base64 or hex, or a UUID) with at least 3 digits: not a word, a path, a date or a cache key such as v1-deps-1234. */
 function generatedKey(value: string): boolean {
   const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
@@ -139,7 +145,7 @@ function assignmentSpans(line: string, strict: boolean): Span[] {
       // Command output: a value runs to the first space.
       if (!strict) { const space = value.search(/\s/); if (space >= 0) { end = start + space; value = value.slice(0, space); } }
     }
-    if (!value || keepLiterally(value) || value.includes(SECRET_MARKER)) continue;
+    if (!value || keepLiterally(value) || value.includes(SECRET_MARKER) || fileName(value)) continue;
     if (auth && !(strict || basicLogin(value))) continue;
     if (keyed && !generatedKey(value)) continue;
     if (!strict && !keyed && (quoted ? /\$\{|\{\{|^\s*$/.test(value) || value.length < 4 || CODE_WORDS.has(value.toLowerCase()) : !literalValue(value, name, match[5]!))) continue;

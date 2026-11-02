@@ -102,7 +102,8 @@ through. Check what a tool returns before you share it.
   secrets in an env file or a secrets store.` Nothing is stopped or asked. In a test file (`tests/`, `test_*.py`,
   `*.test.ts`, fixtures) only a secret Casper knows counts: a test's keys and passwords are made up.
   `tests/secret-claims.test.ts` covers a token form, its tests and a README full of token, csrf and password. A reference to a value
-  kept elsewhere (`!secret weather_key`, `${WEATHER_KEY}`, `{{ weather_key }}`), a placeholder, and
+  kept elsewhere (`!secret weather_key`, `${WEATHER_KEY}`, `{{ weather_key }}`), a value that only names a file
+  (`secrets: 'secrets.yaml'`, `token_file: tls/server.key`), which is also never hidden from the AI, a placeholder, and
   a write to a `.env`, `secrets.yaml` or other secret file (where secrets belong) get no line. A
   file written over ssh from a local file (`ssh host 'cat > f' < f`) is not read; a here-document
   in the command is, and gets the command line above.

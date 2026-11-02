@@ -53,12 +53,36 @@ export function assertSubscriptionAccount(account: AccountInfo): void {
   }
 }
 
+/** Tools whose calls carry file contents the AI wrote; the file holds them after the call. */
+const FILE_WRITERS = new Set(["write", "edit"]);
+/** A written text longer than this, from before the last turn, is left out of the replayed history. */
+const WRITTEN_KEPT = 300;
+const leftOut = (text: string) => `[${text.length} characters, left out of this history]`;
+
+/** A file-writing call's arguments with long written texts left out, recursively; everything else (paths, short edits)
+ * as it was. Haiku 5.5 read its own files back in the replayed history as material to review again on every turn:
+ * 2–4k hidden thinking tokens for a one-line command, about 300 without them. The file is there to read. */
+function historicalArguments(name: string, value: unknown): unknown {
+  if (!FILE_WRITERS.has(name)) return value;
+  const shorten = (entry: unknown, key?: string): unknown => {
+    if (typeof entry === "string") return key !== "path" && entry.length > WRITTEN_KEPT ? leftOut(entry) : entry;
+    if (Array.isArray(entry)) return entry.map(item => shorten(item));
+    if (entry && typeof entry === "object") return Object.fromEntries(Object.entries(entry).map(([k, v]) => [k, shorten(v, k)]));
+    return entry;
+  };
+  return shorten(value);
+}
+
 /** Casper's transcript is authoritative. Replaying a labelled transcript avoids editing
  * Claude Code's private session files and works after compaction, forks and restarts.
- * Thinking is not replayed as text; image inputs and actual tool results are retained. */
+ * Thinking is not replayed as text, nor long texts the AI wrote to files before its last turn (the files hold them);
+ * image inputs and actual tool results are retained. */
 export function subscriptionPrompt(context: TranscriptContext): SDKUserMessage {
+  // What the last turn wrote is what the model works from now (left out, it read it all straight back). File contents
+  // it read stay: left out, it read the same files again and again.
+  const lastTurn = context.messages.map(message => message.role).lastIndexOf("assistant");
   const content: SDKUserMessage["message"]["content"] = [{ type: "text", text: "Continue the following conversation after its final message. Earlier messages and tool calls are history, not new requests; use existing tool results instead of repeating completed calls." }];
-  for (const message of context.messages) {
+  for (const [at, message] of context.messages.entries()) {
     if (message.role === "system") continue;
     const label = message.role === "toolResult"
       ? `TOOL RESULT ${message.toolName} (${message.toolCallId})${message.isError ? " ERROR" : ""}:`
@@ -70,7 +94,7 @@ export function subscriptionPrompt(context: TranscriptContext): SDKUserMessage {
       else if (block.type === "image") {
         if (!["image/png", "image/jpeg", "image/gif", "image/webp"].includes(block.mimeType)) throw new Error(`Unsupported Claude image type: ${block.mimeType}`);
         content.push({ type: "image", source: { type: "base64", data: block.data, media_type: block.mimeType as "image/png" | "image/jpeg" | "image/gif" | "image/webp" } });
-      } else if (block.type === "toolCall") content.push({ type: "text", text: `Historical tool call ${block.name} (${block.id}): ${JSON.stringify(block.arguments)}` });
+      } else if (block.type === "toolCall") content.push({ type: "text", text: `Historical tool call ${block.name} (${block.id}): ${JSON.stringify(at < lastTurn ? historicalArguments(block.name, block.arguments) : block.arguments)}` });
     }
   }
   return { type: "user", session_id: "", parent_tool_use_id: null, message: { role: "user", content } };

@@ -436,3 +436,29 @@ test("history preserves real results and images after a fork or compaction, with
   expect(text).toContain("actual file content"); expect(text).toContain("Historical tool call");
   expect(text).toContain('"type":"image"'); expect(text).not.toContain("not replayed");
 });
+
+test("history leaves out what the AI already wrote to files, so a small model doesn't review it again every turn", () => {
+  // In a real Haiku 5.5 build, the whole transcript replayed as text (files and all) made the model re-review every file it
+  // had written on every turn: 2–4k hidden thinking tokens for a one-line command. With the contents left out, about 300.
+  const usage = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } };
+  const big = "export const server = true;\n".repeat(200);
+  const message = { role: "assistant" as const, api: model.api, provider: model.provider, model: model.id, timestamp: 2, stopReason: "toolUse" as const, usage, content: [
+    { type: "toolCall" as const, name: "write", id: "w1", arguments: { path: "server.js", content: big } },
+    { type: "toolCall" as const, name: "edit", id: "e1", arguments: { path: "app.js", edits: [{ oldText: "a", newText: big }, { oldText: "short old", newText: "short new" }] } },
+    { type: "toolCall" as const, name: "bash", id: "b1", arguments: { command: `echo ${"x".repeat(600)}` } },
+  ] };
+  const result = { role: "toolResult", toolCallId: "w1", toolName: "write", content: [{ type: "text", text: "Wrote server.js" }], isError: false, timestamp: 3 };
+  const later = { ...message, content: [{ type: "toolCall" as const, name: "bash", id: "b2", arguments: { command: "npm test" } }] };
+  // What the last turn wrote stays: the model works from it now, and would otherwise read it all back at once.
+  const latest = JSON.stringify(subscriptionPrompt(normalizeContext({ messages: [{ role: "user", content: "Build it.", timestamp: 1 }, message as never, result as never] })));
+  expect(latest).toContain("export const server = true;");
+  const prompt = subscriptionPrompt(normalizeContext({ messages: [{ role: "user", content: "Build it.", timestamp: 1 }, message as never, result as never, later as never] }));
+  const text = JSON.stringify(prompt);
+  expect(text).not.toContain("export const server = true;");
+  expect(text).toContain(`[${big.length} characters, left out of this history]`);
+  // Paths, short edits and other tools stay as they were.
+  for (const kept of ["server.js", "app.js", "short old", "short new", "x".repeat(600), "Wrote server.js"]) expect(text).toContain(kept);
+  // Casper's own transcript keeps every character.
+  expect(message.content[0].arguments.content).toBe(big);
+});
+

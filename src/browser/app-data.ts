@@ -10,7 +10,14 @@ import { PROJECT_SCOPE } from "./scenario";
  * A file that was absent is kept as absent: restoring removes it. Bounded: a project with more or bigger data
  * files than this has no snapshot, and its replays run on the data as it is.
  */
-export interface AppData { readonly files: ReadonlyMap<string, Buffer> }
+export interface AppData { readonly files: ReadonlyMap<string, Buffer>; /** Which files it holds (appDataFile when unset). */ readonly pick?: (file: string) => boolean }
+
+/** Settings an app may write as it runs (an installed widget in config/widgets.yaml): YAML, TOML and INI files, not
+ * lockfiles. Kept apart from the data files so a project with many of them still has its data snapshot. */
+export function settingsFile(file: string): boolean {
+  const name = file.replace(/\\/g, "/").split("/").pop()!.toLowerCase();
+  return /\.(?:ya?ml|toml|ini)$/.test(name) && !/^(?:pnpm-lock\.yaml|poetry\.lock|cargo\.lock)$/.test(name) && !name.endsWith(".lock.yaml");
+}
 
 const MAX_FILES = 32;
 const MAX_FILE_BYTES = 1024 * 1024;
@@ -18,7 +25,7 @@ const MAX_TOTAL_BYTES = 8 * 1024 * 1024;
 const MAX_ENTRIES = 4096;
 const SKIPPED = new Set([...(PROJECT_SCOPE.exclude ?? []), ".casper"]);
 
-export async function snapshotAppData(root: string, signal?: AbortSignal): Promise<AppData | undefined> {
+export async function snapshotAppData(root: string, signal?: AbortSignal, pick: (file: string) => boolean = appDataFile): Promise<AppData | undefined> {
   const files = new Map<string, Buffer>();
   let total = 0, entries = 0;
   const visit = async (relative: string): Promise<boolean> => {
@@ -29,7 +36,7 @@ export async function snapshotAppData(root: string, signal?: AbortSignal): Promi
       if (entry.isDirectory()) {
         if (!relative && SKIPPED.has(entry.name)) continue;
         if (!await visit(child)) return false;
-      } else if (entry.isFile() && appDataFile(child)) {
+      } else if (entry.isFile() && pick(child)) {
         const size = (await lstat(path.join(root, child))).size;
         total += size;
         if (size > MAX_FILE_BYTES || total > MAX_TOTAL_BYTES || files.size >= MAX_FILES) return false;
@@ -38,7 +45,7 @@ export async function snapshotAppData(root: string, signal?: AbortSignal): Promi
     }
     return true;
   };
-  try { return await visit("") ? { files } : undefined; }
+  try { return await visit("") ? { files, ...(pick === appDataFile ? {} : { pick }) } : undefined; }
   catch (error) { signal?.throwIfAborted(); return undefined; }
 }
 
