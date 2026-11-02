@@ -125,7 +125,7 @@ test("a job left running: its receipt says so, a question about it runs no check
     const third = app.getLastTaskResult()!;
     expect(third.changedPaths).toEqual(["state.yaml"]);
     expect(third.autoSkipped).toBe("question");
-    expect(formatReceipt(third, { surface: "interactive" })).toContain("– Checks skipped — this read as a question, and the AI's own tools changed no code or tests; /verify runs them anyway.");
+    expect(formatReceipt(third, { surface: "interactive" })).toContain("– Checks skipped — this read as a question, and the AI's own tools changed no code or tests");
     // Nothing of this asked you anything: lines and a row only.
     expect(output).not.toMatch(/Type 1|Type a number/);
   } finally {
@@ -148,7 +148,7 @@ test("only output files changed (results/, logs/, *.out): no checks, and the rec
   // Code or tests in such a folder are never output; a config file outside one still runs the checks.
   for (const file of ["logs/logger.ts", "out/test_report.py", "config.yaml", "results.json"]) expect([file, planAutoChecks({ commands, changedPaths: [file] }).run]).toEqual([file, ["test"]]);
   const receipt = formatReceipt({ execution: "completed", changedPaths: ["results/report.html", "results/scores.json"], autoSkipped: "output", verificationMode: "auto" }, { surface: "interactive" });
-  expect(receipt).toContain("– Checks skipped — only output files changed (results/report.html, results/scores.json); /verify runs them anyway.");
+  expect(receipt).toContain("– Checks skipped — only output files changed (results/report.html, results/scores.json)");
 });
 
 test("what reads as a question: Casper's question intent, a closing ?, or a bare status", () => {

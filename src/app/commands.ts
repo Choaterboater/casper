@@ -19,7 +19,7 @@ import { formatCacheHitRate, formatCostLong, formatCostShort, formatTokenSplit }
 import { effortChoices, effortProblem } from "../tui/effort";
 import { COMMAND_REGISTRY, sessionFlag } from "../tui/commands";
 import { pickEffort } from "../tui/effort-picker";
-import { commandLabel, displayPath, formatDuration, formatRuntimeStatus, redactPreview, terminalText, toolTarget } from "../tui/format";
+import { commandLabel, displayPath, formatDuration, formatRuntimeStartLine, formatRuntimeStatus, redactPreview, terminalText, toolTarget } from "../tui/format";
 import type { InteractiveTerminal } from "../tui/terminal";
 import type { CapabilityBroker } from "../capabilities/broker";
 import type { MCPManager, MCPStatus } from "../mcp/manager";
@@ -416,7 +416,7 @@ export async function runSlashCommand(host: CommandHost, prompt: string): Promis
         let current: string | undefined;
         try { current = session.getSessionInfo?.().sessionId; } catch { current = undefined; }
         if (current !== undefined && current === host.continuedConversation) {
-          host.output.write("[session] You're in the conversation /continue opened, so you stay in it. /resume lists the others.\n");
+          host.output.write("[session] You're in the conversation you went back to, so you stay in it. /resume lists the others.\n");
           return;
         }
         const all = await session.listConversations();
@@ -483,7 +483,8 @@ export async function runSlashCommand(host: CommandHost, prompt: string): Promis
         // As at startup, a new conversation with no reply yet is dropped, not saved for the next /continue to find.
         await session.resumeConversation(id, prompt === "/continue" ? { keepUnwritten: false } : undefined);
       }
-      host.continuedConversation = prompt === "/continue" ? id : undefined;
+      // The one you went back to (/continue or /resume): a /continue right after stays in it.
+      host.continuedConversation = prompt === "/clear" ? undefined : id;
       host.lastTaskRequest = undefined;
       // Like --continue and --resume, a one-shot /clear or /resume does not change what later sessions open, and says so.
       if (host.interactive) await (await host.ensureSessionWorkspace()).rememberConversation(session);
@@ -500,7 +501,10 @@ export async function runSlashCommand(host: CommandHost, prompt: string): Promis
         : prompt === "/clear"
           ? "[session] New conversation. Your files are not changed; /resume brings the last one back.\n"
           : `[session] Back in ${named}. Your files are not changed; /resume lists the others.\n`);
-      host.output.write(`${formatRuntimeStatus(session.getStatus?.())}\n`);
+      // The model it runs on, in one line; sign-in and the selection's source only when something is wrong (/status has all).
+      const status = session.getStatus?.();
+      const modelLine = status ? formatRuntimeStartLine(status) : undefined;
+      if (modelLine) host.output.write(`${modelLine}\n`);
       const turns = prompt === "/clear" ? [] : recentTurnLines(session.recentTurns?.(12) ?? []);
       if (turns.length) host.output.write(`Last turns:\n${turns.map(line => terminalText(line)).join("\n")}\n`);
       // Back in a conversation, nothing runs until you type: say so, so the prompt doesn't look stuck.

@@ -259,7 +259,7 @@ function toolArguments(text: string): unknown {
 
 /** Registered before model selection for both main sessions and isolated children. */
 export async function registerClaudeSubscription(catalog: ModelRuntime, cwd: string | (() => string),
-  dependencies: { env?: Record<string, string | undefined>; status?: typeof claudeAuthStatus } = {}): Promise<void> {
+  dependencies: { env?: Record<string, string | undefined>; status?: typeof claudeAuthStatus; recheckMs?: number } = {}): Promise<void> {
   if (catalog.getProvider(CLAUDE_SUBSCRIPTION)) throw new Error("claude-subscription is reserved for Casper's Claude Code transport.");
   const models = catalog.getModels().filter(model => model.provider === "anthropic").map(model => ({
     ...model, provider: CLAUDE_SUBSCRIPTION, baseUrl: "claude-code://local", headers: undefined,
@@ -269,14 +269,21 @@ export async function registerClaudeSubscription(catalog: ModelRuntime, cwd: str
   // Availability reads only Claude Code's public status, never its credential files. Share
   // simultaneous catalog checks; a later refresh reads again after a Claude Code sign-in.
   let checking: Promise<boolean> | undefined;
+  // Only an answer counts: a status check that failed or timed out (Claude Code busy, 5 s limit) keeps the last answer,
+  // and a "not signed in" right after a signed-in answer is asked once more first (Claude Code and its desktop app renew
+  // the same login, and one answer mid-renewal said signed out). A working sign-in then never reads as "credentials
+  // missing" for a /resume line or a repair round. The SDK checks the account again before each request.
+  let last = false;
   const available = () => checking ??= (async () => {
     const env = dependencies.env ?? process.env;
     const executable = claudeExecutable(env);
-    if (!executable) return false;
+    if (!executable) return last = false;
+    const ask = async () => isSubscriptionStatus(await (dependencies.status ?? claudeAuthStatus)(executable, subscriptionEnvironment(env), directory()));
     try {
-      const status = await (dependencies.status ?? claudeAuthStatus)(executable, subscriptionEnvironment(env), directory());
-      return isSubscriptionStatus(status);
-    } catch { return false; }
+      let now = await ask();
+      if (!now && last) { await Bun.sleep(dependencies.recheckMs ?? 1_500); now = await ask(); }
+      return last = now;
+    } catch { return last; }
   })().finally(() => { checking = undefined; });
   const stream = (model: Model<Api>, context: TranscriptContext, options?: SimpleStreamOptions) =>
     streamClaudeSubscription(model, context, options, { cwd: directory(), env: dependencies.env });

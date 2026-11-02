@@ -11,8 +11,8 @@ import type { ServiceState } from "../services/manager";
 import type { SmokeReport } from "../services/smoke";
 import type { AppSmokeReport } from "../services/try-it";
 import { formatPageReport, pageFailureSummary } from "../services/page-report";
-import { SNAPSHOT_FILE_LIMIT } from "./changes";
-import { isAppDataPath, isOutputPath, TESTS_WITHOUT_COMMAND, type AutoCheckSkip, type VerificationMode } from "../verify/mode";
+import { movedInto, SNAPSHOT_FILE_LIMIT } from "./changes";
+import { inOutputFolder, isAppDataPath, isOutputPath, TESTS_WITHOUT_COMMAND, type AutoCheckSkip, type VerificationMode } from "../verify/mode";
 import type { ChangeProof } from "../verify/proof";
 import type { AcceptanceResult } from "../verify/acceptance";
 import { ROUND_MAX_TURNS, type RequirementsReview } from "./review";
@@ -204,6 +204,8 @@ export interface TaskResult {
   /** Jobs this task started that still run in Casper's background (src/runtime/background-commands.ts): the work goes on
    * after the receipt, so line 1 says so instead of a done-style pass. The command is shown without its secrets. */
   stillRunning?: StillRunning[];
+  /** Files the task moved or renamed: the change list says them in one line ("Moved 150 files into run-1/"). */
+  moved?: Array<{ from: string; to: string; rewritten?: true }>;
   /** Dangerous lines in the config files this task changed (reload, shutdown, erase …): shown, never a pass or a fail. */
   riskyLines?: RiskyLine[];
   /** How many more risky lines there were past the 20 listed. */
@@ -612,7 +614,9 @@ export function shortReceiptText({ verdict, short, items }: ReceiptView): string
 /** The short receipt as items, each with its section, for a terminal that lays the receipt out in rows. */
 export function receiptView(task: TaskResult, options: ReceiptOptions = {}): ReceiptView {
   const { lines, undo, folds, short, info } = receiptParts(task, options, !options.full);
-  const config = configChanges([...new Set([...task.changedPaths ?? [], ...task.changedDuringChecks ?? []])]);
+  // Config the task changed: not files it only moved, nor ones in an output folder (a comparison's builds).
+  const movedFiles = new Set((task.moved ?? []).flatMap((move) => [move.to, ...move.rewritten ? [] : [move.from]]));
+  const config = configChanges([...new Set([...task.changedPaths ?? [], ...task.changedDuringChecks ?? []])].filter((file) => !movedFiles.has(file) && !inOutputFolder(file)));
   const about = (line: string): LineInfo => info.get(line) ?? { section: "notes" };
   // A line printed as two (a review cut off with a gap) is two items, each in its own section.
   const items = (line: string): ReceiptItem[] => line.split("\n").map((part) => ({ line: part, ...(info.get(part) ?? about(line)) }));
@@ -681,10 +685,18 @@ function receiptParts(task: TaskResult, options: ReceiptOptions, onScreen = fals
   // Cleanup Casper could not confirm needs you, its processes with it.
   for (const report of task.cleanup ?? []) for (const line of cleanupReceiptLines([report])) add(report.state === "stopped" ? "notes" : "open", line);
   const changedPart = (status: string, detail?: string): Parts => ({ kind: "changed", status, ...(detail ? { detail } : {}) });
-  if (task.changedPaths?.length) {
-    const list = pathList(task.changedPaths, safe);
-    fold("changed", `✓ Changed ${list}`, changedShort(task.changedPaths, safe), { ...changedPart("Changed", list), files: task.changedPaths.map(safe) });
+  // Where moved files went, and where they came from unless that path was written anew (then it is a change).
+  const movedSet = new Set((task.moved ?? []).flatMap((move) => [move.to, ...move.rewritten ? [] : [move.from]]));
+  const ownChanges = task.changedPaths?.filter((file) => !movedSet.has(file));
+  if (task.moved?.length) {
+    const what = `${task.moved.length} ${task.moved.length === 1 ? "file" : "files"} into ${safe(movedInto(task.moved))}`;
+    fold("changed", `✓ Moved ${what}`, `moved ${what}`, changedPart("Moved", what));
   }
+  if (ownChanges?.length) {
+    const list = pathList(ownChanges, safe);
+    fold("changed", `✓ Changed ${list}`, changedShort(ownChanges, safe), { ...changedPart("Changed", list), files: ownChanges.map(safe) });
+  }
+  else if (task.moved?.length) { /* Only moves: their line says it. */ }
   else if (workElsewhere(task)) { /* The work is outside this folder: its own line below says where. */ }
   else if (task.changedPaths && task.autoSkipped === "no-changes" && !task.verification) add("changed", "– No files changed, so Casper ran no checks", changedPart("No files changed", "Casper ran no checks"));
   else if (task.changedPaths) fold("changed", "– No files changed", "no files changed", changedPart("No files changed"));
@@ -742,7 +754,8 @@ function receiptParts(task: TaskResult, options: ReceiptOptions, onScreen = fals
   }
   if (task.changedDuringChecks?.length) add("changed", `– Changed while checking: ${pathList(task.changedDuringChecks, safe, false)}`);
   // A repair once put test data into an app's config to make a check pass: settings and data changed then need a look.
-  const settled = task.changedDuringChecks?.filter(isAppSettingsOrData) ?? [];
+  // A file in an output folder (a running comparison's logs) is that program's, not the app's settings.
+  const settled = task.changedDuringChecks?.filter((file) => isAppSettingsOrData(file) && !inOutputFolder(file) && !task.changedNotByModel?.includes(file)) ?? [];
   if (settled.length) add("open", `⚠ Checks and repairs changed app settings or data: ${pathList(settled, safe, false)}; look for test data left in them`);
   if (task.changedWhilePlanning?.length) add("changed", `– Changed while planning: ${pathList(task.changedWhilePlanning, safe, false)}`);
   if (task.changedNotByModel?.length) add("changed", `– ${CHANGED_BY_OTHERS} (not checked): ${pathList(task.changedNotByModel, safe, false)}`);
@@ -767,9 +780,9 @@ function receiptParts(task: TaskResult, options: ReceiptOptions, onScreen = fals
     else if (task.autoSkipped === "docs-only") why(`– Checks skipped — ${only("documentation")}; ${slash("/verify")} runs them anyway.`, "Checks skipped", only("documentation"), slash("/verify"));
     else if (task.autoSkipped === "output") {
       const what = only(task.changedPaths?.every((file) => isOutputPath(file) || isAppDataPath(file)) ? "output files" : "output files and documentation");
-      why(`– Checks skipped — ${what}; ${slash("/verify")} runs them anyway.`, "Checks skipped", what, slash("/verify"));
+      why(`– Checks skipped — ${what}`, "Checks skipped", what);
     }
-    else if (task.autoSkipped === "question") why(`– Checks skipped — ${ASKED_ONLY}; ${slash("/verify")} runs them anyway.`, "Checks skipped", ASKED_ONLY, slash("/verify"));
+    else if (task.autoSkipped === "question") why(`– Checks skipped — ${ASKED_ONLY}`, "Checks skipped", ASKED_ONLY);
     else if (task.autoSkipped === "not-covered") why("– Not verified — no configured check covers the changed files.", "Not verified", "no configured check covers the changed files");
     else if (changed && task.untrustedFolder) {
       const reason = untrustedReason(task.untrustedFolder);
@@ -905,7 +918,11 @@ function undoLines(task: TaskResult, options: ReceiptOptions, safe: (text: strin
   const items: ReceiptItem[] = [];
   const left = undo.left?.filter((entry) => !options.undoNamed?.has(entry.path)) ?? [];
   if (left.length) {
-    const named = `${left.slice(0, RECEIPT_PATH_LIMIT).map((entry) => `${safe(entry.path)} (${safe(entry.why)})`).join(", ")}${left.length > RECEIPT_PATH_LIMIT ? ` … +${left.length - RECEIPT_PATH_LIMIT} more` : ""}`;
+    // One reason said once: "run-1/runs/casper/app, runs/omp/app and 2 more (nested repositories)".
+    const reasons = [...new Set(left.map((entry) => entry.why))];
+    const named = reasons.length === 1 && left.length > 2
+      ? `${left.slice(0, 2).map((entry) => safe(entry.path)).join(", ")} and ${left.length - 2} more (${safe(left[0]!.why)}, each)`
+      : `${left.slice(0, RECEIPT_PATH_LIMIT).map((entry) => `${safe(entry.path)} (${safe(entry.why)})`).join(", ")}${left.length > RECEIPT_PATH_LIMIT ? ` … +${left.length - RECEIPT_PATH_LIMIT} more` : ""}`;
     items.push({ line: `– Undo can't put back: ${named}`, section: "undo", kind: "undo", status: "Undo can't put back", detail: named });
   }
   if (options.surface === "one-shot") {
@@ -1006,6 +1023,8 @@ function withVerdict(task: TaskResult, body: string[], options: ReceiptOptions, 
         : task.turnLimit !== undefined
         ? `– Incomplete — stopped after ${task.turnLimit} ${task.turnLimit === 1 ? "turn" : "turns"} (--max-turns); changes so far are kept; ${options.surface === "one-shot" ? "casper --continue" : "send another request"} to go on`
         : task.cleanup?.some(incident => incident.state !== "stopped") ? "– Incomplete — owned process cleanup is unconfirmed"
+        : task.appSmoke?.status === "not-run" && !task.appSmoke.deferred && !task.appSmoke.nothingToStart && task.appSmoke.cleanup !== "unconfirmed"
+          ? `– Incomplete — app smoke didn't run${task.appSmoke.reason ? `: ${safe(redactPreview(task.appSmoke.reason))}` : ""}`
         : (task.appSmoke?.status === "not-run" && !task.appSmoke.deferred && !task.appSmoke.nothingToStart) || task.appSmoke?.cleanup === "unconfirmed" ? "– Incomplete — app smoke did not finish"
         : task.remoteNotRun?.length ? `– Incomplete — ${remoteNotRunVerdict(task.remoteNotRun, safe)}`
         : task.wroteToolCallAsText ? "– Did not act — the model wrote a tool call as text instead of using it"
@@ -1045,7 +1064,9 @@ function withVerdict(task: TaskResult, body: string[], options: ReceiptOptions, 
       break;
     }
     case "not_verified":
-      lines = body.includes(NO_CHECKS_LINE) ? promote(NO_CHECKS_LINE, NO_CHECKS_LINE, "Not checked")
+      // Checks rightly skipped (only docs, data or output changed, or a question): that is line 1, not "Not verified".
+      lines = body.some((line) => line.startsWith("– Checks skipped — ")) ? promote("– Checks skipped — ", "– Checks skipped", "Checks skipped")
+        : body.includes(NO_CHECKS_LINE) ? promote(NO_CHECKS_LINE, NO_CHECKS_LINE, "Not checked")
         : body.includes(TESTS_WITHOUT_COMMAND_LINE) ? promote(TESTS_WITHOUT_COMMAND_LINE, TESTS_WITHOUT_COMMAND_LINE, "Not checked")
         : promote("– Not verified", `– Not verified — ${notVerifiedReason(task)}`, "Not verified"); break;
     case "unchanged":

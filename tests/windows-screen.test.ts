@@ -247,7 +247,7 @@ conpty("ConPTY: Enter during a task steers it, Ctrl+C stops a task, and Ctrl+C t
   s.send("slow two\n");
   await s.waitFor("the model call", () => requests.includes("slow two"));
   s.press("ctrl+c");
-  await s.until("Stopped: cancelled");
+  await s.until("Stopped. Nothing was changed.");
   await idle(s);
   release();
 

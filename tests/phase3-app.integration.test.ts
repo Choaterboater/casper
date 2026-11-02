@@ -5,7 +5,7 @@ import path from "node:path";
 import { CasperApp } from "../src/app";
 import { loadProjectContext } from "../src/project/context";
 import type { AgentRuntime, RuntimeSession, RuntimeEventListener, RuntimeTool } from "../src/runtime/types";
-import { taskExitCode } from "../src/task/result";
+import { formatReceipt, taskExitCode } from "../src/task/result";
 import { SkillRegistry } from "../src/skills/registry";
 import { checkCommand } from "./support/check-command";
 import { posixOnly, sandboxAvailable } from "./support/platform";
@@ -655,4 +655,28 @@ posixOnly("one-shot CLI returns meaningful exit codes without model credentials"
   const staleDetail = await run("/verify build", "--verbose");
   expect(staleDetail.stdout).toContain("inputs stale");
   expect(staleDetail.stdout).toContain("current files unverified");
+});
+
+test("a repair round whose model can't start is not \"the model run failed\": the task's own turn finished, its checks stand", async () => {
+  // Casper's own run 2 of the comparison built a working app; its repair round stopped on a sign-in check, and the
+  // receipt said "✗ Failed — the model run failed" and told it to try another model.
+  const root = await fixture();
+  let count = 0;
+  const { app } = createApp(root, { respond: async (_prompt, emit) => {
+    count++;
+    if (count === 1) { await writeFile(path.join(root, "work.ts"), "export const work = 1;\n"); return; }
+    emit({ type: "error", message: "Claude subscription needs native Claude Code installed and signed in to a paid Claude plan." });
+    throw new Error("Claude subscription needs native Claude Code installed and signed in to a paid Claude plan.");
+  } });
+  try {
+    await app.runOnce("Fix addition", root);
+    const task = app.getLastTaskResult()!;
+    expect(count).toBe(2);
+    expect(task.execution).toBe("completed");
+    const receipt = formatReceipt(task, { surface: "one-shot" });
+    expect(receipt).not.toContain("the model run failed");
+    expect(receipt).not.toContain("to try another model");
+    expect(receipt.split("\n")[0]).toStartWith("✗ Failed — test failed");
+    expect(receipt).toContain("Repair runtime failed: Claude subscription needs native Claude Code");
+  } finally { await app.close(); }
 });

@@ -5,7 +5,7 @@ import type { ProjectContext } from "../project/context";
 import type { ChildProject } from "../project/child";
 import { planAppSmoke, runtimeChanges, type AppSmokeTarget } from "../services/detect";
 import { requestApp, sameAppInputs, sameRuntimeInputs, tryApp, type AppSmokeReport } from "../services/try-it";
-import { diffSnapshots } from "../task/changes";
+import { diffSnapshots, findMoves, withoutMoves } from "../task/changes";
 import { redactPreview } from "../tui/format";
 import type { VerificationReport } from "../verify/evidence";
 import { phase } from "./footer";
@@ -63,7 +63,9 @@ export async function finishAppSmoke(app: CasperApp, options: AppSmokeTask & {
     if (app.closing || signal.aborted || app.taskRuntimeCancelled || app.taskRuntimeFailed || app.checkTask?.signal.aborted
       || app.taskTurnLimit !== undefined || app.taskSpendStop !== undefined) return undefined;
     const now = await app.snapshotWorkspace(options.root, signal);
-    const changes = options.before && now ? diffSnapshots(options.before, now) : undefined;
+    // Files only moved (`mv run run-1/run`) start no app.
+    const all = options.before && now ? diffSnapshots(options.before, now) : undefined;
+    const changes = all && options.before && now ? withoutMoves(all, findMoves(options.before, now, all)) : undefined;
     const files = changes ? [...changes.added, ...changes.modified, ...changes.removed] : [];
     if (!runtimeChanges(files).length) return undefined;
     let context = await app.loadProjectContextFn(options.context.info);

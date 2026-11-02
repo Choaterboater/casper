@@ -88,6 +88,21 @@ test.skipIf(!unix)("a command that sends its own job to the background (nohup, &
   expect(commands.list()).toEqual([]);
 }, 30_000);
 
+test.skipIf(!unix)("a job the command detached itself (as the comparison's runner was launched) is found and tracked like a background one", async () => {
+  const { notes, commands, run } = setup();
+  // The smoke session's run 2: a node spawn with detached: true, whose launcher exits at once.
+  const launcher = `${JSON.stringify(process.execPath)} -e 'require("child_process").spawn(process.execPath, ["-e", "setTimeout(() => console.log(1), 4000)"], { detached: true, stdio: "ignore" }).unref()'`;
+  const text = await run(`${launcher}; echo launched`);
+  expect(text).toContain("launched");
+  expect(text).toMatch(/Casper found what this command left running: .*setTimeout.* \(pid \d+\)\. It runs on as cmd-1/);
+  expect(commands.list().map((entry) => entry.id)).toEqual(["cmd-1"]);
+  expect(await until(() => notes.length > 0, 15_000)).toBe(true);
+  expect(notes[0]).toContain("[Background command cmd-1");
+  expect(commands.list()).toEqual([]);
+  // A plain command leaves nothing to find.
+  expect(await run("echo plain")).not.toContain("left running");
+}, 30_000);
+
 test.skipIf(!unix)("a command with its own timeout is still stopped at it, and a quick one is untouched", async () => {
   const { notes, commands, run } = setup();
   expect(await run("echo quick")).toBe("quick\n");

@@ -126,7 +126,11 @@ export const isAppDataPath = (file: string): boolean => APP_DATA_FILE.test(file)
 /** What a program writes when it runs, not what it runs from: a file in a top-level results, output, out, reports, logs,
  * coverage or screenshots folder, or a .log or .out file (compare.out). Never code or a test, wherever it sits. A
  * comparison that wrote 22 files under results/ ran a 45 s test suite for them. */
-const OUTPUT_FOLDER = /^(?:results?|outputs?|out|reports?|logs?|coverage|screenshots?)\//i;
+const OUTPUT_FOLDER = /^(?:results?|outputs?|out|reports?|logs?|coverage|screenshots?|builds?|dist|runs?)\//i;
+/** A file in a top-level folder a program writes its output into (results/, logs/, builds/, dist/, runs/ …), code
+ * included: a comparison's builds there are what it made, not this task's change, so no proof is asked for them, no
+ * app is started for them and checks writing there leave no test data in the app. */
+export const inOutputFolder = (file: string): boolean => OUTPUT_FOLDER.test(file);
 const OUTPUT_FILE = /\.(?:log|out)$/i;
 export const isOutputPath = (file: string): boolean => !isCodePath(file) && !isTestPath(file) && (OUTPUT_FOLDER.test(file) || OUTPUT_FILE.test(file));
 
