@@ -7,7 +7,7 @@ import { renderPanel, type PanelTone } from "./presentation";
 import { checkName, githubLabel } from "./tool-status";
 
 /** A finished step as the folded row names it. `description`: a shell step's title from the AI. */
-export interface NamedStep { toolName: string; input?: ToolObservationInput; elapsedMs?: number; description?: string }
+export interface NamedStep { toolName: string; input?: ToolObservationInput; elapsedMs?: number; description?: string; result?: string }
 
 /** One kind of step in a folded row: "read a.ts, b.ts", "ran git status, bun test (2m05s)". */
 export interface StepPart {
@@ -91,9 +91,10 @@ export function describeSteps(steps: readonly NamedStep[], fit: ToolLineFit = {}
         }
         const slow = step.elapsedMs !== undefined && step.elapsedMs >= SLOW_MS ? ` (${formatDuration(step.elapsedMs)})` : "";
         // A titled step is named by its title, said done: "Ran the unit tests".
-        if (step.description) { add(`${pastTense(shown(step.description, 80))}${slow}`, ["step", "steps"], ""); break; }
+        const result = step.result ? ` → ${shown(step.result, 80)}` : "";
+        if (step.description) { add(`${pastTense(shown(step.description, 80))}${slow}${result}`, ["step", "steps"], ""); break; }
         const label = typeof input.command === "string" ? commandLabel(redactPreview(input.command), 60).replace(/ …$/, "") : step.toolName;
-        add("ran", ["command", "commands"], `${shown(label)}${slow}`);
+        add("ran", ["command", "commands"], `${shown(label)}${slow}${result}`);
         break;
       }
       case "edit": case "write": add("edited", ["file", "files"], where ?? "a file", true); break;

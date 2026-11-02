@@ -287,6 +287,7 @@ export function backgroundCommands(app: CasperApp): BackgroundCommands | undefin
         const scrubbed = await scrubToolOutput(app.scrubber, "bash", { command }, [note], undefined, { configs: app.scrubFiles, networkLoginFile: networkLoginFile(app) });
         await app.session.appendContext(`${scrubbed?.texts[0] ?? note}${scrubbed?.note ? `\n${scrubbed.note}` : ""}`);
       },
+      changed: () => { if (!app.closing) updateFooter(app); },
     });
     app.lifecycle.add({ name: "background-commands", close: () => commands.close() });
   }

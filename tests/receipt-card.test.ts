@@ -23,7 +23,7 @@ test("a failure is a card: the verdict once, then checks, changes, config, other
   expect(card(failed)).toEqual([
     "▌ ✗ Failed: test failed",
     "▌   Checks   ✓ lint 2.1s · ✗ test 4s (exit 1), after 2 repairs · Ctrl+T shows the log",
-    "▌   Changed  15 files",
+    "▌   Changed  15 files in src/ (13), .casper/ (1) and here (1)",
     "▌   Config   .casper/project.yaml, package.json",
     "▌   Devices  build-server: installed a service (/etc/systemd/system/app.service)",
     "▌            from the commands Casper saw, not checked there",
@@ -36,7 +36,8 @@ test("values wrap under their column, and line 1 two columns in", () => {
     "▌ ✗ Failed: test failed",
     "▌   Checks   ✓ lint 2.1s · ✗ test 4s (exit 1), after 2",
     "▌            repairs · Ctrl+T shows the log",
-    "▌   Changed  15 files",
+    "▌   Changed  15 files in src/ (13), .casper/ (1) and here",
+    "▌            (1)",
     "▌   Config   .casper/project.yaml, package.json",
     "▌   Devices  build-server: installed a service",
     "▌            (/etc/systemd/system/app.service)",

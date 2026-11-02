@@ -80,6 +80,8 @@ interface Step {
   start?: ToolStart;
   /** The last line of a running command's output so far (rich terminal, not quiet). */
   tail?: string;
+  /** A poll's last meaningful output line, said with its finished line. */
+  result?: string;
   /** Its live row (running, then finished). */
   line: string;
   /** The finished line as the detailed level and a not-run step show it, with a reason under it. */
@@ -458,6 +460,7 @@ export class RuntimeEventView {
       ...(step.endedAt !== undefined ? { elapsedMs: step.endedAt - step.startedAt } : {}),
       ...(step.failed ? { failed: true } : {}), ...(step.retried ? { retried: true } : {}), ...(step.notRun || step.note ? { notRun: true } : {}),
       ...(step.output ? { output: step.output } : {}), ...(step.lines ? { lines: step.lines } : {}), ...(step.diff ? { diff: step.diff } : {}),
+      ...(step.result ? { result: step.result } : {}),
     })), this.level(), { ...fit, home: this.callbacks.homeDir?.() ?? os.homedir() });
     if (fold.parts.length || fold.lines.length || fold.edits.length || fold.failures.length || fold.config?.length || fold.changes?.length) this.terminal.writeFold(fold);
     // Ctrl+T shows the last box in full: the group's whole diff, or what the failed step printed.
@@ -792,6 +795,9 @@ export class RuntimeEventView {
         if (recovery) step.recovery = recovery;
         step.empty = !event.isError && stepKind(event.toolName) === "read" && foundNothing(event.output?.text);
         step.printed = endLine(0, true, false);
+        // A step that waited and looked (a poll: `sleep 120; tail compare.out`) says what it saw, so updates show.
+        const result = !event.isError && !notRun && waitsAndLooks(event.input?.command) ? lastOutputLine(event.output?.text ?? "", 80) : "";
+        if (result) { step.result = result; step.printed = `${step.printed} → ${result}`; }
         // Never ran, skipped or found nothing: keep its neutral line when the group folds.
         const skipped = !event.isError && step.printed.startsWith(NOT_RUN_GLYPH);
         if (notRun || skipped || note) step.notRun = true;
@@ -844,4 +850,11 @@ export function helperActivityLine(activity: HelperActivity, root?: string): str
   if (activity.kind === "usage") return `${who} · ${(activity.run.spent?.tokens ?? 0).toLocaleString("en-US")} tokens so far`;
   if (activity.kind === "end") return `${who} ${activity.status === "completed" ? "finished" : `stopped (${activity.status.replace("_", " ")})`}`;
   return `${who} · ${formatToolActivity(activity.event.type === "tool_end" ? { ...activity.event, output: undefined } : activity.event, undefined, root ? { root } : {})}`;
+}
+
+/** A command that waits before it looks: `sleep 120; tail compare.out` (10 s or more, then something after). */
+export function waitsAndLooks(command: unknown): boolean {
+  if (typeof command !== "string") return false;
+  const wait = /\bsleep\s+(\d+)/.exec(command);
+  return Boolean(wait && Number(wait[1]) >= 10 && command.slice(wait.index + wait[0].length).trim().replace(/^[;&|]+/, "").trim());
 }

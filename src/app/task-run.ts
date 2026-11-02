@@ -23,7 +23,7 @@ import type { RuntimeImage, RuntimeSession } from "../runtime/types";
 import { formatSelectedSkills } from "../skills/registry";
 import { classifyTask, formatTaskPrompt, underSpecifiedTarget } from "../task/classify";
 import { machineNames, rememberMachines } from "./machines";
-import { answerClaimsBrowserPass, receiptView, rememberSessionNotes, shortReceiptText, undoPathsShown, formatTaskResult, UNDO_NOT_PROJECT, workElsewhere, type ReceiptOptions, type ReceiptView, type StillRunning, type TaskResult } from "../task/result";
+import { answerClaimsBrowserPass, receiptView, rememberSessionNotes, shortReceiptText, undoPathsShown, formatTaskResult, NO_APP_CODE, UNDO_NOT_PROJECT, workElsewhere, type ReceiptOptions, type ReceiptView, type StillRunning, type TaskResult } from "../task/result";
 import { changedSoFar, endingLine, mustStand, quietReceipt, taskEnding, withEarlierChanges } from "../task/ending";
 import { OBSERVED_EDITS_LIMIT, TaskObservations } from "../task/observations";
 import { isToolCallAsText, TOOL_CALL_AS_TEXT_LINE } from "../task/text-tool-call";
@@ -427,6 +427,7 @@ export async function runModelTask(app: CasperApp, prompt: string, options: { fl
       autoChecks = planAutoChecks({
         selected: context.verification.checks, commands: context.model.commands, scopes: context.model.verificationScopes,
         named: context.model.namedChecks, detected: autoDetectedChecks(context.model), changedPaths: changedByModel, root: workspaceRoot,
+        toolFiles: new Set(toolFiles(workspaceRoot, app.observations.edited(), "inside")),
       });
       // A question ("is it still running?") whose own edit and write tools changed nothing, and no code or tests: the
       // checks have nothing of its to check. The model's own recorded checks still run.
@@ -1416,7 +1417,7 @@ export function proofSkipReason(options: { intent: string; testCommand?: string;
   if (!options.testCommand && options.testsWithoutCommand) return `${TESTS_WITHOUT_COMMAND}; say "set up the test command"`;
   if (!options.testCommand) return 'there are no tests yet to compare with; say "add tests"';
   if (!options.snapshot) return "Casper could not record the workspace before the change";
-  if (!options.changedCode) return "no app code changed, only tests, data or docs";
+  if (!options.changedCode) return NO_APP_CODE;
   return "Casper did not compare the tests with and without the change";
 }
 

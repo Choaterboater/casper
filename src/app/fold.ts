@@ -38,6 +38,8 @@ export interface FinishedStep {
   /** A successful edit's size and diff. */
   lines?: { added: number; removed: number };
   diff?: string;
+  /** A poll's last output line ("casper: exit=0 secs=487"). */
+  result?: string;
   /** What it changed beyond this project's code (another machine, a device, this computer's setup): rows that stay in view. */
   changes?: StepChange[];
 }

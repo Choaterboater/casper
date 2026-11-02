@@ -31,6 +31,9 @@ export function detachesItself(command: string): boolean {
   const bare = command.replace(/'[^']*'|"(?:[^"\\]|\\.)*"/g, "''");
   return /(?:^|[\s;|&(])(?:nohup|setsid|disown)(?=\s|$|;)/.test(bare) || /(?<![&|<>])&(?![&>|])/.test(bare);
 }
+/** Told with every job that goes on in the background: how to keep the person posted without blocking their lines. */
+export const UPDATES_HINT = "To give updates while it runs: wait 120 s or less per check (a line the person sends gets in between), then write one short line: where it is, time so far, time left.";
+
 /** Added to such a command's output when the background is there to use instead. */
 export const DETACH_NOTE = "[Casper ends what a command leaves running when the call returns, or it runs on where Casper can't see or report it. For a job that should keep going after this call, run it with background: true.]";
 /** Added when the output shows the sandbox hiding or protecting other processes (macOS: no process list for ps, pgrep or
@@ -69,12 +72,15 @@ export interface AdoptOptions {
   done: Promise<{ exitCode: number | null }>;
   /** Stops the whole process tree. */
   stop(): void;
+  /** Casper didn't start it (a job the command left running by itself): its exit code can't be seen. */
+  adopted?: true;
   /** A private folder for the log; the system temp folder when unset. */
   logDir?: string;
 }
 
 interface Running extends BackgroundCommandInfo {
   tail: string;
+  adopted?: true;
   file?: WriteStream;
   written: number;
   stop(): void;
@@ -109,7 +115,9 @@ export class BackgroundCommands {
   };
 
   /** `notify`: a note for the model when one ends (not when the session ends it), with what to tell the person. */
-  constructor(private readonly options: { notify(text: string, command: string, ended: EndedCommand): void | Promise<void>; limitSeconds?: number; max?: number }) {
+  constructor(private readonly options: { notify(text: string, command: string, ended: EndedCommand): void | Promise<void>; limitSeconds?: number; max?: number;
+    /** The list changed (one started or ended): the status row shows the newest. */
+    changed?: () => void }) {
     this.limitSeconds = options.limitSeconds ?? DEFAULT_COMMAND_LIMIT_SECONDS;
     this.max = options.max ?? MAX_BACKGROUND_COMMANDS;
   }
@@ -125,10 +133,11 @@ export class BackgroundCommands {
       file.on("error", () => { entry.file = undefined; });
       file.write(options.output);
     } catch { file = undefined; log = undefined; }
-    const entry: Running = { id, command: options.command, startedAt: options.startedAt, ...(log ? { log } : {}), tail: options.output.slice(-TAIL_CHARS),
+    const entry: Running = { id, command: options.command, startedAt: options.startedAt, ...(log ? { log } : {}), ...(options.adopted ? { adopted: true as const } : {}), tail: options.output.slice(-TAIL_CHARS),
       ...(file ? { file } : {}), written: options.output.length, stop: options.stop, ended: Promise.resolve() };
     entry.ended = options.done.then(({ exitCode }) => this.end(entry, exitCode), () => this.end(entry, undefined));
     this.running.set(id, entry);
+    queueMicrotask(() => this.options.changed?.());
     if (this.running.size === 1) { process.once("exit", this.onExit); process.on("SIGHUP", this.onHangup); }
     return { id, ...(log ? { log } : {}), write: (data) => {
       const text = data.toString("utf8");
@@ -142,11 +151,13 @@ export class BackgroundCommands {
 
   private async end(entry: Running, exitCode: number | null | undefined): Promise<void> {
     this.running.delete(entry.id);
+    this.options.changed?.();
     if (this.running.size === 0) { process.removeListener("exit", this.onExit); process.removeListener("SIGHUP", this.onHangup); }
     entry.file?.end();
     if (entry.stoppedBy === "close" || entry.stoppedBy === "model") return;
     const how = entry.stoppedBy === "person" ? "was stopped from /tasks" : exitCode === undefined ? "was stopped"
-      : `ended with exit code ${exitCode ?? "none"}`;
+      : entry.adopted ? "ended (Casper didn't start it, so it can't see the exit code)"
+      : exitCode === null ? "ended without an exit code (a signal stopped it)" : `ended with exit code ${exitCode}`;
     const tail = outputTail(entry.tail);
     const note = `[Background command ${entry.id} ${how}: ${entry.command.slice(0, 200)}]${tail ? `\nLast output:\n${tail}` : ""}${entry.log ? `\nFull output: ${entry.log}` : ""}`;
     try { await this.options.notify(note, entry.command, { id: entry.id, how, startedAt: entry.startedAt, byPerson: entry.stoppedBy === "person" }); }

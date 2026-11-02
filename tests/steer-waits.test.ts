@@ -70,7 +70,7 @@ test.skipIf(!unix)("a line sent while a slow command runs moves it to the backgr
   const text = await call;
   expect(text).toContain("[The person sent you a message, so after ");
   expect(text).toContain(" s this moved to the background as cmd-1 (stdin closed). Casper adds a note when it ends.");
-  expect(text).toContain("To stop it: the service tool (stop, service cmd-1) when you have it; the person can use /tasks.]");
+  expect(text).toContain("To stop it: the service tool (stop, service cmd-1) when you have it; the person can use /tasks.");
   expect(text).not.toContain("finished");
   expect(commands.list().map((entry) => entry.id)).toEqual(["cmd-1"]);
   expect(await until(() => notes.length > 0)).toBe(true);

@@ -6,7 +6,7 @@ import { randomUUID } from "node:crypto";
 import { isContextOverflow, type AssistantMessage } from "@earendil-works/pi-ai";
 import { looksLikeRefusedLogin } from "../ssh/auth-failed";
 import { READ_ONLY_STATE_CONFLICT } from "./types";
-import { BACKGROUND_GRACE_SECONDS, BACKGROUND_HELP, backgroundRequested, DEFAULT_COMMAND_LIMIT_SECONDS, DETACH_NOTE, detachesItself, PROCESS_LIST_NOTE, processesHidden, withBackgroundRequest } from "./background-commands";
+import { UPDATES_HINT, BACKGROUND_GRACE_SECONDS, BACKGROUND_HELP, backgroundRequested, DEFAULT_COMMAND_LIMIT_SECONDS, DETACH_NOTE, detachesItself, PROCESS_LIST_NOTE, processesHidden, withBackgroundRequest } from "./background-commands";
 import { alive, COMMAND_MARK, jobRoots, leftRunning } from "./left-running";
 import { pidFile, STALLED_EXIT_CODE, stalledMessage, watchStall } from "./stalled-commands";
 import { matchConversation } from "../sessions/resume";
@@ -1435,7 +1435,7 @@ async function adoptLeftRunning(marker: string, background: ReturnType<NonNullab
       try { process.kill(root.group > 1 && root.group !== process.pid ? -root.group : root.pid, "SIGTERM"); } catch { try { process.kill(root.pid, "SIGTERM"); } catch { /* gone */ } }
       setTimeout(() => { try { if (alive(root.pid)) process.kill(root.pid, "SIGKILL"); } catch { /* gone */ } }, 3_000).unref?.();
     };
-    const handed = background.adopt({ command: root.command, startedAt: Date.now(), output: "", done, stop });
+    const handed = background.adopt({ command: root.command, startedAt: Date.now(), output: "", done, stop, adopted: true });
     if (handed) adopted.push({ id: handed.id, pid: root.pid, command: root.command });
   }
   return adopted;
@@ -1552,7 +1552,7 @@ export function casperBashOperations(shell: RuntimeShell | undefined, local: Bas
           if (wrapped.sudo?.afterFail && result.exitCode !== 0) onData(Buffer.from(`\n${wrapped.sudo.afterFail}\n`));
           // What the command left running by itself (a detached spawn, setsid) becomes a background job Casper reports.
           const jobs = moved ? [] : await adoptLeftRunning(marker, shell?.background?.());
-          for (const job of jobs) onData(Buffer.from(`\n[Casper found what this command left running: ${job.command.slice(0, 120)} (pid ${job.pid}). It runs on as ${job.id}: /tasks lists it, and Casper adds a note when it ends. Next time, use background: true.]\n`));
+          for (const job of jobs) onData(Buffer.from(`\n[Casper found what this command left running: ${job.command.slice(0, 120)} (pid ${job.pid}). It runs on as ${job.id}: /tasks lists it, and Casper adds a note when it ends. Next time, use background: true. ${UPDATES_HINT}]\n`));
           // `nohup … &` dies with the call (or a setsid escapes where nothing reports it): the supported way, once.
           if (!moved && !jobs.length && !asked && shell?.background?.() && detachesItself(command)) onData(Buffer.from(`\n${DETACH_NOTE}\n`));
           if (asked && !background && !moved) onData(Buffer.from("\n[Casper can't run commands in the background here (slow commands are off, or this is a helper), so this ran in the foreground.]\n"));
@@ -1582,7 +1582,7 @@ export function casperBashOperations(shell: RuntimeShell | undefined, local: Bas
       const moveOut = (handed: NonNullable<ReturnType<typeof adopt>>, why: string) => {
         options.signal?.removeEventListener("abort", forward);
         onData(Buffer.from(`\n[${why} moved to the background as ${handed.id} (stdin closed). `
-          + `Casper adds a note when it ends.${handed.log ? ` Its output goes on in ${handed.log}.` : ""} To stop it: the service tool (stop, service ${handed.id}) when you have it; the person can use /tasks.]\n`));
+          + `Casper adds a note when it ends.${handed.log ? ` Its output goes on in ${handed.log}.` : ""} To stop it: the service tool (stop, service ${handed.id}) when you have it; the person can use /tasks. ${UPDATES_HINT}]\n`));
         moved = handed.write;
         return { exitCode: 0 };
       };

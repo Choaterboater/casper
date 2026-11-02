@@ -34,7 +34,7 @@ test("a question that ran no checks is neutral too; docs-only keeps its /verify 
 });
 
 test("undo's \"can't put back\" says one reason once: four nested repositories are one line", () => {
-  const left = ["run-1/runs/casper/app", "run-1/runs/omp/app", "runs/casper/app", "runs/omp/app"].map((entry) => ({ path: entry, why: "a nested repository" }));
+  const left = ["vendor/one", "vendor/two", "lib/three", "lib/four"].map((entry) => ({ path: entry, why: "a nested repository" }));
   const text = formatShortReceipt({ ...scoring, undo: { available: true, left } });
-  expect(text).toContain("– Undo can't put back: run-1/runs/casper/app, run-1/runs/omp/app and 2 more (a nested repository, each)");
+  expect(text).toContain("– Undo can't put back: vendor/one, vendor/two and 2 more (a nested repository, each)");
 });

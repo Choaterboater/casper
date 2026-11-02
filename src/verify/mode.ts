@@ -131,6 +131,12 @@ const OUTPUT_FOLDER = /^(?:results?|outputs?|out|reports?|logs?|coverage|screens
  * included: a comparison's builds there are what it made, not this task's change, so no proof is asked for them, no
  * app is started for them and checks writing there leave no test data in the app. */
 export const inOutputFolder = (file: string): boolean => OUTPUT_FOLDER.test(file);
+/** What a program built or ran into a top-level builds/, runs/ or results/ folder, code and tests included: a
+ * comparison's builds are not this project's, so changing only them runs no check (a check whose declared scope covers
+ * them still runs, and so do files the AI's own edit and write tools wrote there). Code in dist/, logs/ or out/ is still
+ * the project's. */
+const BUILT_FOLDER = /^(?:builds?|runs?|results?)\//i;
+export const builtOutput = (file: string): boolean => BUILT_FOLDER.test(file);
 const OUTPUT_FILE = /\.(?:log|out)$/i;
 export const isOutputPath = (file: string): boolean => !isCodePath(file) && !isTestPath(file) && (OUTPUT_FOLDER.test(file) || OUTPUT_FILE.test(file));
 
@@ -148,6 +154,8 @@ export function planAutoChecks(input: {
   detected?: ReadonlyArray<{ name: CheckName; scope: VerificationScope }>;
   changedPaths?: readonly string[];
   root?: string;
+  /** Files the AI's own edit and write tools wrote: never a program's output. */
+  toolFiles?: ReadonlySet<string>;
 }): { run: CheckName[]; skipped?: AutoCheckSkip } {
   if (input.changedPaths && !input.changedPaths.length) return { run: [], skipped: "no-changes" };
   const detected = input.detected ?? [];
@@ -162,7 +170,7 @@ export function planAutoChecks(input: {
   };
   // Only prose changed: a check with no declared scope has no say in it (a project whose tests read its docs declares
   // them in its scope, and that scope is used below). Nothing else is skipped on a guess.
-  const docsOnly = Boolean(input.changedPaths?.length) && input.changedPaths!.every((file) => isDocPath(file) || isAppDataPath(file) || isOutputPath(file));
+  const docsOnly = Boolean(input.changedPaths?.length) && input.changedPaths!.every((file) => isDocPath(file) || isAppDataPath(file) || isOutputPath(file) || (builtOutput(file) && !input.toolFiles?.has(file)));
   let docsRuled = false;
   const run = candidates.filter((name) => {
     const scope = input.scopes?.[name as ProjectCommand] ?? detected.find((check) => check.name === name)?.scope;
