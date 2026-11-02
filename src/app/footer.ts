@@ -8,7 +8,8 @@ import { readPaneSetting, savePaneSetting, type PaneSetting } from "../tui/pane-
 import { sessionTitle, windowTitle } from "../tui/session-title";
 import { DISPLAY_LEVELS, type DisplayLevel } from "../tui/display";
 import { sessionFlag } from "../tui/commands";
-import { formatCost, formatEffort, formatTokens, noModelFooter, terminalText } from "../tui/format";
+import { commandLabel, formatCost, formatEffort, formatTokens, noModelFooter, redactPreview, terminalText } from "../tui/format";
+import { hideCommandSecrets } from "../secrets/files";
 import type { RuntimeSession } from "../runtime/types";
 import { formatFooterSpend } from "../task/spend";
 import { phaseEvent, type PhaseEvent } from "./json-events";
@@ -38,6 +39,10 @@ export function updateFooter(app: CasperApp): void {
   const plan = app.planMode ? ["PLAN · /plan off"] : [];
   app.terminal.setBadge([...plan, ...asking, ...mcp].join(" · ") || undefined);
   app.terminal.setUpdate(updateNoteText(app));
+  const jobs = app.backgroundCommands?.list() ?? [];
+  const job = jobs.at(-1);
+  app.terminal.setJob?.(job ? { id: job.id, label: commandLabel(redactPreview(hideCommandSecrets(job.command).text), 40).replace(/ …$/, "…"), startedAt: job.startedAt,
+    ...(jobs.length > 1 ? { more: jobs.length - 1 } : {}) } : undefined);
   try {
     const project = app.projectContext.info;
     const status = app.session?.getStatus?.();

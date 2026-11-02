@@ -115,7 +115,7 @@ export function receiptCard(view: ReceiptView, color: boolean): ReceiptCard | un
   const notCounted = of("why").filter(uncounted).map((item) => plain(item.status && item.status !== "Not verified" ? `${item.status}: ${item.detail}` : item.detail ?? words(item.line)));
   const checkLines = [...checks.filter((item) => !named(item) && item.kind !== "repairs" && item.fold === undefined).map((item) => marked(item.line)), ...notCounted];
 
-  const changed = of("changed").map((item) => plain(item.files ? item.files.length <= 3 ? item.files.join(", ") : `${item.files.length} files` : words(item.line)));
+  const changed = of("changed").map((item) => plain(item.files ? item.files.length <= 3 ? item.files.join(", ") : filesWhere(item.files) : words(item.line)));
   const config = configEntries(view.config).map(plain);
   const risky = of("config").map((item) => `${paint("⚠", "warning")} ${plain(`risky line: ${item.detail ?? words(item.line)}`)}`);
   const devices = of("devices").map((item) => plain(item.name ? `${item.name}: ${item.detail ?? words(item.line)}` : words(item.line)));
@@ -150,6 +150,16 @@ function nextValues(verdict: ReceiptItem, items: ReceiptItem[], plain: (text: st
   const actions = [...new Set([...verdict.actions ?? [], ...ordered.flatMap((item) => item.actions ?? [])])];
   return [...actions.length ? [plain(actions.join(" · "))] : [],
     ...items.filter((item) => item.section === "next" && !item.actions?.length).map((item) => plain(item.detail ?? words(item.line)))];
+}
+
+/** "86 files in builds/ (23), runs/ (23), results/ (21) and 2 more places": how many, and where most of them are. */
+function filesWhere(files: readonly string[]): string {
+  const where = new Map<string, number>();
+  for (const file of files) { const top = file.includes("/") ? `${file.split("/")[0]}/` : "here"; where.set(top, (where.get(top) ?? 0) + 1); }
+  const most = [...where].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+  const named = most.slice(0, 3).map(([folder, count]) => `${folder} (${count})`);
+  const rest = most.length - named.length;
+  return `${files.length} files in ${named.length > 1 && !rest ? `${named.slice(0, -1).join(", ")} and ${named.at(-1)}` : named.join(", ")}${rest ? ` and ${rest} more ${rest === 1 ? "place" : "places"}` : ""}`;
 }
 
 /** One check: its mark and name, how long it ran, and what happened when it did not pass (see checkMark). */

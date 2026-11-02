@@ -12,7 +12,7 @@ import type { SmokeReport } from "../services/smoke";
 import type { AppSmokeReport } from "../services/try-it";
 import { formatPageReport, pageFailureSummary } from "../services/page-report";
 import { movedInto, SNAPSHOT_FILE_LIMIT } from "./changes";
-import { inOutputFolder, isAppDataPath, isOutputPath, TESTS_WITHOUT_COMMAND, type AutoCheckSkip, type VerificationMode } from "../verify/mode";
+import { builtOutput, inOutputFolder, isAppDataPath, isOutputPath, TESTS_WITHOUT_COMMAND, type AutoCheckSkip, type VerificationMode } from "../verify/mode";
 import type { ChangeProof } from "../verify/proof";
 import type { AcceptanceResult } from "../verify/acceptance";
 import { ROUND_MAX_TURNS, type RequirementsReview } from "./review";
@@ -785,7 +785,10 @@ function receiptParts(task: TaskResult, options: ReceiptOptions, onScreen = fals
       add("why", line, { kind: "not-verified", status, ...(detail ? { detail } : {}), ...(action ? { actions: [action] } : {}) });
     // With the work in another repository too, what is said is about this folder only.
     const here = task.outsideChanges?.some((change) => change.repository && (change.files.length || change.commits?.length)) ? " in this folder" : "";
-    const only = (what: string) => `only ${what} changed${here}${task.changedPaths?.length ? ` (${pathList(task.changedPaths, safe, false)})` : ""}`;
+    // The files it changed itself: moved files are their own line.
+    const movedAway = new Set((task.moved ?? []).flatMap((move) => [move.to, ...move.rewritten ? [] : [move.from]]));
+    const own = task.changedPaths?.filter((file) => !movedAway.has(file));
+    const only = (what: string) => `only ${what} changed${here}${own?.length ? ` (${pathList(own, safe, false)})` : ""}`;
     if (task.autoSkipped === "no-checks") {
       if (options.checksHintShown) why("– Not verified — no checks set up", "Not verified", "no checks set up");
       else if (task.testsWithoutCommand) why(TESTS_WITHOUT_COMMAND_LINE, "Not checked", undefined, SET_UP_TEST_COMMAND);
@@ -794,7 +797,7 @@ function receiptParts(task: TaskResult, options: ReceiptOptions, onScreen = fals
     else if (task.autoSkipped === "app-data") why(`– Checks skipped — ${only("a running app's database files")}; ${slash("/verify")} runs them anyway.`, "Checks skipped", only("a running app's database files"), slash("/verify"));
     else if (task.autoSkipped === "docs-only") why(`– Checks skipped — ${only("documentation")}; ${slash("/verify")} runs them anyway.`, "Checks skipped", only("documentation"), slash("/verify"));
     else if (task.autoSkipped === "output") {
-      const what = only(task.changedPaths?.every((file) => isOutputPath(file) || isAppDataPath(file)) ? "output files" : "output files and documentation");
+      const what = only(own?.every((file) => isOutputPath(file) || isAppDataPath(file) || builtOutput(file)) ? "output files" : "output files and documentation");
       why(`– Checks skipped — ${what}`, "Checks skipped", what);
     }
     else if (task.autoSkipped === "question") why(`– Checks skipped — ${ASKED_ONLY}`, "Checks skipped", ASKED_ONLY);
@@ -899,7 +902,7 @@ function receiptParts(task: TaskResult, options: ReceiptOptions, onScreen = fals
       .map((check) => `${safe(check.name)}${check.withdrawn ? ` (${safe(check.withdrawn)})` : ""}`).join(", ")}`);
   }
   const verdict = withVerdict(task, lines, options, info);
-  return { lines: verdict.lines, undo: undoLines(task, options, safe), folds, info, ...(verdict.short ? { short: verdict.short } : {}) };
+  return { lines: verdict.lines, undo: undoLines(task, options, safe, onScreen), folds, info, ...(verdict.short ? { short: verdict.short } : {}) };
 }
 
 /** "changed a.ts, b.ts" for a few files, "12 files changed" past three. */
@@ -909,6 +912,9 @@ function changedShort(paths: string[], safe: (text: string) => string): string {
 
 /** Why a question's turn ran no checks. */
 export const ASKED_ONLY = "this read as a question, and the AI's own tools changed no code or tests";
+
+/** proofSkipReason's words when only tests, data or docs changed (src/app/task-run.ts). */
+export const NO_APP_CODE = "no app code changed, only tests, data or docs";
 
 /** Line 1's mark for work that goes on in the background: neither a pass (✓) nor a warning (⚠). */
 export const STILL_RUNNING_MARK = "◐";
@@ -934,7 +940,7 @@ export function undoPathsShown(task: Pick<TaskResult, "undo">, undoNamed?: Reado
 
 /** The receipt's last lines about undo: what it can't put back, why it is not available, and (one-shot) the commands.
  * The interactive receipt's "Next: 1 Show diff · 2 Undo" row is printed by the app. */
-function undoLines(task: TaskResult, options: ReceiptOptions, safe: (text: string) => string): ReceiptItem[] {
+function undoLines(task: TaskResult, options: ReceiptOptions, safe: (text: string) => string, onScreen = false): ReceiptItem[] {
   const undo = task.undo;
   if (!undo) return [];
   // A folder that is not a project is said once, on the "Changes unknown" line.
@@ -944,7 +950,11 @@ function undoLines(task: TaskResult, options: ReceiptOptions, safe: (text: strin
     return [{ line: `– Undo not available: ${reason}`, section: "undo", kind: "undo", status: "Undo not available", detail: reason }];
   }
   const items: ReceiptItem[] = [];
-  const left = undo.left?.filter((entry) => !options.undoNamed?.has(entry.path)) ?? [];
+  // On the card, not what lies in a folder files were moved into or a program's builds or runs (builds/, runs/,
+  // results/) the AI's tools didn't write: undo moves those back as a whole, and a nested repository there is /receipt's detail.
+  const movedInto = new Set((task.moved ?? []).map((move) => move.to.split("/")[0]!));
+  const aside = (file: string) => onScreen && (movedInto.has(file.split("/")[0]!) || (builtOutput(file) && !task.observedEdits?.some((edit) => edit.endsWith(file))));
+  const left = undo.left?.filter((entry) => !options.undoNamed?.has(entry.path) && !aside(entry.path)) ?? [];
   if (left.length) {
     // One reason said once: "run-1/runs/casper/app, runs/omp/app and 2 more (nested repositories)".
     const reasons = [...new Set(left.map((entry) => entry.why))];
@@ -1082,6 +1092,8 @@ function withVerdict(task: TaskResult, body: string[], options: ReceiptOptions, 
           : "✓ Verified — the checks pass, and the tests fail without the change", "Verified"), ...body];
         if (!weak) short = "✓ Verified";
       } else if (!changed) { lines = [head(task.changedPaths ? "✓ Checks passed — no files changed" : "✓ Checks passed", "Checks passed"), ...body]; short = "✓ Checks passed"; }
+      // No app code changed (tests, data, docs, a program's output): nothing to prove, so a pass is a pass.
+      else if (!proof && task.proofSkipped === NO_APP_CODE) { lines = [head("✓ Checks passed — no app code changed", "Checks passed"), ...body]; short = "✓ Checks passed"; }
       else {
         const why = proof?.status === "unavailable" ? proof.reason
           : proof?.status === "proven" ? `without the change ${proof.check} ${proof.without.ended === "timeout" ? "timed out" : "could not start"}, so it did not show the old code failing`

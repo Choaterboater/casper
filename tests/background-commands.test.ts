@@ -62,6 +62,8 @@ test.skipIf(!unix)("background: true starts a long job at once: listed, never st
   expect(Date.now() - began).toBeLessThan(5_500);
   expect(text).toContain("started");
   expect(text).toContain("As asked (background: true), after 3 s it moved to the background as cmd-1");
+  // The AI is told how to keep the person posted: short waits, one line each (v0.4.4 slept 300 and 360 s in silence).
+  expect(text).toContain("wait 120 s or less per check");
   expect(commands.list().map((entry) => entry.id)).toEqual(["cmd-1"]);
   // Past the 6 s limit a slow command gets, and silent all along: still running.
   await Bun.sleep(4_000);
@@ -97,7 +99,8 @@ test.skipIf(!unix)("a job the command detached itself (as the comparison's runne
   expect(text).toMatch(/Casper found what this command left running: .*setTimeout.* \(pid \d+\)\. It runs on as cmd-1/);
   expect(commands.list().map((entry) => entry.id)).toEqual(["cmd-1"]);
   expect(await until(() => notes.length > 0, 15_000)).toBe(true);
-  expect(notes[0]).toContain("[Background command cmd-1");
+  // v0.4.4 said "ended with exit code none": Casper didn't start it, so it says that instead.
+  expect(notes[0]).toContain("[Background command cmd-1 ended (Casper didn't start it, so it can't see the exit code)");
   expect(commands.list()).toEqual([]);
   // A plain command leaves nothing to find.
   expect(await run("echo plain")).not.toContain("left running");

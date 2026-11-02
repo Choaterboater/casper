@@ -876,7 +876,8 @@ test("the task ends with the plain receipt; /receipt and verbose output keep the
   await app.runOnce("Fix the value", root);
   expect(output()).toContain("• Casper checking: test\n");
   // What went well shares one line under the verdict.
-  expect(output()).toContain("– Checks passed — not proven: no app code changed, only tests, data or docs\n✓ test passed · changed src/value\n");
+  // Only data changed: nothing to prove, so the checks passing is the whole verdict.
+  expect(output()).toContain("✓ Checks passed · test passed · changed src/value\n");
   expect(output()).not.toMatch(/scope undeclared|reuse disabled|not independently certified|\[task\]/);
   await app.runOnce("/receipt", root);
   expect(output()).toContain("[task] Execution completed");

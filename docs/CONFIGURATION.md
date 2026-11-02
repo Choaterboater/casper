@@ -153,7 +153,11 @@ that tries gets a note pointing at `background: true`. Every command the AI runs
 (`CASPER_COMMAND_ID`), so a job it detached anyway (a `setsid`, a spawn with `detached: true`) is found after the call
 on macOS and Linux and tracked like one started with `background: true`: `/tasks` lists it, the receipt says `◐ Still
 running`, and a note comes when it ends. On macOS Apple's own programs hide their environment, so the job found is the
-first node, python or bun it starts.
+first node, python or bun it starts. While a job runs, the status row shows it with its time
+(`idle · ◐ cmd-1 running 12m · node scripts/run.mjs`); the AI is told to wait 2 minutes or less per check and write
+one line after each when you ask for updates, and a check that waits and looks (`sleep 120; tail compare.out`) says
+what it saw on its row (`Polled run 3 → omp: exit=0 secs=487`). A job Casper didn't start ends with "ended (Casper
+didn't start it, so it can't see the exit code)".
 On macOS the sandbox hides other processes: `ps`, `pgrep` and `pkill` get no process list, and `kill` can't signal
 a process another command started. A command whose output shows that gets a note saying so: stop a server with the
 service tool, or start and stop a process in the same command (`cmd & pid=$!; …; kill $pid`).

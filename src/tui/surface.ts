@@ -253,6 +253,15 @@ class PromptEditor extends Editor {
   }
 }
 
+/** A job running in the background, for the status row. */
+export interface FooterJob { id: string; label: string; startedAt: number; more?: number }
+
+/** "just started", "4m", "1h12m". */
+function jobTime(ms: number): string {
+  const minutes = Math.floor(Math.max(0, ms) / 60_000);
+  return minutes < 1 ? "<1m" : minutes < 60 ? `${minutes}m` : `${Math.floor(minutes / 60)}h${String(minutes % 60).padStart(2, "0")}m`;
+}
+
 /** Who asked a numbered question: Casper itself (choices), Casper's approval boxes, or the AI through its ask tool.
  * An approval's last row takes a note (a No with it) and Ctrl+X revokes writes. */
 export type AskOrigin = "ai" | "casper" | "approval";
@@ -298,6 +307,8 @@ export class TerminalSurface {
   private badge?: string;
   /** Update state from the app: a right-aligned row above the prompt, idle or working. */
   private update?: string;
+  private job?: FooterJob;
+  private jobTimer?: NodeJS.Timeout;
   /** Ctrl+X: turn writes off everywhere. True when something was on. */
   private onWritesRevert?: () => boolean;
   private onTakeBack?: () => boolean;
@@ -675,7 +686,9 @@ export class TerminalSurface {
     // The status ends with "idle" when Casper waits for a request; any other state leads the line instead.
     const idle = this.status.endsWith(IDLE_TAIL);
     const details = idle ? this.status.slice(0, -IDLE_TAIL.length) : this.status;
-    const layout = (state: string) => readableFooter(state, details || "Casper", width, this.io.color, this.badge);
+    // A job in the background stays in view, its time with it: "◐ cmd-1 running 12m · node scripts/run.mjs".
+    const job = this.job ? ` · ${this.muted(`◐ ${this.job.id} running ${jobTime(Date.now() - this.job.startedAt)} · ${this.job.label}${this.job.more ? ` (+${this.job.more} more)` : ""}`)}` : "";
+    const layout = (state: string) => readableFooter(`${state}${job}`, details || "Casper", width, this.io.color, this.badge);
     if (this.waiting && !this.note) return layout(this.accent("? waiting for you"));
     // One state mark: the spinner while working.
     const active = this.busy || this.work !== undefined;
@@ -752,6 +765,14 @@ export class TerminalSurface {
     const next = lines.map(line => lineText(terminalText(line)).replace(/\s+/g, " ").trim()).filter(Boolean);
     if (next.join("\n") === this.waitingLines.join("\n")) return;
     this.waitingLines = next;
+    this.render();
+  }
+  setJob(job?: FooterJob): void {
+    if (job?.id === this.job?.id && job?.label === this.job?.label && job?.more === this.job?.more) return;
+    this.job = job;
+    // Idle draws nothing on its own: its minutes move on twice a minute while a job runs.
+    if (job && !this.jobTimer) { this.jobTimer = setInterval(() => this.render(), 30_000); this.jobTimer.unref?.(); }
+    if (!job && this.jobTimer) { clearInterval(this.jobTimer); this.jobTimer = undefined; }
     this.render();
   }
   setBadge(text?: string): void {

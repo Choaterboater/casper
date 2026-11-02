@@ -217,11 +217,24 @@ export function findMoves(before: ReadonlyMap<string, string>, after: ReadonlyMa
   }
   const moves: Array<{ from: string; to: string; rewritten?: true }> = [];
   const rewritten = new Set(changes.modified);
+  const unmatched: string[] = [];
   for (const file of changes.added) {
     const from = gone.get(after.get(file) ?? "\0")?.shift();
     if (from) moves.push({ from, to: file, ...(rewritten.has(from) ? { rewritten: true as const } : {}) });
+    else unmatched.push(file);
   }
-  return moves;
+  // Into a folder files were moved into, a file with the bytes of one from before is moved too, also when its old path
+  // holds the same bytes again (a relaunched run writes the same template). A copy anywhere else is new work.
+  const into = new Set(moves.map((move) => move.to.split("/")[0]!));
+  if (into.size) {
+    const sources = new Map<string, string>();
+    for (const [file, digest] of before) if (!sources.has(digest)) sources.set(digest, file);
+    for (const file of unmatched) {
+      const from = into.has(file.split("/")[0]!) ? sources.get(after.get(file) ?? "\0") : undefined;
+      if (from) moves.push({ from, to: file, rewritten: true });
+    }
+  }
+  return moves.sort((left, right) => left.to.localeCompare(right.to));
 }
 
 /** `changes` without the moved files: where they went, and where they came from when that is gone. A path written anew

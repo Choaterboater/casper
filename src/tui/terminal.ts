@@ -19,6 +19,7 @@ import { crewTranscriptLine } from "./crew-panel";
 import { modelReasonLine } from "./model-reason";
 import { CARD_MIN_COLUMNS, cardHintRows, cardMinColumns, cardNextRows, cardRows, receiptCard, RECEIPT_HINT, type CardTone, type ReceiptCard } from "./receipt-card";
 import { STILL_RUNNING_MARK, type ReceiptView } from "../task/result";
+import type { FooterJob } from "./surface";
 
 export { numberPrompt } from "./choices";
 
@@ -247,6 +248,8 @@ export class InteractiveTerminal {
   get badge(): string | undefined { return this.badgeText; }
   /** The right-aligned notice above the prompt, idle or working. Plain output is emitted once by app/wiring. */
   setUpdate(text?: string): void { this.surface?.setUpdate(text); }
+  /** A job running in the background, for the status row ("◐ cmd-1 running 12m · node scripts/run.mjs"). */
+  setJob(job?: FooterJob): void { this.surface?.setJob(job); }
   /** Ctrl+X on the rich terminal: turn writes off everywhere. The handler returns true when any were on. */
   setWritesRevert(handler: (() => boolean) | undefined): void { this.surface?.setWritesRevert(handler); }
   /** Work in progress on the rich terminal: the open group's steps under the AI's words, and the status row above the

@@ -97,7 +97,13 @@ run-1/runs`) is one receipt line, `✓ Moved 150 files into run-1/`, and is left
 smoke and the Config row. Code a program wrote into a top-level output folder (a comparison's builds under `builds/` or
 `runs/`) asks for no proof and starts no app smoke; checks that changed files there are not flagged as test data left in
 the app. Undo's files with one reason are said once (`… and 2 more (a nested repository, each)`).
-`tests/relaunch-receipt.test.ts` and `tests/receipt-skipped.test.ts` cover these.
+A file put into the same folder as moved files with the bytes of one from before counts as moved too, also when a
+relaunched run wrote its old path again with the same bytes. Changing only what a program built or ran into a top-level
+`builds/`, `runs/` or `results/` folder (code and tests there included, unless the AI's own `edit` or `write` wrote them) runs no check: `Checks skipped — only
+output files changed`. Checks that pass when no app code changed are a plain `✓ Checks passed`, with no proof wording.
+The card's Changed row says where many files are (`86 files in builds/ (23), runs/ (23), results/ (21) and 2 more
+places`), and undo's notes about what lies in a moved or output folder are `/receipt`'s detail, not the card's.
+`tests/relaunch-receipt-v044.test.ts`, `tests/relaunch-receipt.test.ts` and `tests/receipt-skipped.test.ts` cover these.
 
 **Changed by something else.** Casper notes when each of the AI's tools that may write runs (any tool but reads,
 searches and one plain `ssh <machine> '...'`). A file whose time of change falls while none of them ran (the AI

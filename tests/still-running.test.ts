@@ -75,3 +75,36 @@ test("when the job ends you get one accent line, and at the prompt a Next row to
   expect(rows).toHaveLength(1);
   expect(written).toHaveLength(3);
 });
+
+test("a job's end line never says \"exit code none\"", async () => {
+  const { BackgroundCommands } = await import("../src/runtime/background-commands");
+  const ended: string[] = [];
+  const commands = new BackgroundCommands({ notify: (_note, _command, end) => { ended.push(end.how); } });
+  for (const [adopted, code] of [[true, null], [false, null]] as const) {
+    const done = Promise.withResolvers<{ exitCode: number | null }>();
+    commands.adopt({ command: "node scripts/run.mjs", startedAt: Date.now(), output: "", done: done.promise, stop: () => {}, ...(adopted ? { adopted: true as const } : {}) });
+    done.resolve({ exitCode: code });
+    await Bun.sleep(20);
+  }
+  expect(ended).toEqual(["ended (Casper didn't start it, so it can't see the exit code)", "ended without an exit code (a signal stopped it)"]);
+  expect(jobEndedLine({ id: "cmd-1", how: ended[0]!, startedAt: 0, byPerson: false }, "node scripts/run.mjs", 18 * 60_000 + 56_000))
+    .toBe("◐ Background job cmd-1 ended (Casper didn't start it, so it can't see the exit code) after 18m56s: node scripts/run.mjs");
+});
+
+test("the status row shows a job running in the background with its time, until it ends", async () => {
+  const { richApp } = await import("./support/app");
+  const { backgroundCommands } = await import("../src/app/runtime-start");
+  const { withEnv } = await import("./support/env");
+  await withEnv({ TERM: "xterm-256color" }, async () => {
+    const runtime = { async start() { throw new Error("no model"); }, async dispose() {} };
+    const app = await richApp(() => runtime as never);
+    try {
+      await app.until((text) => text.includes("idle"));
+      const done = Promise.withResolvers<{ exitCode: number | null }>();
+      backgroundCommands(app.app)!.adopt({ command: "node scripts/run.mjs --force", startedAt: Date.now() - 12 * 60_000, output: "", done: done.promise, stop: () => done.resolve({ exitCode: null }) });
+      await app.until((text) => text.includes("idle · ◐ cmd-1 running 12m · node scripts/run.mjs"));
+      done.resolve({ exitCode: 0 });
+      await app.until((text) => text.includes("◐ Background job cmd-1 ended with exit code 0"));
+    } finally { await app.close(); }
+  });
+}, 30_000);
