@@ -14,11 +14,34 @@ when releasing. Existing historical notes below stay as written; feature tests c
 reference docs, not a per-PR release-note or roadmap entry. Release-prep checks verify the version and
 installer targets (`tests/release-install.test.ts`, `tests/release-targets.test.ts`).
 
-Casper distributes an unsigned **v0.4.2 preview**, not a stable release. The installers
-download from `https://github.com/Choaterboater/casper/releases/download/v0.4.2`,
+Casper distributes an unsigned **v0.4.3 preview**, not a stable release. The installers
+download from `https://github.com/Choaterboater/casper/releases/download/v0.4.3`,
 because GitHub's `latest/download` link skips preview releases. The first published
 preview was **v0.1.0**. A published release is never changed; every fix ships under a
 new version.
+
+## v0.4.3: receipts that say when work is still running, and a service and browser small models can use
+
+### Added
+
+- When work the task started still runs in the background, the receipt's first line says `◐ Still running` and names it.
+- When that work ends, one line says so, and the Next row offers to carry on.
+- The AI can start a long job in the background on purpose, and `/tasks` lists it.
+- A recorded browser check follows its app to the app's new address after a restart.
+
+### Changed
+
+- A question such as "is it still running?" runs no checks and claims no files the task did not write.
+- When only output files such as logs or results changed, checks are skipped, and `/verify` runs them anyway.
+- The AI's commands no longer get the settings Casper sets for itself, so another agent you start uses its own.
+- The `service` tool takes the call shapes small models send, and a wrong call gets back the call that works.
+- A restarted app keeps its port, and if the port must change, the AI is told once.
+- The browser tool fills in a missing reason, cuts a long one, and serves on a free port without an address.
+- A host the sandbox keeps an app from reaching is named, instead of failing as a name lookup error.
+- A check whose server is gone is stale, not failed, starts no repair, and the run exits 2, not 1.
+- A repair is told never to put test data in the app's settings, and the receipt flags settings changed while checking.
+- In a blind build on Haiku 5.5, Casper passed 6 of 6 shared checks (was 4) in 39 turns (was 73).
+- That build used 206k output tokens (was 314k) and 22 minutes (was 27), and left no test data behind.
 
 ## v0.4.2: tasks that keep going after you close the terminal, saved pages from any folder, and other agents as ordinary commands
 

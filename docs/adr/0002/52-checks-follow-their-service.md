@@ -1,6 +1,6 @@
 # 52. Checks follow their service, and a check whose server is gone is stale, not failed
 
-Date: 2026-11-01. Status: proposed (from the owner's blind comparison with omp; needs the owner's review).
+Date: 2026-11-01. Status: accepted (merged 2026-11-01 in #565).
 
 ## Decision
 
