@@ -21,6 +21,8 @@ export class AgentShellGuard {
   private request = "";
   private taskKey: unknown;
   private readonly servers = new Set<string>();
+  /** Servers a command starts that did not exist when it was checked, by command, until it has finished. */
+  private readonly starting = new Map<string, Set<string>>();
   constructor(private readonly builder = false, private readonly serverExists = (name: string) =>
     existsSync(path.join(process.env.TMUX_TMPDIR ?? "/tmp", `tmux-${process.getuid?.() ?? "unknown"}`, name))) {}
 
@@ -38,6 +40,8 @@ export class AgentShellGuard {
   }
 
   reason(command: string): string | undefined {
+    // A server an earlier part of this command starts is the task's in its later parts ("start; sleep; tmux -L x ls").
+    const made = new Set<string>();
     for (const words of this.programs(command)) {
       const tool = path.basename(words[0] ?? "");
       if (this.builder && AGENTS.test(tool) && !words.slice(1).some((word) => LOOKUP_FLAGS.has(word))) return HELPER_AGENT_NOTE;
@@ -49,20 +53,28 @@ export class AgentShellGuard {
         if (words[at]?.startsWith("-S") || words[at]?.startsWith("-L")) return TMUX_NOTE;
         at += words[at] === "-f" || words[at] === "-T" ? 2 : 1;
       }
-      if (this.servers.has(name)) continue;
+      if (this.servers.has(name) || made.has(name)) continue;
       const action = words[at];
       if (!["new-session", "new", "start-server"].includes(action ?? "") || this.serverExists(name)) return TMUX_NOTE;
+      made.add(name);
     }
+    if (made.size) this.starting.set(command, made);
     return undefined;
   }
 
   finished(command: string, exit: number | null): void {
-    if (exit !== 0 || splitShell(command).segments.length !== 1) return;
+    const started = this.starting.get(command);
+    this.starting.delete(command);
+    const single = splitShell(command).segments.length === 1;
     for (const words of this.programs(command)) {
       if (path.basename(words[0] ?? "") !== "tmux" || words[1] !== "-L") continue;
       const name = words[2]!;
-      if (words.includes("kill-server")) this.servers.delete(name);
-      else if (words.slice(3).some(word => ["new-session", "new", "start-server"].includes(word))) this.servers.add(name);
+      if (words.includes("kill-server")) { if (exit === 0 && single) this.servers.delete(name); continue; }
+      if (!words.slice(3).some(word => ["new-session", "new", "start-server"].includes(word))) continue;
+      // One part: its exit code says whether the server started. Several: the last part's code says nothing about it,
+      // so a server this command started is the task's once it exists.
+      if (exit === 0 && single) this.servers.add(name);
+      else if (started?.has(name) && this.serverExists(name)) this.servers.add(name);
     }
   }
 

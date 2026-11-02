@@ -28,6 +28,7 @@ import { ensureSessionWorkspace } from "./session-branches";
 import { projectPrivatePaths } from "./wiring";
 import { severalModelsMessage } from "./model-words";
 import { BackgroundCommands } from "../runtime/background-commands";
+import { tellJobEnded } from "./background-ended";
 import { STALL_SECONDS } from "../runtime/stalled-commands";
 import { checkChangeOptions } from "./check-changes";
 import { showWaiting } from "./during-work";
@@ -280,7 +281,8 @@ export function backgroundCommands(app: CasperApp): BackgroundCommands | undefin
   if (app.closing) return undefined;
   if (!app.backgroundCommands) {
     const commands = app.backgroundCommands = new BackgroundCommands({
-      notify: async (note, command) => {
+      notify: async (note, command, ended) => {
+        tellJobEnded(app, ended, command);
         if (app.closing || !app.session?.appendContext) return;
         const scrubbed = await scrubToolOutput(app.scrubber, "bash", { command }, [note], undefined, { configs: app.scrubFiles, networkLoginFile: networkLoginFile(app) });
         await app.session.appendContext(`${scrubbed?.texts[0] ?? note}${scrubbed?.note ? `\n${scrubbed.note}` : ""}`);

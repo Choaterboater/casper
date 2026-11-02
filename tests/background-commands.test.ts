@@ -6,7 +6,7 @@ import path from "node:path";
 import { loadConfiguration } from "../src/config/load";
 import { removeTempDir } from "./support/temp-dir";
 import { createBashToolDefinition } from "@earendil-works/pi-coding-agent";
-import { BackgroundCommands } from "../src/runtime/background-commands";
+import { BackgroundCommands, DETACH_NOTE, withBackgroundRequest } from "../src/runtime/background-commands";
 import { casperBashOperations } from "../src/runtime/pi";
 import type { RuntimeShell } from "../src/runtime/types";
 import { serviceTool } from "../src/services/tool";
@@ -51,6 +51,40 @@ test.skipIf(!unix)("a slow command without its own timeout moves to the backgrou
   expect(await until(() => notes.length > 0)).toBe(true);
   expect(notes[0]).toContain("[Background command cmd-1 ended with exit code 0");
   expect(notes[0]).toContain("done");
+  expect(commands.list()).toEqual([]);
+}, 30_000);
+
+test.skipIf(!unix)("background: true starts a long job at once: listed, never stopped at the limit or for being quiet, a note when it ends", async () => {
+  const { notes, commands, run } = setup();
+  const began = Date.now();
+  // Its own timeout is ignored: a job meant to outlive the call has none.
+  const text = await withBackgroundRequest(true, () => run("echo started; sleep 9; echo done", 2));
+  expect(Date.now() - began).toBeLessThan(5_500);
+  expect(text).toContain("started");
+  expect(text).toContain("As asked (background: true), after 3 s it moved to the background as cmd-1");
+  expect(commands.list().map((entry) => entry.id)).toEqual(["cmd-1"]);
+  // Past the 6 s limit a slow command gets, and silent all along: still running.
+  await Bun.sleep(4_000);
+  expect(commands.list().map((entry) => entry.id)).toEqual(["cmd-1"]);
+  expect(await until(() => notes.length > 0, 10_000)).toBe(true);
+  expect(notes[0]).toContain("[Background command cmd-1 ended with exit code 0");
+  expect(notes[0]).toContain("done");
+}, 30_000);
+
+test.skipIf(!unix)("background: true still shows a quick failure in the call itself, and is refused when the background is full", async () => {
+  const { commands, run } = setup({ max: 1 });
+  expect(await withBackgroundRequest(true, () => run("echo oops >&2; exit 3"))).toContain("Command exited with code 3");
+  expect(commands.list()).toEqual([]);
+  await withBackgroundRequest(true, () => run("sleep 20"));
+  expect(await withBackgroundRequest(true, () => run("sleep 20"))).toContain("Not started: 1 commands already run in the background");
+  await commands.close();
+}, 30_000);
+
+test.skipIf(!unix)("a command that sends its own job to the background (nohup, &, setsid) is told about background: true; others are not", async () => {
+  const { commands, run } = setup();
+  // The smoke session's launch: nohup … & then a short wait. Casper ends the job with the call.
+  expect(await run('nohup sleep 0.3 > /dev/null 2>&1 &\necho "pid $!"; sleep 0.1')).toContain(DETACH_NOTE);
+  for (const command of ["echo plain 2>&1 | cat", "true && echo ok", "echo 'a&b'"]) expect(await run(command)).not.toContain("background: true");
   expect(commands.list()).toEqual([]);
 }, 30_000);
 

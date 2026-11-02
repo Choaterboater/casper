@@ -81,6 +81,17 @@ scope that covers those files (a docs test) still runs. YAML and JSON are not sk
 for `.sqlite`) is what an app running next to its code writes all the time; when only those changed, the receipt
 says `Checks skipped — only a running app's database files changed (...)`. The database file itself counts as data too.
 
+**Only output changed.** Files a program writes when it runs, not what it runs from: everything in a top-level
+`results`, `output`, `out`, `reports`, `logs`, `coverage` or `screenshots` folder and any `.log` or `.out` file, never
+code or tests wherever they sit. When only those (with docs or database files) changed, the receipt says
+`Checks skipped — only output files changed (results/report.html, …); /verify runs them anyway.` A comparison that
+wrote 22 files under `results/` ran a 45 s test suite for them.
+
+**A question.** A request that reads as a question (Casper's question intent, a closing `?`, or a bare `status`) whose
+AI's own `edit` and `write` tools changed nothing, and that changed no code or tests, runs no checks:
+`Checks skipped — this read as a question, and the AI's own tools changed no code or tests; /verify runs them anyway.`
+Checks the AI recorded itself (`casper_check`) still run. `tests/background-receipt.test.ts` covers both.
+
 **Changed by something else.** Casper notes when each of the AI's tools that may write runs (any tool but reads,
 searches and one plain `ssh <machine> '...'`). A file whose time of change falls while none of them ran (the AI
 read, searched, or waited on its own question) is another program's: an editor, a second AI tool, a running app.
@@ -95,6 +106,17 @@ and its `-wal`, `-shm` and `-journal` files (`.db`, `.sqlite`, `.sqlite3`), and 
 Those are always the app's, `Changed by something else`, unless the AI's `edit` or `write` tools or one of its commands
 named them (`sqlite3 config/home-assistant_v2.db …`). A Home Assistant folder's investigation that changed nothing
 says so, instead of `Changed 7 files` and an undo line for its database. `tests/home-assistant-session.test.ts` covers this.
+A file that changed after the last task in this folder ended and before this one began, while no task ran, is being
+written by something still running: a job an earlier task started, an app. When it changes again during this task it
+is that writer's, `Changed by something else`, also while one of the AI's commands ran (`tail logs/run.log` names
+the log but doesn't write it), unless the AI's `edit` or `write` tools named it. Code and tests are never counted this
+way: those are your edits between tasks. "is it still running?" lists none of a running job's files as its changes.
+
+**Still running.** A job a task started with the shell's `background: true` (or a slow command moved to the
+background) that still runs at the receipt makes line 1 `◐ Still running — node scripts/run.mjs --force (cmd-1) in
+the background; Casper says here when it ends`, in the accent colour: never a done-style pass. What the checks showed
+stays under it (`✓ Verified — …` in the Checks row), and Next names `/tasks`. A failure keeps its own line 1, with
+`– Still running in the background: …` under it.
 
 **Work outside this folder.** Before the first AI command that works in a repository or folder outside this one
 (the folder it starts in, `cd`, `pushd`, `git -C`, or a path inside a repository) or an `edit` there, Casper notes its
@@ -349,7 +371,8 @@ keys, each a key cap: a bold, reversed ` 1 ` in the theme's selection colour, `[
 `· press a number`; `tests/next-keycaps-ansi.test.ts` checks these). Config files are package.json and other dependency lists, tsconfig, `.env` files, YAML, TOML and INI files,
 Dockerfiles and compose files, CI workflows, `.casper/project.yaml`, Ansible inventories and variables, and device
 configs (Junos `.set`, `.conf`, `.cfg`). The edge and line 1 are green for Verified or Checks passed, red only for
-Failed, and amber with `⚠` for the rest (not verified, not checked, incomplete, stopped);
+Failed, the accent colour with `◐` while a job the task started still runs, and amber with `⚠` for the rest (not
+verified, not checked, incomplete, stopped);
 `tests/receipt-card-ansi.test.ts` checks these colours. A clean pass stays one line. Ctrl+T shows the last failed
 check's whole log. Below 50 columns the card falls back to the lines above, and the plain terminal, one-shot runs,
 `--json` and saved receipts always have the lines.
@@ -362,7 +385,7 @@ Undo, Next), each check with its command and time, every changed file, and the p
 keep the full form.
 
 `/help receipt` says what each verdict means and what to do about it: Verified, Checks passed · not proven, Not
-verified, Not checked, Incomplete, Failed and Stopped. The first receipt of a session that is not a pass ends with a
+verified, Not checked, Incomplete, Still running, Failed and Stopped. The first receipt of a session that is not a pass ends with a
 grey `What these words mean: /help receipt`, once.
 
 The full form's line 1 is the verdict, one of:

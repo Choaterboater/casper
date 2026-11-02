@@ -62,11 +62,15 @@ Without tmux (or when its window is killed), a task that was running keeps going
 open Casper again in any terminal and its first row shows the result, or the question it is waiting on. See
 [Walk away](SESSIONS.md#walk-away-a-task-that-keeps-going-after-the-terminal-closes).
 
+The AI's own shell uses tmux only on a private `tmux -L <name>` server it started in this task; a server one part of a
+command starts counts in the rest of that command (`tmux -L run new-session -d …; sleep 5; tmux -L run ls`). For a long
+job it uses the shell's `background: true` instead, which `/tasks` lists and the receipt names.
+
 ## What runs in the background: /tasks
 
 `/tasks` shows one numbered list of what Casper keeps running: dev servers, slow commands moved to the
-background (`command cmd-1 npm run build`), the browser, the debugger, helpers and checks, each with a
-plain status and how long it has run. Then it asks:
+background (`command cmd-1 npm run build`) and jobs the AI started with `background: true`, the browser, the
+debugger, helpers and checks, each with a plain status and how long it has run. Then it asks:
 
 ```
 Stop something?

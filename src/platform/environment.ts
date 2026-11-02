@@ -54,8 +54,26 @@ export function isProviderKeyName(name: string): boolean {
   return PROVIDER_KEY_NAMES.includes(upper) || EXTRA_PROVIDER_NAMES.includes(upper) || OWN_SECRET.test(name);
 }
 
+/** What Casper sets in its own process for the engine it runs (src/runtime/agent-store.ts): its state folder, offline,
+ * telemetry and sign-in switches. A pi, omp or casper the AI starts that inherited them would read Casper's folder and
+ * sign-ins instead of its own ("No API key found for anthropic"). */
+export const ENGINE_VARIABLES: readonly string[] = ["PI_CODING_AGENT_DIR", "PI_OFFLINE", "PI_TELEMETRY", "PI_OAUTH_CALLBACK_HOST", "PI_TUI_WRITE_LOG"];
+/** The person's own values of those, as Casper started (before it set its own). */
+const personEngine = new Map<string, string>();
+
+/** Called at start-up, before Casper sets its engine variables: commands get the person's own back. */
+export function rememberPersonEngineEnv(env: NodeJS.ProcessEnv): void {
+  personEngine.clear();
+  for (const name of ENGINE_VARIABLES) {
+    const value = env[name];
+    // Bun stores `env.X = undefined` as the string "undefined"; it is no value of the person's.
+    if (value !== undefined && value !== "undefined") personEngine.set(name, value);
+  }
+}
+
 /**
- * `env` without AI provider keys (OPENROUTER_API_KEY, ANTHROPIC_API_KEY, ...) and Casper's own secrets.
+ * `env` without AI provider keys (OPENROUTER_API_KEY, ANTHROPIC_API_KEY, ...), Casper's own secrets and the engine
+ * variables Casper set for itself (ENGINE_VARIABLES; the person's own values of those come back as they were).
  * Network product tokens (MIST_API_TOKEN, CENTRAL_*) and everything else stay, so a project's own
  * tests keep working. `keep` names survive on purpose.
  */
@@ -68,7 +86,9 @@ export function withoutProviderKeys(env: NodeJS.ProcessEnv, keep: readonly strin
     if (value === undefined) continue;
     if (ourAskpass && /^(?:CASPER_ASKPASS_(?:ENDPOINT|TOKEN)|SSH_ASKPASS(?:_REQUIRE)?)$/.test(name)) continue;
     if (isProviderKeyName(name) && !keep.includes(name)) continue;
+    if (ENGINE_VARIABLES.includes(name.toUpperCase())) continue;
     clean[name] = value;
   }
+  for (const [name, value] of personEngine) clean[name] = value;
   return clean;
 }

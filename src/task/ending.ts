@@ -108,10 +108,10 @@ export function endingLine(ending: TaskEnding, task: TaskResult): string {
 }
 
 /** A result the card must never hide behind the line: a failure, a stop, work that did not finish, a secret Casper
- * saw, or a risky config line (you would answer the AI without having seen it). */
+ * saw, a risky config line (you would answer the AI without having seen it), or a job still running in the background. */
 export function mustStand(task: TaskResult): boolean {
   return ["failed", "cancelled", "incomplete"].includes(taskOutcome(task.verification, task))
-    || Boolean(task.secretInCommand || task.secretInFiles?.length || task.riskyLines?.length);
+    || Boolean(task.secretInCommand || task.secretInFiles?.length || task.riskyLines?.length || task.stillRunning?.length);
 }
 
 /** The card would only say that nothing changed: no check ran, nothing changed here, outside or on another machine,

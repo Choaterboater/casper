@@ -425,6 +425,8 @@ export class CasperApp {
   taskRuntimeFailed = false;
   /** The files from before the current task's change, while it runs: tells a failure the change caused from one already there. */
   taskBaseline?: { baseline: ChangeBaseline; root: string };
+  /** The folder as the last task left it (src/app/task-run.ts liveSinceLastTask); /undo and /redo forget it. */
+  taskEndTree?: { root: string; tree: Map<string, string> };
   /** Legacy embedders may still hand a pending incident to the command gate. */
   cleanupError?: ProcessCleanupError;
   readonly cleanupRecovery = new CleanupRecovery();

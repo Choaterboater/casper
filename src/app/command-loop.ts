@@ -162,6 +162,8 @@ export async function handlePrompt(app: CasperApp, prompt: string, typed?: { pas
   if (transition && app.subagents.isBusy) throw new Error("Wait for active subagents before changing workspaces");
   // /receipt, /undo, /redo and /diff read the last task; every other command starts without it.
   if (!/^\/(?:receipt|undo|redo|diff)(?:\s|$)/.test(prompt)) app.lastTaskResult = undefined;
+  // What undo puts back changed after the last task ended, but nothing running wrote it.
+  if (/^\/(?:undo|redo)(?:\s|$)/.test(prompt)) app.taskEndTree = undefined;
   const retainedTaskResult = app.lastTaskResult;
   app.taskRuntimeFailed = false;
   app.taskTurnLimit = undefined;

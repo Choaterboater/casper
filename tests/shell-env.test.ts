@@ -3,7 +3,10 @@ import { mkdtemp, readFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { ManagedProcess } from "../src/platform/managed-process";
-import { PROVIDER_KEY_NAMES, withoutProviderKeys } from "../src/platform/environment";
+import { PROVIDER_KEY_NAMES, rememberPersonEngineEnv, withoutProviderKeys } from "../src/platform/environment";
+import { useCasperAgentStore } from "../src/runtime/agent-store";
+import { casperBashOperations } from "../src/runtime/pi";
+import { withEnv } from "./support/env";
 import { runCommandCheck } from "../src/verify/command";
 import { POSIX } from "./support/platform";
 import { removeTempDir } from "./support/temp-dir";
@@ -72,4 +75,47 @@ test("withoutProviderKeys keeps everything else and honours keep", () => {
   const env = { OPENAI_API_KEY: "a", CENTRAL_CLIENT_SECRET: "b", PATH: "/bin", AWS_BEARER_TOKEN_BEDROCK: "c", PI_SECRET_TOKEN: "d" };
   expect(withoutProviderKeys(env)).toEqual({ CENTRAL_CLIENT_SECRET: "b", PATH: "/bin" });
   expect(withoutProviderKeys(env, ["OPENAI_API_KEY"])).toEqual({ OPENAI_API_KEY: "a", CENTRAL_CLIENT_SECRET: "b", PATH: "/bin" });
+});
+
+test("a command the AI runs never gets Casper's engine variables: a child omp, pi or casper uses its own config", () => {
+  // As Casper's process has them after start-up: its state folder, offline and telemetry switches (src/runtime/agent-store.ts).
+  const casper = { PATH: "/bin", HOME: "/home/someone", PI_CODING_AGENT_DIR: "/home/someone/.casper/agent", PI_OFFLINE: "1", PI_TELEMETRY: "0",
+    PI_OAUTH_CALLBACK_HOST: "127.0.0.1", PI_TUI_WRITE_LOG: "/tmp/pi-tui.log", PI_CODING_AGENT_SESSION_DIR: "/home/someone/pi-sessions", CASPER_AGENT_DIR: "/home/someone/.casper/agent" };
+  rememberPersonEngineEnv({});
+  // omp read PI_CODING_AGENT_DIR and looked for its login in Casper's folder ("No API key found for anthropic").
+  expect(withoutProviderKeys(casper)).toEqual({ PATH: "/bin", HOME: "/home/someone", PI_CODING_AGENT_SESSION_DIR: "/home/someone/pi-sessions", CASPER_AGENT_DIR: "/home/someone/.casper/agent" });
+  // What the person's own shell set before Casper replaced it comes back as it was.
+  rememberPersonEngineEnv({ PI_CODING_AGENT_DIR: "/home/someone/.omp/agent", PI_TELEMETRY: "0" });
+  try {
+    expect(withoutProviderKeys(casper)).toEqual({ PATH: "/bin", HOME: "/home/someone", PI_CODING_AGENT_DIR: "/home/someone/.omp/agent", PI_TELEMETRY: "0",
+      PI_CODING_AGENT_SESSION_DIR: "/home/someone/pi-sessions", CASPER_AGENT_DIR: "/home/someone/.casper/agent" });
+  } finally { rememberPersonEngineEnv({}); }
+});
+
+test("start-up remembers the person's own engine variables before Casper sets its own", async () => {
+  await withEnv({ PI_CODING_AGENT_DIR: "/somewhere/.pi/agent", PI_OFFLINE: undefined, CASPER_OFFLINE: "1", PI_TELEMETRY: undefined, CASPER_AGENT_DIR: undefined }, () => {
+    try {
+      useCasperAgentStore();
+      expect(process.env.PI_OFFLINE).toBe("1");
+      const child = withoutProviderKeys(process.env);
+      expect(child.PI_CODING_AGENT_DIR).toBe("/somewhere/.pi/agent");
+      expect(child.PI_OFFLINE).toBeUndefined();
+    } finally { rememberPersonEngineEnv({}); }
+  });
+});
+
+test("the AI's bash, as omp would read it: no PI_CODING_AGENT_DIR of Casper's, the person's own one back", async () => {
+  const run = async () => {
+    let out = "";
+    await casperBashOperations(undefined).exec('echo "dir=${PI_CODING_AGENT_DIR:-none} offline=${PI_OFFLINE:-none}"', process.cwd(), { onData: (data) => { out += data.toString(); }, timeout: 30 });
+    return out.trim();
+  };
+  await withEnv({ PI_CODING_AGENT_DIR: "/casper-home/.casper/agent", PI_OFFLINE: "1" }, async () => {
+    try {
+      rememberPersonEngineEnv({});
+      expect(await run()).toBe("dir=none offline=none");
+      rememberPersonEngineEnv({ PI_CODING_AGENT_DIR: "/person/.omp/agent" });
+      expect(await run()).toBe("dir=/person/.omp/agent offline=none");
+    } finally { rememberPersonEngineEnv({}); }
+  });
 });

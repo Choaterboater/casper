@@ -219,6 +219,7 @@ Each mark at the start of a line means one thing, in one colour (the `default` t
 | `✓` | green | done |
 | `–` | grey (dim) | a note: expected (a search that found nothing), skipped, not verified, not checked, recovered (a retry) |
 | `◆` | accent, bold | a change that stays in view: config, a device, another machine or the setup on this computer |
+| `◐` | accent, bold | work in the background: a receipt whose job still runs (`◐ Still running — …`), and the line when it ends |
 | `○` | amber | did not run (refused, stopped at the spend limit) |
 | `✗` | amber | a step failed, and the AI is still working |
 | `▌ ✗` | red | the task's result failed (the receipt), or an error stopped work (`[error]`) |
@@ -229,8 +230,12 @@ are amber while the work goes on, and the receipt's edge, its `✗` lines (in `-
 `[error]` lines are red. Amber also marks a decision (`── Approval ──`), cyan the accent (banner, `●`, Markdown
 structure), dim the muted status lines. `└` hangs a
 row under the AI's words. A closed box leaves one line, `<question> → <answer>`, with no mark.
-A task's receipt is a card: the verdict on line 1 (`✓` green, `⚠` amber, `✗` red only for a failed result) and
-labelled rows under an edge of the same colour ([receipts](VERIFICATION.md#receipts)).
+A task's receipt is a card: the verdict on line 1 (`✓` green, `⚠` amber, `✗` red only for a failed result, `◐` in
+the accent colour while a job the task started still runs) and labelled rows under an edge of the same colour
+([receipts](VERIFICATION.md#receipts)). When that job ends, one line says so where you are (`◐ Background job cmd-1
+ended with exit code 0 after 34m: node scripts/run.mjs --force`), and at the prompt the row under it offers
+`Next: 1 Carry on now that cmd-1 ended (uses tokens)`; only your key sends it, and nothing asks
+(`tests/still-running.test.ts`, `tests/background-receipt.test.ts`).
 Those are the `default` theme's colours; `theme: light` or `high-contrast` (or **Theme** in
 `/settings`) swaps the colours of each role (`src/tui/theme.ts`) and nothing else
 ([CONFIGURATION.md](CONFIGURATION.md#theme)).

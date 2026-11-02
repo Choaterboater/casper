@@ -33,6 +33,7 @@ export const RECEIPT_HELP = `What a receipt's first line means, and what to do:
   ⚠ Not verified                The checks don't show the change works: the tests pass without it too, a check ran only through bash, or a pass is from before the last edit. Do what the receipt says, often /verify.
   ⚠ Not checked                 The change was not tested: a check timed out or could not start, there are no tests yet, or Casper has no command for the tests it found. Run it again with /verify <check>, say "add tests", or say "set up the test command".
   ⚠ Incomplete                  The task stopped early: a turn or spend limit, commands Casper stopped, or a check that never ran. Send another request to go on.
+  ◐ Still running               A job the task started goes on in the background (/tasks lists it). The checks so far are under it; Casper says when it ends.
   ✗ Failed                      A check fails on the final files, or the model run failed. Ctrl+T shows the log; /verify repair <check> asks the model to fix it.
   ⚠ Stopped                     You stopped the task. What changed so far is kept: /diff shows it, /undo puts it back.
 Green is proven or passed, amber needs a look, red failed. /receipt shows every line of the last receipt.

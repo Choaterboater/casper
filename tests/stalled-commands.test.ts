@@ -5,7 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { createBashToolDefinition, createLocalBashOperations } from "@earendil-works/pi-coding-agent";
 import { loadConfiguration } from "../src/config/load";
-import { BackgroundCommands } from "../src/runtime/background-commands";
+import { BackgroundCommands, withBackgroundRequest } from "../src/runtime/background-commands";
 import { casperBashOperations } from "../src/runtime/pi";
 import { busyBetween, cpuSeconds, stalledMessage, watchStall } from "../src/runtime/stalled-commands";
 import type { RuntimeShell } from "../src/runtime/types";
@@ -47,6 +47,17 @@ test.skipIf(!unix)("a silent idle command is ended, with what it started, after 
   expect(text).toContain("give it a timeout");
   expect(text).toContain("Command exited with code 124");
   expect(await until(() => !sleeping().includes("sleep 46.1") && !sleeping().includes("sleep 46.2"), 3000)).toBe(true);
+}, 30_000);
+
+test.skipIf(!unix)("a job started with background: true is never ended for being quiet: waiting is its work", async () => {
+  const { notes, commands, run } = setup();
+  const { text } = await withBackgroundRequest(true, () => run("echo waiting on the build; sleep 6.4; echo built"));
+  expect(text).toContain("background as cmd-1");
+  expect(await until(() => notes.length > 0, 15_000)).toBe(true);
+  expect(notes[0]).toContain("ended with exit code 0");
+  expect(notes[0]).toContain("built");
+  expect(notes[0]).not.toContain("stalled");
+  expect(commands.list()).toEqual([]);
 }, 30_000);
 
 test.skipIf(!unix)("a silent command busy on the CPU, and one printing every second, run to the end", async () => {

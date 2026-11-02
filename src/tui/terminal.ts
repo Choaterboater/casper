@@ -18,7 +18,7 @@ import type { HelperActivity } from "../agents/manager";
 import { crewTranscriptLine } from "./crew-panel";
 import { modelReasonLine } from "./model-reason";
 import { CARD_MIN_COLUMNS, cardHintRows, cardMinColumns, cardNextRows, cardRows, receiptCard, RECEIPT_HINT, type CardTone, type ReceiptCard } from "./receipt-card";
-import type { ReceiptView } from "../task/result";
+import { STILL_RUNNING_MARK, type ReceiptView } from "../task/result";
 
 export { numberPrompt } from "./choices";
 
@@ -27,7 +27,7 @@ export { numberPrompt } from "./choices";
  * step (•) muted (the theme's colours); a detailed diff line added or removed. */
 export function styleLine(line: string, color: boolean, result = false): string {
   const role: ThemeRole | undefined = reasonPrefix(line) !== undefined || line.startsWith("– ") || line.startsWith("✓ judge: ") ? "muted"
-    : /^\[error\]/.test(line) || (result && /^✗/.test(line)) ? "error" : /^✓/.test(line) ? "success" : /^◆ /.test(line) ? "accent"
+    : /^\[error\]/.test(line) || (result && /^✗/.test(line)) ? "error" : /^✓/.test(line) ? "success" : /^[◆◐] /.test(line) ? "accent"
     : /^(?:✗|– |○ |⚠ |\[skills\]|\[cancel|\[approval\]|\[ask\]|\[effort\])/.test(line) ? "warning" : /^CASPER/.test(line) ? "accent" : /^(?: \/help · |…|• )/.test(line) ? "muted"
     : /^ {4}\+ /.test(line) ? "diffAdded" : /^ {4}- /.test(line) ? "diffRemoved" : undefined;
   // The text header is bold as well as the accent colour.
@@ -417,7 +417,7 @@ export class InteractiveTerminal {
     if (!this.surface || !card) {
       if (!this.surface) { this.writeReceipt(text); return; }
       const lines = terminalText(text).split("\n");
-      const tone = /^✓/.test(lines[0] ?? "") ? "success" : /^(?:✗|\[error\])/.test(lines[0] ?? "") ? "error" : "warning";
+      const tone = /^✓/.test(lines[0] ?? "") ? "success" : /^(?:✗|\[error\])/.test(lines[0] ?? "") ? "error" : lines[0]?.startsWith(STILL_RUNNING_MARK) ? "accent" : "warning";
       const edge = tint("▌", tone, this.color);
       // A block of its own: a blank row before it.
       this.surface.write(lines.map(line => line ? `${edge} ${this.styleLine(line, true)}` : line).join("\n"), "group");
