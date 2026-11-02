@@ -275,6 +275,23 @@ test("page files with nothing to start them are a note, not an unfinished check"
   expect(await lines(f.starts)).toEqual([]);
 });
 
+test("a start command that exits 0 at once, before serving, is not checked rather than unfinished, and the receipt says so", async () => {
+  // A comparison build's `node server.js` once ended with exit code 0 before it was ready; it served fine elsewhere.
+  const f = await fixture();
+  f.edit("server.ts", `console.log("starting");\nprocess.exit(0);\n`);
+  const task = await f.run();
+  expect(task.appSmoke).toMatchObject({ status: "not-run", exitedEarly: true, reason: expect.stringMatching(/^the start command exited before serving \(exit code 0 after [\d.]+ s\)$/) });
+  expect(f.text()).toContain("App smoke: not checked");
+  expect(f.text()).not.toContain("Incomplete — app smoke");
+  // One that fails (exit 1) is still an unfinished attempt.
+  const g = await fixture();
+  g.edit("server.ts", `process.exit(1);\n`);
+  const failed = await g.run();
+  expect(failed.appSmoke).toMatchObject({ status: "not-run", reason: expect.stringContaining("exit code 1") });
+  expect(failed.appSmoke?.exitedEarly).toBeUndefined();
+  expect(g.text()).toContain("Incomplete — app smoke");
+}, 30_000);
+
 test("a framework-less server without launch information says not run", async () => {
   const f = await fixture({ config: { services: {} } }); f.edit();
   const task = await f.run();
@@ -381,6 +398,21 @@ fs.writeFileSync("data.json", JSON.stringify({ started: Date.now() })); fs.write
   const task = await f.run();
   expect(task.appSmoke).toMatchObject({ status: "pass", httpStatus: 200, cleanup: "stopped" });
   await f.stopped();
+}, 20_000);
+
+test("the app writing its first-run settings while Casper tries it still passes, and Casper's run leaves none of its files behind", async () => {
+  // A real build wrote config/services.yaml on start, naming the port Casper's run gave it; that file shipped.
+  const f = await fixture();
+  const writes = `const fs = require("node:fs"); fs.mkdirSync("config", { recursive: true });
+if (!fs.existsSync("config/services.yaml")) fs.writeFileSync("config/services.yaml", "href: http://localhost:" + process.env.PORT + "/\\n");
+fs.writeFileSync("data.json", JSON.stringify({ started: Date.now() }));\n`;
+  await writeFile(path.join(f.project, "data.json"), "{\"seed\":1}\n");
+  f.edit("server.ts", writes + f.source());
+  const task = await f.run();
+  expect(task.appSmoke).toMatchObject({ status: "pass", httpStatus: 200, cleanup: "stopped" });
+  await f.stopped();
+  expect(await Bun.file(path.join(f.project, "config/services.yaml")).exists()).toBe(false);
+  expect(await readFile(path.join(f.project, "data.json"), "utf8")).toBe("{\"seed\":1}\n");
 }, 20_000);
 
 test("only data, database and log files count as the app's own writes", () => {

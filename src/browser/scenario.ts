@@ -5,7 +5,9 @@ import { blank, oneLine, webURL } from "./arguments";
 const ASSERTION_FIELDS: Record<string, string[]> = { text: ["selector", "expected"], visible: ["selector"], "no-horizontal-overflow": ["selector"], "no-overlap": ["selector", "other"] };
 function record(value: unknown): value is Record<string, unknown> { return Boolean(value && typeof value === "object" && !Array.isArray(value)); }
 
-export interface BrowserStep { action: "click" | "fill" | "press" | "select"; selector: string; value?: string; impact: "local-test" | "consequential" | "uncertain"; reason: string }
+export interface BrowserStep { action: "click" | "fill" | "press" | "select"; selector: string; value?: string; impact: "local-test" | "consequential" | "uncertain"; reason: string
+  /** OK to the next confirm, prompt or alert the step opens (otherwise Casper answers Cancel); on this computer's pages only. */
+  dialog?: "accept" }
 /** text without a selector: some element on the page reads exactly `expected`. */
 export type BrowserAssertion = { kind: "text"; selector?: string; expected: string }
   | { kind: "visible"; selector: string }
@@ -81,14 +83,15 @@ export function parseScenario(input: unknown): BrowserScenario {
   if (!Array.isArray(steps) || steps.length > 12) throw new Error("Browser scenario steps must be a list of 0–12 click/fill/press/select steps");
   if (!Array.isArray(entry.assertions) || !entry.assertions.length || entry.assertions.length > MAX_ASSERTIONS) throw new Error(`Browser scenario needs 1–${MAX_ASSERTIONS} assertions`);
   const parsedSteps = steps.map((value, index) => {
-    const step = object(value, ["action", "selector", "value", "impact", "reason"], `scenario step ${index + 1}`);
+    const step = object(value, ["action", "selector", "value", "impact", "reason", "dialog"], `scenario step ${index + 1}`);
+    if (step.dialog !== undefined && step.dialog !== "accept") throw new Error(`Browser scenario step ${index + 1} dialog must be "accept" (leave it out to answer Cancel)`);
     if (!["click", "fill", "press", "select"].includes(String(step.action))) throw new Error(`Browser scenario step ${index + 1} action must be click, fill, press or select`);
     if (!["local-test", "consequential", "uncertain"].includes(String(step.impact))) throw new Error(`Browser scenario step ${index + 1} needs impact: local-test, consequential or uncertain`);
     if (step.action === "click" && step.value !== undefined) throw new Error(`Browser scenario step ${index + 1}: click does not take a value`);
     if (step.action !== "click") string(step.value, `scenario step ${index + 1} value`, 1024);
     const selector = string(step.selector, `scenario step ${index + 1} selector`);
     return { action: step.action, selector, impact: step.impact, reason: oneLine(step.reason, `scenario step ${index + 1} reason`, 512, `${String(step.action)} ${selector}`),
-      ...(step.value === undefined ? {} : { value: step.value }) } as BrowserStep;
+      ...(step.value === undefined ? {} : { value: step.value }), ...(step.dialog === "accept" ? { dialog: "accept" } : {}) } as BrowserStep;
   });
   const assertions = entry.assertions.map((value, index) => {
     const label = `scenario assertion ${index + 1}`;

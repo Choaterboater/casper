@@ -245,7 +245,7 @@ export type TaskOutcome = "verified" | "failed" | "incomplete" | "not_verified" 
 export function checksPassed(report?: VerificationReport, task?: TaskResult): boolean {
   if (task?.execution === "cancelled" || task?.execution === "failed" || task?.turnLimit !== undefined || task?.spendLimit !== undefined) return false;
   if (task?.cleanup?.some(incident => incident.state !== "stopped")) return false;
-  if (task?.appSmoke && (task.appSmoke.status === "fail" || (task.appSmoke.status === "not-run" && !task.appSmoke.deferred && !task.appSmoke.nothingToStart) || task.appSmoke.cleanup === "unconfirmed")) return false;
+  if (task?.appSmoke && (task.appSmoke.status === "fail" || (task.appSmoke.status === "not-run" && !task.appSmoke.deferred && !task.appSmoke.nothingToStart && !task.appSmoke.exitedEarly) || task.appSmoke.cleanup === "unconfirmed")) return false;
   if (task?.browser?.status === "fail" || task?.browser?.status === "incomplete") return false;
   const verification = task?.verification ?? report;
   if (verification?.status !== "pass") return false;
@@ -279,7 +279,7 @@ export function taskOutcome(report?: VerificationReport, task?: TaskResult): Tas
   const verification = task?.verification ?? report;
   const status = verification?.status;
   if (status === "fail" || status === "blocked" || task?.browser?.status === "fail" || task?.appSmoke?.status === "fail") return "failed";
-  if (status === "incomplete" || task?.browser?.status === "incomplete" || (task?.appSmoke?.status === "not-run" && !task.appSmoke.deferred && !task.appSmoke.nothingToStart) || task?.appSmoke?.cleanup === "unconfirmed") return "incomplete";
+  if (status === "incomplete" || task?.browser?.status === "incomplete" || (task?.appSmoke?.status === "not-run" && !task.appSmoke.deferred && !task.appSmoke.nothingToStart && !task.appSmoke.exitedEarly) || task?.appSmoke?.cleanup === "unconfirmed") return "incomplete";
   if (task?.cleanup?.some(incident => incident.state !== "stopped")) return "incomplete";
   // Commands to another machine that Casper stopped: whatever the AI said about that machine did not happen.
   if (task?.remoteNotRun?.length) return "incomplete";
@@ -351,9 +351,17 @@ function staleGone(checks: BrowserReport["checks"]): string | undefined {
   const count = (n: number) => `${n} browser ${n === 1 ? "check" : "checks"}`;
   return [gone === 1 ? "1 browser check is stale: the server it ran on is gone" : gone ? `${gone} browser checks are stale: the server they ran on is gone` : "",
     cancelled.length ? `${count(cancelled.length)} not checked: Casper answers Cancel to the ${dialogKind(cancelled)} ${cancelled.length === 1 ? "it opens" : "they open"}` : "",
-    wrong ? `${count(wrong)} written wrong: a selector matches several elements` : "",
+    wrong ? `${count(wrong)} written wrong: ${wrongKind(open)}` : "",
     notReplayed ? `${count(notReplayed)} not replayed at the end` : ""]
     .filter(Boolean).join("; ");
+}
+
+/** Why the checks written wrong are wrong, when they all share one reason. */
+function wrongKind(checks: BrowserReport["checks"]): string {
+  const reasons = checks.flatMap((check) => check.writtenWrong ? [check.writtenWrong] : []);
+  return reasons.every((reason) => /matches \d+ elements/.test(reason)) ? "a selector matches several elements"
+    : reasons.every((reason) => /wider than the element/.test(reason)) ? "a selector is wider than the element that reads its text"
+    : "a selector matches several elements or more than its text";
 }
 
 /** "confirm dialog", "prompt dialog", or both kinds. */
@@ -1061,9 +1069,9 @@ function withVerdict(task: TaskResult, body: string[], options: ReceiptOptions, 
         : task.turnLimit !== undefined
         ? `– Incomplete — stopped after ${task.turnLimit} ${task.turnLimit === 1 ? "turn" : "turns"} (--max-turns); changes so far are kept; ${options.surface === "one-shot" ? "casper --continue" : "send another request"} to go on`
         : task.cleanup?.some(incident => incident.state !== "stopped") ? "– Incomplete — owned process cleanup is unconfirmed"
-        : task.appSmoke?.status === "not-run" && !task.appSmoke.deferred && !task.appSmoke.nothingToStart && task.appSmoke.cleanup !== "unconfirmed"
+        : task.appSmoke?.status === "not-run" && !task.appSmoke.deferred && !task.appSmoke.nothingToStart && !task.appSmoke.exitedEarly && task.appSmoke.cleanup !== "unconfirmed"
           ? `– Incomplete — app smoke didn't run${task.appSmoke.reason ? `: ${safe(redactPreview(task.appSmoke.reason))}` : ""}`
-        : (task.appSmoke?.status === "not-run" && !task.appSmoke.deferred && !task.appSmoke.nothingToStart) || task.appSmoke?.cleanup === "unconfirmed" ? "– Incomplete — app smoke did not finish"
+        : (task.appSmoke?.status === "not-run" && !task.appSmoke.deferred && !task.appSmoke.nothingToStart && !task.appSmoke.exitedEarly) || task.appSmoke?.cleanup === "unconfirmed" ? "– Incomplete — app smoke did not finish"
         : task.remoteNotRun?.length ? `– Incomplete — ${remoteNotRunVerdict(task.remoteNotRun, safe)}`
         : task.wroteToolCallAsText ? "– Did not act — the model wrote a tool call as text instead of using it"
         : report?.reason === NO_CHECKS_FOUND && !report.results.length ? NO_CHECKS_LINE
@@ -1150,7 +1158,8 @@ function notVerifiedReason(task: TaskResult): string {
 function appSmokeLine(report: AppSmokeReport, text: (text: string) => string): string {
   const safe = (value: string) => text(redactPreview(value));
   const mark = report.status === "pass" ? "✓" : report.status === "fail" ? "✗" : "–";
-  const status = report.status === "pass" ? "passed" : report.status === "fail" ? "failed" : report.status === "off" ? "not run (off)" : "not run";
+  const status = report.status === "pass" ? "passed" : report.status === "fail" ? "failed" : report.status === "off" ? "not run (off)"
+    : report.exitedEarly ? "not checked" : "not run";
   const request = report.path ? ` · ${safe(report.method ?? "GET")} ${safe(report.path)}${report.httpStatus !== undefined ? ` → HTTP ${report.httpStatus}` : ""}` : "";
   const cleanup = report.cleanup === "stopped" ? "; app stopped" : report.cleanup === "preserved" ? "; existing service left running"
     : report.cleanup === "unconfirmed" ? "; cleanup unconfirmed" : "";

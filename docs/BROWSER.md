@@ -111,11 +111,16 @@ note, not a failure. A check's steps share 8 seconds of this watching; a step
 whose watch is cut short gets no note. A native `alert`, `confirm`, `prompt` or leave-page dialog
 is still dismissed (Cancel, or stay on the page), and the result lists it under
 `dialogs`, such as `confirm dialog "Clear this item?": Casper answered Cancel`;
-a check lists both under `notes`, by step. A check that fails after Casper answered
-Cancel to a `confirm` or `prompt` dialog never saw what OK does, so it is not checked
-rather than failed: incomplete with the reason `Not checked: step <n> opened a confirm
-dialog (…) and Casper answers Cancel to confirm dialogs, …`, it starts no repair, and
-the receipt says `1 not checked, Casper answered Cancel to its confirm dialog: <name>`
+a check lists both under `notes`, by step. A check's step can say `dialog: "accept"`:
+the next `confirm`, `prompt` or `alert` that step opens gets OK instead (a prompt gets
+its default text), noted as `Casper answered OK (dialog: accept)`, and the step after it
+gets Cancel again. It works only on a page on this computer, and never on a leave-page
+dialog ([decision 56](adr/0002/56-a-check-step-may-accept-its-dialog.md)). A check that
+fails after Casper answered Cancel to a `confirm` or `prompt` dialog never saw what OK
+does, so it is not checked rather than failed: incomplete with the reason `Not checked:
+step <n> opened a confirm dialog (…) and Casper answered Cancel, …` (it says to record it
+again with `dialog: "accept"`), it starts no repair, and the receipt says `1 not checked,
+Casper answered Cancel to its confirm dialog: <name>`
 ([decision 55](adr/0002/55-restart-a-checks-service-for-the-end-replay.md)).
 The result also says what the action changed, as a person would see it, under
 `changes`: the address it left (`previousUrl`), a new `title`, text that
@@ -298,7 +303,11 @@ and record the check again (nothing was recorded)`), and the check is recorded a
 element. A replay where one matches several is a check written wrong, not a failure of the page:
 incomplete with the reason `Written wrong: …`, no repair, and the receipt says
 `1 written wrong: <name> (assertion 1's selector matches 2 elements)`
-([decision 55](adr/0002/55-restart-a-checks-service-for-the-end-replay.md)).
+([decision 55](adr/0002/55-restart-a-checks-service-for-the-end-replay.md)). So is a text assertion that has
+failed ever since it was recorded because its element holds the expected text inside other text (a tile that
+reads `SUp` for `Up`): the check is kept, so it can be replaced, and the receipt says `1 written wrong: <name>
+(assertion 1's selector is wider than the element that reads its text)`
+([decision 56](adr/0002/56-a-check-step-may-accept-its-dialog.md)).
 Withdrawing a check that passed is refused, and so is replaying a withdrawn id. A
 withdrawn check stays visible: its status is `withdrawn` in the JSON report, with
 the reason under `withdrawn`, and the receipt says
@@ -369,7 +378,11 @@ one), with the data and settings files (`config/*.yaml` and the like) the check 
 recorded with put back first, and stop it again once the replays end; the check's
 `notes` say `started <service> again for this replay: it had stopped`. An ad-hoc
 service is known by its command: when Casper has let its slot go (more were started
-after it), the check follows the one running the same command, or starts it again. A check's own
+after it), the check follows the one running the same command, or starts it again. The
+model's other services that ran when the check was recorded (a mock its page fetched) are
+started again too, and stopped after; when one can't start, a check that then fails is
+`not replayed: <name> (it needs <service> (…), which could not start again: …)`, not
+failed ([decision 56](adr/0002/56-a-check-step-may-accept-its-dialog.md)). A check's own
 server that is still running is restarted when its data or settings are put back, so
 an app that holds them in memory reads them afresh, and again with the model's files
 at the end ([decision 55](adr/0002/55-restart-a-checks-service-for-the-end-replay.md)).

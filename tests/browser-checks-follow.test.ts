@@ -20,6 +20,14 @@ afterEach(async () => { for (const close of cleanup.splice(0).reverse()) await c
 const SERVER = `Bun.serve({ hostname: process.env.HOST ?? "127.0.0.1", port: Number(process.env.PORT), fetch: () => new Response("<!doctype html><h1>" + process.argv[2] + "</h1>", { headers: { "content-type": "text/html; charset=utf-8" } }) });
 console.log("listening");
 `;
+/** Says Up when the service at argv[2] answers, Down when it doesn't: the start page's status dot, on the AI's own mock. */
+const STATUS = `const upstream = process.argv[2];
+Bun.serve({ hostname: process.env.HOST ?? "127.0.0.1", port: Number(process.env.PORT), fetch: async () => {
+  const up = await fetch(upstream, { signal: AbortSignal.timeout(1000) }).then(response => response.ok, () => false);
+  return new Response("<!doctype html><h1>" + (up ? "Up" : "Down") + "</h1>", { headers: { "content-type": "text/html; charset=utf-8" } });
+} });
+console.log("listening");
+`;
 /** Reads config/title.yaml once at start and keeps it in memory, as the start page builds did. */
 const CACHING = `const title = require("node:fs").readFileSync("config/title.yaml", "utf8").trim();
 Bun.serve({ hostname: process.env.HOST ?? "127.0.0.1", port: Number(process.env.PORT), fetch: () => new Response("<!doctype html><h1>" + title + "</h1>", { headers: { "content-type": "text/html; charset=utf-8" } }) });
@@ -33,6 +41,7 @@ async function setup() {
   await mkdir(project); await mkdir(state);
   await writeFile(path.join(root, "server.ts"), SERVER);
   await writeFile(path.join(root, "caching.ts"), CACHING);
+  await writeFile(path.join(root, "status.ts"), STATUS);
   const command = (words: string, script = "server.ts") => `"${process.execPath}" "${path.join(root, script)}" "${words}"`;
   const services = new ServiceManager({ projectRoot: project, services: {} });
   cleanup.push(() => services.close());
@@ -156,7 +165,7 @@ browserTest("a check that fails after Casper answered Cancel to a confirm dialog
   const url = `http://127.0.0.1:${page.port}/`;
   const clicked = (expected: string) => ({ name: `after the click: ${expected}`, url, steps: [{ action: "click", selector: "#go", impact: "local-test" }], assertions: [{ kind: "text", selector: "h1", expected }] });
   const needsOk = await session.run({ action: "check", scenario: clicked("Cleared") });
-  expect(needsOk).toMatchObject({ status: "incomplete", cancelled: "confirm", reason: expect.stringContaining("Casper answers Cancel to confirm dialogs") });
+  expect(needsOk).toMatchObject({ status: "incomplete", cancelled: "confirm", reason: expect.stringContaining('Casper answered Cancel, so this check can\'t see what OK does. On this computer\'s pages, record it again with dialog: "accept"') });
   // A check that expects what Cancel does still passes.
   expect(await session.run({ action: "check", scenario: clicked("Two items") })).toMatchObject({ status: "pass" });
   const report = await session.report();
@@ -202,4 +211,73 @@ browserTest("an end replay that can't finish says why; it never keeps the earlie
   const check = (await session.report()).checks.find(entry => entry.id === opened.id)!;
   expect(check).toMatchObject({ status: "incomplete", notReplayed: expect.stringContaining("matches 0") });
   expect(check.freshness).not.toBe("stale");
+}, 45_000);
+
+browserTest("at the end, a check recorded while another of the AI's services answered it (its mock) replays with that service started again too", async () => {
+  const { root, services, session, command, signal, scenario } = await setup();
+  await writeFile(path.join(root, "mock.ts"), SERVER);
+  const mock = await services.startCommand(command("ok", "mock.ts"), { ready: { log: "listening" } }, signal);
+  const app = await services.startCommand(command(mock.origin!, "status.ts"), { ready: { log: "listening" } }, signal);
+  const recorded = await session.run({ action: "check", scenario: scenario(`${app.origin}/`, "Up") });
+  expect(recorded.status).toBe("pass");
+  // The AI cleans up: both stopped.
+  await services.stop(app.name); await services.stop(mock.name);
+  session.invalidate();
+  await session.replayStale(0);
+  const replayed = (await session.report()).checks.find(check => check.id === recorded.id)!;
+  expect(replayed).toMatchObject({ status: "pass", freshness: "fresh" });
+  expect(replayed.notes).toEqual(expect.arrayContaining([`started ${mock.name} again for this replay: it had stopped`, `started ${app.name} again for this replay: it had stopped`]));
+  // Left as the AI left them, and the mock kept its port (the app's settings name it).
+  expect(services.status().filter(service => service.state === "ready")).toEqual([]);
+  expect(services.status().find(service => service.name === mock.name)?.origin).toBeUndefined();
+}, 60_000);
+
+browserTest("a check whose other service can't start again is not replayed, not failed, and says which service", async () => {
+  const { root, services, session, command, signal, scenario } = await setup();
+  await writeFile(path.join(root, "mock.ts"), SERVER);
+  const mock = await services.startCommand(command("ok", "mock.ts"), { ready: { log: "listening" } }, signal);
+  const app = await services.startCommand(command(mock.origin!, "status.ts"), { ready: { log: "listening" } }, signal);
+  const recorded = await session.run({ action: "check", scenario: scenario(`${app.origin}/`, "Up") });
+  expect(recorded.status).toBe("pass");
+  await services.stop(mock.name);
+  await rm(path.join(root, "mock.ts"));
+  session.invalidate();
+  await session.replayStale(0);
+  const replayed = (await session.report()).checks.find(check => check.id === recorded.id)!;
+  expect(replayed).toMatchObject({ status: "incomplete", notReplayed: expect.stringMatching(new RegExp(`^it needs ${mock.name} \\(.*mock\\.ts.*\\), which could not start again: `)) });
+}, 60_000);
+
+browserTest("a step with dialog: accept answers OK to the confirm it opens, on a page on this computer; the next step's dialog is Cancel again", async () => {
+  const { session } = await setup();
+  const page = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => new Response(`<!doctype html><button id="go" onclick="document.querySelector('h1').textContent = confirm('Remove Weather?') ? 'Removed' : 'Kept'">Go</button><h1>Weather</h1>`,
+    { headers: { "content-type": "text/html; charset=utf-8" } }) });
+  cleanup.push(() => page.stop(true));
+  const url = `http://127.0.0.1:${page.port}/`;
+  const click = (dialog?: "accept") => ({ action: "click", selector: "#go", impact: "local-test", ...(dialog ? { dialog } : {}) });
+  const accepted = await session.run({ action: "check", scenario: { name: "remove after OK", url, steps: [click("accept")], assertions: [{ kind: "text", selector: "h1", expected: "Removed" }] } });
+  expect(accepted).toMatchObject({ status: "pass", notes: ['step 1: confirm dialog "Remove Weather?": Casper answered OK (dialog: accept)'] });
+  // Only the step that asked: the next one's dialog is Cancel, as by default.
+  const then = await session.run({ action: "check", scenario: { name: "OK then Cancel", url, steps: [click("accept"), click()], assertions: [{ kind: "text", selector: "h1", expected: "Kept" }] } });
+  expect(then.status).toBe("pass");
+  await expect(session.run({ action: "check", scenario: { name: "bad", url, steps: [{ ...click(), dialog: "yes" }], assertions: [{ kind: "text", selector: "h1", expected: "Kept" }] } }))
+    .rejects.toThrow('Browser scenario step 1 dialog must be "accept"');
+  await expect(session.run({ action: "check", scenario: { name: "remote", url: "https://example.invalid/", steps: [click("accept")], assertions: [{ kind: "text", selector: "h1", expected: "Kept" }] } }))
+    .rejects.toThrow("dialog: accept works only on a page on this computer");
+}, 45_000);
+
+browserTest("a text assertion whose selector holds more than its expected text, failing since it was recorded, is written wrong: named, not failed", async () => {
+  const { session } = await setup();
+  const page = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => new Response(`<!doctype html><div class="tile"><span class="badge">S</span><span class="status">Up</span></div><h1>Home</h1>`,
+    { headers: { "content-type": "text/html; charset=utf-8" } }) });
+  cleanup.push(() => page.stop(true));
+  const url = `http://127.0.0.1:${page.port}/`;
+  // As a real run wrote it: the whole tile, which reads "SUp", for the status word "Up".
+  const wide = await session.run({ action: "check", scenario: { name: "status word", url, steps: [], assertions: [{ kind: "text", selector: ".tile", expected: "Up" }] } });
+  expect(wide).toMatchObject({ status: "incomplete", writtenWrong: "assertion 1's selector is wider than the element that reads its text" });
+  session.invalidate();
+  expect(await session.run({ action: "replay", id: wide.id })).toMatchObject({ status: "incomplete", writtenWrong: expect.stringContaining("wider") });
+  // A wrong text with no element reading it is still a failure.
+  const wrong = await session.run({ action: "check", scenario: { name: "wrong", url, steps: [], assertions: [{ kind: "text", selector: "h1", expected: "Away" }] } });
+  expect(wrong.status).toBe("fail");
+  expect((await session.report()).status).toBe("fail");
 }, 45_000);

@@ -899,10 +899,14 @@ the API answered and has no page there (`GET / → HTTP 404 — the API answered
 404, a 5xx, or a 404 on a changed page or declared path still fails. Readiness polling is separate from this one smoke request.
 A matching fresh page or service check on the final files is reused instead of making another request.
 A reused check keeps its actual method, path and result. A later edit invalidates it.
-If code or configuration changes while the app is being tried, the smoke says not run. Data the app
-writes as it works (`.json` data files, SQLite databases and their `-wal`/`-shm` files, `.log`, `.csv`)
-does not count; manifests and tool configs such as `package.json` or `tsconfig.json` still do. The
-receipt still lists those files under `Changed while checking`.
+If code changes while the app is being tried, the smoke says not run. What the app writes as it works
+does not count: data (`.json` data files, SQLite databases and their `-wal`/`-shm` files, `.log`, `.csv`)
+and the settings it creates or saves (YAML, TOML, INI such as `config/services.yaml`); manifests and tool
+configs such as `package.json` or `tsconfig.json` still do. When Casper started the app itself, those data
+and settings files are put back afterwards (one that didn't exist is removed), so a first-run config naming
+the port of Casper's run is not left in the project. A start command that ends with exit code 0 within 5 s,
+before serving, is `App smoke: not checked — the start command exited before serving (exit code 0 after
+1.2 s)`: a note, not an unfinished attempt.
 If the selected service is already running because you intentionally started it, Casper makes it fresh
 with `ensureFresh` before that GET: edits mark it stale, so it restarts once instead of serving old code.
 The request goes there instead of launching a second copy, even on a fixed port. The service stays yours,

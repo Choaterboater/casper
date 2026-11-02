@@ -6,6 +6,8 @@ import type { ChildProject } from "../project/child";
 import { planAppSmoke, runtimeChanges, type AppSmokeTarget } from "../services/detect";
 import { requestApp, sameAppInputs, sameRuntimeInputs, tryApp, type AppSmokeReport } from "../services/try-it";
 import { diffSnapshots, findMoves, withoutMoves } from "../task/changes";
+import { restoreAppData, sameAppData, snapshotAppData } from "../browser/app-data";
+import { settingsFile } from "../services/app-data";
 import { redactPreview } from "../tui/format";
 import type { VerificationReport } from "../verify/evidence";
 import { phase } from "./footer";
@@ -103,13 +105,23 @@ export async function finishAppSmoke(app: CasperApp, options: AppSmokeTask & {
       }
       app.events.ensureLineBreak();
       app.output.write(`• Casper trying the app: ${redactPreview(plan.service.label)} · GET ${redactPreview(plan.path)}\n`);
+      // What the app writes as Casper runs it (its data, its first-run settings naming this run's port) is put back.
+      const data = await snapshotAppData(root, signal).catch(() => undefined);
+      const settings = await snapshotAppData(root, signal, settingsFile).catch(() => undefined);
       const running = app.services?.root === root && options.preserve.has(plan.service.name)
         && app.services.status().some(service => service.name === plan.service.name && service.state === "ready" && service.command === plan.service.spec.command);
       if (running) {
         report = { status: "not-run", label: redactPreview(plan.service.label), command: redactPreview(plan.service.spec.command), path: redactPreview(plan.path), method: "GET", cleanup: "not-started" };
         await app.services!.ensureFresh(plan.service.name, signal);
         Object.assign(report, { cleanup: "preserved" }, await requestApp(app.services!.origin(plan.service.name), plan.path, signal, plan.rootGuess));
-      } else report = await tryApp(root, plan, signal, { onCleanupError: error => app.cleanupRecovery.queue(error) });
+      } else {
+        report = await tryApp(root, plan, signal, { onCleanupError: error => app.cleanupRecovery.queue(error) });
+        for (const files of [data, settings]) {
+          if (!files) continue;
+          const now = await snapshotAppData(root, signal, files.pick).catch(() => undefined);
+          if (now && !sameAppData(files, now)) await restoreAppData(root, files, now).catch(() => {});
+        }
+      }
       const after = await app.snapshotWorkspace(options.root, signal);
       if (report.status === "pass" && !sameAppInputs(now, after)) {
         report.status = "not-run";
