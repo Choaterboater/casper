@@ -154,6 +154,9 @@ that tries gets a note pointing at `background: true`. Every command the AI runs
 on macOS and Linux and tracked like one started with `background: true`: `/tasks` lists it, the receipt says `◐ Still
 running`, and a note comes when it ends. On macOS Apple's own programs hide their environment, so the job found is the
 first node, python or bun it starts.
+On macOS the sandbox hides other processes: `ps`, `pgrep` and `pkill` get no process list, and `kill` can't signal
+a process another command started. A command whose output shows that gets a note saying so: stop a server with the
+service tool, or start and stop a process in the same command (`cmd & pid=$!; …; kill $pid`).
 It is on. Turn it off with `/settings` (it writes `slow_commands: false`) and a slow command is
 stopped at 2 minutes. A project file can't set it.
 
@@ -837,17 +840,19 @@ this external executable too; it does not rely on finding an SDK binary inside B
 
 Casper appends its exact system instructions to Claude Code's default `claude_code` prompt preset,
 rather than replacing that preset with a custom prompt. It keeps its tools, permissions, sandbox,
-compaction and saved conversations. The SDK receives tool declarations through an in-process MCP
-server, but cannot execute them; proposals return to Casper's normal approval/execution path. Each
-completion starts one SDK query with one model turn and replays the visible conversation as labelled
-text, retaining images and actual tool results but not historical thinking. Replay instructions tell
-Claude to continue after the final message rather than repeat a call whose result is already present.
-A completed tool proposal
-hands control back to Casper at the SDK's terminal result, including the expected one-turn limit;
-later CLI shutdown errors do not discard it. This avoids manipulating Claude Code's
-private session files; it is not native alternating-turn replay and long conversations can increase
-input usage. New instructions and tool lists take effect on the next completion. Steering applies
-at Casper's next tool boundary, not inside an already-running completion.
+compaction and saved conversations. One conversation is one live Claude Code session
+([decision 54](adr/0002/54-live-claude-code-session.md)): Claude Code keeps the turns, its thinking
+included, and its calls of Casper's tools (declared through an in-process MCP server) wait while Casper
+runs each one through its normal approval and sandbox; the call is answered with the result Casper's
+tool gave. Nothing in Claude Code runs a tool itself. A request that goes on from the session (the
+results of its calls, or your next message) is sent to it as one new message. Any other request, after
+compaction, a fork, `--continue`, a steering message, a model or instructions change, or a restart,
+starts a new session seeded with the visible conversation as labelled text (images and actual tool
+results, not historical thinking), with instructions to continue after the final message rather than
+repeat a call whose result is already present. Sessions are not saved by Claude Code
+(`persistSession: false`); Casper's own saved conversation is the record. Up to four stay open, each
+closes after 15 idle minutes, and all close when Casper ends. Steering applies at Casper's next tool
+boundary, not inside an already-running turn.
 
 API keys, endpoint overrides and cloud-provider switches are cleared from the Claude Code child's
 environment; user/project Claude settings and inherited MCP servers are not loaded. The provider

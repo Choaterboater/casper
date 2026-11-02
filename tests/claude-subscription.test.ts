@@ -12,6 +12,7 @@ import { normalizeContext } from "@earendil-works/pi-ai/utils/transcript";
 import { assertSubscriptionAccount, claudeExecutable, CLAUDE_SUBSCRIPTION, isSubscriptionStatus, proposalServer, registerClaudeSubscription, streamClaudeSubscription, subscriptionEnvironment, subscriptionPrompt } from "../src/runtime/claude-subscription";
 import { subscriptionName } from "../src/tui/usage";
 import { INVALID_ARGUMENTS } from "../src/runtime/tool-repair";
+import { ClaudeSessions } from "../src/runtime/claude-session";
 
 const account: AccountInfo = { apiProvider: "firstParty", subscriptionType: "max", apiKeySource: "none" };
 const tool = { name: "read", description: "Read a file", parameters: { type: "object", properties: { path: { type: "string" } }, required: ["path"] } };
@@ -46,9 +47,10 @@ function fakeQuery(messages = events(), info: AccountInfo = account, exitError?:
   const query = (input: { options: Options; prompt: AsyncIterable<SDKUserMessage> }) => {
     calls++; captured = input;
     return { accountInfo: async () => info, close: () => { closed = true; },
-      async *[Symbol.asyncIterator]() { for await (const prompt of input.prompt) prompts.push(prompt); yield* messages; if (exitError) throw exitError; } };
+      // One request: the session keeps its input open for the next one, so only the first message is read here.
+      async *[Symbol.asyncIterator]() { for await (const prompt of input.prompt) { prompts.push(prompt); break; } yield* messages; if (exitError) throw exitError; } };
   };
-  return { query, options: () => captured!.options, prompts, closed: () => closed, calls: () => calls };
+  return { query, options: () => captured!.options, prompts, closed: () => closed, calls: () => calls, sessions: new ClaudeSessions() };
 }
 
 test("a subscription catalog without native Claude Code has no available models or fabricated authentication", async () => {
@@ -238,6 +240,9 @@ test("a real-shaped Max account releases the prompt without copying credentials"
   const response = await streamClaudeSubscription(model, context, undefined, { ...fake, executable: "fixture", env: {} }).result();
   expect(response.stopReason).toBe("stop");
   expect(fake.prompts).toHaveLength(1);
+  // Kept for the conversation's next request (decision 54), and closed with the others.
+  expect(fake.closed()).toBe(false);
+  fake.sessions.closeAll();
   expect(fake.closed()).toBe(true);
 });
 
@@ -260,15 +265,19 @@ test("text streams and usage translate, with prompt fidelity and no SDK-side exe
   expect(response.usage).toMatchObject({ input: 20, output: 3, cacheRead: 10, cacheWrite: 5, totalTokens: 38 });
   expect(observed).toEqual(["start", "text_start", "text_delta", "text_end", "done"]);
   expect(fake.options().systemPrompt).toEqual({ type: "preset", preset: "claude_code", append: "Casper policy: ask before consequential actions." });
-  expect(fake.options()).toMatchObject({ cwd: "fixture-project", tools: [], maxTurns: 1,
-    strictMcpConfig: true, settingSources: [], persistSession: false, effort: "high", permissionMode: "dontAsk" });
+  expect(fake.options()).toMatchObject({ cwd: "fixture-project", tools: [],
+    strictMcpConfig: true, settingSources: [], persistSession: false, effort: "high", permissionMode: "default" });
+  expect(fake.options().maxTurns).toBeUndefined();
   expect(fake.options().env!.ANTHROPIC_API_KEY).toBeUndefined();
   expect(fake.options().env!.CLAUDE_CODE_MAX_OUTPUT_TOKENS).toBe("100");
   expect(await fake.options().canUseTool!("Bash", {}, {} as never)).toMatchObject({ behavior: "deny" });
-  expect(fake.prompts).toHaveLength(1); expect(fake.closed()).toBe(true);
+  expect(await fake.options().canUseTool!("mcp__casper__read", { path: "a" }, {} as never)).toEqual({ behavior: "allow", updatedInput: { path: "a" } });
+  expect(await fake.options().canUseTool!("mcp__casper__write", {}, {} as never)).toMatchObject({ behavior: "deny" });
+  expect(fake.prompts).toHaveLength(1);
+  fake.sessions.closeAll();
 });
 
-test("each completion creates one SDK query and replays visible history as labelled text, without native resume", async () => {
+test("a new session replays visible history as labelled text, without resuming Claude Code's session files", async () => {
   const first = fakeQuery();
   const response = await streamClaudeSubscription(model, context, undefined, { ...first, executable: "fixture" }).result();
   const second = fakeQuery();
@@ -307,7 +316,9 @@ test("SDK initialization accepts subscription sources and stops API-key switches
       expect(response.errorMessage).toContain("switched to API-key authentication");
       expect(response.content).toEqual([]);
     }
-    expect(fake.closed()).toBe(true);
+    // A refused source closes the session; an accepted one is kept for the next request.
+    expect(fake.closed()).toBe(!allowed);
+    fake.sessions.closeAll();
   }
 });
 
@@ -324,9 +335,13 @@ test("SDK process exit after a terminal result does not discard a completed resp
     const response = await streamClaudeSubscription(model, context, undefined, { ...fake, executable: "fixture" }).result();
     expect(response.stopReason).toBe(toolCall ? "toolUse" : "stop");
     expect(response.errorMessage).toBeUndefined();
+    // Claude Code's process ended: its session is gone, and the next request starts a new one.
+    for (let tries = 0; tries < 50 && !fake.closed(); tries++) await Bun.sleep(5);
     expect(fake.closed()).toBe(true);
+    expect(fake.sessions.sessions).toHaveLength(0);
   }
-  const fake = fakeQuery(events(true).slice(0, -1), account, new Error("Claude Code returned an error result: Reached maximum number of turns (1)"));
+  // A tool turn ends at its message's stop (Claude Code then calls the tools): ending before that is incomplete.
+  const fake = fakeQuery(events(true).slice(0, -2), account, new Error("Claude Code returned an error result: Reached maximum number of turns (1)"));
   const incomplete = await streamClaudeSubscription(model, context, undefined, { ...fake, executable: "fixture" }).result();
   expect(incomplete.stopReason).toBe("error");
   expect(fake.closed()).toBe(true);

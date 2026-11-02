@@ -33,6 +33,13 @@ export function detachesItself(command: string): boolean {
 }
 /** Added to such a command's output when the background is there to use instead. */
 export const DETACH_NOTE = "[Casper ends what a command leaves running when the call returns, or it runs on where Casper can't see or report it. For a job that should keep going after this call, run it with background: true.]";
+/** Added when the output shows the sandbox hiding or protecting other processes (macOS: no process list for ps, pgrep or
+ * pkill, and no signals to a process another command started), so the AI stops hunting for other ways to find one. */
+export const PROCESS_LIST_NOTE = "[sandbox] Commands here can't list processes or signal one another command started (ps, pgrep, pkill, lsof then kill). Stop a service with the service tool's stop. To end a process yourself, start and stop it in the same command: cmd & pid=$!; ...; kill $pid. Other ways of finding it fail the same way.";
+/** The sandbox's refusals of process listing and signals, as ps, pgrep, pkill and kill print them. */
+export function processesHidden(output: string): boolean {
+  return /\bCannot get process list\b|sysmond service not found|\/ps: Operation not permitted|\bkill: \(\d+\) - Operation not permitted/.test(output);
+}
 /** At most this many at once; beyond it a slow command is stopped at the limit, as before. */
 export const MAX_BACKGROUND_COMMANDS = 4;
 const TAIL_CHARS = 16_384;
