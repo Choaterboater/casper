@@ -505,6 +505,15 @@ test("a browser check written wrong or not replayed at the end is said as such, 
   expect(taskExitCode(undefined, task)).toBe(2);
 });
 
+test("checks written wrong for a too-wide selector are said as such in line 1", () => {
+  const browser = { status: "incomplete", checks: [
+    { name: "Status word", status: "incomplete", freshness: "fresh", baseline: "incomplete", writtenWrong: "assertion 1's selector is wider than the element that reads its text" },
+    { name: "Market search", status: "pass", freshness: "fresh", baseline: "pass" }] } as unknown as TaskResult["browser"];
+  const task = done({ changedPaths: ["server.js"], browser });
+  expect(formatReceipt(task).split("\n")[0]).toBe("– Incomplete — 1 browser check written wrong: a selector is wider than the element that reads its text");
+  expect(taskExitCode(undefined, task)).toBe(2);
+});
+
 test("settings or data files changed while checking and repairing are flagged, apart from code, lockfiles and dependency lists", () => {
   const receipt = formatReceipt(done({ changedPaths: ["server.js"], changedDuringChecks: ["config/services.yaml", "config/widgets.yaml", "public/style.css", "package.json", "package-lock.json", "data/items.json"] }));
   expect(receipt).toContain("⚠ Checks and repairs changed app settings or data: config/services.yaml, config/widgets.yaml, data/items.json; look for test data left in them");

@@ -944,8 +944,8 @@ function outlineChanges(before: PageOutline, after: PageOutline): Record<string,
 }
 
 /** A native dialog Casper dismissed, as the action's result names it. */
-function dialogNote(dialog: { type: string; message: string }): string {
-  const answer = dialog.type === "alert" ? "closed it" : dialog.type === "beforeunload" ? "stayed on the page" : "answered Cancel";
+function dialogNote(dialog: { type: string; message: string; accepted?: boolean }): string {
+  const answer = dialog.accepted ? "answered OK (dialog: accept)" : dialog.type === "alert" ? "closed it" : dialog.type === "beforeunload" ? "stayed on the page" : "answered Cancel";
   return `${dialog.type} dialog ${JSON.stringify(dialog.message)}: Casper ${answer}`;
 }
 
@@ -994,6 +994,8 @@ interface RecordedCheck { scenario: BrowserScenario; check: BrowserCheck; finger
   service?: string
   /** An ad-hoc service's command and readiness: the same service when Casper let its slot go and another runs it. */
   serviceSpec?: ServiceSpec
+  /** The AI's other services that ran when it was recorded (a mock its page fetched): the end replay starts them too. */
+  companions?: Array<{ name: string; spec?: ServiceSpec }>
   /** How it last ended on its own server (not a stand-in): what a failure on a stand-in is compared with. */
   ownStatus?: BrowserCheck["status"] }
 
@@ -1033,7 +1035,9 @@ export class BrowserSession {
   private readonly requests: Array<{ url: string; status?: number; error?: string }> = [];
   private dropped = 0;
   /** Native dialogs (alert, confirm, prompt, beforeunload) dismissed since the running action began, and requests started. */
-  private readonly dialogs: Array<{ type: string; message: string }> = [];
+  private readonly dialogs: Array<{ type: string; message: string; accepted?: boolean }> = [];
+  /** A check's step said dialog: accept: the next confirm, prompt or alert gets OK (once), not Cancel. */
+  private acceptDialog = false;
   private requestsStarted = 0;
   /** New tabs the page opened (a target="_blank" link, window.open). */
   private popups = 0;
@@ -1648,12 +1652,18 @@ export class BrowserSession {
     let id: string;
     if (input.action === "check") {
       const scenario = parseScenario(input.scenario);
+      if (scenario.steps.some(step => step.dialog === "accept") && !localURL(scenario.url))
+        throw new Error("dialog: accept works only on a page on this computer (the project's own server); leave it out to answer Cancel");
       await this.askMetadata(scenario.url, signal);
       if ([...this.scenarios.values()].filter(entry => !entry.carried).length >= MAX_CHECKS) throw new Error(`Browser check limit reached (${MAX_CHECKS} per session); replay the ids your checks returned instead of recording new ones`);
       id = randomUUID();
       const service = this.serviceAt(scenario.url);
-      const serviceSpec = service?.startsWith("adhoc-") ? this.options.services?.()?.spec(service) : undefined;
-      this.scenarios.set(id, { scenario, revision: this.revision, recordedRevision: this.revision, order: ++this.recorded, ...(service ? { service } : {}), ...(serviceSpec ? { serviceSpec } : {}), check: { id, name: scenario.name,
+      const services = this.options.services?.();
+      const serviceSpec = service?.startsWith("adhoc-") ? services?.spec(service) : undefined;
+      const companions = services && !services.closed ? services.status().filter(entry => entry.name !== service && (entry.state === "ready" || entry.state === "starting")
+        && !services.casperOnly(entry.name)).map(entry => ({ name: entry.name, ...(entry.name.startsWith("adhoc-") ? { spec: services.spec(entry.name) } : {}) })) : [];
+      this.scenarios.set(id, { scenario, revision: this.revision, recordedRevision: this.revision, order: ++this.recorded, ...(service ? { service } : {}), ...(serviceSpec ? { serviceSpec } : {}),
+        ...(companions.length ? { companions } : {}), check: { id, name: scenario.name,
         scenarioSha256: createHash("sha256").update(JSON.stringify(scenario)).digest("hex"), url: scenario.url, viewport: scenario.viewport,
         status: "incomplete", baseline: "incomplete", freshness: "unavailable", scope: scenario.scope, assertions: [] }, ranAt: performance.now() });
     } else {
@@ -1702,7 +1712,10 @@ export class BrowserSession {
       for (const [index, step] of scenario.steps.entries()) {
         signal.throwIfAborted();
         const value = step.value !== undefined && (step.action === "fill" || step.action === "select") ? step.value.replaceAll("{run}", token) : step.value;
-        const done = await this.interact({ ...step, ...(value !== undefined ? { value } : {}) }, signal, true, watchBy);
+        this.acceptDialog = step.dialog === "accept";
+        let done: Record<string, unknown>;
+        try { done = await this.interact({ ...step, ...(value !== undefined ? { value } : {}) }, signal, true, watchBy); }
+        finally { this.acceptDialog = false; }
         for (const line of [done.note, ...(done.dialogs as string[] | undefined ?? [])])
           if (typeof line === "string" && (check.notes ??= []).length < 8) check.notes.push(`step ${index + 1}: ${line}`);
         for (const line of done.dialogs as string[] | undefined ?? []) {
@@ -1788,17 +1801,30 @@ export class BrowserSession {
       // not recorded, and a replay of one is not a failure of the page (no repair), but says so.
       const several = check.assertions.map((assertion, index) => ({ index, found: typeof assertion.actual === "string" ? /^Expected one (?:other )?element; found (\d+)$/.exec(assertion.actual)?.[1] : undefined }))
         .find(entry => Number(entry.found) > 1);
+      // A text assertion whose element holds the expected text inside other text (a tile reading "SUp" for "Up"), failing
+      // since it was recorded: the selector is too wide, not the page wrong. Kept, so the AI can replace it.
+      const wide = !several && check.status === "fail" && (recording || entry.check.baseline !== "pass")
+        ? check.assertions.findIndex(assertion => assertion.status === "fail" && assertion.hint === INSIDE_HINT) : -1;
+      if (wide >= 0) {
+        check.status = "incomplete"; check.writtenWrong = `assertion ${wide + 1}'s selector is wider than the element that reads its text`;
+        check.reason = `Written wrong: ${check.writtenWrong}. Point it at that element (see near), record the check again, and withdraw this one with replacedBy.`;
+      }
       if (several) {
         const what = `assertion ${several.index + 1}'s selector matches ${several.found} elements`;
         if (input.action === "check") { this.scenarios.delete(id); throw new WrittenWrong(`${what}: name one element and record the check again (nothing was recorded)`); }
         check.status = "incomplete"; check.writtenWrong = what;
         check.reason = `Written wrong: ${what}. Name one element, record the check again, and withdraw this one with replacedBy.`;
       }
+      // One of the other services it was recorded with couldn't start again: what it checked can't be seen, so it is
+      // not replayed rather than failed.
+      if (notOpened.missing && check.status === "fail") {
+        check.status = "incomplete"; check.notReplayed = notOpened.missing; check.reason = `Not replayed at the end: ${notOpened.missing}`;
+      }
       // It failed after Casper said Cancel where a person would say OK: what the page does on OK was never seen. Not a
       // failure, so it starts no repair; the reason says how to check it instead.
       if (cancelled && check.status === "fail") {
         check.status = "incomplete"; check.cancelled = cancelled.type;
-        check.reason = `Not checked: step ${cancelled.step} opened a ${cancelled.type} dialog (${JSON.stringify(cancelled.message.slice(0, 80))}) and Casper answers Cancel to confirm dialogs, so this check can't see what OK does. Check that another way (the service tool's request to the same endpoint), and withdraw this check.`;
+        check.reason = `Not checked: step ${cancelled.step} opened a ${cancelled.type} dialog (${JSON.stringify(cancelled.message.slice(0, 80))}) and Casper answered Cancel, so this check can't see what OK does. On this computer's pages, record it again with dialog: "accept" on that step, and withdraw this one.`;
       }
       // Its own server is gone and Casper's server for the project, which may hold other data, failed a check that passed
       // there: stale, not failed. Its result can't say the page is broken, so it never starts a repair (one did, and the
@@ -1872,9 +1898,15 @@ export class BrowserSession {
    * the same path opens on the server Casper runs for this project (serve, or the page checks' slot), noted in the
    * check; with none up the replay throws ServerGone. A page on another computer is never redirected.
    */
-  private async openCheck(page: Page, url: string, replay: boolean, check: BrowserCheck, signal: AbortSignal, entry: RecordedCheck): Promise<{ notOpened?: string[]; note?: string; standIn?: string }> {
+  private async openCheck(page: Page, url: string, replay: boolean, check: BrowserCheck, signal: AbortSignal, entry: RecordedCheck): Promise<{ notOpened?: string[]; note?: string; standIn?: string; missing?: string }> {
+    // The other services it ran with, first: the page may fetch them as it loads.
+    let missing: string | undefined;
+    if (replay && this.replayUntil !== undefined) for (const companion of entry.companions ?? []) {
+      const back = await this.bringBack(companion.name, companion.spec, check, signal, false);
+      if (back.failed && !missing) missing = `it needs ${back.name} (${companion.spec?.command ?? "a declared service"}), which could not start again: ${back.failed}`;
+    }
     const target = replay && entry.service ? await this.follow(entry.service, entry.serviceSpec, url, check, signal) : url;
-    try { return await this.navigate(page, target, signal); }
+    try { return { ...await this.navigate(page, target, signal), ...(missing ? { missing } : {}) }; }
     catch (error) {
       if (!replay || !localURL(target) || !/ERR_CONNECTION_REFUSED/.test(String(error))) throw error;
       const gone = new URL(target), services = this.options.services?.();
@@ -1912,6 +1944,23 @@ export class BrowserSession {
   private async follow(recorded: string, spec: ServiceSpec | undefined, url: string, check: BrowserCheck, signal: AbortSignal): Promise<string> {
     const services = this.options.services?.();
     if (!services || services.closed) return url;
+    const back = await this.bringBack(recorded, spec, check, signal, true);
+    if (!back.ready) return url;
+    const name = back.name;
+    if (name !== recorded && !(check.notes ?? []).some(note => note.startsWith(`started ${name}`))) (check.notes ??= []).push(`followed ${recorded} to ${name}: it runs the same command`);
+    this.replayServices.add(name);
+    const origin = services.origin(name), was = new URL(url);
+    if (!origin || origin === was.origin) return url;
+    (check.notes ??= []).push(`followed ${name} to ${origin}: it ran at ${was.origin} when this check was recorded`);
+    return new URL(`${was.pathname}${was.search}${was.hash}`, origin).href;
+  }
+
+  /** The slot running `recorded` now (an ad-hoc one Casper let go: the one running its command), made fresh when
+   * `fresh`. One that stopped is started again only during Casper's end replays, then stopped once they end; one that
+   * can't start is said once (`failed`) and not tried again for the next check. */
+  private async bringBack(recorded: string, spec: ServiceSpec | undefined, check: BrowserCheck, signal: AbortSignal, fresh: boolean): Promise<{ name: string; ready: boolean; failed?: string }> {
+    const services = this.options.services?.();
+    if (!services || services.closed) return { name: recorded, ready: false };
     const live = (entry: { state: string }) => entry.state === "ready" || entry.state === "starting";
     const list = services.status();
     let now = list.find(entry => entry.name === recorded);
@@ -1919,15 +1968,16 @@ export class BrowserSession {
       const same = list.filter(entry => entry.name.startsWith("adhoc-") && entry.command === spec.command);
       now = same.find(live) ?? same[0];
     }
-    if (!now && !spec) return url;
+    if (!now && !spec) return { name: recorded, ready: false };
     const running = now !== undefined && live(now);
     const key = spec?.command ?? recorded;
-    if (!running) {
-      if (this.replayUntil === undefined) return url;
-      const refused = this.unstartable.get(key) ?? (now?.state === "failed" ? "its last start failed" : undefined);
-      if (refused) { (check.notes ??= []).push(`could not start ${now?.name ?? recorded} again: ${refused}`); return url; }
-    }
     let name = now?.name ?? recorded;
+    if (!running) {
+      if (this.replayUntil === undefined) return { name, ready: false };
+      const refused = this.unstartable.get(key) ?? (now?.state === "failed" ? "its last start failed" : undefined);
+      if (refused) { (check.notes ??= []).push(`could not start ${name} again: ${refused}`); return { name, ready: false, failed: refused }; }
+    }
+    if (running && !fresh) return { name, ready: true };
     try {
       // A slot Casper let go: its command started again, as the AI started it.
       if (!now) name = (await services.startCommand(spec!.command, { ready: spec!.ready, timeoutMs: spec!.timeoutMs }, signal)).name;
@@ -1938,16 +1988,12 @@ export class BrowserSession {
         const why = (error instanceof Error ? error.message : String(error)).split("\n")[0]!.slice(0, 200);
         this.unstartable.set(key, why);
         (check.notes ??= []).push(`could not start ${name} again: ${why}`);
+        return { name, ready: false, failed: why };
       }
-      return url;
+      return { name, ready: false };
     }
     if (!running) { this.replayStarted.add(name); (check.notes ??= []).push(`started ${name} again for this replay: it had stopped`); }
-    if (name !== recorded && !(check.notes ?? []).some(note => note.startsWith(`started ${name}`))) (check.notes ??= []).push(`followed ${recorded} to ${name}: it runs the same command`);
-    this.replayServices.add(name);
-    const origin = services.origin(name), was = new URL(url);
-    if (!origin || origin === was.origin) return url;
-    (check.notes ??= []).push(`followed ${name} to ${origin}: it ran at ${was.origin} when this check was recorded`);
-    return new URL(`${was.pathname}${was.search}${was.hash}`, origin).href;
+    return { name, ready: true };
   }
 
   /**
@@ -2346,8 +2392,11 @@ export class BrowserSession {
       this.page.setDefaultTimeout(5000);
       await this.page.setViewport({ width: 1280, height: 800 });
       this.page.on("dialog", dialog => {
-        if (this.dialogs.length < 5) this.dialogs.push({ type: dialog.type(), message: dialog.message().replace(/\s+/g, " ").trim().slice(0, 200) });
-        void dialog.dismiss().catch(() => {});
+        // A leave-page dialog is never accepted: the check stays on its page.
+        const accept = this.acceptDialog && dialog.type() !== "beforeunload";
+        if (accept) this.acceptDialog = false;
+        if (this.dialogs.length < 5) this.dialogs.push({ type: dialog.type(), message: dialog.message().replace(/\s+/g, " ").trim().slice(0, 200), ...(accept ? { accepted: true } : {}) });
+        void (accept ? dialog.accept() : dialog.dismiss()).catch(() => {});
       });
       this.page.on("request", () => { this.requestsStarted++; });
       this.page.on("popup", () => { this.popups++; });

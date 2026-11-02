@@ -1,6 +1,8 @@
 import { lstat, mkdir, opendir, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { appDataFile } from "../services/app-data";
+import { appDataFile, settingsFile } from "../services/app-data";
+
+export { settingsFile };
 import { PROJECT_SCOPE } from "./scenario";
 
 /**
@@ -12,12 +14,6 @@ import { PROJECT_SCOPE } from "./scenario";
  */
 export interface AppData { readonly files: ReadonlyMap<string, Buffer>; /** Which files it holds (appDataFile when unset). */ readonly pick?: (file: string) => boolean }
 
-/** Settings an app may write as it runs (an installed widget in config/widgets.yaml): YAML, TOML and INI files, not
- * lockfiles. Kept apart from the data files so a project with many of them still has its data snapshot. */
-export function settingsFile(file: string): boolean {
-  const name = file.replace(/\\/g, "/").split("/").pop()!.toLowerCase();
-  return /\.(?:ya?ml|toml|ini)$/.test(name) && !/^(?:pnpm-lock\.yaml|poetry\.lock|cargo\.lock)$/.test(name) && !name.endsWith(".lock.yaml");
-}
 
 const MAX_FILES = 32;
 const MAX_FILE_BYTES = 1024 * 1024;

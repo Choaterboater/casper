@@ -3,7 +3,7 @@ import { ProcessCleanupError } from "../platform/processes";
 import { redactPreview } from "../tui/format";
 import type { AppSmokeTarget } from "./detect";
 import { ServiceManager } from "./manager";
-import { appDataFile } from "./app-data";
+import { appDataFile, settingsFile } from "./app-data";
 
 export { appDataFile };
 
@@ -22,7 +22,11 @@ export interface AppSmokeReport {
   deferred?: true;
   /** Nothing in the folder starts the app (no command or service): a note, not an unfinished attempt. */
   nothingToStart?: true;
+  /** The start command ended with exit code 0 within EXITED_EARLY_MS, before serving: not checked, rather than unfinished. */
+  exitedEarly?: true;
 }
+/** How soon a clean exit counts as a start command that ended before serving. */
+const EXITED_EARLY_MS = 5_000;
 
 export const APP_SMOKE_START_MS = 15_000;
 const REQUEST_MS = 10_000;
@@ -38,11 +42,18 @@ export async function tryApp(root: string, target: AppSmokeTarget, signal: Abort
   const report: AppSmokeReport = { status: "not-run", label: redactPreview(label), command: redactPreview(spec.command), path: redactPreview(target.path), method: "GET", cleanup: "not-started" };
   let started = false;
   try {
+    const startedAt = performance.now();
     try {
       signal.throwIfAborted();
       await manager.start(name, signal);
       started = true;
     } catch (error) {
+      const took = performance.now() - startedAt;
+      if (!signal.aborted && error instanceof ManagedProcessError && error.reason === "exited" && /\(exit code 0\)/.test(error.message) && took < EXITED_EARLY_MS) {
+        report.exitedEarly = true;
+        report.reason = `the start command exited before serving (exit code 0 after ${(took / 1000).toFixed(1)} s)`;
+        return report;
+      }
       report.reason = signal.aborted ? "cancelled before the app was ready"
         : error instanceof ManagedProcessError && error.reason === "timeout" ? `the app did not become ready within ${Math.min(spec.timeoutMs, APP_SMOKE_START_MS) / 1000} s`
         : `the app could not start: ${message(error)}`;
@@ -84,7 +95,8 @@ export async function requestApp(origin: string | undefined, requestPath: string
 /** Like sameRuntimeInputs, but the app's own data writes during a smoke do not count as changed inputs. */
 export function sameAppInputs(a: ReadonlyMap<string, string> | undefined, b: ReadonlyMap<string, string> | undefined): boolean {
   if (a === undefined || b === undefined) return false;
-  const code = (map: ReadonlyMap<string, string>) => new Map([...map].filter(([file]) => !appDataFile(file)));
+  // The app's own writes as it runs: its data and logs, and the settings it creates or saves (config/*.yaml).
+  const code = (map: ReadonlyMap<string, string>) => new Map([...map].filter(([file]) => !appDataFile(file) && !settingsFile(file)));
   return sameRuntimeInputs(code(a), code(b));
 }
 
