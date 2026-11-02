@@ -47,7 +47,7 @@ def run_case(bun, repo, root, provider, browser=False, action="save", no_color=F
             assert json.loads(auth.read_text()) == {}
             return
         if action == "cancel":
-            s.until("credential save outcome unknown")
+            s.until("the login file changed while it was open")
             assert json.loads(auth.read_text()) == {}
         else:
             s.until("Credential saved. Local auth refreshed")

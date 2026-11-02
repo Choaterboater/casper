@@ -1724,7 +1724,8 @@ export async function runLogin(host: CommandHost, provider?: RuntimeAuthProvider
       return true;
     }
     if (result.status === "saved-needs-refresh") host.output.write("[login] Credential saved, but local auth needs refresh. Restart Casper; do not repeat login blindly.\n");
-    else if ("effect" in result && result.effect === "unknown") host.output.write("[login] Login ended; credential save outcome unknown. Restart and inspect local auth before retrying.\n");
+    else if ("effect" in result && result.effect === "unknown") host.output.write("[login] Sign-in stopped before it finished, but the login file changed while it was open, so it may hold a "
+      + "new sign-in. Restart Casper to use it, or type /login to sign in again.\n");
     else if (result.status === "cancelled") host.output.write("[login] Cancelled; no credential saved.\n");
     else host.output.write(loginFailureText(result));
   } catch { host.output.write("[login] Sign-in didn't finish. Nothing was saved. Type /login to try again.\n"); }

@@ -2,6 +2,7 @@ import { afterAll, beforeAll, expect, test } from "bun:test";
 import { mkdir, mkdtemp, realpath } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { PassThrough } from "node:stream";
 import { CasperApp } from "../src/app";
 import { loadProjectContext } from "../src/project/context";
 import { projectStateDirectory } from "../src/project/model";
@@ -221,4 +222,31 @@ test("a repository's own skills are used only once you trust the folder; /skills
     await app.until((text) => text.includes("[trust] Trusted"));
     expect(repo()).toMatchObject({ trust: "trusted" });
   } finally { await app.close(); }
+}, 30_000);
+
+test("closing Casper while it is still opening the folder ends quietly, never with \"Casper is closing\"", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "casper-close-opening-"));
+  const home = path.join(root, "home"), project = path.join(root, "project");
+  await mkdir(home, { recursive: true }); await mkdir(project, { recursive: true });
+  const loading = Promise.withResolvers<void>(), gate = Promise.withResolvers<void>();
+  let output = "";
+  const app = new CasperApp({
+    input: new PassThrough(), output: { write: (text: string) => { output += text; } },
+    runtimeFactory: () => fakeRuntime().runtime, sessionHomeDir: home,
+    // The folder's settings are still loading (the folder question was just answered) when the window closes.
+    loadProjectContext: async (info) => { loading.resolve(); await gate.promise; return loadProjectContext(info, { homeDir: home }); },
+    loadSkillRegistry: (context) => SkillRegistry.discover({ projectRoot: context.info.root, homeDir: home }),
+    loadMCPConfiguration: async () => ({ servers: [], diagnostics: [] }),
+    loadLSPConfiguration: async () => ({ servers: [], diagnostics: [] }),
+    loadReferenceConfiguration: async () => ({ sources: [], diagnostics: [] }),
+  });
+  try {
+    const interactive = app.runInteractive(project);
+    await loading.promise;
+    const closed = app.close();
+    gate.resolve();
+    await closed;
+    expect(await interactive.then(() => "ended", (error: Error) => error.message)).toBe("ended");
+    expect(output).not.toContain("Casper is closing");
+  } finally { await removeTempDir(root); }
 }, 30_000);

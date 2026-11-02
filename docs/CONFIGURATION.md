@@ -686,8 +686,8 @@ Any other `sandbox` or `shell` key in a project file is named at startup and ign
 | Variable | Meaning |
 | --- | --- |
 | `CASPER_AGENT_DIR` | Folder for sign-ins, the model catalog, engine resources and conversations. Defaults to `~/.casper/agent`. Relative paths resolve from the folder you start Casper in; `~/` expands to your home folder. A folder you set here never receives the one-time import from Pi. Shell commands can't write it, as with `~/.casper`. |
-| `CASPER_OFFLINE` | Set to `1` to stop provider catalog downloads (OpenRouter's model list, your plan's own model list and the pi.dev date check too) and automatic sign-in browser launches. Cached models remain available. This is **not** a network block: model calls and sign-in still use the network. |
-| `CASPER_NO_UPDATE_CHECK` | Set to `1` to disable background Casper update checks, notices and installs, regardless of `updates:`. `CI` disables them too. Explicit `casper update` still works. |
+| `CASPER_OFFLINE` | Set to `1` to stop provider catalog downloads (OpenRouter's model list, your plan's own model list and the pi.dev date check too), the background Casper update check and automatic sign-in browser launches. Cached models remain available. This is **not** a network block: model calls and sign-in still use the network. |
+| `CASPER_NO_UPDATE_CHECK` | Set to `1` to disable background Casper update checks, notices and installs, regardless of `updates:`. `CASPER_OFFLINE=1` and `CI` disable them too. Explicit `casper update` still works. |
 | `CASPER_TELEMETRY` | Set to `0` to send no OpenRouter app attribution headers (`HTTP-Referer`, `X-OpenRouter-Title`, `X-OpenRouter-Categories`, `X-OpenRouter-App-Visibility`) on model requests and key checks; the bundled engine's own attribution is turned off with it. Works like Pi's `PI_TELEMETRY`: unset keeps attribution, and when set only `1`, `true` or `yes` keep it. An inherited `PI_TELEMETRY` is ignored. `telemetry: off` in your own config (**Send Casper's name to OpenRouter** in `/settings`) does the same; either one off is off. |
 | `CASPER_OAUTH_CALLBACK_HOST` | Address the browser sign-in listens on; defaults to `127.0.0.1`. Casper refuses browser sign-in for any other value. |
 | `CASPER_TUI_WRITE_LOG` | Optional log file of raw terminal output, or an existing folder for timestamped logs. It can contain sensitive output, so `/login` is refused while it is set. |
@@ -1302,7 +1302,7 @@ a notice that says why in a few words:
 `Casper update ready · checkout has uncommitted changes · casper update` (or
 `checkout on another branch`, `checkout tracks another upstream`, `checkout has local commits`,
 `default branch unknown`). Quiet failures go to `~/.casper/update.log` and show
-`update failed · casper update`. `CASPER_NO_UPDATE_CHECK=1` and `CI` disable all background update checks, notices and
+`update failed · casper update`. `CASPER_NO_UPDATE_CHECK=1`, `CASPER_OFFLINE=1` and `CI` disable all background update checks, notices and
 installs in every mode. `casper update` still installs or pulls explicitly, even with updates off;
 `casper update --check` only says whether there is one.
 

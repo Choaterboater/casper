@@ -19,8 +19,13 @@ async function openStateFile(filePath: string, access: number, noFollow: boolean
  * a name that another process is deleting fails with EPERM, EACCES or EBUSY instead of EEXIST; elsewhere those
  * codes are real permission problems and must not be retried. */
 export function lockBusy(error: unknown, platform: NodeJS.Platform = process.platform): boolean {
+  return (error as NodeJS.ErrnoException | undefined)?.code === "EEXIST" || busyOnWindows(error, platform);
+}
+
+/** True when a file operation failed on Windows only because another process had the file open at that moment
+ * (a rename onto a file being read): EPERM, EACCES or EBUSY, worth one more try. Elsewhere they are real refusals. */
+export function busyOnWindows(error: unknown, platform: NodeJS.Platform = process.platform): boolean {
   const code = (error as NodeJS.ErrnoException | undefined)?.code;
-  if (code === "EEXIST") return true;
   return platform === "win32" && (code === "EPERM" || code === "EACCES" || code === "EBUSY");
 }
 

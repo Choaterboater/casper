@@ -117,3 +117,12 @@ test("cancelled, failed and refresh-pending plan logins never select or save a m
     expect(fixture.output()).not.toContain("no credential saved");
   }
 });
+
+test("a sign-in that stopped after the login file changed says so plainly, never \"save outcome unknown\"", async () => {
+  for (const result of [{ status: "cancelled", effect: "unknown" }, { status: "failed", effect: "unknown", reason: "provider" }] as RuntimeAuthenticationResult[]) {
+    const fixture = host(result);
+    expect(await runLogin(fixture.app)).toBe(false);
+    expect(fixture.output()).toBe("[login] Sign-in stopped before it finished, but the login file changed while it was open, so it may hold a "
+      + "new sign-in. Restart Casper to use it, or type /login to sign in again.\n");
+  }
+});

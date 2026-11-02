@@ -9,6 +9,7 @@ import { closeSync, fsyncSync, mkdirSync, openSync, readdirSync, readFileSync, r
 import { readdir, rm } from "node:fs/promises";
 import path from "node:path";
 import { readSmall, writePrivate } from "../mcp/consent";
+import { busyOnWindows } from "../platform/files";
 import { isProjectKey } from "../pages/store";
 
 export type JobStatus = "running" | "waiting" | "done" | "stopped";
@@ -150,8 +151,24 @@ export function writeJobSync(directory: string, record: JobRecord): void {
   try { renameSync(temporary, file); } catch (error) { rmSync(temporary, { force: true }); throw error; }
 }
 
-export async function writeJob(directory: string, record: JobRecord): Promise<void> {
-  await writePrivate(path.join(directory, `${record.id}.json`), `${JSON.stringify(record, null, 2)}\n`);
+/** Test seams for writeJob and writeAnswer. */
+export interface JobWriteOptions { platform?: NodeJS.Platform; write?: (file: string, text: string) => Promise<void>; waitMs?: number }
+
+/** Another Casper reads these files while this one writes them (the job's record, its answer). On Windows a rename onto
+ * a file open in another process fails for that moment, so a busy write tries again for about 2 s instead of being
+ * dropped: a dropped "waiting" record meant the question never showed in the other terminal. */
+async function writeShared(file: string, text: string, options: JobWriteOptions = {}): Promise<void> {
+  const write = options.write ?? writePrivate;
+  for (let attempt = 1; ; attempt++) {
+    try { return await write(file, text); } catch (error) {
+      if (attempt >= 40 || !busyOnWindows(error, options.platform)) throw error;
+      await Bun.sleep(options.waitMs ?? 50);
+    }
+  }
+}
+
+export async function writeJob(directory: string, record: JobRecord, options?: JobWriteOptions): Promise<void> {
+  await writeShared(path.join(directory, `${record.id}.json`), `${JSON.stringify(record, null, 2)}\n`, options);
 }
 
 export async function readJob(directory: string, id: string): Promise<JobRecord | undefined> {
@@ -176,7 +193,7 @@ export async function readAnswer(directory: string, id: string, questionId: stri
 
 export async function writeAnswer(directory: string, id: string, answer: JobAnswer): Promise<void> {
   if (!ID.test(id)) throw new Error("not a job");
-  await writePrivate(path.join(directory, `${id}.answer.json`), `${JSON.stringify(answer)}\n`);
+  await writeShared(path.join(directory, `${id}.answer.json`), `${JSON.stringify(answer)}\n`);
 }
 
 export async function removeAnswer(directory: string, id: string): Promise<void> {
