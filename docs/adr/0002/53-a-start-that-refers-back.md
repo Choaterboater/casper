@@ -1,6 +1,6 @@
 # 53. A first line that refers back goes to the conversation on offer
 
-Date: 2026-11-01. Status: proposed. Amends 42 (a plain start is a new conversation).
+Date: 2026-11-01. Status: accepted (merged 2026-11-01 in #567). Amends 42 (a plain start is a new conversation).
 
 ## Decision
 

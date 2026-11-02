@@ -1,6 +1,6 @@
 # 54. One live Claude Code session per conversation
 
-Date: 2026-11-02. Status: proposed. Reverses the per-request replay in `subscriptionPrompt` (`claude-subscription`).
+Date: 2026-11-02. Status: accepted (merged 2026-11-02 in #570). Reverses the per-request replay in `subscriptionPrompt` (`claude-subscription`).
 
 ## Decision
 

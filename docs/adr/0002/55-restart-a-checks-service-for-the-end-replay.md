@@ -1,6 +1,6 @@
 # 55. The end replay starts a check's own service again; a cancelled dialog is not a failure
 
-Date: 2026-11-02. Status: proposed. Amends 52 (checks follow their service).
+Date: 2026-11-02. Status: accepted (merged 2026-11-02 in #571). Amends 52 (checks follow their service).
 
 ## Decision
 
