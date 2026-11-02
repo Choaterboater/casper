@@ -70,6 +70,8 @@ test("a failed edit tried again at once is left out; one that stays failed says 
 });
 
 test("Ctrl+O shows the raw steps and back; Ctrl+T is untouched", async () => {
+  // The screen draws on its own timer: each step waits for what it expects (up to 5 s under a loaded suite).
+  const until = async (check: () => boolean) => { const end = Date.now() + 5000; while (!check() && Date.now() < end) await Bun.sleep(10); };
   const chunks: string[] = [];
   const input = new PassThrough();
   const surface = new TerminalSurface({ input, output: { write: (text: string) => { chunks.push(text); }, columns: 80, rows: 24 },
@@ -79,19 +81,19 @@ test("Ctrl+O shows the raw steps and back; Ctrl+T is untouched", async () => {
     surface.start();
     surface.setExpandLast(() => { expanded++; });
     surface.setWork({ rows: ["✓ grep · foo", "✓ read · a.ts"], plain: ["✓ Looked through the code: 1 search, 1 file read"], status: "Working" });
-    await Bun.sleep(30);
+    await until(() => Bun.stripANSI(chunks.join("")).includes("Looked through the code"));
     expect(Bun.stripANSI(chunks.join(""))).toContain("Looked through the code");
     expect(surface.rawStepsShown).toBe(false);
     chunks.length = 0;
     input.write("\x0f");
-    await Bun.sleep(30);
+    await until(() => surface.rawStepsShown && Bun.stripANSI(chunks.join("")).includes("read · a.ts"));
     expect(surface.rawStepsShown).toBe(true);
     expect(Bun.stripANSI(chunks.join(""))).toContain("read · a.ts");
     input.write("\x0f");
-    await Bun.sleep(20);
+    await until(() => !surface.rawStepsShown);
     expect(surface.rawStepsShown).toBe(false);
     input.write("\x14");
-    await Bun.sleep(20);
+    await until(() => expanded > 0);
     expect(expanded).toBe(1);
   } finally { surface.close(); }
 });

@@ -2,6 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { BrowserServer, SlotServer } from "./server";
 import { StaticServer } from "./static-server";
 import type { ServiceManager } from "../services/manager";
+import type { ServiceSpec } from "../services/config";
 import { readReferenceFile, referenceText } from "../references/files";
 import { type InputState, workspaceState } from "../verify/workspace-state";
 import { appDataFile } from "../services/app-data";
@@ -961,6 +962,9 @@ const INSIDE_HINT = "The expected text is inside this element with other text: p
 /** The way out of a withdraw refused after a change: a corrected check of the same page that passes takes its place. */
 const REPLACE_WAY = "or record a corrected check of the same page and, once it passes, withdraw this one with replacedBy: its id";
 /** A replay whose page's server no longer answers and no server of Casper's stands in: nothing was checked. */
+/** A new check written wrong (a selector that matches several elements): nothing is recorded. */
+class WrittenWrong extends Error {}
+
 class ServerGone extends Error {}
 
 /** One task's disposable browser. No user profiles, arbitrary evaluation or browser installation. */
@@ -982,10 +986,16 @@ interface RecordedCheck { scenario: BrowserScenario; check: BrowserCheck; finger
   recordedRevision: number; recordedFingerprint?: string
   /** The app's data files when it was recorded: an end replay starts from them (src/browser/app-data.ts). */
   data?: AppData
+  /** And the settings it may write (config/*.yaml): an end replay starts from those too. */
+  settings?: AppData
   /** Recorded by an earlier task's browser and not run in this one. */
   carried?: true
   /** The managed service whose address it was recorded on: a replay opens the same path wherever that service runs now. */
-  service?: string }
+  service?: string
+  /** An ad-hoc service's command and readiness: the same service when Casper let its slot go and another runs it. */
+  serviceSpec?: ServiceSpec
+  /** How it last ended on its own server (not a stand-in): what a failure on a stand-in is compared with. */
+  ownStatus?: BrowserCheck["status"] }
 
 /** A check for the next task's browser (BrowserSessionOptions.carried): what it runs, its last result and its data. */
 export interface CarriedCheck { readonly scenario: BrowserScenario; readonly check: BrowserCheck; readonly data?: AppData; readonly service?: string }
@@ -1041,6 +1051,12 @@ export class BrowserSession {
   private recorded = 0;
   /** Casper's own end-of-task replay runs: nothing is asked, and a question is a no. */
   private unattended = false;
+  /** During end replays: the AI's services a replay started again (stopped once the replays end), and the ones that
+   * couldn't start, with why (not tried again for the next check). */
+  private readonly replayStarted = new Set<string>();
+  private readonly unstartable = new Map<string, string>();
+  /** The checks' own services the end replays used: restarted when the data under them is put back. */
+  private readonly replayServices = new Set<string>();
   /** The person signed in through signin: pages use the profile's own cookies, not a fresh private context. */
   private signedIn = false;
   /** When Casper's end replays must stop (performance.now()); set only while they run. */
@@ -1544,6 +1560,7 @@ export class BrowserSession {
     // And the settings it may write (a widget installed into config/widgets.yaml): a replay that installs something
     // leaves nothing of its own there either.
     const settings = await snapshotAppData(this.options.projectRoot, signal, settingsFile).catch(() => undefined);
+    this.replayStarted.clear(); this.unstartable.clear(); this.replayServices.clear();
     try {
       for (const [id, entry] of this.scenarios) {
         if (this.controller.signal.aborted || signal?.aborted || this.work || !this.page || performance.now() > this.replayUntil - 1_000) return;
@@ -1551,42 +1568,70 @@ export class BrowserSession {
           || ((await this.current(entry)).freshness !== "stale" && !(entry.check.status === "fail" && retryFailures?.has(id)))) continue;
         const kept = { check: entry.check, fingerprint: entry.fingerprint, revision: entry.revision, ranAt: entry.ranAt };
         onReplay?.(entry.check.name, id);
-        const note = left && entry.data ? await this.useAppData(entry.data, signal) : undefined;
+        // The data and settings it was recorded with, read afresh by its own server too (an app may hold them in memory).
+        const own = this.ownService(entry);
+        const note = await this.useAppData([left && entry.data, settings && entry.settings], signal, own ? [own] : []);
+        if (own) this.replayServices.add(own);
         this.unattended = true;
         const work = this.dispatch({ action: "replay", id }, signal);
         this.work = work;
-        // A server that is gone, with none of Casper's to stand in, leaves nothing checked: incomplete, not the old result.
-        try { await work; } catch (error) { if (!(error instanceof ServerGone)) Object.assign(entry, kept); }
+        try { await work; } catch (error) {
+          const stopped = signal?.aborted || this.controller.signal.aborted;
+          // A server that is gone, with none of Casper's to stand in, leaves nothing checked: its "Could not check" stands.
+          // Stopped with the task, or a failure (its evidence stands): as it was. An earlier pass is not kept as stale
+          // with no word why: the receipt says why this replay couldn't finish (a step that would need a yes, a page
+          // that changed under it).
+          if (error instanceof ServerGone && !stopped) { /* as the replay left it */ }
+          else if (stopped || kept.check.status !== "pass") Object.assign(entry, kept);
+          else {
+            const why = (error instanceof Error ? error.message : String(error)).split("\n")[0]!.slice(0, 200);
+            entry.check = { ...entry.check, status: "incomplete", reason: `Not replayed at the end: ${why}`, notReplayed: why };
+          }
+        }
         finally { this.unattended = false; if (this.work === work) this.work = undefined; }
         if (note) (entry.check.notes ??= []).push(note);
       }
     } finally {
       this.replayUntil = undefined;
-      if (settings) await this.useAppData(settings, signal).catch(() => undefined);
-      if (left) await this.useAppData(left, signal).catch(() => undefined);
+      // What the replays started again stops again: the AI's servers are left as it left them.
+      const services = this.options.services?.();
+      for (const name of this.replayStarted) if (services && !services.closed) await services.stop(name).catch(() => false);
+      const running = [...this.replayServices].filter(name => !this.replayStarted.has(name));
+      await this.useAppData([settings, left], signal, running).catch(() => undefined);
+      this.replayStarted.clear(); this.unstartable.clear(); this.replayServices.clear();
     }
   }
 
   /**
-   * Puts the app's data files back as `wanted` holds them and restarts Casper's own server so the app reads them
-   * afresh; nothing happens when they already match. A server Casper doesn't run (the AI started it with bash)
-   * can't be restarted: the files are still restored, and the note says the app may hold the old data.
+   * Puts the app's data files (and settings) back as `wanted` holds them and restarts the servers that read them: the
+   * checks' own running services named in `own`, and Casper's own server, so the app reads them afresh; nothing happens
+   * when they already match. A server Casper doesn't run (the AI started it with bash) can't be restarted: the files are
+   * still restored, and the note says the app may hold the old data.
    */
-  private async useAppData(wanted: AppData, signal?: AbortSignal): Promise<string | undefined> {
-    const now = await snapshotAppData(this.options.projectRoot, signal, wanted.pick);
-    if (!now || sameAppData(wanted, now)) return undefined;
-    await restoreAppData(this.options.projectRoot, wanted, now);
+  private async useAppData(wanted: ReadonlyArray<AppData | undefined | false>, signal?: AbortSignal, own: readonly string[] = []): Promise<string | undefined> {
+    let changed = false;
+    for (const files of wanted) {
+      if (!files) continue;
+      const now = await snapshotAppData(this.options.projectRoot, signal, files.pick);
+      if (!now || sameAppData(files, now)) continue;
+      await restoreAppData(this.options.projectRoot, files, now);
+      changed = true;
+    }
+    if (!changed) return undefined;
     const restart = signal ?? this.controller.signal;
     const services = this.options.services?.();
+    const live = services && !services.closed ? services : undefined;
+    const ownRunning = own.filter(name => name !== DEV_SLOT && live?.origin(name) !== undefined);
     try {
+      for (const name of ownRunning) await live!.restart(name, restart);
       if (this.server instanceof BrowserServer || this.server instanceof SlotServer) { await this.server.restart(restart); return undefined; }
       if (this.server instanceof StaticServer) return undefined;
-      if (services && !services.closed && services.origin(DEV_SLOT)) { await services.restart(DEV_SLOT, restart); return undefined; }
+      if (live?.origin(DEV_SLOT)) { await live.restart(DEV_SLOT, restart); return undefined; }
     } catch (error) {
       restart.throwIfAborted();
       return `the app's data was put back as it was when this check was recorded, but the server didn't start again: ${error instanceof Error ? error.message : String(error)}`;
     }
-    return "the app's data was put back as it was when this check was recorded, but Casper doesn't run this server, so the app may still hold other data";
+    return ownRunning.length || own.length ? undefined : "the app's data was put back as it was when this check was recorded, but Casper doesn't run this server, so the app may still hold other data";
   }
 
   async report(): Promise<BrowserReport> {
@@ -1607,7 +1652,8 @@ export class BrowserSession {
       if ([...this.scenarios.values()].filter(entry => !entry.carried).length >= MAX_CHECKS) throw new Error(`Browser check limit reached (${MAX_CHECKS} per session); replay the ids your checks returned instead of recording new ones`);
       id = randomUUID();
       const service = this.serviceAt(scenario.url);
-      this.scenarios.set(id, { scenario, revision: this.revision, recordedRevision: this.revision, order: ++this.recorded, ...(service ? { service } : {}), check: { id, name: scenario.name,
+      const serviceSpec = service?.startsWith("adhoc-") ? this.options.services?.()?.spec(service) : undefined;
+      this.scenarios.set(id, { scenario, revision: this.revision, recordedRevision: this.revision, order: ++this.recorded, ...(service ? { service } : {}), ...(serviceSpec ? { serviceSpec } : {}), check: { id, name: scenario.name,
         scenarioSha256: createHash("sha256").update(JSON.stringify(scenario)).digest("hex"), url: scenario.url, viewport: scenario.viewport,
         status: "incomplete", baseline: "incomplete", freshness: "unavailable", scope: scenario.scope, assertions: [] }, ranAt: performance.now() });
     } else {
@@ -1623,16 +1669,20 @@ export class BrowserSession {
     if (entry.carried) { delete entry.carried; entry.check = { ...entry.check, baseline: "incomplete" }; }
     // A check whose recording never finished (no server yet) is recorded by its first finished run.
     const recording = input.action === "check" || entry.check.baseline === "incomplete";
-    // How it ended last time, on the server it was recorded on: a pass there and a failure on a stand-in is not a failure.
-    const lastStatus = entry.check.status;
+    // How it ended last time on its own server: a pass there and a failure on a stand-in is not a failure (nor after an
+    // earlier stand-in run already made it stale).
+    const lastStatus = entry.ownStatus ?? entry.check.status;
     const check: BrowserCheck = { ...entry.check, status: "incomplete", freshness: "unavailable", assertions: [], reason: undefined, notes: undefined };
-    delete check.gone;
+    delete check.gone; delete check.cancelled; delete check.writtenWrong; delete check.notReplayed;
     entry.check = check; entry.fingerprint = undefined; entry.revision = this.revision; entry.ranAt = performance.now();
     const startedAt = performance.now();
     let opened: Page | undefined;
     try {
       const before = await inputState(this.options.projectRoot, scenario, signal);
-      if (recording && localURL(scenario.url)) entry.data = await snapshotAppData(this.options.projectRoot, signal);
+      if (recording && localURL(scenario.url)) {
+        entry.data = await snapshotAppData(this.options.projectRoot, signal);
+        entry.settings = await snapshotAppData(this.options.projectRoot, signal, settingsFile);
+      }
       await this.start(); signal.throwIfAborted();
       // The signed-in profile's own context can't be closed: its page is, and a fresh one opens in it.
       if (this.signedIn) await this.page!.close().catch(() => {});
@@ -1640,19 +1690,25 @@ export class BrowserSession {
       const page = opened = await this.newPage();
       this.logs.length = 0; this.requests.length = 0; this.dropped = 0;
       await page.setViewport(scenario.viewport);
-      const notOpened = await this.openCheck(page, scenario.url, input.action === "replay", check, signal, entry.service);
+      const notOpened = await this.openCheck(page, scenario.url, input.action === "replay", check, signal, entry);
       if (notOpened.notOpened) throw new Error(`The page reached for a cloud metadata address (${notOpened.notOpened.join(", ")}) and the person said no`);
       // A web app's splash ("Loading…") is not the page: its steps and assertions wait for it to draw.
       await this.settle(page, signal);
       // The steps share 8 s of watching for what they changed, so 12 steps on a busy page stay inside the check's limit.
       const watchBy = performance.now() + 8_000;
       const token = runToken();
+      /** A dialog that wanted OK, which Casper answered with Cancel, and the step that met it. */
+      let cancelled: { type: "confirm" | "prompt"; step: number; message: string } | undefined;
       for (const [index, step] of scenario.steps.entries()) {
         signal.throwIfAborted();
         const value = step.value !== undefined && (step.action === "fill" || step.action === "select") ? step.value.replaceAll("{run}", token) : step.value;
         const done = await this.interact({ ...step, ...(value !== undefined ? { value } : {}) }, signal, true, watchBy);
         for (const line of [done.note, ...(done.dialogs as string[] | undefined ?? [])])
           if (typeof line === "string" && (check.notes ??= []).length < 8) check.notes.push(`step ${index + 1}: ${line}`);
+        for (const line of done.dialogs as string[] | undefined ?? []) {
+          const asked = /^(confirm|prompt) dialog ("(?:[^"\\]|\\.)*"): Casper answered Cancel$/.exec(line);
+          if (asked && !cancelled) cancelled = { type: asked[1] as "confirm" | "prompt", step: index + 1, message: JSON.parse(asked[2]!) as string };
+        }
         const after = await this.metadataAfter(page, signal);
         if (after.notOpened) throw new Error(`The page reached for a cloud metadata address (${after.notOpened.join(", ")}) and the person said no`);
       }
@@ -1728,9 +1784,26 @@ export class BrowserSession {
         if (recording) entry.recordedFingerprint = after.fingerprint;
       } else { check.freshness = before.fingerprint && after.fingerprint ? "stale" : "unavailable"; check.reason = before.reason ?? after.reason ?? "Declared inputs changed during browser reproduction."; }
       if (signIn) check.reason = signIn;
+      // An assertion's selector that matches several elements is a check written wrong, as a step's is: a new check is
+      // not recorded, and a replay of one is not a failure of the page (no repair), but says so.
+      const several = check.assertions.map((assertion, index) => ({ index, found: typeof assertion.actual === "string" ? /^Expected one (?:other )?element; found (\d+)$/.exec(assertion.actual)?.[1] : undefined }))
+        .find(entry => Number(entry.found) > 1);
+      if (several) {
+        const what = `assertion ${several.index + 1}'s selector matches ${several.found} elements`;
+        if (input.action === "check") { this.scenarios.delete(id); throw new WrittenWrong(`${what}: name one element and record the check again (nothing was recorded)`); }
+        check.status = "incomplete"; check.writtenWrong = what;
+        check.reason = `Written wrong: ${what}. Name one element, record the check again, and withdraw this one with replacedBy.`;
+      }
+      // It failed after Casper said Cancel where a person would say OK: what the page does on OK was never seen. Not a
+      // failure, so it starts no repair; the reason says how to check it instead.
+      if (cancelled && check.status === "fail") {
+        check.status = "incomplete"; check.cancelled = cancelled.type;
+        check.reason = `Not checked: step ${cancelled.step} opened a ${cancelled.type} dialog (${JSON.stringify(cancelled.message.slice(0, 80))}) and Casper answers Cancel to confirm dialogs, so this check can't see what OK does. Check that another way (the service tool's request to the same endpoint), and withdraw this check.`;
+      }
       // Its own server is gone and Casper's server for the project, which may hold other data, failed a check that passed
       // there: stale, not failed. Its result can't say the page is broken, so it never starts a repair (one did, and the
       // AI put test data into the app's config to make it pass).
+      if (!notOpened.standIn) entry.ownStatus = check.status;
       if (notOpened.standIn && check.status === "fail" && lastStatus === "pass") {
         check.status = "incomplete"; check.freshness = "stale"; check.gone = notOpened.standIn;
         check.reason = `Stale, not failed: the server it ran on (${notOpened.standIn}) is gone, and Casper's server for the project, which may hold other data, did not pass it. Replay it with its own server running to count it.`;
@@ -1741,6 +1814,14 @@ export class BrowserSession {
       if (performance.now() - startedAt > FINAL_PAGE_AFTER_MS) return result;
       return { ...result, ...await this.finalPage(page, signal, FINAL_RESULT_BYTES - Buffer.byteLength(JSON.stringify(result))).catch(() => ({})) };
     } catch (error) {
+      if (error instanceof WrittenWrong) throw error;
+      // A step's selector that matches several elements, on a replay: written wrong, said so, not a failure.
+      const several = input.action === "replay" && error instanceof Error ? /exactly one element; it matches ([2-9]|\d{2,})/.exec(error.message)?.[1] : undefined;
+      if (several) {
+        check.status = "incomplete"; check.writtenWrong = `a step's selector matches ${several} elements`;
+        check.reason = `Written wrong: ${check.writtenWrong}. Name one element, record the check again, and withdraw this one with replacedBy.`;
+        return structuredClone(check) as unknown as Record<string, unknown>;
+      }
       check.status = "incomplete"; check.reason = error instanceof ServerGone ? `Could not check. ${error.message}` : "Browser reproduction did not finish; no passing evidence.";
       // A step that found nothing on a sign-in page: that is the result, said plainly, and the id stays for a replay.
       const signIn = opened && !signal.aborted && !(error instanceof ServerGone) ? await this.signInReason(opened, scenario.url) : undefined;
@@ -1791,8 +1872,8 @@ export class BrowserSession {
    * the same path opens on the server Casper runs for this project (serve, or the page checks' slot), noted in the
    * check; with none up the replay throws ServerGone. A page on another computer is never redirected.
    */
-  private async openCheck(page: Page, url: string, replay: boolean, check: BrowserCheck, signal: AbortSignal, service?: string): Promise<{ notOpened?: string[]; note?: string; standIn?: string }> {
-    const target = replay && service ? await this.follow(service, url, check, signal) : url;
+  private async openCheck(page: Page, url: string, replay: boolean, check: BrowserCheck, signal: AbortSignal, entry: RecordedCheck): Promise<{ notOpened?: string[]; note?: string; standIn?: string }> {
+    const target = replay && entry.service ? await this.follow(entry.service, entry.serviceSpec, url, check, signal) : url;
     try { return await this.navigate(page, target, signal); }
     catch (error) {
       if (!replay || !localURL(target) || !/ERR_CONNECTION_REFUSED/.test(String(error))) throw error;
@@ -1812,13 +1893,57 @@ export class BrowserSession {
     return services.status().find(entry => entry.origin === origin && (entry.state === "ready" || entry.state === "starting") && !services.casperOnly(entry.name))?.name;
   }
 
-  /** A check's URL on the address its service has now (a restart may have moved it), made fresh first as a service
-   * request is. A service that no longer runs leaves the URL as recorded. */
-  private async follow(name: string, url: string, check: BrowserCheck, signal: AbortSignal): Promise<string> {
+  /** The slot that runs a check's service now: its own, or for an ad-hoc service Casper let go, the one running its
+   * command (a running one first). */
+  private ownService(entry: RecordedCheck): string | undefined {
     const services = this.options.services?.();
-    const now = services && !services.closed ? services.status().find(entry => entry.name === name) : undefined;
-    if (!services || !now || (now.state !== "ready" && now.state !== "starting")) return url;
-    try { await services.ensureFresh(name, signal); } catch { signal.throwIfAborted(); return url; }
+    if (!entry.service || !entry.serviceSpec || !services || services.closed) return entry.service;
+    const list = services.status(), command = entry.serviceSpec.command;
+    if (list.some(service => service.name === entry.service && service.command === command)) return entry.service;
+    const same = list.filter(service => service.name.startsWith("adhoc-") && service.command === command);
+    return (same.find(service => service.state === "ready" || service.state === "starting") ?? same[0])?.name ?? entry.service;
+  }
+
+  /** A check's URL on the address its service has now (a restart may have moved it), made fresh first as a service
+   * request is. An ad-hoc service whose slot Casper let go is the one running its command now. At the end of a task,
+   * Casper's replays start a service that stopped (the AI's own, by its command, or a declared one) and stop it again
+   * after; one that can't start leaves the URL as recorded, and the check falls back to Casper's server as decision 52
+   * says. The AI's own replays never start its servers. */
+  private async follow(recorded: string, spec: ServiceSpec | undefined, url: string, check: BrowserCheck, signal: AbortSignal): Promise<string> {
+    const services = this.options.services?.();
+    if (!services || services.closed) return url;
+    const live = (entry: { state: string }) => entry.state === "ready" || entry.state === "starting";
+    const list = services.status();
+    let now = list.find(entry => entry.name === recorded);
+    if (spec && (!now || now.command !== spec.command)) {
+      const same = list.filter(entry => entry.name.startsWith("adhoc-") && entry.command === spec.command);
+      now = same.find(live) ?? same[0];
+    }
+    if (!now && !spec) return url;
+    const running = now !== undefined && live(now);
+    const key = spec?.command ?? recorded;
+    if (!running) {
+      if (this.replayUntil === undefined) return url;
+      const refused = this.unstartable.get(key) ?? (now?.state === "failed" ? "its last start failed" : undefined);
+      if (refused) { (check.notes ??= []).push(`could not start ${now?.name ?? recorded} again: ${refused}`); return url; }
+    }
+    let name = now?.name ?? recorded;
+    try {
+      // A slot Casper let go: its command started again, as the AI started it.
+      if (!now) name = (await services.startCommand(spec!.command, { ready: spec!.ready, timeoutMs: spec!.timeoutMs }, signal)).name;
+      await services.ensureFresh(name, signal);
+    } catch (error) {
+      signal.throwIfAborted();
+      if (!running) {
+        const why = (error instanceof Error ? error.message : String(error)).split("\n")[0]!.slice(0, 200);
+        this.unstartable.set(key, why);
+        (check.notes ??= []).push(`could not start ${name} again: ${why}`);
+      }
+      return url;
+    }
+    if (!running) { this.replayStarted.add(name); (check.notes ??= []).push(`started ${name} again for this replay: it had stopped`); }
+    if (name !== recorded && !(check.notes ?? []).some(note => note.startsWith(`started ${name}`))) (check.notes ??= []).push(`followed ${recorded} to ${name}: it runs the same command`);
+    this.replayServices.add(name);
     const origin = services.origin(name), was = new URL(url);
     if (!origin || origin === was.origin) return url;
     (check.notes ??= []).push(`followed ${name} to ${origin}: it ran at ${was.origin} when this check was recorded`);

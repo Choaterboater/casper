@@ -113,6 +113,11 @@ export class ServiceManager {
   names(): string[] { return [...this.slots.keys()]; }
   /** Whether only Casper starts this slot (the /preview app and public link); false for an unknown name. */
   casperOnly(name: string): boolean { return this.slots.get(name)?.options?.owner === "casper"; }
+  /** What starts the service `name` (a copy), or undefined when Casper keeps no such slot. */
+  spec(name: string): ServiceSpec | undefined {
+    const slot = this.slots.get(this.resolve(name) ?? name);
+    return slot ? structuredClone(slot.spec) : undefined;
+  }
   /** Whether `name` is a service declared in .casper/project.yaml (ensureSlot never changes those). */
   declared(name: string): boolean { return this.slots.has(name) && !this.detected.has(name) && !name.startsWith("adhoc-"); }
   /** Names the AI may use: every slot but Casper's own. */

@@ -542,7 +542,7 @@ browserTest("the host's one repair retry reruns a fresh failed id without edits,
   expect(replayed).toEqual([]);
 }, 30_000);
 
-browserTest("the end replay never asks: a step that needs the person, or a closed browser, keeps the check as it was", async () => {
+browserTest("the end replay never asks: a step that needs the person is not replayed and says why; a closed browser keeps the check as it was", async () => {
   const approvals: unknown[] = [];
   const f = await fixture({ allowActions: () => false, confirm: async request => { approvals.push(request); return true; } });
   await writeFile(f.sourceFile, '<!doctype html><button id="go" onclick="document.querySelector(\'#out\').textContent=\'done\'">Go</button><p id="out"></p>');
@@ -550,16 +550,21 @@ browserTest("the end replay never asks: a step that needs the person, or a close
     steps: [{ action: "click", selector: "#go", impact: "uncertain", reason: "Unsure" }], assertions: [{ kind: "text", selector: "#out", expected: "done" }] } });
   expect(recorded).toMatchObject({ status: "pass" });
   expect(approvals).toHaveLength(1);
+  const passed = await f.session.run({ action: "check", scenario: { name: "Loads", url: f.url, scope: { inputs: ["index.html"] }, steps: [],
+    assertions: [{ kind: "visible", selector: "#go" }] } });
   f.session.invalidate();
   await f.session.replayStale(0);
   expect(approvals).toHaveLength(1);
-  expect(await f.session.report()).toMatchObject({ status: "incomplete", checks: [{ status: "pass", freshness: "stale" }] });
+  // Its earlier pass isn't kept as stale with no word why: the receipt names why it wasn't replayed.
+  expect((await f.session.report()).checks.find(check => check.id === recorded.id)).toMatchObject({ status: "incomplete", notReplayed: expect.any(String) });
+  // A closed browser replays nothing: the check stays as it was.
+  f.session.invalidate();
   await f.session.close();
   await f.session.replayStale(0);
-  expect(await f.session.report()).toMatchObject({ status: "incomplete", checks: [{ status: "pass", freshness: "stale" }] });
+  expect((await f.session.report()).checks.find(check => check.id === passed.id)).toMatchObject({ status: "pass", freshness: "stale" });
 }, 30_000);
 
-browserTest("with Browser clicks off the end replay never presses a local \"Send\" button: the check stays as it was", async () => {
+browserTest("with Browser clicks off the end replay never presses a local \"Send\" button: the check is not replayed and says why", async () => {
   const f = await fixture({ allowActions: () => false, confirm: async () => true });
   await writeFile(f.sourceFile, '<!doctype html><button id="go" onclick="document.querySelector(\'#out\').textContent=\'done\'">Send</button><p id="out"></p>');
   const send = await f.session.run({ action: "check", scenario: { name: "send", url: f.url, scope: { inputs: ["index.html"] },
@@ -567,7 +572,7 @@ browserTest("with Browser clicks off the end replay never presses a local \"Send
   expect(send).toMatchObject({ status: "pass" });
   f.session.invalidate();
   await f.session.replayStale(0);
-  expect(await f.session.report()).toMatchObject({ status: "incomplete", checks: [{ status: "pass", freshness: "stale" }] });
+  expect(await f.session.report()).toMatchObject({ status: "incomplete", checks: [{ status: "incomplete", notReplayed: expect.any(String) }] });
 }, 30_000);
 
 browserTest("the end replay keeps to this task's local tests, even with Browser clicks on", async () => {
@@ -588,7 +593,7 @@ browserTest("the end replay keeps to this task's local tests, even with Browser 
   await f.session.replayStale(0);
   expect(asked).toHaveLength(0);
   const all = (await f.session.report()).checks;
-  expect(all.find(c => c.id === uncertain.id)).toMatchObject({ freshness: "stale" });
+  expect(all.find(c => c.id === uncertain.id)).toMatchObject({ status: "incomplete", notReplayed: expect.any(String) });
   expect(all.find(c => c.id === local.id)).toMatchObject({ freshness: "fresh" });
   expect(all.find(c => c.id === send.id)).toMatchObject({ status: "pass", freshness: "fresh" });
   // A check from before this task started is left alone.

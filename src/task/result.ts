@@ -342,9 +342,24 @@ function countedBrowserChecks(checks: BrowserReport["checks"]): BrowserReport["c
  * passing; otherwise undefined. */
 function staleGone(checks: BrowserReport["checks"]): string | undefined {
   const counted = countedBrowserChecks(checks);
-  const gone = counted.filter((check) => check.status !== "pass" && check.gone).length;
-  if (!gone || counted.some((check) => check.status !== "pass" && !check.gone)) return undefined;
-  return gone === 1 ? "1 browser check is stale: the server it ran on is gone" : `${gone} browser checks are stale: the server they ran on is gone`;
+  const open = counted.filter((check) => check.status !== "pass");
+  const gone = open.filter((check) => check.gone).length;
+  const cancelled = open.filter((check) => !check.gone && check.cancelled);
+  const wrong = open.filter((check) => !check.gone && !check.cancelled && check.writtenWrong).length;
+  const notReplayed = open.filter((check) => !check.gone && !check.cancelled && !check.writtenWrong && check.notReplayed).length;
+  if (!open.length || open.some((check) => !check.gone && !check.cancelled && !check.writtenWrong && !check.notReplayed)) return undefined;
+  const count = (n: number) => `${n} browser ${n === 1 ? "check" : "checks"}`;
+  return [gone === 1 ? "1 browser check is stale: the server it ran on is gone" : gone ? `${gone} browser checks are stale: the server they ran on is gone` : "",
+    cancelled.length ? `${count(cancelled.length)} not checked: Casper answers Cancel to the ${dialogKind(cancelled)} ${cancelled.length === 1 ? "it opens" : "they open"}` : "",
+    wrong ? `${count(wrong)} written wrong: a selector matches several elements` : "",
+    notReplayed ? `${count(notReplayed)} not replayed at the end` : ""]
+    .filter(Boolean).join("; ");
+}
+
+/** "confirm dialog", "prompt dialog", or both kinds. */
+function dialogKind(checks: BrowserReport["checks"]): string {
+  const kinds = [...new Set(checks.map((check) => check.cancelled))];
+  return kinds.length === 1 ? `${kinds[0]} dialog` : "confirm and prompt dialogs";
 }
 
 /** Why browser checks that all passed still leave the task incomplete: an edit or command ran after some or all of
@@ -855,16 +870,29 @@ function receiptParts(task: TaskResult, options: ReceiptOptions, onScreen = fals
       const passed = checks.filter((check) => check.status === "pass");
       // Stale because the server it ran on is gone: not unfinished, and not a failure.
       const gone = checks.filter((check) => check.status !== "pass" && check.gone).map((check) => safe(check.name));
-      const open = checks.filter((check) => check.status !== "pass" && !check.gone).map((check) => safe(check.name));
+      // Failed after Casper answered Cancel where a person would answer OK: not checked, and not a failure.
+      const cancelledChecks = checks.filter((check) => check.status !== "pass" && !check.gone && check.cancelled);
+      const cancelled = cancelledChecks.map((check) => safe(check.name));
+      // A selector that matches several elements: written wrong, named with what matched; and an end replay that could
+      // not finish, named with why.
+      const wrong = checks.filter((check) => check.status !== "pass" && !check.gone && !check.cancelled && check.writtenWrong)
+        .map((check) => `${safe(check.name)} (${safe(check.writtenWrong!)})`);
+      const notReplayed = checks.filter((check) => check.status !== "pass" && !check.gone && !check.cancelled && !check.writtenWrong && check.notReplayed)
+        .map((check) => `${safe(check.name)} (${safe(check.notReplayed!)})`);
+      const open = checks.filter((check) => check.status !== "pass" && !check.gone && !check.cancelled && !check.writtenWrong && !check.notReplayed).map((check) => safe(check.name));
       const stale = passed.filter((check) => check.freshness === "stale").length;
       const untied = passed.filter((check) => check.freshness === "unavailable").length;
       // "all" and "them" only when they cover every check, never one that did not finish.
       const total = checks.length, every = (count: number) => count === total;
       const notes = [open.length ? `not finished: ${open.join(", ")}` : "",
         gone.length ? `${gone.length} stale, ${gone.length === 1 ? "its" : "their"} server gone: ${gone.join(", ")}` : "",
+        cancelled.length ? `${cancelled.length} not checked, Casper answered Cancel to ${cancelled.length === 1 ? "its" : "their"} ${dialogKind(cancelledChecks)}: ${cancelled.join(", ")}` : "",
+        wrong.length ? `${wrong.length} written wrong: ${wrong.join(", ")}` : "",
+        notReplayed.length ? `not replayed: ${notReplayed.join(", ")}` : "",
         stale ? `${every(stale) ? "all" : stale} ran before a later edit or command (replay to count)` : "",
         untied ? `Casper can't tie ${every(untied) ? "them" : `${untied} of them`} to the final files` : ""].filter(Boolean);
-      if (passed.length) add("checks", `– Browser checks: ${passed.length} of ${checks.length} passed${notes.length ? `; ${notes.join("; ")}` : ""}`);
+      // None passed: still said, with why, when a reason is known (stale, written wrong, not replayed).
+      if (passed.length || notes.some((note) => !note.startsWith("not finished"))) add("checks", `– Browser checks: ${passed.length} of ${checks.length} passed${notes.length ? `; ${notes.join("; ")}` : ""}`);
       else if (checks.length || claimed) add("checks", claimed ? `– Browser checks did not finish${claimed}; Casper saw no passing browser check` : "– Browser checks incomplete");
     }
     if (withdrawn.length) add("checks", `– ${withdrawn.length} ${withdrawn.length === 1 ? "check" : "checks"} withdrawn by the AI: ${withdrawn

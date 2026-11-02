@@ -111,7 +111,12 @@ note, not a failure. A check's steps share 8 seconds of this watching; a step
 whose watch is cut short gets no note. A native `alert`, `confirm`, `prompt` or leave-page dialog
 is still dismissed (Cancel, or stay on the page), and the result lists it under
 `dialogs`, such as `confirm dialog "Clear this item?": Casper answered Cancel`;
-a check lists both under `notes`, by step.
+a check lists both under `notes`, by step. A check that fails after Casper answered
+Cancel to a `confirm` or `prompt` dialog never saw what OK does, so it is not checked
+rather than failed: incomplete with the reason `Not checked: step <n> opened a confirm
+dialog (…) and Casper answers Cancel to confirm dialogs, …`, it starts no repair, and
+the receipt says `1 not checked, Casper answered Cancel to its confirm dialog: <name>`
+([decision 55](adr/0002/55-restart-a-checks-service-for-the-end-replay.md)).
 The result also says what the action changed, as a person would see it, under
 `changes`: the address it left (`previousUrl`), a new `title`, text that
 appeared (`appeared`, such as a toast, an error or a status, up to 400
@@ -287,8 +292,13 @@ it once the page is ready, or withdraw it while no edit or command has run since
 A check whose recording never finished (no server answered yet) is recorded by
 its first finished run, so a failure there can be withdrawn like one from a
 recording.
-A new check whose step selector matches several elements is not kept at all: the
-error says how many it matched, and the check is recorded again with one element.
+A new check whose step or assertion selector matches several elements is not kept at all: the
+error says how many it matched (`assertion 1's selector matches 2 elements: name one element
+and record the check again (nothing was recorded)`), and the check is recorded again with one
+element. A replay where one matches several is a check written wrong, not a failure of the page:
+incomplete with the reason `Written wrong: …`, no repair, and the receipt says
+`1 written wrong: <name> (assertion 1's selector matches 2 elements)`
+([decision 55](adr/0002/55-restart-a-checks-service-for-the-end-replay.md)).
 Withdrawing a check that passed is refused, and so is replaying a withdrawn id. A
 withdrawn check stays visible: its status is `withdrawn` in the JSON report, with
 the reason under `withdrawn`, and the receipt says
@@ -343,14 +353,29 @@ The fresh result counts: a pass is a pass, a failure is a failure with its
 evidence. Only pages on this computer are replayed, and only `local-test` steps;
 one whose label has a word such as "send", "buy" or "delete" (a contact form's
 Send) only with Browser clicks on, as it ran for the model. Nothing is asked: any
-other step, an address that would need a yes, a busy or closed browser, or a replay that can't finish keeps the
-check as it was, and the receipt still says `ran before a later edit or command
-(replay to count)`. A withdrawn check is never replayed.
+other step, an address that would need a yes, or a busy or closed browser keeps the
+check as it was. A replay that starts and can't finish (a step that would need a yes,
+a step whose element is gone) keeps a failure as it was, but a pass is not kept as
+stale with no word why: the check is incomplete and the receipt says `not replayed:
+<name> (<why>)` ([decision 55](adr/0002/55-restart-a-checks-service-for-the-end-replay.md)). A withdrawn check is never replayed.
 A check recorded on one of Casper's managed services (the model's `service` start, or
 the page checks' server) belongs to that service, not to its port: a replay while it
 runs opens the same path wherever it runs now, restarting it first after an edit as a
 `service` request does, and the check's `notes` say `followed <service> to <origin>: it
 ran at <old origin> when this check was recorded`.
+At the end of a task, Casper's own replays start a check's service again when it has
+stopped (the model's ad-hoc service, under the same name and command, or a declared
+one), with the data and settings files (`config/*.yaml` and the like) the check was
+recorded with put back first, and stop it again once the replays end; the check's
+`notes` say `started <service> again for this replay: it had stopped`. An ad-hoc
+service is known by its command: when Casper has let its slot go (more were started
+after it), the check follows the one running the same command, or starts it again. A check's own
+server that is still running is restarted when its data or settings are put back, so
+an app that holds them in memory reads them afresh, and again with the model's files
+at the end ([decision 55](adr/0002/55-restart-a-checks-service-for-the-end-replay.md)).
+Only a service that can't start again (`could not start <service> again: …` in the
+`notes`) leaves the check to the fallback below. The model's own replays never start
+its servers.
 A replay (Casper's or the model's) whose page is on a loopback server that no
 longer answers (the model started it in a command and stopped it) opens the same
 path on the server Casper runs for the project, from `serve` or the page checks,
@@ -359,7 +384,7 @@ answers at <old origin> any more`. That server may hold other data than the one 
 check ran on, so a check that passed on its own server and fails there is stale, not
 failed: it is incomplete with the reason `Stale, not failed: the server it ran on
 (<old origin>) is gone, …`, it starts no repair, and the receipt says `1 stale, its
-server gone: <name>`. One that already failed on its own server stays failed
+server gone: <name>`, however often it is replayed there. One that already failed on its own server stays failed
 ([decision 52](adr/0002/52-checks-follow-their-service.md)). With no server of Casper's up, nothing was
 checked: the check becomes incomplete with the reason `Could not check. Nothing
 answers at <origin> any more and Casper runs no server for this project; start it

@@ -1,5 +1,5 @@
 import { afterEach, expect } from "bun:test";
-import { mkdir, mkdtemp, realpath, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { BrowserSession } from "../src/browser/session";
@@ -20,6 +20,11 @@ afterEach(async () => { for (const close of cleanup.splice(0).reverse()) await c
 const SERVER = `Bun.serve({ hostname: process.env.HOST ?? "127.0.0.1", port: Number(process.env.PORT), fetch: () => new Response("<!doctype html><h1>" + process.argv[2] + "</h1>", { headers: { "content-type": "text/html; charset=utf-8" } }) });
 console.log("listening");
 `;
+/** Reads config/title.yaml once at start and keeps it in memory, as the start page builds did. */
+const CACHING = `const title = require("node:fs").readFileSync("config/title.yaml", "utf8").trim();
+Bun.serve({ hostname: process.env.HOST ?? "127.0.0.1", port: Number(process.env.PORT), fetch: () => new Response("<!doctype html><h1>" + title + "</h1>", { headers: { "content-type": "text/html; charset=utf-8" } }) });
+console.log("listening");
+`;
 
 async function setup() {
   const root = await realpath(await mkdtemp(path.join(os.tmpdir(), "casper-checks-follow-")));
@@ -27,14 +32,15 @@ async function setup() {
   const project = path.join(root, "project"), state = path.join(root, "state");
   await mkdir(project); await mkdir(state);
   await writeFile(path.join(root, "server.ts"), SERVER);
-  const command = (words: string) => `"${process.execPath}" "${path.join(root, "server.ts")}" "${words}"`;
+  await writeFile(path.join(root, "caching.ts"), CACHING);
+  const command = (words: string, script = "server.ts") => `"${process.execPath}" "${path.join(root, script)}" "${words}"`;
   const services = new ServiceManager({ projectRoot: project, services: {} });
   cleanup.push(() => services.close());
   const session = new BrowserSession({ projectRoot: project, stateDirectory: state, executablePath: executable, services: () => services });
   cleanup.push(() => session.close());
   const signal = new AbortController().signal;
   const scenario = (url: string, expected: string) => ({ name: "Heading", url, steps: [], assertions: [{ kind: "text", selector: "h1", expected }] });
-  return { services, session, command, signal, scenario };
+  return { root, project, services, session, command, signal, scenario };
 }
 
 browserTest("a check recorded on a service replays on that service after it moved to another port", async () => {
@@ -55,13 +61,11 @@ browserTest("a check recorded on a service replays on that service after it move
   expect(replayed.notes).toEqual([`followed ${first.name} to ${again.origin}: it ran at ${first.origin} when this check was recorded`]);
 }, 45_000);
 
-browserTest("a check whose server is gone and that fails on Casper's server is stale, not failed; one that already failed stays failed", async () => {
+browserTest("at the end, a check whose own service stopped is replayed on it, started again, and the service is stopped again after", async () => {
   const { services, session, command, signal, scenario } = await setup();
   const own = await services.startCommand(command("Weather 21°C"), { ready: { log: "listening" } }, signal);
-  // Passed on the AI's own server and its test data; failed there too (a real failure).
   const passed = await session.run({ action: "check", scenario: scenario(`${own.origin}/`, "Weather 21°C") });
-  const failed = await session.run({ action: "check", scenario: scenario(`${own.origin}/`, "Pi-hole") });
-  expect([passed.status, failed.status]).toEqual(["pass", "fail"]);
+  expect(passed.status).toBe("pass");
   // The AI stops its server; Casper's own server for the project holds other data.
   await services.stop(own.name);
   services.ensureSlot("web", { command: command("Dashboard"), port: "auto", ready: { log: "listening" }, timeoutMs: 10_000 });
@@ -69,8 +73,133 @@ browserTest("a check whose server is gone and that fails on Casper's server is s
   session.invalidate();
   await session.replayStale(0);
   const report = await session.report();
-  expect(report.checks.find(check => check.id === passed.id)).toMatchObject({ status: "incomplete", freshness: "stale",
+  const replayed = report.checks.find(check => check.id === passed.id)!;
+  expect(replayed).toMatchObject({ status: "pass", freshness: "fresh" });
+  expect(replayed.gone).toBeUndefined();
+  expect(replayed.notes).toContain(`started ${own.name} again for this replay: it had stopped`);
+  expect(report.status).toBe("pass");
+  // Left as the AI left it.
+  expect(services.status().find(service => service.name === own.name)?.state).toBe("stopped");
+}, 45_000);
+
+browserTest("a check whose server is gone and can't be started again, and that fails on Casper's server, is stale, not failed; one that already failed stays failed", async () => {
+  const { root, services, session, command, signal, scenario } = await setup();
+  await writeFile(path.join(root, "own.ts"), SERVER);
+  const own = await services.startCommand(command("Weather 21°C", "own.ts"), { ready: { log: "listening" } }, signal);
+  // Passed on the AI's own server and its test data; failed there too (a real failure).
+  const passed = await session.run({ action: "check", scenario: scenario(`${own.origin}/`, "Weather 21°C") });
+  const failed = await session.run({ action: "check", scenario: scenario(`${own.origin}/`, "Pi-hole") });
+  expect([passed.status, failed.status]).toEqual(["pass", "fail"]);
+  // The AI stops its server and removes what started it.
+  await services.stop(own.name);
+  await rm(path.join(root, "own.ts"));
+  services.ensureSlot("web", { command: command("Dashboard"), port: "auto", ready: { log: "listening" }, timeoutMs: 10_000 });
+  await services.start("web", signal);
+  session.invalidate();
+  await session.replayStale(0);
+  const report = await session.report();
+  const stale = report.checks.find(check => check.id === passed.id)!;
+  expect(stale).toMatchObject({ status: "incomplete", freshness: "stale",
     reason: expect.stringContaining(`the server it ran on (${own.origin}) is gone`), gone: own.origin });
+  expect(stale.notes?.some(note => note.startsWith(`could not start ${own.name} again:`))).toBe(true);
   expect(report.checks.find(check => check.id === failed.id)).toMatchObject({ status: "fail", freshness: "fresh" });
   expect(report.status).toBe("fail");
+  // Replayed again (the AI's repair turn), still on Casper's server: still stale, not a failure.
+  expect(await session.run({ action: "replay", id: passed.id })).toMatchObject({ status: "incomplete", freshness: "stale", gone: own.origin });
+}, 60_000);
+
+browserTest("a check whose ad-hoc service Casper let go (more were started after it) replays on the same command, started again", async () => {
+  const { services, session, command, signal, scenario } = await setup();
+  const app = command("Weather 21°C");
+  const own = await services.startCommand(app, { ready: { log: "listening" } }, signal);
+  const recorded = await session.run({ action: "check", scenario: scenario(`${own.origin}/`, "Weather 21°C") });
+  expect(recorded.status).toBe("pass");
+  await services.stop(own.name);
+  // Four more ad-hoc services: the oldest stopped slot, the check's own, is let go.
+  for (const other of ["Stub one", "Stub two", "Stub three", "Stub four"]) {
+    const started = await services.startCommand(command(other), { ready: { log: "listening" } }, signal);
+    await services.stop(started.name);
+  }
+  expect(services.status().some(service => service.name === own.name)).toBe(false);
+  session.invalidate();
+  await session.replayStale(0);
+  const replayed = (await session.report()).checks.find(check => check.id === recorded.id)!;
+  expect(replayed).toMatchObject({ status: "pass", freshness: "fresh" });
+  expect(replayed.notes?.some(note => /^started adhoc-\d+ again for this replay: it had stopped$/.test(note))).toBe(true);
+  expect(services.status().filter(service => service.state === "ready")).toEqual([]);
+}, 60_000);
+
+browserTest("an end replay puts back the settings its check was recorded with and restarts the check's own server, which holds them in memory", async () => {
+  const { project, services, session, command, signal, scenario } = await setup();
+  await mkdir(path.join(project, "config"));
+  await writeFile(path.join(project, "config/title.yaml"), "Empty dashboard\n");
+  const own = await services.startCommand(command("", "caching.ts"), { ready: { log: "listening" } }, signal);
+  const recorded = await session.run({ action: "check", scenario: scenario(`${own.origin}/`, "Empty dashboard") });
+  expect(recorded.status).toBe("pass");
+  // Later the AI's server holds other settings (a widget installed through the page), and is still running at the end.
+  await writeFile(path.join(project, "config/title.yaml"), "Weather installed\n");
+  await services.restart(own.name, signal);
+  session.invalidate();
+  await session.replayStale(0);
+  const report = await session.report();
+  expect(report.checks.find(check => check.id === recorded.id)).toMatchObject({ status: "pass", freshness: "fresh" });
+  // The settings and the server come back as the AI left them.
+  expect(await readFile(path.join(project, "config/title.yaml"), "utf8")).toBe("Weather installed\n");
+  expect(await (await fetch(services.origin(own.name)!)).text()).toContain("Weather installed");
+}, 60_000);
+
+browserTest("a check that fails after Casper answered Cancel to a confirm dialog is not checked, not failed: Casper can't answer OK", async () => {
+  const { session } = await setup();
+  const page = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => new Response(`<!doctype html><button id="go" onclick="if (confirm('Clear the list?')) document.querySelector('h1').textContent = 'Cleared'">Clear list</button><h1>Two items</h1>`,
+    { headers: { "content-type": "text/html; charset=utf-8" } }) });
+  cleanup.push(() => page.stop(true));
+  const url = `http://127.0.0.1:${page.port}/`;
+  const clicked = (expected: string) => ({ name: `after the click: ${expected}`, url, steps: [{ action: "click", selector: "#go", impact: "local-test" }], assertions: [{ kind: "text", selector: "h1", expected }] });
+  const needsOk = await session.run({ action: "check", scenario: clicked("Cleared") });
+  expect(needsOk).toMatchObject({ status: "incomplete", cancelled: "confirm", reason: expect.stringContaining("Casper answers Cancel to confirm dialogs") });
+  // A check that expects what Cancel does still passes.
+  expect(await session.run({ action: "check", scenario: clicked("Two items") })).toMatchObject({ status: "pass" });
+  const report = await session.report();
+  expect(report.status).toBe("incomplete");
+}, 45_000);
+
+/** A page whose list has `items.count` rows and, while `items.button`, a #go button. */
+function listPage() {
+  const items = { count: 1, button: true };
+  const page = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => new Response(`<!doctype html>${items.button ? `<button id="go" onclick="document.querySelector('h1').textContent = 'Opened'">Open</button>` : ""}<h1>List</h1><ul>${"<li class=\"row\">Row</li>".repeat(items.count)}</ul>`,
+    { headers: { "content-type": "text/html; charset=utf-8" } }) });
+  cleanup.push(() => page.stop(true));
+  return { items, url: `http://127.0.0.1:${page.port}/` };
+}
+
+browserTest("an assertion whose selector matches several elements is a check written wrong: not recorded, and on a replay not a failure", async () => {
+  const { session } = await setup();
+  const { items, url } = listPage();
+  items.count = 2;
+  const row = { name: "one row", url, steps: [], assertions: [{ kind: "text", selector: "li.row", expected: "Row" }] };
+  // As a step selector that matches several already is: nothing is recorded, and the AI is told to name one element.
+  await expect(session.run({ action: "check", scenario: row })).rejects.toThrow(/assertion 1's selector matches 2 elements: name one element and record the check again \(nothing was recorded\)/);
+  expect((await session.report()).checks).toEqual([]);
+  // Recorded while it matched one; the page later has two: written wrong, not failed.
+  items.count = 1;
+  const recorded = await session.run({ action: "check", scenario: row });
+  expect(recorded.status).toBe("pass");
+  items.count = 2;
+  session.invalidate();
+  const replayed = await session.run({ action: "replay", id: recorded.id });
+  expect(replayed).toMatchObject({ status: "incomplete", writtenWrong: "assertion 1's selector matches 2 elements", reason: expect.stringContaining("Written wrong") });
+  expect((await session.report()).status).toBe("incomplete");
+}, 45_000);
+
+browserTest("an end replay that can't finish says why; it never keeps the earlier pass", async () => {
+  const { session } = await setup();
+  const { items, url } = listPage();
+  const opened = await session.run({ action: "check", scenario: { name: "open", url, steps: [{ action: "click", selector: "#go", impact: "local-test" }], assertions: [{ kind: "text", selector: "h1", expected: "Opened" }] } });
+  expect(opened.status).toBe("pass");
+  items.button = false;
+  session.invalidate();
+  await session.replayStale(0);
+  const check = (await session.report()).checks.find(entry => entry.id === opened.id)!;
+  expect(check).toMatchObject({ status: "incomplete", notReplayed: expect.stringContaining("matches 0") });
+  expect(check.freshness).not.toBe("stale");
 }, 45_000);

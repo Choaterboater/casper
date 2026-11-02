@@ -67,7 +67,9 @@ async function fixture() {
   const send = async (line: string, done: RegExp) => {
     const from = output.length;
     input.write(`${line}\n`);
-    const deadline = Date.now() + 25_000;
+    // The compose check runs the real `docker compose config`; the first one on a fresh Windows runner, inside the full
+    // suite, waited 15 to more than 50 s for a cold docker (1-3 s otherwise).
+    const deadline = Date.now() + 120_000;
     while (!done.test(output.slice(from))) {
       if (Date.now() > deadline) throw new Error(`no ${done} in:\n${output.slice(from)}`);
       await Bun.sleep(20);
@@ -92,7 +94,7 @@ test("a pasted guide whose first step the AI finished: the row offers the reques
     expect(f.prompts).toHaveLength(2);
     expect(f.prompts[1]).toContain("Continue with the next step of the request: Publish ha.example.org as a public hostname");
   } finally { await f.close(); }
-}, 60_000);
+}, 180_000);
 
 test("a request with no list of steps makes no side call and offers no step", async () => {
   const f = await fixture();
@@ -101,4 +103,4 @@ test("a request with no list of steps makes no side call and offers no step", as
     expect(f.sideCalls).toHaveLength(0);
     expect(shown).not.toContain("Continue:");
   } finally { await f.close(); }
-}, 60_000);
+}, 180_000);
