@@ -18,7 +18,7 @@ import { ownSpawnedTree, type OwnedProcesses, ProcessCleanupError, terminateTree
 import { CASPER_VERSION } from "../version";
 import { NotExecutedError, OutcomeUnknownError } from "../capabilities/result";
 import { scrubText } from "../secrets/scrub";
-import { getsLogins, loginEnv, loginSecretValues } from "./network/logins";
+import { getsLogins, loginEnv, loginSecretValues, withheldLoginsNote } from "./network/logins";
 import { keyValues, serverKeyFor } from "./server-secrets";
 import { CallClock } from "./clock";
 import { classifyCallError, describeFailure, redactServerText, ServerOutput, stoppedMessage } from "./server-output";
@@ -415,6 +415,12 @@ export class MCPManager {
    * in its results too, even a Central client ID that matches no secret pattern. */
   loginValues(server: string): readonly string[] {
     return [...this.entries.get(server)?.loginSecrets ?? []];
+  }
+
+  /** One line for the AI when Casper's network server runs without your saved logins because a project defines it. */
+  async withheldLoginsNote(server: string): Promise<string | undefined> {
+    const entry = this.entries.get(server);
+    return entry && this.homeDir ? withheldLoginsNote(entry.definition, this.homeDir) : undefined;
   }
 
   policy(server: string): ServerPolicy {

@@ -8,6 +8,7 @@
  */
 import type { ModelUsage } from "../runtime/model-usage";
 import { lineText } from "../tui/format";
+import type { NextItem } from "../tui/next-row";
 
 /** The answer when every step of the request is done. */
 export const NEXT_STEP_DONE = "DONE";
@@ -60,4 +61,25 @@ export async function findNextStep(input: { complete: Complete; request: string;
   const step = lines.length === 1 ? lineText(lines[0]!).replace(/^(?:[-*•]\s*|\d+[.)]\s*)/, "").replace(/[.\s]+$/, "").trim() : "";
   if (!step || step.toUpperCase() === NEXT_STEP_DONE || step.length > MAX_STEP_CHARS) return { usage: result.usage };
   return { step, usage: result.usage };
+}
+
+/** The AI's own "Next step: …" line: a step it can take, for the row (the AI's last line only). */
+const ANSWER_STEP = /^(?:[-*•]\s+)?(?:\*\*|__)?next step(?:\*\*|__)?\s*:\s*(?:\*\*|__)?\s*(.+)$/i;
+/** A step that is the person's to do ("reconnect it, then tell me") is not one a key can send to the AI. */
+const PERSONS_STEP = /\b(?:you|your|yours|tell me|let me know)\b/i;
+const MAX_ANSWER_STEP_CHARS = 160;
+
+/** The step named by the answer's last line, "Next step: Read the switch's port 1/1/5 over ssh", or none. */
+export function answerNextStep(answer: string): string | undefined {
+  const last = answer.replace(/\r\n?/g, "\n").split("\n").map((line) => line.trim()).filter(Boolean).at(-1) ?? "";
+  const found = ANSWER_STEP.exec(last)?.[1];
+  const step = found && lineText(found).replace(/\*\*|__|`/g, "").replace(/[.\s]+$/, "").trim();
+  if (!step || step.length > MAX_ANSWER_STEP_CHARS || step.startsWith("/") || PERSONS_STEP.test(step)) return undefined;
+  return step[0]!.toUpperCase() + step.slice(1);
+}
+
+/** The AI's next step on the row: its key sends the step as the next request; nothing runs on its own. */
+export function answerNextStepItem(answer: string): NextItem | undefined {
+  const step = answerNextStep(answer);
+  return step ? { label: step, command: step, note: "uses tokens", why: "the AI's last line names it as the next step" } : undefined;
 }

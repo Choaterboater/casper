@@ -1,14 +1,14 @@
 /** Starting the model runtime: one adapter for sign-in and the session, the conversation from --continue or
  * --resume, the --model and --effort of this run, and what each file edit tells the checks. Moved from src/app.ts. */
 
-import { rememberTool } from "./side-question";
+import { rememberTool, rememberToolResult } from "./side-question";
 import { noteJudgeStep } from "./auto-mode";
 import { leavesFilesHere } from "./local-effect";
 import type { CasperApp } from "../app";
 import path from "node:path";
 import { hasSignIn } from "../tui/model-preference";
 import { configureLocalServers, localServerFound } from "../runtime/local-models";
-import { formatRuntimeStartLine } from "../tui/format";
+import { formatRuntimeStartLine, terminalText } from "../tui/format";
 import { boundCapabilityResult } from "../capabilities/result";
 import { hiddenSecretGate } from "../secrets/gate";
 import { fileChangeTool } from "../runtime/observation";
@@ -22,7 +22,7 @@ import { sessionStartEvent } from "./json-events";
 import { CASPER_VERSION } from "../version";
 import { editGateReason } from "./approvals";
 import { networkLoginFile } from "./network-host";
-import { updateFooter } from "./footer";
+import { footerJob, updateFooter } from "./footer";
 import { spendNote, spendGate } from "./spend-gate";
 import { ensureSessionWorkspace } from "./session-branches";
 import { projectPrivatePaths } from "./wiring";
@@ -106,6 +106,7 @@ export async function ensureRuntime(app: CasperApp): Promise<RuntimeSession> {
       app.unsubscribe = app.session.subscribe(event => {
         if (event.type === "waiting") { app.steering = event.lines; showWaiting(app); return; }
         if (event.type === "tool_start") { rememberTool(app, event.toolName); noteJudgeStep(app, event); }
+        if (event.type === "tool_end") rememberToolResult(app, event);
         // The times the AI's tools that may write ran: what changed at any other time is another program's.
         const windows = app.taskEdits?.windows;
         if (windows && (event.type === "tool_start" || event.type === "tool_end") && !leavesFilesHere(event.toolName, event.input, app.activeWorkspaceRoot())) {
@@ -272,8 +273,12 @@ export function currentShell(app: CasperApp): RuntimeShell {
     // Not on Windows: CPU is not read there, and silence alone would end a quiet build.
     stallSeconds: () => app.projectContext?.stalledCommands === false || process.platform === "win32" ? undefined : STALL_SECONDS,
     whenSteered: (end) => app.steerWaits.listen(end),
+    stoppedWait: (what) => { if (!app.closing) { app.events.ensureLineBreak(); app.output.write(`${stoppedWaitLine(what)}\n`); } },
   };
 }
+
+/** The neutral line when a line you sent stopped a command that only waited: "– Stopped the wait (sleep 15 loop) to read your message". */
+export const stoppedWaitLine = (what: string) => `– Stopped the wait (${terminalText(what).replace(/\s+/g, " ").slice(0, 60)}) to read your message`;
 
 /** The session's slow commands, made on first use. When one ends, the conversation gets a note, its output tail
  * scrubbed as bash output is (the AI reads it next turn, or now as a steer while a task runs). */
@@ -288,6 +293,7 @@ export function backgroundCommands(app: CasperApp): BackgroundCommands | undefin
         await app.session.appendContext(`${scrubbed?.texts[0] ?? note}${scrubbed?.note ? `\n${scrubbed.note}` : ""}`);
       },
       changed: () => { if (!app.closing) updateFooter(app); },
+      output: () => { if (!app.closing) app.terminal.setJob?.(footerJob(app.backgroundCommands)); },
     });
     app.lifecycle.add({ name: "background-commands", close: () => commands.close() });
   }

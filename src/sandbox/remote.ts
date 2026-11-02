@@ -108,13 +108,23 @@ export function commandStart(words: string[]): number {
       while (index < words.length && words[index]!.startsWith("-")) {
         const option = words[index]!;
         index++;
-        if (["-u", "-g", "-n", "-C", "-h", "-p", "-D", "-o", "-e", "-i"].includes(option) && name !== "env" && index < words.length && !words[index]!.startsWith("-")) index++;
+        // sudo's -n, -i and -e take no value (`sudo -n ssh nas` runs ssh), as nice's -n and ionice's -n do.
+        const plain = (name === "sudo" || name === "doas") && ["-n", "-i", "-e"].includes(option);
+        if (!plain && ["-u", "-g", "-n", "-C", "-h", "-p", "-D", "-o", "-e", "-i"].includes(option) && name !== "env" && index < words.length && !words[index]!.startsWith("-")) index++;
       }
       continue;
     }
-    if (name === "timeout") {
+    // `perl -e 'alarm 25; exec @ARGV' ssh nas …`: macOS has no timeout, so the AI sets perl's alarm and runs the rest.
+    if (name === "perl" && words[index + 1] === "-e" && PERL_ALARM_ARGV.test(words[index + 2] ?? "")) {
+      const script = words[index + 2]!;
+      index += 3;
+      if (/\bshift\b/.test(script) && /^\d+(?:\.\d+)?$/.test(words[index] ?? "")) index++;
+      continue;
+    }
+    if (name === "timeout" || name === "gtimeout") {
       index++;
-      while (index < words.length && words[index]!.startsWith("-")) index++;
+      // -s SIGNAL and -k DURATION take a value as the next word.
+      while (index < words.length && words[index]!.startsWith("-")) index += /^-[sk]$/.test(words[index]!) ? 2 : 1;
       index++; // the duration
       continue;
     }
@@ -144,6 +154,20 @@ export function commandStart(words: string[]): number {
   return index;
 }
 
+/** perl's alarm, then exec of its own arguments: a time limit around the command after the script. */
+const PERL_ALARM_ARGV = /\balarm\b[\s\S]*\bexec\s*\(?\s*@ARGV\b/;
+/** perl's alarm, then exec of quoted strings: `exec "ssh", "nas", "uptime"` or `exec("ssh nas uptime")`. */
+const PERL_ALARM_EXEC = /\balarm\b[\s\S]*?\bexec\s*\(?\s*((?:(["'])(?:\\.|(?!\2)[^\\])*\2\s*,?\s*)+)/;
+
+/** The command a `perl -e 'alarm N; exec "…"'` runs, as words, or undefined. */
+export function perlAlarmExec(words: readonly string[], start: number): string[] | undefined {
+  if (path.basename(words[start] ?? "") !== "perl" || words[start + 1] !== "-e") return undefined;
+  const list = PERL_ALARM_EXEC.exec(words[start + 2] ?? "")?.[1];
+  if (!list) return undefined;
+  const strings = [...list.matchAll(/(["'])((?:\\.|(?!\1)[^\\])*)\1/g)].map((match) => match[2]!.replace(/\\(.)/g, "$1"));
+  return strings.length ? strings : undefined;
+}
+
 const SHELL_KEYWORDS = new Set(["then", "do", "else", "elif", "if", "while", "until", "!", "{", "}", "time"]);
 const SHELLS = new Set(["sh", "bash", "dash", "zsh", "ksh", "ash", "fish"]);
 
@@ -158,6 +182,8 @@ export function commandSegments(text: string, depth = 0): ShellSegment[] {
     if (depth >= 4) continue;
     const start = commandStart(segment.words);
     const name = path.basename(segment.words[start] ?? "").replace(/\.exe$/i, "").toLowerCase();
+    const perl = perlAlarmExec(segment.words, start);
+    if (perl) out.push(...(perl.length === 1 ? commandSegments(perl[0]!, depth + 1) : [{ words: perl, text: perl.join(" ") }]));
     if (SHELLS.has(name)) {
       const flag = segment.words.findIndex((word, at) => at > start && /^-[a-z]*c[a-z]*$/i.test(word));
       const script = flag >= 0 ? segment.words[flag + 1] : undefined;

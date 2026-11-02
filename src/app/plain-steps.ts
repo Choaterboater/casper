@@ -10,6 +10,7 @@ import type { StepKind } from "./fold";
 import type { StepChange } from "./changes";
 import { isConfigFile } from "../task/config-files";
 import { CHECK_NAMES, commandCheck, githubLabel, runningCheck, testFailureSummary } from "../tui/tool-status";
+import { waitPurpose, waitSeconds, waitWords } from "./wait-step";
 
 /** A step of the open group, as the plain list needs it. */
 export interface PlainStep {
@@ -37,7 +38,8 @@ export interface PlainStep {
   changes?: readonly StepChange[];
 }
 
-export interface PlainOptions { fit?: ToolLineFit; commands?: Partial<Record<ProjectCommand, string>> }
+/** `intent`: the AI's line before the group, which can say what a wait is for. */
+export interface PlainOptions { fit?: ToolLineFit; commands?: Partial<Record<ProjectCommand, string>>; intent?: string }
 
 /** What a search, find or listing prints when there is nothing. */
 const NOTHING_FOUND = /^(?:No matches found|No files found matching pattern|\(empty directory\))$/;
@@ -85,6 +87,9 @@ function commandLine(step: PlainStep, now: number, options: PlainOptions): strin
   const label = named ?? (command ? commandLabel(redactPreview(command), 60).replace(/ …$/, "") : "a command");
   const human = runningCheck(step.input, options.commands) ?? githubLabel(step.input, "", true);
   const github = !step.failed && !running(step) && githubLabel(step.input);
+  // A wait says what it waits for: "Waiting 90 s, then checking the build log".
+  const wait = running(step) ? waitSeconds(command) : undefined;
+  if (wait !== undefined) return `${BUSY_GLYPH} ${waitWords(wait, waitPurpose(step.description, options.intent))}${runningElapsed(now - step.startedAt)}`;
   // A titled step: the AI's title, then the program that really runs.
   if (step.description && !github) {
     const title = redactPreview(step.description).replace(/\s+/g, " ");

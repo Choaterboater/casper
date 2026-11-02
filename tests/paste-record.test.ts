@@ -58,14 +58,30 @@ test("lines put back in the prompt keep what was pasted into them", async () => 
   } finally { surface.close(); }
 });
 
+test("lines put back in the prompt leave the cursor on a new line, so what is typed next never runs onto them", async () => {
+  // A real cancel: "Your 2 queued lines are back in the prompt", then the next typing ran on: "cn u look at logslook at logs".
+  const { surface, input } = makeSurface();
+  try {
+    const line = surface.readCommand();
+    surface.restoreDraft("was disabled\ncn u look at logs", [], true);
+    input.write("look at logs docker keeps failing\r");
+    expect(await line).toBe("was disabled\ncn u look at logs\nlook at logs docker keeps failing");
+    // Enter alone sends them as they were, with no blank line after.
+    const again = surface.readCommand();
+    surface.restoreDraft("was disabled\ncn u look at logs", [], true);
+    input.write("\r");
+    expect(await again).toBe("was disabled\ncn u look at logs");
+  } finally { surface.close(); }
+});
+
 function fakeApp(over: Partial<Record<string, unknown>> = {}) {
-  const restored: Array<{ text: string; pasted: readonly string[] }> = [];
+  const restored: Array<{ text: string; pasted: readonly string[]; newLine?: boolean }> = [];
   const output: string[] = [];
   const app = {
     closing: false, commandActive: true, queuedLines: [] as string[], linesBeforeModel: [] as string[], linePastes: new Map<string, readonly string[]>(), lineImages: new Map(),
     commandAbort: new AbortController(), session: undefined as unknown,
     terminal: {
-      restoreDraft: (text: string, pasted: readonly string[] = []) => { restored.push({ text, pasted }); return true; },
+      restoreDraft: (text: string, pasted: readonly string[] = [], newLine = false) => { restored.push({ text, pasted, ...(newLine ? { newLine } : {}) }); return true; },
       takeSubmittedPastes: () => [block],
       setWaiting: () => {}, canTakeBack: () => true,
     },
@@ -82,7 +98,8 @@ test("Esc on a task: queued lines go back in the prompt with their pastes, and t
   app.linePastes.set("a line the AI already read", ["a line the AI already read"]);
   app.commandAbort.abort();
   settleQueuedLines(app);
-  expect(restored).toEqual([{ text: `typed line\n${block}`, pasted: [block] }]);
+  // On a new line after them, so the next words typed start their own line.
+  expect(restored).toEqual([{ text: `typed line\n${block}`, pasted: [block], newLine: true }]);
   expect(app.linePastes.size).toBe(0);
 });
 

@@ -14,7 +14,9 @@ import {
   aiConfirm, buildPlan, canPreview, maskSecrets, maskText, needsApproval, planLabel, planMode, previewArguments, previewKey, previewSwitchedOff, sessionAllowed,
   type ApprovalPlan, type LastPreview,
 } from "./approval";
-import { toolLabel } from "./labels";
+import { nameLabel, toolLabel } from "./labels";
+import { describeNetworkChange, RecentObjects, resultJson, type ChangeWords } from "../network/change-words";
+import { OTHER_WAY_IN, showsDeviceOffline } from "../network/offline";
 import { loginExpired, loginMissing, type LoginTrouble } from "../mcp/network/ask-login";
 import { getsLogins, isNetworkProduct, PRODUCT_LABELS, type NetworkProduct } from "../mcp/network/logins";
 import {
@@ -75,7 +77,17 @@ export type ConfirmCapability = (call: {
   product?: NetworkProduct;
   /** A plain Junos show command: the box may offer "Yes, show commands on <server> for this session". */
   showOnly?: boolean;
+  /** A network product's write in plain words (src/network/change-words.ts), for the box's first line. */
+  words?: ChangeWords;
 }, signal?: AbortSignal) => Promise<ApprovalAnswer>;
+
+/** Told about every approved change call just before it is sent (see CapabilityBroker's onChangeCall). It may return a
+ * function the broker calls once the call has ended: "ran", "failed" (an error result, or never sent), or "unknown". */
+export type ChangeCallHandler = (server: string, realTool: string, sent: unknown, words?: ChangeWords) => unknown;
+export type ChangeOutcome = "ran" | "failed" | "unknown";
+
+/** How long Casper waits for the value before a network write (a read through the same router); then it goes without. */
+const BEFORE_READ_MS = 3_000;
 
 /** A product of Casper's network server had no login: the host asks the person (never the AI) and returns the
  * one line the AI gets back instead of the server's answer. */
@@ -243,7 +255,9 @@ export class CapabilityBroker {
   private readonly onSessionCovered?: (server: string, realTool: string) => void;
   /** Every approved change call (a box's yes, a session answer, allow all), just before it is sent, with its arguments
    * masked as the box masks them (for the change row Casper shows). */
-  private readonly onChangeCall?: (server: string, realTool: string, sent: unknown) => void;
+  private readonly onChangeCall?: ChangeCallHandler;
+  /** Objects with an id and a name each router server's results showed this session, so a write's words name them. */
+  private readonly recent = new Map<string, RecentObjects>();
   private readonly onLoginMissing?: LoginMissingHandler;
   /** True during a plan turn: only a call that would run without a box (a read) is sent; the rest wait for Build. */
   private readonly planning?: () => boolean;
@@ -254,7 +268,7 @@ export class CapabilityBroker {
   constructor(private readonly manager: MCPManager, private readonly confirm?: ConfirmCapability,
     options: { writesGate?: boolean; scrubber?: ResultScrubber; onSessionCovered?: (server: string, realTool: string) => void; confirmKind?: ConfirmKind;
       onAllowAll?: (server: string, realTool: string) => void; onAllowAllStart?: (server: string) => void; onLoginMissing?: LoginMissingHandler;
-      onChangeCall?: (server: string, realTool: string, sent: unknown) => void; secretValues?: () => readonly string[]; planning?: () => boolean } = {}) {
+      onChangeCall?: ChangeCallHandler; secretValues?: () => readonly string[]; planning?: () => boolean } = {}) {
     if (options.planning) this.planning = options.planning;
     this.secretValues = options.secretValues ?? (() => secretEnvValues());
     if (options.onLoginMissing) this.onLoginMissing = options.onLoginMissing;
@@ -412,8 +426,10 @@ export class CapabilityBroker {
     const showOnly = guard === "ask" && !plan.routed.length && !plan.routerUnclear && aiConfirm(plan.arguments).length === 0
       && previewSwitchedOff(plan.arguments).length === 0
       && guardArguments(policy.match, capability.tool, frozenArgs, { writes: "on", showOptIn: true }) === "allow";
+    // A network product's write in plain words, for the box and the change row (display only).
+    const words = needsApproval(plan) && !optedIn && label !== "read" ? await this.changeWords(capability, plan, combined) : undefined;
     const answer = covered ? { realTool: realToolOf(plan), once: false }
-      : needsApproval(plan) && !optedIn ? await this.approve(capability, plan, combined, showOnly) : undefined;
+      : needsApproval(plan) && !optedIn ? await this.approve(capability, plan, combined, showOnly, words) : undefined;
     // Writes turned off (Ctrl+X, /mcp writes off) while the box was open: the user's latest word is "off", so a yes
     // given in that box no longer counts and doesn't turn writes back on.
     if (answer && writesBefore === "on" && this.writes(this.manager.policy(plan.server)) === "off") {
@@ -435,6 +451,7 @@ export class CapabilityBroker {
       && planKinds(plan, capability.tool).every((kind) => kind === "troubleshoot");
     const turnedOn = Boolean(answer) && label !== "read" && !pinnedCheck && this.writesGate && this.writes(this.manager.policy(plan.server)) === "off";
     let raw: unknown;
+    let settle: ((outcome: ChangeOutcome) => void) | undefined;
     try {
       if (turnedOn) await this.manager.setWrites(plan.server, true);
       notCancelled(combined);
@@ -453,10 +470,18 @@ export class CapabilityBroker {
       }
       if (allCovered) this.onAllowAll?.(plan.server, realToolOf(plan));
       else if (covered && !ownCovered) this.onSessionCovered?.(plan.server, realToolOf(plan));
-      if (answer && label !== "read") this.onChangeCall?.(plan.server, realToolOf(plan), maskSecrets(frozenArgs, { scrubText: (value) => scrubText(redactPreview(value)).text }).value);
+      if (answer && label !== "read") {
+        const ended = this.onChangeCall?.(plan.server, realToolOf(plan), maskSecrets(frozenArgs, { scrubText: (value) => scrubText(redactPreview(value)).text }).value, words);
+        if (typeof ended === "function") settle = ended as (outcome: ChangeOutcome) => void;
+      }
       // 6. Call, under the per-server call clock. Only an approved call may carry server questions to the user.
       raw = await this.manager.call(capability.descriptor.source, capability.tool.name, frozenArgs, combined,
         approved ? { approved: { capabilityId: id, realTool: approved, label } } : {});
+      settle?.(isRecord(raw) && raw.isError === true ? "failed" : "ran");
+    } catch (error) {
+      // Never sent (refused, cancelled before it went) is not a change; a call cut off on the way may have made it.
+      settle?.(error instanceof NotExecutedError ? "failed" : "unknown");
+      throw error;
     } finally {
       if (turnedOn && answer?.once) await this.manager.setWrites(plan.server, false, { once: true }).catch(() => {});
       // "Yes, show commands on <server> for this session": the same switch as /mcp junos-show <server> on.
@@ -477,9 +502,16 @@ export class CapabilityBroker {
     }
     // The AI asked access_check first: tell it Casper asks for a missing login, so it never asks in chat or suggests config.
     const missingNote = ownNetwork && capability.tool.name === ACCESS_TOOL ? missingLoginsNote(raw) : undefined;
+    // The same server from a project's file runs without your saved logins: one line says why, so the AI doesn't say they're missing.
+    const { match } = capability.policy;
+    const withheld = !ownNetwork && match?.preset.logins && match.by === "definition" && (loginMissing(raw) || capability.tool.name === ACCESS_TOOL)
+      ? await this.manager.withheldLoginsNote(capability.descriptor.source).catch(() => undefined) : undefined;
+    // A routed read shows a device offline: one line so the AI tries another way in before it ends blocked.
+    const offline = capability.router && capability.tool.name.startsWith("invoke_read_tool") && showsDeviceOffline(raw);
     if (capability.router && capability.tool.name === "find_tool") this.rememberHits(capability.descriptor.source, raw);
     // 7. Hide device secrets (passwords, keys, SNMP communities) before anything else reads the result.
     const scrubbed = await this.scrub(raw, combined, capability.descriptor.source);
+    if (capability.router) this.recentOn(capability.descriptor.source).remember(scrubbed.value);
     if (planMode(plan) === "preview") this.previews.set(this.previewSlot(capability, plan), { text: previewText(scrubbed.value), at: Date.now() });
     // 8. Bound: per-list limits, the next-page cursor kept, duplicate text dropped.
     const result = boundCapabilityResult(scrubbed.value, bound.maxBytes, bound.maxItems, { mcp: true });
@@ -487,7 +519,47 @@ export class CapabilityBroker {
     if (scrubbed.hidden > 0) result.secretsHidden = scrubbed.hidden;
     if (note) result.summary = `${result.summary} ${note}`;
     if (missingNote) result.summary = `${result.summary} ${missingNote}`;
+    if (withheld) result.summary = `${result.summary}\n${withheld}`;
+    if (offline) result.summary = `${result.summary}\n${OTHER_WAY_IN}`;
     return result;
+  }
+
+  private recentOn(server: string): RecentObjects {
+    let recent = this.recent.get(server);
+    if (!recent) { recent = new RecentObjects(); this.recent.set(server, recent); }
+    return recent;
+  }
+
+  /** One routed network product's write in plain words: an update first reads the fields it changes through the same
+   * router's read tool (`mist_update_site_info` → `mist_get_site_info`, the ids only, a few seconds at most, silent:
+   * no box, and any failure just leaves "was" out). */
+  private async changeWords(capability: Capability, plan: ApprovalPlan, signal: AbortSignal): Promise<ChangeWords | undefined> {
+    if (plan.routed.length !== 1 || plan.routerUnclear || !capability.router) return undefined;
+    const call = plan.routed[0]!;
+    const masked = maskSecrets(call.arguments, { scrubText: (value) => scrubText(redactPreview(value)).text }).value as Record<string, unknown>;
+    const recent = this.recentOn(plan.server);
+    if (!describeNetworkChange(call.name, masked, { recent })) return undefined;
+    const before = await this.readBefore(plan.server, call.name, masked, signal);
+    return describeNetworkChange(call.name, masked, { recent, ...(before ? { before } : {}) });
+  }
+
+  private async readBefore(server: string, tool: string, args: Record<string, unknown>, signal: AbortSignal): Promise<Record<string, unknown> | undefined> {
+    const match = /^([a-z]+)_update_(.+)$/.exec(tool);
+    const body = args.body;
+    if (!match || !isRecord(body) || !Object.keys(body).length) return undefined;
+    const reader = `${match[1]}_get_${match[2]}`;
+    const router = [...this.capabilities.values()].find((c) => c.descriptor.source === server && c.router && c.tool.name === "invoke_read_tool" && !c.hidden);
+    if (!router || nameLabel(reader) !== "read") return undefined;
+    const ids = Object.fromEntries(Object.entries(args).filter(([key, value]) => key !== "body" && /(?:^|_)id$/.test(key) && typeof value === "string"));
+    try {
+      const raw = await this.manager.call(server, "invoke_read_tool", { name: reader, arguments: ids }, AbortSignal.any([signal, AbortSignal.timeout(BEFORE_READ_MS)]));
+      if (isRecord(raw) && raw.isError === true) return undefined;
+      const value = scrubValue(resultJson(raw)).value;
+      this.recentOn(server).rememberValue(value);
+      // The object itself, or the one a wrapper ({ result: … }) holds.
+      const found = [value, ...isRecord(value) ? Object.values(value) : []].find((item): item is Record<string, unknown> => isRecord(item) && Object.keys(body).some((key) => key in item));
+      return found && Object.fromEntries(Object.keys(body).filter((key) => key in found).map((key) => [key, found[key]]));
+    } catch { return undefined; }
   }
 
   /** The product of the one real tool a call runs: what find_tool said, else its name's prefix (mist_, central_, clearpass_). */
@@ -525,7 +597,7 @@ export class CapabilityBroker {
    * Ask the user until they say yes (returns the real tool name for the approved call) or no (throws).
    * "p" runs the preview, when the tool's own schema declares one, and asks again with its result.
    */
-  private async approve(capability: Capability, plan: ApprovalPlan, signal: AbortSignal, showOnly = false): Promise<{ realTool: string; once: boolean; session?: boolean; all?: boolean; showSession?: boolean }> {
+  private async approve(capability: Capability, plan: ApprovalPlan, signal: AbortSignal, showOnly = false, words?: ChangeWords): Promise<{ realTool: string; once: boolean; session?: boolean; all?: boolean; showSession?: boolean }> {
     if (!this.confirm) throw new NotExecutedError("needs your approval, and this run cannot ask");
     const realTool = realToolOf(plan);
     const slot = this.previewSlot(capability, plan);
@@ -540,6 +612,7 @@ export class CapabilityBroker {
         ...(capability.tool._meta ? { tool: { _meta: structuredClone(capability.tool._meta) } } : {}),
         ...(product ? { product } : {}),
         ...(showOnly ? { showOnly: true } : {}),
+        ...(words ? { words: { ...words } } : {}),
       }, signal);
       notCancelled(signal);
       if (answer === true || answer === "yes") return { realTool, once: true };

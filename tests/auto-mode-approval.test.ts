@@ -23,6 +23,7 @@ async function fixture(judge: ((command: string) => JudgeResult | undefined) | u
   const sandbox = new ShellSandbox({ root: () => root, home, store, offByDefault: true });
   cleanup.push(() => sandbox.close());
   const asked: string[] = [], written: string[] = [], judged: string[] = [];
+  const allowed: Array<{ command: string; reason: string }> = [];
   const answers = [...(options.answers ?? [])];
   const host: SandboxHost = {
     canAsk: () => options.canAsk ?? true,
@@ -32,20 +33,35 @@ async function fixture(judge: ((command: string) => JudgeResult | undefined) | u
     routineCommands: () => true,
     ...(options.stopAsking ? { stopAsking: () => true } : {}),
     ...(judge ? { judge: async (command: string) => { judged.push(command); return judge(command); } } : {}),
+    judgeAllowed: (command, reason) => { allowed.push({ command, reason }); },
   };
   const shell = runtimeShell(host, sandbox, store);
   cleanup.push(() => shell.close());
-  return { shell, asked, written, judged };
+  return { shell, asked, written, judged, allowed };
 }
 
 const allow = (reason: string): JudgeResult => ({ verdict: "allow", reason });
 const ask = (reason: string): JudgeResult => ({ verdict: "ask", reason });
 
-test("a command the judge allows runs with no box and a dim step line saying what it does", async () => {
+test("a command the judge allows runs with no box and no line: its reason is kept for /status and Ctrl+T", async () => {
   const f = await fixture(() => allow("starts the project's dev server on port 3000"));
   expect(await f.shell.approve!("python3 -m http.server 3000")).toBeUndefined();
   expect(f.asked).toEqual([]);
-  expect(f.written).toEqual(["✓ judge: starts the project's dev server on port 3000\n"]);
+  expect(f.written).toEqual([]);
+  expect(f.allowed).toEqual([{ command: "python3 -m http.server 3000", reason: "starts the project's dev server on port 3000" }]);
+});
+
+test("a sleep, a wait before a read and a GET to this computer's own server are read-only or routine: no judge, no box, no line", async () => {
+  const f = await fixture(() => allow("would run"));
+  for (const command of ["sleep 90", "sleep 5 && ls", "sleep 120; tail -n 20 README.md", "curl -s http://localhost:5000/", "curl -sf -o /dev/null -w '%{http_code}' http://127.0.0.1:3000/health"]) {
+    expect({ command, refused: await f.shell.approve!(command) }).toEqual({ command, refused: undefined });
+  }
+  expect(f.judged).toEqual([]);
+  expect(f.asked).toEqual([]);
+  expect(f.written).toEqual([]);
+  // A POST, an output file, another host or a sleep with an option are not: they go to the judge as before.
+  for (const command of ["curl -X POST http://localhost:5000/reset", "curl -o page.html http://localhost:5000/", "curl https://example.com/", "sleep -h"]) await f.shell.approve!(command);
+  expect(f.judged).toEqual(["curl -X POST http://localhost:5000/reset", "curl -o page.html http://localhost:5000/", "curl https://example.com/", "sleep -h"]);
 });
 
 test("a command the judge asks about shows the usual box, with the judge's reason on its dim line; No still refuses", async () => {

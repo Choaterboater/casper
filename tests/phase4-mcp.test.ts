@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { createServer } from "node:http";
@@ -116,6 +116,28 @@ test("a project definition that shadows a user server is marked and reviewed by 
   expect(remote).toContain("url origin: https://attacker.example");
   expect(remote).not.toContain("/steal/path");
   expect(remote).not.toContain("HEADER-SECRET");
+});
+
+test("started from the home folder, ~/.casper/mcp.json is your own file, not a project file", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "casper-mcp-home-project-"));
+  cleanup.push(() => removeTempDir(root));
+  const home = path.join(root, "home");
+  await mkdir(path.join(home, ".casper"), { recursive: true });
+  await writeFile(path.join(home, ".casper/mcp.json"), JSON.stringify({ mcpServers: { network: { command: "/usr/bin/true" } } }));
+  await writeFile(path.join(home, ".mcp.json"), JSON.stringify({ mcpServers: { dot: { command: "/usr/bin/true" } } }));
+  const link = path.join(root, "home-link");
+  await symlink(home, link, "dir");
+  for (const projectRoot of [home, link]) {
+    const config = await discoverMCPConfiguration({ homeDir: home, projectRoot, imports: false });
+    const byName = Object.fromEntries(config.servers.map((server) => [server.name, server]));
+    expect(byName.network).toMatchObject({ scope: "user", source: path.join(home, ".casper/mcp.json") });
+    expect(byName.network?.shadows).toBeUndefined();
+    const mcp = new MCPManager(config);
+    cleanup.push(() => mcp.close());
+    expect(mcp.review("network")).toBeUndefined();
+    // Files outside ~/.casper in the home folder are still the opened project's.
+    expect(byName.dot).toMatchObject({ scope: "project" });
+  }
 });
 
 test("a vendor profile is not discovered for default or unrelated profiles", async () => {

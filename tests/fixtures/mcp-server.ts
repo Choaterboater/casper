@@ -185,6 +185,9 @@ export function fixtureServer(mode = "generic") {
       const answer = await ask(name, "Fill in the form", { type: "object", properties: { user: { type: "string" }, reason: { type: "string" } } });
       return { action: answer?.action ?? "unavailable" };
     }
+    // A Mist site and its RF templates, for a write's words (placeholder ids).
+    if (name === "mist_get_site_info") return { id: args.site_id, name: "Lab-Site", timezone: "UTC", rftemplate_id: "00000000-0000-0000-0000-000000000002" };
+    if (name === "mist_list_org_rf_templates") return [{ id: "00000000-0000-0000-0000-000000000002", name: "Standard-RF" }, { id: "00000000-0000-0000-0000-000000000003", name: "Standard-RF-80MHz" }];
     if (name === "set_ssid") {
       if (args.dry_run === true) return { would_set: { ssid: args.ssid, wpa_passphrase: args.wpa_passphrase }, note: "wpa-passphrase plaintext " + String(args.wpa_passphrase ?? "") };
       return { applied: { ssid: args.ssid } };

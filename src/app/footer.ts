@@ -8,9 +8,11 @@ import { readPaneSetting, savePaneSetting, type PaneSetting } from "../tui/pane-
 import { sessionTitle, windowTitle } from "../tui/session-title";
 import { DISPLAY_LEVELS, type DisplayLevel } from "../tui/display";
 import { sessionFlag } from "../tui/commands";
-import { commandLabel, formatCost, formatEffort, formatTokens, noModelFooter, redactPreview, terminalText } from "../tui/format";
+import { commandLabel, formatCost, formatEffort, formatTokens, lastOutputLine, noModelFooter, NOTE_GLYPH, redactPreview, terminalText } from "../tui/format";
 import { hideCommandSecrets } from "../secrets/files";
+import type { FooterJob } from "../tui/surface";
 import type { RuntimeSession } from "../runtime/types";
+import type { BackgroundCommands } from "../runtime/background-commands";
 import { formatFooterSpend } from "../task/spend";
 import { phaseEvent, type PhaseEvent } from "./json-events";
 import { editUserConfig } from "../config/user-write";
@@ -39,10 +41,7 @@ export function updateFooter(app: CasperApp): void {
   const plan = app.planMode ? ["PLAN · /plan off"] : [];
   app.terminal.setBadge([...plan, ...asking, ...mcp].join(" · ") || undefined);
   app.terminal.setUpdate(updateNoteText(app));
-  const jobs = app.backgroundCommands?.list() ?? [];
-  const job = jobs.at(-1);
-  app.terminal.setJob?.(job ? { id: job.id, label: commandLabel(redactPreview(hideCommandSecrets(job.command).text), 40).replace(/ …$/, "…"), startedAt: job.startedAt,
-    ...(jobs.length > 1 ? { more: jobs.length - 1 } : {}) } : undefined);
+  app.terminal.setJob?.(footerJob(app.backgroundCommands));
   try {
     const project = app.projectContext.info;
     const status = app.session?.getStatus?.();
@@ -199,9 +198,22 @@ export async function detailsCommand(app: CasperApp, argument: string): Promise<
   app.output.write(`[details] ${app.displayChoice}: ${words[app.displayChoice]}. ${saved ? "Saved; /details <level> --session changes only this session." : "For this session only."}\n`);
 }
 
+/** Ctrl+T: each finished step not shown yet, then a running command's output since the last Ctrl+T (events.expand). A
+ * block already on screen is never printed again; with nothing new, a short note that goes away. */
 export function expandLastStep(app: CasperApp): void {
-  const step = app.events.lastStep();
-  if (!step) { app.terminal.flashNote("no step to show yet"); return; }
+  const { blocks, earlier, note } = app.events.expand();
+  if (!blocks.length) { app.terminal.flashNote(note ?? "no step to show yet"); return; }
   app.terminal.endAssistant();
-  app.terminal.writePanel(step.title, step.body, { diff: step.diff });
+  if (earlier) app.terminal.write(`${NOTE_GLYPH} ${earlier} earlier step${earlier === 1 ? "" : "s"} not shown\n`);
+  for (const step of blocks) app.terminal.writePanel(step.title, step.body, { diff: step.diff });
+}
+
+/** The newest job in the background for the status row: its command, and its latest output line (secrets hidden). */
+export function footerJob(commands: Pick<BackgroundCommands, "list" | "logs"> | undefined): FooterJob | undefined {
+  const jobs = commands?.list() ?? [];
+  const job = jobs.at(-1);
+  if (!job) return undefined;
+  const line = lastOutputLine(commands!.logs(job.id, 5) ?? "", 80);
+  return { id: job.id, label: commandLabel(redactPreview(hideCommandSecrets(job.command).text), 40).replace(/ …$/, "…"), startedAt: job.startedAt,
+    ...(line ? { line } : {}), ...(jobs.length > 1 ? { more: jobs.length - 1 } : {}) };
 }

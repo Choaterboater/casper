@@ -126,6 +126,9 @@ export interface RuntimeShell {
   /** A line the person sends the AI while a slow command runs: `end` is called once, and the command moves to the
    * background as it would at its limit, so the AI reads the line now. Returns the function that stops listening. */
   whenSteered?(end: () => void): () => void;
+  /** A line the person sent stopped a command that only waited or polled (src/sandbox/waits.ts): `what` names it in a
+   * few words ("sleep 15 loop") for one plain line on the screen. */
+  stoppedWait?(what: string): void;
 }
 
 /** Safe preflight diagnostic; callers may surface this exact message without forwarding provider errors. */

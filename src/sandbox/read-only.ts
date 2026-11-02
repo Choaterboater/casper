@@ -106,6 +106,8 @@ const READERS: Record<string, Spec> = {
     pathOptions: ["-r"], words: "text", check: (words) => words.every((word) => word.startsWith("+")) },
   hostname: { short: "sfidaIA", words: "none" },
   true: { anyOption: true, words: "text" }, false: { anyOption: true, words: "text" },
+  // It only waits: a number of seconds (or 2m, 1.5h), no options.
+  sleep: { words: "text", check: (words) => words.length > 0 && words.every((word) => /^\d+(?:\.\d+)?[smhd]?$/.test(word)) },
   sort: { short: "bdfgiMhnRrsuVcCz", value: "ktS", long: ["--numeric-sort", "--reverse", "--unique", "--human-numeric-sort", "--version-sort",
     "--ignore-case", "--general-numeric-sort", "--month-sort", "--stable", "--check", "--ignore-leading-blanks", "--dictionary-order",
     "--zero-terminated", "--key=", "--field-separator=", "--buffer-size=", "--parallel="] },
@@ -206,7 +208,7 @@ const PRIVATE_NAME = /(?:^|\/)(?:\.env(?:\..*)?|[^/]*\.env|\.envrc|id_(?:rsa|dsa
 
 /** `cwd`: the folder the command runs in (the project, or a folder in it a `cd` on the line moved to). `home` and
  * `realHome`: set when reads in your own folders count (ReadPlace.homeReads). */
-interface Place { root: string; realRoot: string; private: string[]; cwd: string; home?: string; realHome?: string }
+interface Place { root: string; realRoot: string; private: string[]; cwd: string; home?: string; realHome?: string; remote?: boolean }
 
 /** Folders under home that hold apps' data, not your own files: a read there still asks. */
 const APP_DATA = new Set(["library", "appdata", "application data"]);
@@ -276,7 +278,8 @@ function resolveWord(word: string, place: Place, windows = process.platform === 
 /** A file word is fine when it, and where its links lead, is in the project and not private. `folder`: the command
  * reads all of it, so a private place inside counts too. */
 function fileOk(word: string, place: Place, folder: boolean, contents = false, windowsNames = true): boolean {
-  if (word === "-") return true;
+  // On another machine (remoteReadOnly) the files are there, not here: reading them changes nothing.
+  if (word === "-" || place.remote) return true;
   // A backslash is a separator on Windows (Git Bash): a path word with one can't be checked by its text.
   if (word.includes("\\") || !plainDots(word, place)) return false;
   if (windowsNames && !plainWindowsName(word)) return false;
@@ -326,6 +329,7 @@ const MAX_MATCHES = 1000;
  * when nothing matches (bash keeps it then). Undefined (ask) for a part that starts with a dot (.* can pick ..), or too many.
  * Names are matched ignoring case and never start with a dot, so the list holds every name bash picks, and maybe more. */
 function expandGlob(word: string, place: Place): string[] | undefined {
+  if (place.remote) return [word];
   let found = [""];
   const parts = word.split("/");
   for (const [at, part] of parts.entries()) {
@@ -435,7 +439,7 @@ function allowed(spec: Spec, args: readonly string[], place: Place, git = false,
   if (git && spec.pathspec && given.some((word) => /[*?[]/.test(word))) return false;
   const paths = given;
   const recursive = typeof spec.recursive === "function" ? spec.recursive(options) : Boolean(spec.recursive);
-  if (spec.regularFiles && !paths.every((word) => word === "-" || isRegularFile(resolveWord(word, place) ?? ""))) return false;
+  if (spec.regularFiles && !place.remote && !paths.every((word) => word === "-" || isRegularFile(resolveWord(word, place) ?? ""))) return false;
   const list = paths.length ? [...paths] : recursive ? ["."] : [];
   if (stdin) return list.length === 0;
   // git grep REV with no path in the project and none after `--` searches that revision's whole tree (HEAD:.env): the
@@ -447,6 +451,7 @@ function allowed(spec: Spec, args: readonly string[], place: Place, git = false,
 
 /** True when the word names something that is there in the project (links not followed): then it is a path, not a revision. */
 function existsInProject(word: string, place: Place): boolean {
+  if (place.remote) return false;
   const absolute = resolveWord(word, place);
   if (absolute === undefined) return false;
   try { lstatSync(absolute); return true; } catch { return false; }
@@ -495,6 +500,19 @@ function readerSegment(words: string[], place: Place, globs: ReadonlySet<number>
   // from inside single quotes (safeLine refuses every other one), where it is plain text.
   if (words.some((word) => word.startsWith("~"))) return false;
   if (versionOnly(words)) return true;
+  if (place.remote) {
+    // `sudo -n docker ps` there: the command sudo runs.
+    if (name === "sudo") {
+      let at = 0;
+      while (at < args.length && args[at]!.startsWith("-")) at += /^-[ugChDpUrtT]$/.test(args[at]!) ? 2 : 1;
+      return at < args.length && readerSegment(args.slice(at), place, new Set([...globs].map((index) => index - at - 1)), stdin);
+    }
+    const server = Object.hasOwn(SERVER_READS, name) ? SERVER_READS[name] : undefined;
+    if (server) return server(args);
+    if (name === "tail" && args.some((arg) => /^-[A-Za-z]*[fF]/.test(arg) || arg === "--follow")) {
+      return readerSegment([name, ...args.filter((arg) => !/^(?:-[fF]|--follow)$/.test(arg))], place, new Set(), stdin);
+    }
+  }
   if (name === "timeout") {
     const inner = globs.size ? undefined : timeoutCommand(args);
     return inner !== undefined && readerSegment(inner, place, new Set(), stdin);
@@ -509,7 +527,7 @@ function readerSegment(words: string[], place: Place, globs: ReadonlySet<number>
   if (name === "find") return findAllowed(args, place);
   if (name === "git") {
     // git descends into submodules and runs their own config (core.fsmonitor): not a plain read there.
-    if (hasSubmodules(place.cwd)) return false;
+    if (!place.remote && hasSubmodules(place.cwd)) return false;
     let index = 0;
     while (args[index] === "--no-pager" || args[index] === "-P") index++;
     const sub = args[index];
@@ -705,7 +723,7 @@ function projectRedirects(text: string): { text: string; files: string[] } {
 
 /** Project writes, unlike reads, never touch git's internals, directories, devices or private paths. */
 function redirectOk(file: string, place: Place): boolean {
-  if (!file || !fileOk(file, place, false)) return false;
+  if (place.remote || !file || !fileOk(file, place, false)) return false;
   const absolute = resolveWord(file, place);
   if (!absolute || !isRegularFile(absolute)) return false;
   return [absolute, realpathLongest(absolute)].every((name) => {
@@ -769,6 +787,7 @@ function lineParts(command: string): Part[] | undefined {
 /** The folder `cd <word>` moves to: one in the project, reached without a link, not private. Undefined otherwise. */
 function cdTarget(word: string, place: Place): string | undefined {
   if (word.startsWith("-") || !fileOk(word, place, false)) return undefined;
+  if (place.remote) return place.cwd;
   // bash looks a relative name up in CDPATH first (BASH_ENV can set one), so `cd app` may land outside the project.
   // A name starting with / or . never uses it.
   if ((process.env.CDPATH || process.env.BASH_ENV) && !/^[./\\]|^[A-Za-z]:/.test(word)) return undefined;
@@ -791,6 +810,7 @@ const XARGS_SPLITS = /[\s'"\\]/;
  * (unless names go NUL-ended, `split` false), and no link in there leads out of the project or to a private place (wc would
  * count it). Links are not followed, as find doesn't; too many entries and it is false. */
 function plainNamesUnder(starts: readonly string[], place: Place, split: boolean): boolean {
+  if (place.remote) return true;
   let seen = 0;
   const stack: string[] = [];
   for (const start of starts) {
@@ -1107,4 +1127,103 @@ export function matchesPrefix(command: string, prefix: string, windows = process
     const have = words[index];
     return have !== undefined && (index === 0 ? tool(have) === tool(word) : have === word);
   });
+}
+
+/** docker (and podman) subcommands that only look: `docker ps`, `docker compose ps`, `docker image ls`. */
+const DOCKER_LOOKS = new Set(["ps", "logs", "inspect", "images", "version", "info", "stats", "top", "port", "history", "events", "search", "diff"]);
+const DOCKER_GROUP_LOOKS = new Set(["ls", "list", "inspect", "logs", "top", "port", "stats", "history", "df", "info", "show", "ps", "version", "config", "images", "events"]);
+const DOCKER_GROUPS = new Set(["container", "image", "network", "volume", "context", "system", "compose", "node", "service", "stack", "secret", "plugin", "buildx", "builder"]);
+
+function dockerLooks(args: readonly string[]): boolean {
+  const words: string[] = [];
+  for (let at = 0; at < args.length; at++) {
+    const arg = args[at]!;
+    // Options that take a value as the next word (`--context nas`, `-f compose.yml`, `--format {{.Names}}`).
+    if (/^(?:-[Hcfp]|--(?:context|host|config|log-level|file|project-name|project-directory|format|filter|since|until|tail|env-file|profile))$/.test(arg)) { at++; continue; }
+    if (!arg.startsWith("-")) words.push(arg);
+    if (words.length === 2) break;
+  }
+  const [first, second] = words;
+  if (first && DOCKER_GROUPS.has(first)) return second !== undefined && DOCKER_GROUP_LOOKS.has(second) && !(first === "secret" && second === "inspect");
+  return first !== undefined && DOCKER_LOOKS.has(first);
+}
+
+/** Programs that only look at a server (or a Windows PC), for remoteReadOnly: what each may be given. */
+const SERVER_READS: Record<string, (args: readonly string[]) => boolean> = {
+  docker: dockerLooks, podman: dockerLooks, "docker-compose": (args) => dockerLooks(["compose", ...args]),
+  systemctl: (args) => ["status", "is-active", "is-enabled", "is-failed", "is-system-running", "show", "list-units", "list-unit-files", "list-timers",
+    "list-sockets", "list-dependencies", "cat"].includes(args.find((arg) => !arg.startsWith("-")) ?? ""),
+  journalctl: (args) => !args.some((arg) => /^--(?:vacuum|rotate|flush|sync|relinquish|smart-relinquish|setup-keys|update-catalog)/.test(arg)),
+  ip: (args) => {
+    const words = args.filter((arg) => !arg.startsWith("-"));
+    return /^(?:a|addr|address|r|ro|route|l|link|n|neigh|rule|-?br)$/.test(words[0] ?? "")
+      && words.slice(1).every((arg) => !/^(?:add|del|delete|change|replace|set|flush|append|prepend|save|restore)$/.test(arg));
+  },
+  ss: (args) => !args.some((arg) => /^(?:-[A-Za-z]*K|--kill)$/.test(arg)),
+  netstat: () => true, free: () => true, uptime: () => true, lsblk: () => true, lscpu: () => true, nproc: () => true, arch: () => true,
+  getent: () => true, w: () => true, who: () => true, last: () => true, lsof: () => true, findmnt: () => true, pgrep: () => true, pidof: () => true,
+  printenv: () => true, env: (args) => args.length === 0, mount: (args) => args.length === 0, df: () => true, vmstat: () => true, iostat: () => true,
+  sleep: (args) => args.length > 0 && args.every((arg) => /^\d+(?:\.\d+)?[smhd]?$/.test(arg)),
+  ping: (args) => !args.some((arg) => /^-[A-Za-z]*f/.test(arg)), dig: () => true, nslookup: () => true, host: () => true,
+  ifconfig: (args) => args.length === 0 || (args.length === 1 && /^-?a$|^[\w.:-]+$/.test(args[0]!)),
+  dmesg: (args) => !args.some((arg) => /^(?:-[A-Za-z]*[cCDE]|--(?:clear|read-clear|console-off|console-on|console-level))/.test(arg)),
+  // awk with a program that prints: no system(), pipes, files or getline.
+  awk: (args) => !args.some((arg) => /^-[A-Za-z]*f|^--file/.test(arg)) && !args.some((arg) => /system\s*\(|\||>|getline|close\s*\(/.test(arg)),
+  curl: (args) => !args.some((arg) => /^(?:-[A-Za-z]*[dFTOoKcuX]|--(?:data|form|upload|output|remote-name|config|cookie-jar|request|json|user|post)|-D)/.test(arg)),
+  // Windows over ssh: cmd's and PowerShell's looks.
+  ver: () => true, systeminfo: () => true, tasklist: () => true, whoami: () => true, hostname: (args) => args.length === 0,
+  ipconfig: (args) => !args.some((arg) => /^[/-](?:release|renew|flushdns|registerdns|setclassid)/i.test(arg)),
+};
+
+/** Shell words around a command that run nothing themselves: `do`, `then`, `done`, `fi`, `{`. */
+const SHELL_WRAP = /^(?:do|then|else|elif|if|while|until|!|\{)\s+/;
+const SHELL_CLOSE = /^(?:done|fi|esac|\}|else|do|then)$/;
+
+/**
+ * Whether one command sent to another machine (`ssh nas 'docker ps 2>&1 | head'`) only looks there: the same allow-list
+ * and option checks this computer's reads use (ls, cat, grep, find, git's reads, version-only), plus programs that only
+ * look at a server (docker ps, systemctl status, ip addr, ss, journalctl, Windows' ver). Files are not checked: they are
+ * on that machine, and reading one changes nothing. Display only (what Casper calls a change), never permission: a
+ * write, an unknown program or option, a substitution or a background job is not a look.
+ */
+export function remoteReadOnly(command: string): boolean {
+  let text = command.trim();
+  while (SHELL_WRAP.test(text)) text = text.replace(SHELL_WRAP, "");
+  if (!text || SHELL_CLOSE.test(text) || /^for\s+\w+\s+in\b/.test(text)) return true;
+  // A subshell's parentheses group commands; a `$(` runs one and is not a look.
+  let out = "", quote: string | undefined;
+  for (let at = 0; at < text.length; at++) {
+    const char = text[at]!;
+    if (quote) { if (char === quote) quote = undefined; out += char; continue; }
+    if (char === "\\") { out += char + (text[at + 1] ?? ""); at++; continue; }
+    if (char === "'" || char === "\"") { quote = char; out += char; continue; }
+    if (char === "(" && text[at - 1] === "$") return false;
+    if (char === "(" || char === ")") { out += " "; continue; }
+    out += char;
+  }
+  text = out
+    // cmd's `2>nul` and `&>/dev/null` only drop output.
+    .replace(/(?<=^|\s)(?:[12]?>nul|&>\/dev\/null)(?=$|\s)/gi, " ")
+    // A variable is a value there ($HOME, ${N}); a $ before a space or quote is a plain $ (`name=^app$`).
+    .replace(/(?<!\\)\$(?:\{[A-Za-z_][A-Za-z0-9_]*\}|[A-Za-z_][A-Za-z0-9_]*|[0-9?#])/g, (match, offset: number, whole: string) => inSingleQuotes(whole, offset) ? match : "VAR")
+    .replace(/(?<!\\)\$(?=[\s"]|$)/g, "")
+    .trim();
+  // `cd /volume1/app` alone: where the next commands run there.
+  if (/^cd(?:\s+[^\s;&|<>`$]+)?$/.test(text)) return true;
+  // `n=0`, `name=x` alone: a shell variable there.
+  if (/^(?:[A-Za-z_][A-Za-z0-9_]*=[^\s;&|<>`]*\s*)+$/.test(text)) return true;
+  const parts = lineParts(text);
+  const place: Place = { root: "/", realRoot: "/", private: [], cwd: "/", remote: true };
+  return parts !== undefined && parts.every((part) => part.redirects.length === 0 && part.envPaths.length === 0) && partReads(parts, place).reads.every(Boolean);
+}
+
+function inSingleQuotes(text: string, offset: number): boolean {
+  let quote: string | undefined;
+  for (let at = 0; at < offset; at++) {
+    const char = text[at]!;
+    if (quote) { if (char === quote) quote = undefined; continue; }
+    if (char === "\\") { at++; continue; }
+    if (char === "'" || char === "\"") quote = char;
+  }
+  return quote === "'";
 }

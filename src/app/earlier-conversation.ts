@@ -4,7 +4,7 @@
  * asks to go back ("continue session", continueWords); anything else typed starts the new conversation; Enter runs nothing. */
 
 import type { CasperApp } from "../app";
-import { conversationLabel } from "../sessions/resume";
+import { conversationLabel, requestOf } from "../sessions/resume";
 import { pagesDirectory, savedPages } from "../pages/store";
 import type { RuntimeConversation } from "../runtime/types";
 import { buildNextRow, type NextItem } from "../tui/next-row";
@@ -49,9 +49,9 @@ export async function offerEarlierConversation(app: CasperApp): Promise<StartRow
   // A walk-away job's result or question comes first (decision 51).
   const more: NextItem[] = [...jobs];
   if (newest) {
-    const { title } = conversationLabel(newest);
+    const title = rowTitle(newest);
     const messages = newest.messages === undefined ? "" : `${newest.messages} message${newest.messages === 1 ? "" : "s"}`;
-    const note = [title, messages].filter(Boolean).join(" · ");
+    const note = [title, messages].filter(Boolean).join(", ");
     more.push({ label: continueLabel(newest.modified), command: "/continue", ...(note ? { note } : {}) });
   }
   if (pages) more.push({ label: "Saved pages", command: "/pages", note: String(pages) });
@@ -59,8 +59,16 @@ export async function offerEarlierConversation(app: CasperApp): Promise<StartRow
   const first = more[0]!.command;
   if (!newest || jobs.length) return { first };
   const day = conversationDay(newest.modified);
-  const title = conversationLabel(newest).title;
+  const title = rowTitle(newest);
   return { first, continues: { day: day.endsWith("'s") ? day : `the ${day}`, ...(title ? { title } : {}), recent: day.endsWith("'s") } };
+}
+
+/** The conversation's title for the row, or undefined when it has none worth showing: no name and no first request, or
+ * one with no words in it (a stray "1"). */
+function rowTitle(item: RuntimeConversation): string | undefined {
+  if (!item.name?.trim() && !requestOf(item.firstMessage ?? "")) return undefined;
+  const { title } = conversationLabel(item);
+  return /\p{L}/u.test(title) ? title : undefined;
 }
 
 /** This folder's newest earlier conversation with messages, or undefined (none, a /branch folder, or unreadable). */

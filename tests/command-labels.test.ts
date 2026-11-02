@@ -63,3 +63,17 @@ test("a hidden secret inside a script is never taken for a program, and a long l
   expect([...many].length).toBeLessThanOrEqual(40);
   expect(many).toMatch(/^tool0 run, tool1 run.* \+\d+ more$/);
 });
+
+test("a time limit or shell around a command is seen through: the label names the command inside", () => {
+  // macOS has no timeout, so the AI wraps each command in perl's alarm; the screen said only "Ran perl -e".
+  const inner = "ssh nas 'cd /volume1/docker/app && docker compose up -d --build 2>&1 | tail -15'";
+  for (const command of [`perl -e 'alarm 25; exec @ARGV' ${inner}`, `perl -e 'alarm shift; exec @ARGV' 25 ${inner}`, `timeout 30 ${inner}`,
+    `gtimeout -k 5 30 ${inner}`, `nohup ${inner} > /tmp/build.log 2>&1 &`, `sh -c "${inner}"`, `bash -c "${inner}"`]) {
+    expect([command, commandLabel(command)]).toEqual([command, "ssh nas …"]);
+  }
+  expect(commandLabel(`perl -e 'alarm 20; exec "ssh", "nas", "uptime"'`)).toBe("ssh nas …");
+  expect(commandLabel("timeout 60 bun test")).toBe("bun test");
+  expect(commandLabel("env LC_ALL=C sort file.txt")).toBe("sort file.txt");
+  // perl doing its own work keeps its label.
+  expect(commandLabel("perl -e 'print 1'")).toBe("perl -e");
+});

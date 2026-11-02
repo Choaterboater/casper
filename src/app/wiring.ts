@@ -11,7 +11,7 @@ import path from "node:path";
 import { createHash } from "node:crypto";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { terminalText } from "../tui/format";
-import { mcpChangeRow } from "./changes";
+import { mcpChange, mcpChangeRow } from "./changes";
 import { ReferenceLibrary } from "../references/library";
 import { LSPManager } from "../lsp/manager";
 import { MCPManager, ownServerDefaults } from "../mcp/manager";
@@ -39,7 +39,7 @@ import { mcpServerSandbox } from "../mcp/sandbox";
 import { trustProjectFile } from "./project-file";
 import { addToPath, keepEngineFromFetchingRipgrep } from "../security/ripgrep";
 import { toolReason } from "../runtime/tool-reason";
-import { judgeForApp } from "./auto-mode";
+import { judgeForApp, noteJudgeAllowed } from "./auto-mode";
 
 /** What the sandbox asks through: Casper's own numbered question, only while someone can answer it. Its questions
  * wait their turn in the approval queue, so two at once are both asked and a question nobody saw is never a No. */
@@ -66,6 +66,7 @@ export function sandboxHost(app: CasperApp): SandboxHost {
     precedingText: toolReason,
     // Auto mode's judge: it lets ordinary build work run and asks about the rest (src/app/auto-mode.ts).
     judge: (command, signal) => judgeForApp(app, command, signal),
+    judgeAllowed: (command, reason) => noteJudgeAllowed(app, command, reason),
     // ssh, or sudo on this computer, asks for a password: Casper's own numbered question, then its own hidden box (never
     // "The AI asks"). Both in the one turn of the approval queue, so nothing slips in between.
     ssh: privateLogin(app, { title: "Enter ssh password", hint: "It goes to ssh only. The AI never sees it, and Casper never saves it.",
@@ -194,13 +195,14 @@ export async function loadWorkspace(app: CasperApp, cwd: string) {
     onSessionCovered: (server, tool) => { if (!app.closing) app.output.write(`[approval] allowed (this session): ${terminalText(server)} · ${terminalText(tool)}\n`); },
     // An MCP change is treated like a shell command: it may change the project's files (or a service's), so later
     // checks are not "before the change", services restart, and the tree is compared to tell.
-    onChangeCall: (server, tool, sent) => {
+    onChangeCall: (server, tool, sent, words) => {
       app.taskChangeServers.add(server);
       app.services?.markEdited();
       if (app.taskEdits) app.taskEdits.shell = true;
-      app.observations.recordChangeCall();
-      // The change stays in view, with what was sent, also when nothing asked (Yes to everything).
-      if (!app.closing) app.events.noteChange(mcpChangeRow(server, tool, sent), JSON.stringify(sent ?? {}, null, 2).split("\n"));
+      // The change stays in view in plain words, also when nothing asked (Yes to everything); what was sent is behind
+      // Ctrl+T. The receipt lists it once the call has ended.
+      if (!app.closing) app.events.noteChange(mcpChangeRow(server, tool, sent, words), JSON.stringify(sent ?? {}, null, 2).split("\n"));
+      return app.observations.recordChangeCall(mcpChange(server, tool, sent, words));
     },
     confirmKind: (ask, signal) => confirmKind(app, ask, signal),
     onAllowAll: (server, tool) => {
@@ -257,7 +259,8 @@ export function projectPrivatePaths(app: CasperApp): string[] {
 export const SKILL_WARNINGS_SEEN = path.join(".casper", "skill-warnings-seen.json");
 
 /** "[skills] 2 new warnings; use /skills diagnostics", for warnings not said before on this computer: the same unreadable
- * skill in another tool's folder is said once, not at every start. One that goes away and comes back is new again. */
+ * skill in another tool's folder is said once, not at every start. The record keeps what other folders said too: a start
+ * in ~/Documents, then in a project, then in ~/Documents again said its warnings again when each start kept only its own. */
 export function reportSkillWarnings(app: CasperApp): void {
   const all = app.skillRegistry!.diagnostics;
   const fresh = all.filter((warning) => !app.reportedSkillWarnings.has(warning));
@@ -271,9 +274,11 @@ export function reportSkillWarnings(app: CasperApp): void {
     if (Array.isArray(parsed)) seen = new Set(parsed.filter((entry): entry is string => typeof entry === "string"));
   } catch { /* none said yet */ }
   const warnings = fresh.filter((warning) => !seen.has(hash(warning)));
+  // Earlier ones first, this start's last, so the newest 2,000 stay.
+  for (const warning of all) { seen.delete(hash(warning)); seen.add(hash(warning)); }
   try {
     mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
-    writeFileSync(file, `${JSON.stringify(all.map(hash).slice(0, 500))}\n`, { mode: 0o600 });
+    writeFileSync(file, `${JSON.stringify([...seen].slice(-2000))}\n`, { mode: 0o600 });
   } catch { /* said again next start */ }
   if (!warnings.length) return;
   app.output.write(`[skills] ${warnings.length} new warning${warnings.length === 1 ? "" : "s"}; use /skills diagnostics\n`);

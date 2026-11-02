@@ -92,12 +92,18 @@ test("at /details quiet the change rows still show, without their boxes", () => 
   expect(folded).not.toMatch(/^── /m);
 });
 
-test("an MCP change Casper sends is a change row with what was sent, secrets hidden", () => {
+test("an MCP change Casper sends is one plain change row; what was sent, secrets hidden, only behind Ctrl+T", () => {
   const s = screen();
-  s.view.noteChange("Changed in mist: update_site_setting", ['{ "site_id": "site-1",', '  "psk": "••••••••" }']);
+  const main = "Changed in Mist: site Lab-Site now uses RF template Standard-RF-80MHz (was Standard-RF)";
+  s.view.noteChange(`${main}. To undo: set it back to Standard-RF`, ['{ "site_id": "site-1",', '  "psk": "••••••••" }']);
   s.send(done);
-  expect(s.folded()).toContain("── ◆ Changed in mist: update_site_setting");
-  expect(s.folded()).toContain("site-1");
+  // How to undo it on its own line, so a narrow screen never cuts it off.
+  expect(s.folded()).toContain(`◆ ${main}`);
+  expect(s.folded()).toMatch(/\n {2,}To undo: set it back to Standard-RF/);
+  // No box of raw JSON in the transcript.
+  expect(s.folded()).not.toContain("── ◆");
+  expect(s.folded()).not.toContain("site-1");
+  expect(s.view.lastStep()).toEqual({ title: main, body: '{ "site_id": "site-1",\n  "psk": "••••••••" }', diff: false });
   const plain = screen(false);
   plain.view.noteChange("Changed in mist: update_site_setting");
   expect(plain.output.join("")).toContain("◆ Changed in mist: update_site_setting\n");

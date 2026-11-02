@@ -187,7 +187,7 @@ the operating system, not a list of words:
   the screen pauses, and Casper comes back when it exits. The AI reads its exit code and the last 40 lines of what the
   screen showed, scrubbed like any command's output, from a `script` file in `~/.casper/run` that is removed at once;
   keystrokes are never recorded (no `-k`, `-r`, `-I` or `-B`). `ssh host sudo …` gets the terminal with `-t`, and sudo
-  there asks at its own prompt. A line you type that starts with `!`, or "let me run …" naming a program, runs at once
+  there asks at its own prompt; `sudo -n` there, or an ssh with `-o BatchMode=yes`, never asks, so it keeps Casper's. A line you type that starts with `!`, or "let me run …" naming a program, runs at once
   with no box (you typed it); a paste never counts. A run with no person at a terminal refuses such a command before
   any box.
 - **Services and dev servers** keep the machine's own network on Linux; on macOS they reach only listed
@@ -295,8 +295,8 @@ leaves the file untouched. See [Changing configured checks](VERIFICATION.md#chan
 **Auto mode.** With the sandbox off, in a folder you trust, a command that would still show `Run this command?` (not a
 read, not routine work, not one you already answered) goes to a model judge first ([decision 47](adr/0002/47-auto-mode-judge.md)).
 It reads the command, your request with the lines you typed during the task, the task's last few steps (`edited package.json`,
-`ran npm test`) and whether the folder is trusted, with secrets hidden. It answers only **allow** (the command runs, with a dim
-`✓ judge: …` line) or **ask** (the usual box, with `The judge says: …` on its dim line). It never refuses on its own, and a failure,
+`ran npm test`) and whether the folder is trusted, with secrets hidden. It answers only **allow** (the command runs with no line;
+Ctrl+T on the step and `/status` keep the reason, decision 61) or **ask** (the usual box, with `The judge says: …` on its dim line). It never refuses on its own, and a failure,
 timeout or unclear answer asks. It never sees a hard refusal, a host, a write outside the project, another machine, a GitHub login,
 a check change, an MCP change or a device write: those keep their own boxes. A fixed list always shows the box too, whatever the
 judge would say, checked in code before it (`src/sandbox/always-asks.ts`): sudo and other users (`doas`, `su`); a download run through a shell or interpreter (`curl … | sh`, `bash -c "$(curl …)"`,

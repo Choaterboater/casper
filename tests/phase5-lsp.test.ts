@@ -62,6 +62,14 @@ describe("Phase 5 LSP", () => {
     expect(config.diagnostics).toHaveLength(1);
   });
 
+  test("started from the home folder, ~/.casper/lsp.json is your own file, not a project file", async () => {
+    const { root } = await fixture();
+    await mkdir(path.join(root, ".casper"));
+    await writeFile(path.join(root, ".casper/lsp.json"), JSON.stringify({ lspServers: { mine: { command: "must-never-execute", languages: { ".ts": "typescript" } } } }));
+    const config = await discoverLSPConfiguration({ projectRoot: root, homeDir: root });
+    expect(config.servers.map((s) => [s.name, s.scope, s.shadows])).toEqual([["mine", "user", undefined]]);
+  });
+
   test("requests timeout, cancel, survive late work, and close is shared", async () => {
     const { root } = await fixture();
     const rpc = await connection(root);

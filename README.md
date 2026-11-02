@@ -132,7 +132,8 @@ Ctrl+D on an empty prompt exits. [Keys and commands](docs/TERMINAL_UX.md#quick-r
   items with reasons, labelled **model report**, not check proof.
   [Plans](docs/TERMINAL_UX.md)
 - **Work you can follow.** While Casper works, the steps read in plain words (`Looking through the code: 14 searches,
-  9 files read`, `Ran the tests`); Ctrl+O shows every raw tool call, Ctrl+T the last step in full.
+  9 files read`, `Ran the tests`); Ctrl+O shows every raw tool call, Ctrl+T the running step's output so far and each
+  step not shown yet.
 - **Crews for big jobs.** For a job with separate parts the AI starts builders, each in its own copy of your folder;
   reviewers check each part, the full checks run on the combined result, and one `/undo` takes it all back. Say
   "split this up" to ask for them, or `/crew <job>` for one by hand. [Crews](docs/CREWS.md)

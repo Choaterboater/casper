@@ -194,13 +194,29 @@ file and set no variable.
    ([Turning writes on](#turning-writes-on)). The box names the product
    (`Change in Mist: ...`), and a disruptive, firmware, delete or admin change asks every
    time, unless you picked `Yes to everything` on that product (then nothing asks until
-   Ctrl+X or the session ends). Every change Casper sends shows on screen as a `◆ Changed in <server>: <tool>` row with
-   what was sent, masked as in the box, also when nothing asked ([TERMINAL_UX.md](TERMINAL_UX.md)).
+   Ctrl+X or the session ends). A Mist, Central or ClearPass tool's box and row say the change in plain words, from
+   the tool's name, what it sends and the objects this session's results named: the box opens with
+   `Change in Mist: Create RF template Standard-RF-80MHz (a copy of Standard-RF; 5 GHz width 40 → 80 MHz)`, then its
+   values one per line (`body.band_5.bandwidth 80`; on the rich terminal the first 8, then `… N more values · Ctrl+T
+   shows all`). Before an update, Casper reads the fields it changes through the same server's `invoke_read_tool`
+   (`mist_update_site_info` → `mist_get_site_info`, the ids only, at most 3 seconds, no box; nothing is said when it
+   fails), so the box says `(now Standard-RF)` and the row says what it was. Every change Casper sends shows on screen
+   as a `◆ Changed in Mist: site Lab-Site now uses RF template Standard-RF-80MHz (was Standard-RF)` row with
+   `To undo: set it back to Standard-RF` under it when Casper can tell, also when nothing asked; another server's
+   change reads `◆ Changed in <server>: <tool> <what it acts on>`. What was sent, masked as in the box, is behind
+   Ctrl+T, never a box of JSON ([TERMINAL_UX.md](TERMINAL_UX.md)). The receipt lists every change that ran on its
+   Devices row (`In Mist: …`, with the undo), whether or not the folder is a project Casper can compare and also when
+   the request read as a question; one whose call was cut off says `Casper can't tell whether it finished`.
    The real tool's kind comes from the server's `find_tool` and can only make a
    call stricter. A tool `find_tool` never named asks every time, with no
    "Yes, for this session".
    If the AI calls `access_check` first, it is told that a product with no login is
    asked for when it calls that product's tool, so it never asks you in chat.
+   A read through a router's `invoke_read_tool` that shows a device offline (`status: OFFLINE` or `disconnected`,
+   `connected: false`, `device not connected`) gets one line for the AI: before it ends blocked, try another way in
+   it has (plain ssh to the device's management address, where Casper asks for the login in its own box; the other
+   product's API; a read-only CLI) and offer the best one as its last line, `Next step: …`, which goes on the Next row
+   ([TERMINAL_UX.md](TERMINAL_UX.md#suggested-next-steps-and-plan-first)).
 
 When a newer version is out, Casper asks before your first request in a session:
 `Casper's network server has an update (0.1.0 → 0.2.0 …)` with `1 Not now · 2 Update it`
@@ -339,7 +355,9 @@ the same name from an earlier file:
 
 Items 4 and 5 are "your own" files. Items 1-3 are "imported". Items 6-9 are
 "project files": they come with the repository you opened, so Casper treats them
-with more care (see "Discovery is not permission" below).
+with more care (see "Discovery is not permission" below). Started from your home
+folder, item 9 is `~/.casper/mcp.json` itself: it stays your own file (item 4), never a
+project file, and `~/.casper/lsp.json` the same.
 
 ### Servers you already set up elsewhere
 
@@ -1082,7 +1100,9 @@ server does**.
   link), added to that server's environment when it starts, never put in `mcp.json` or the
   server's definition. The AI can't read the file, and the tokens and Central secret are
   hidden in tool output and in the server's error output. Only you type them, in the
-  hidden prompt.
+  hidden prompt. A network server that a project file defines never gets them: when you
+  have logins saved, its `login_missing` and `access_check` results get one line for the
+  AI, `Casper did not give this server your saved Mist and Central logins: it comes from a file in this project, not your own ~/.casper/mcp.json. The logins are saved; don't ask for a token.`
 - **Device secrets are hidden from the AI.** Every MCP result is scrubbed before it
   is cut to size. Passwords, RADIUS/TACACS keys, Wi-Fi PSKs, SNMP communities and
   similar values in config text or under secret-looking JSON keys become

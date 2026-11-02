@@ -62,7 +62,7 @@ conversation, as Claude Code, Codex, Copilot CLI and Pi do; an earlier `/clear`,
 conversation, the start offers one row to go back to it:
 
 ```text
-Next: 1 Continue the Oct 21 conversation (Fix the login bug · 12 messages)
+Next: 1 Continue the Oct 21 conversation (Fix the login bug, 12 messages)
   Anything you type starts a new conversation, unless it refers back to this one ("run it again").
 ```
 

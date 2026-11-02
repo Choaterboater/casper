@@ -3,7 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { isValidProfileName } from "../config/profile";
 import { record } from "./protocol";
-import type { ServerDefinitionScope } from "../mcp/config";
+import { inCasperHome, type ServerDefinitionScope } from "../mcp/config";
 
 export interface LSPServerDefinition {
   name: string;
@@ -24,7 +24,9 @@ export async function discoverLSPConfiguration(options: { projectRoot: string; h
   const files: { source: string; scope: ServerDefinitionScope }[] = [{ source: path.join(home, ".casper/lsp.json"), scope: "user" }];
   const profile = options.profileName ?? "default";
   if (isValidProfileName(profile)) files.push({ source: path.join(home, ".casper/profiles", profile, "lsp.json"), scope: "profile" });
-  files.push({ source: path.join(options.projectRoot, ".casper/lsp.json"), scope: "project" });
+  const projectFile = path.join(options.projectRoot, ".casper/lsp.json");
+  // Opened from the home folder, it is ~/.casper/lsp.json: your own file, already read.
+  if (!inCasperHome(projectFile, home)) files.push({ source: projectFile, scope: "project" });
   const servers = new Map<string, LSPServerDefinition>();
   const personal = new Map<string, string>();
   const diagnostics: string[] = [];

@@ -180,7 +180,11 @@ export interface TaskResult {
   /** Whether /undo can put this task's files back, and why not. `left` names changed files Casper keeps no copy of. */
   undo?: { available: true; left?: Array<{ path: string; why: string }> } | { available: false; reason: string };
   /** Changes on other machines, read from the text of the AI's ssh and scp commands (never guessed beyond it). */
-  remoteChanges?: Array<{ host: string; changes: string[] }>;
+  /** `looked`: every command sent there only looked (the read check Casper uses here, remoteReadOnly). */
+  remoteChanges?: Array<{ host: string; changes: string[]; looked?: true }>;
+  /** Changes Casper sent through MCP servers for the AI (a network product's writes), in plain words, and how to undo
+   * each when Casper can tell. `unknown`: the call was cut off, so Casper can't tell whether it finished. */
+  mcpChanges?: McpChange[];
   /** Commands to other machines Casper stopped before they ran (your No, a run that can't ask, the sandbox). */
   remoteNotRun?: Array<{ host: string; commands: number }>;
   /** A secret appeared in a command the AI sent: hidden on screen, in records and here, but the AI has it. */
@@ -381,6 +385,18 @@ function browserPassedVerdict(checks: BrowserReport["checks"]): string {
 
 /** An ssh command whose text shows no change Casper knows: it ran there all the same. */
 export const REMOTE_UNKNOWN = "Casper can't tell from the command text whether they changed anything there";
+/** Every command sent there only looked: what the read check here calls a read. */
+export const REMOTE_LOOKED = "looked only";
+
+/** One change sent through an MCP server: where ("Mist", else the server), what changed, and how to undo it. */
+export interface McpChange { where: string; what: string; undo?: string; unknown?: true }
+/** An MCP change whose call was cut off on the way. */
+export const MCP_UNKNOWN = "Casper can't tell whether it finished";
+
+/** "created RF template X (to undo: delete RF template X)", for /receipt's line per place. */
+function mcpChangeText(change: McpChange, safe: (text: string) => string): string {
+  return `${safe(change.what)}${change.undo ? ` (to undo: ${safe(change.undo)})` : ""}${change.unknown ? ` (${MCP_UNKNOWN})` : ""}`;
+}
 
 /** The receipt's line when the AI typed a secret into a command. */
 export const SECRET_IN_COMMAND = "A secret appeared in a command; change it after this task.";
@@ -439,8 +455,11 @@ export function formatTaskResult(task: TaskResult): string {
   if (task.pagesShown) lines.push(receiptLine("look", pagesShownText(task.pagesShown)));
   if (task.bigModel) lines.push(receiptLine("big model", `${safe(task.bigModel.model)} for ${task.bigModel.attempts} ${task.bigModel.attempts === 1 ? "repair" : "repairs"}`));
   if (task.security) lines.push(receiptLine("security", securityText(task.security)));
+  for (const where of new Set((task.mcpChanges ?? []).map((change) => change.where))) {
+    lines.push(receiptLine(`in ${safe(where)}`.slice(0, 12), (task.mcpChanges ?? []).filter((change) => change.where === where).map((change) => mcpChangeText(change, safe)).join("; ")));
+  }
   for (const remote of task.remoteChanges ?? []) lines.push(receiptLine(`on ${safe(remote.host)}`.slice(0, 12), remote.changes.length
-    ? `${remote.changes.map(safe).join("; ")} (from the commands Casper saw)` : REMOTE_UNKNOWN));
+    ? `${remote.changes.map(safe).join("; ")} (from the commands Casper saw)` : remote.looked ? REMOTE_LOOKED : REMOTE_UNKNOWN));
   for (const remote of task.remoteNotRun ?? []) lines.push(receiptLine(`not on ${safe(remote.host)}`.slice(0, 12), remoteNotRunText(remote.commands)));
   if (task.secretInCommand) lines.push(receiptLine("secret", secretInCommandText(task.secretCommandKind, safe)));
   if (task.secretInFiles?.length) lines.push(receiptLine("secret", secretInFilesText(task.secretInFiles, safe, task.secretWhere)));
@@ -835,7 +854,14 @@ function receiptParts(task: TaskResult, options: ReceiptOptions, onScreen = fals
     if (remote.changes.length) {
       const changes = remote.changes.map(safe).join("; ");
       add("devices", `– Changed on ${host} (from the commands Casper saw): ${changes}`, { name: host, detail: changes });
-    } else add("devices", `– Ran commands on ${host} over ssh; ${REMOTE_UNKNOWN}`, { name: host, detail: `ran commands over ssh; ${REMOTE_UNKNOWN}` });
+    } else if (remote.looked) add("devices", `– Ran commands on ${host} over ssh; ${REMOTE_LOOKED}`, { name: host, detail: REMOTE_LOOKED });
+    else add("devices", `– Ran commands on ${host} over ssh; ${REMOTE_UNKNOWN}`, { name: host, detail: `ran commands over ssh; ${REMOTE_UNKNOWN}` });
+  }
+  // Every change sent through an MCP server (a network product's writes), whatever the folder: they are not files.
+  for (const change of task.mcpChanges ?? []) {
+    const where = safe(change.where), what = safe(change.what), undo = change.undo ? `. To undo: ${safe(change.undo)}` : "";
+    if (change.unknown) add("devices", `– Sent to ${where} (${MCP_UNKNOWN}): ${what}`, { name: `In ${where}`, detail: `${what} (${MCP_UNKNOWN})` });
+    else add("devices", `– Changed in ${where}: ${what}${undo}`, { name: `In ${where}`, detail: `${what}${undo}` });
   }
   for (const remote of task.remoteNotRun ?? []) {
     add("devices", `– Not run on ${safe(remote.host)}: ${remoteNotRunText(remote.commands)}`, { name: safe(remote.host), detail: remoteNotRunText(remote.commands) });

@@ -4,6 +4,7 @@ import { isOutside } from "../platform/inside";
 import { realpathLongest } from "../platform/project-paths";
 import { ghApiNamesHost, ghApiReads } from "./github-login";
 import { lineCommands, readOnlyCommand, timeoutCommand, type ReadPlace } from "./read-only";
+import { curlReads } from "./waits";
 
 /**
  * With no sandbox, routine work runs without the "Run this command?" box, as Claude Code's auto mode does: git's everyday
@@ -34,6 +35,8 @@ function routinePart(words: readonly string[], here: Here): boolean {
   if (!name || name.includes("=")) return false;
   // `timeout 90 bun test`: routine when what it runs is.
   if (name === "timeout") { const inner = timeoutCommand(args); return inner !== undefined && routinePart(inner, here); }
+  // A GET from this computer's own server (`curl -s http://localhost:3000/`): it looks at the running app.
+  if (name === "curl") return curlReads(args, { loopback: true });
   if (Object.hasOwn(FILE_OPTIONS, name)) return fileWork(name, args, here);
   if (!argsInside(args, here)) return false;
   if (name === "git") return gitWork(args, here);

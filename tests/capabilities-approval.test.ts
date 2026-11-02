@@ -345,3 +345,30 @@ test("review: a tool the server tags as firmware gets no session answer; yes thi
   expect(box.labels).not.toContain("Yes, for this session");
   expect(Object.values(box.answers)).toEqual(["no", "yes", "allow-all"]);
 });
+
+test("a network write's box says the change in plain words first, then its values one per line, the rest behind Ctrl+T", () => {
+  const body = { name: "Standard-RF-80MHz", country_code: "US", band_24: { bandwidth: 20, power: null, channels: null },
+    band_5: { bandwidth: 80, power: null, channels: null }, band_6: { bandwidth: 80, power: null, channels: null }, model_specific: {} };
+  const routed = plan("invoke_tool", { name: "mist_create_org_rf_template", arguments: { org_id: "00000000-0000-0000-0000-000000000000", body } }, routerSchema);
+  const words = { product: "Mist", box: "Create RF template Standard-RF-80MHz (a copy of Standard-RF; 5 GHz width 40 → 80 MHz)", after: "created …" };
+  const box = formatApproval(routed, undefined, { toolProduct: "Mist", words, maxValues: 6 }).preview.split("\n");
+  expect(box[0]).toBe("Change in Mist: Create RF template Standard-RF-80MHz (a copy of Standard-RF; 5 GHz width 40 → 80 MHz)");
+  expect(box[1]).toBe("Runs: mist_create_org_rf_template (through invoke_tool)");
+  expect(box.slice(2, 9)).toEqual([
+    "  org_id           00000000-0000-0000-0000-000000000000",
+    "  body.name        Standard-RF-80MHz",
+    "  body.country_code US",
+    "  body.band_24.bandwidth 20",
+    "  body.band_24.power null",
+    "  body.band_24.channels null",
+    "  … 7 more values · Ctrl+T shows all",
+  ]);
+  // No JSON on one wrapped line.
+  expect(box.join("\n")).not.toContain("{\"name\"");
+  // The plain terminal has no Ctrl+T: every value, still one per line.
+  const plainBox = formatApproval(routed, undefined, { toolProduct: "Mist", words }).preview;
+  expect(plainBox).toContain("  body.model_specific {}\n");
+  expect(plainBox).not.toContain("Ctrl+T");
+  // Without words (another server's tool) the first line is the tool's name as before.
+  expect(formatApproval(routed, undefined, { toolProduct: "Mist" }).preview.split("\n")[0]).toBe("Change in Mist: mist create org rf template");
+});

@@ -42,8 +42,9 @@ import { independentAcceptance } from "../verify/acceptance";
 import { definitionChangedReason, definitionChanges, testDefinition } from "../verify/test-definition";
 import { parseChecklist, parseReview, requirementsReviewPrompt, ROUND_MAX_TURNS, type RequirementsReview } from "../task/review";
 import { KEEP_GOING_ROUNDS, keepGoingNeed, keepGoingPrompt, openPlanNote } from "../task/keep-going";
-import { findNextStep, requestStepCount } from "../task/next-step";
+import { answerNextStep, answerNextStepItem, findNextStep, requestStepCount } from "../task/next-step";
 import { copyStep } from "./copy-words";
+import { unseenAnswerLine } from "./unseen-answer";
 import { extractChecklist, formatChecklistPrompt, normalizeCases } from "../task/checklist";
 import { isOutside } from "../platform/inside";
 import { ProcessCleanupError } from "../platform/processes";
@@ -683,7 +684,9 @@ export async function runModelTask(app: CasperApp, prompt: string, options: { fl
       const lookFix = noteLookFixes(app, ending);
       // An answer that is mostly one block to paste (a command, a prompt for later): "Copy the prompt" on the row, free.
       const copy = app.interactive && !ending && !app.toolAfterAnswer ? copyStep(app.lastAnswer) : undefined;
-      const extras = [otherReading, lookFix, copy].filter((item): item is NextItem => item !== undefined);
+      // The AI's last line "Next step: …" (a step it can take): on the row, sent only by its key.
+      const aiStep = app.interactive && !ending && !app.toolAfterAnswer ? answerNextStepItem(app.lastAnswer) : undefined;
+      const extras = [aiStep, otherReading, lookFix, copy].filter((item): item is NextItem => item !== undefined);
       // Work held in another folder (a switch since) is not this work.
       app.heldCards = app.heldCards.filter((held) => held.root === workspaceRoot);
       const options = () => receiptOptions(app, workspaceRoot);
@@ -691,13 +694,13 @@ export async function runModelTask(app: CasperApp, prompt: string, options: { fl
       // Stopped before anything happened (you skipped the AI's question, or pressed Esc while it only read): one neutral
       // line, not a Stopped card with nothing on it.
       const stoppedEmpty = execution === "cancelled" && answeredOnly && !verification && !browser?.checks.length && !observations.changedDuringChecks?.length
-        && !outsideChanges.length && !observations.published?.length && !observations.remoteChanges?.length && !observations.remoteNotRun?.length
+        && !outsideChanges.length && !observations.published?.length && !observations.remoteChanges?.some((remote) => !remote.looked) && !observations.remoteNotRun?.length && !observations.mcpChanges?.length
         && !observations.secretInCommand && !observations.secretInFiles?.length && !app.cleanupReports.length && !branchMoved && !app.heldCards.length;
       if (stoppedEmpty) {
         app.terminal.offerNext(undefined);
         app.output.write(`${STOPPED_NOTHING_CHANGED}\n`);
       } else if ((classification.intent !== "general" && !answeredOnly) || execution !== "completed" || wroteToolCall || app.taskTurnLimit !== undefined || app.taskSpendStop !== undefined || verification || browser?.checks.length || observations.possibleMutations || observations.changedPaths?.length || observations.changedDuringChecks?.length || observations.observedEdits.length || observations.observedChecks.length
-        || app.planBuild || branchMoved || outsideChanges.length || observations.published?.length || observations.remoteChanges?.length || observations.remoteNotRun?.length || observations.secretInCommand || observations.secretInFiles?.length || app.cleanupReports.length) {
+        || app.planBuild || branchMoved || outsideChanges.length || observations.published?.length || observations.remoteChanges?.some((remote) => !remote.looked) || observations.remoteNotRun?.length || observations.mcpChanges?.length || observations.secretInCommand || observations.secretInFiles?.length || app.cleanupReports.length) {
         // A folder the task made too big to compare is not a project folder either: no undo, for the same reason.
         if (!changedPaths && app.snapshotFailure && tooManyFiles(app.snapshotFailure)) undoStart.snapshot = { unavailable: UNDO_NOT_PROJECT };
         // The second copy and the saved receipt; the change summary lists only this task's files.
@@ -706,6 +709,7 @@ export async function runModelTask(app: CasperApp, prompt: string, options: { fl
         // The short receipt is a card on a session's rich terminal; one-shot runs keep its lines, --verbose the full form.
         const view = app.verbose ? undefined : receiptView(task, options());
         const quiet = Boolean(view && app.interactive && quietReceipt(view, task));
+        const unseen = view && app.interactive && !ending ? unseenAnswerLine(task, app.observations.toolCalls, classification.mode === "read", app.homeDir()) : undefined;
         if (view && ending && !mustStand(task)) {
           // Not done: one line instead of the card and its numbered keys, which could pass for the AI's options. The
           // receipt is saved (/receipt, /undo, /diff); the card that ends the work names what changed so far.
@@ -714,6 +718,10 @@ export async function runModelTask(app: CasperApp, prompt: string, options: { fl
           writeEnding(app, endingLine(ending, task));
         } else if (quiet && !app.heldCards.length) {
           // Nothing ran and nothing changed: the AI's message is the whole result, as with a plain answer.
+          app.terminal.offerNext(extras.length ? buildNextRow({ more: extras }) : undefined);
+        } else if (unseen && !app.heldCards.length) {
+          // A question where Casper never runs checks and can't compare the files: one grey line, not a card.
+          app.output.write(`${unseen}\n`);
           app.terminal.offerNext(extras.length ? buildNextRow({ more: extras }) : undefined);
         } else {
           // This task's card, or, when it changed nothing, the card of the work held before your answer.
@@ -1261,7 +1269,7 @@ export async function offerNextSteps(app: CasperApp, task: TaskResult, request?:
 async function requestNextStepItem(app: CasperApp, task: TaskResult, request: string): Promise<NextItem | undefined> {
   if (task.execution !== "completed" || task.turnLimit !== undefined || task.spendLimit !== undefined || app.closing) return undefined;
   const answer = app.lastAnswer;
-  if (!answer.trim() || keepGoingNeed(answer) || taskEnding(answer) || requestStepCount(request) < 2) return undefined;
+  if (!answer.trim() || keepGoingNeed(answer) || taskEnding(answer) || answerNextStep(answer) || requestStepCount(request) < 2) return undefined;
   const open = task.review && "open" in task.review ? task.review.open[0]?.replace(/\s+—\s+.*$/, "") : undefined;
   let step = open;
   if (!step) {

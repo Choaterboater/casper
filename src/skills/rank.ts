@@ -14,6 +14,9 @@ const STOP_WORDS = new Set([
   "what", "will", "like", "them", "they", "up", "must", "where", "every", "out", "all", "can", "but", "than", "there", "these", "those",
   "which", "who", "was", "were", "been", "just", "more", "most", "some", "such", "each", "other", "about", "over", "after", "before",
   "while", "may", "would", "should", "could", "here", "via", "without", "says", "uses", "means",
+  // Words of any request, which say nothing about its topic either: "can you check mist and see why my laptop is slow"
+  // picked a UI review skill on "my" and "check" ("review my UI", "check accessibility") and a browser skill on "see".
+  "my", "me", "we", "us", "why", "check", "see", "look", "want", "need", "know", "tell", "show", "get", "make", "doing",
 ]);
 
 /** The share of a long request's words a skill's name, tags and description must share with it, unless the request names
@@ -51,14 +54,18 @@ export function scoreSkill(
     return 0;
   }
 
-  const named = overlap(words([skill.name, ...skill.tags].join(" ")), taskWords);
-  const described = overlap(words(skill.description), taskWords);
+  const nameWords = words(skill.name);
+  const calledByName = nameWords.size > 0 && [...nameWords].every((word) => taskWords.has(word));
+  // A tag, or the whole name, names the skill; one word of a longer name does when the request makes or changes
+  // something ("add an MCP tool" for legacy-mcp). In a question it is like a word of the description: "what is pac
+  // mcp" is not about mcp-builder.
+  const nameCounts = calledByName || classification.mode === "modify";
+  const named = overlap(words([...(nameCounts ? [skill.name] : []), ...skill.tags].join(" ")), taskWords);
+  const described = overlap(words([skill.name, skill.description].join(" ")), taskWords);
   // One word of the request in a long description is chance ("test" is in a TDD skill, a test-migration skill and
   // "stress-test"): the description counts with two of the request's words, or with the skill's name or tags.
   const topicScore = named * 4 + (named || described >= 2 ? described : 0);
   // A long request: the skill counts when the request names it, or when they share a fair part of its words.
-  const nameWords = words(skill.name);
-  const calledByName = nameWords.size > 0 && [...nameWords].every((word) => taskWords.has(word));
   const shared = overlap(words([skill.name, ...skill.tags, skill.description].join(" ")), taskWords);
   if (!calledByName && shared < Math.max(1, Math.ceil(taskWords.size * TOPIC_SHARE))) return 0;
   const intentScore = skill.intents.includes(classification.intent) ? 3 : 0;

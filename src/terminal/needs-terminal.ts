@@ -8,7 +8,8 @@ import { commandStart, segmentTargets, splitShell } from "../sandbox/remote";
  * also gets one handed over by sending again a command that failed for want of a terminal (TERMINAL_NEEDED).
  *
  * "remote-sudo" is a plain ssh whose remote command uses sudo: it gets the terminal with -t, so sudo on the other machine
- * asks at its own prompt (Casper's hidden box is only for sudo on this machine).
+ * asks at its own prompt (Casper's hidden box is only for sudo on this machine). Not `sudo -n` or `--non-interactive`,
+ * which never ask, and no ssh with `-o BatchMode=yes`: the terminal stays Casper's and the AI reads the output.
  */
 export type TerminalNeed = "interactive" | "remote-sudo";
 
@@ -24,7 +25,31 @@ const DB_SHELLS: Record<string, RegExp> = {
   psql: /^(?:-c|--command|-f|--file|-l|--list)(?:=|$)/, mysql: /^(?:-e|--execute|--batch|-B)(?:=|$)/, mariadb: /^(?:-e|--execute|--batch|-B)(?:=|$)/,
   mongosh: /^(?:--eval|-f|--file)(?:=|$)/, "redis-cli": /^-x$/,
 };
-const SUDO_WORD = /(?:^|[\s;&|(])sudo(?:\s|$)/;
+/** Each sudo in a remote command, with the option words after it. */
+const SUDO_RUN = /(?:^|[\s;&|(])sudo((?:\s+-\S*)*)(?=\s|$)/g;
+/** sudo's short options that take a value: in `-nu root` the n counts, in `-un` the n is the user. */
+const SUDO_VALUE = new Set("ugCDhprtTU");
+
+/** Whether a sudo with these options may ask for a password: not with -n or --non-interactive. */
+function sudoMayAsk(options: string): boolean {
+  for (const word of options.trim().split(/\s+/).filter(Boolean)) {
+    if (word === "--non-interactive") return false;
+    if (word.startsWith("--")) continue;
+    for (const letter of word.slice(1)) {
+      if (letter === "n") return false;
+      if (SUDO_VALUE.has(letter)) break;
+    }
+  }
+  return true;
+}
+
+/** Whether a remote command runs a sudo that may ask on the other machine's terminal. */
+function remoteSudoMayAsk(remote: string): boolean {
+  return [...remote.matchAll(SUDO_RUN)].some((match) => sudoMayAsk(match[1] ?? ""));
+}
+
+/** `-o BatchMode=yes` (or `-oBatchMode yes`): ssh is told never to ask anything. */
+const batchMode = (values: ReadonlyArray<[string, string]>) => values.some(([flag, value]) => flag === "-o" && /^\s*batchmode\s*[=\s]\s*yes\s*$/i.test(value));
 
 const has = (words: readonly string[], pattern: RegExp) => words.some((word) => pattern.test(word));
 /** A short flag alone or in a cluster: -it, -ti, -i -t. */
@@ -79,8 +104,9 @@ function segmentNeed(words: string[], alone: boolean): TerminalNeed | undefined 
   }
   if (name === "ssh") {
     const parsed = segmentTargets(words);
-    if (!parsed.targets.length) return undefined;
-    const remoteSudo = SUDO_WORD.test(parsed.remote.join(" "));
+    // BatchMode=yes: the AI asked for an ssh that never waits on a person, so nothing is handed over.
+    if (!parsed.targets.length || batchMode(parsed.values)) return undefined;
+    const remoteSudo = remoteSudoMayAsk(parsed.remote.join(" "));
     // `ssh -t host top`: the command asks for a terminal. A bare `ssh host` is often a reachability check, so it isn't.
     if (parsed.values.some(([flag]) => flag === "-t")) return remoteSudo ? "remote-sudo" : "interactive";
     if (remoteSudo) return "remote-sudo";

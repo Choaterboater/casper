@@ -88,3 +88,26 @@ test("the judge's step line is dim (the muted colour), not a success green", asy
   expect(styleLine("✓ judge: runs the project's tests", true)).toBe(tint("✓ judge: runs the project's tests", "muted", true));
   expect(styleLine("✓ changed app.ts", true)).toBe(tint("✓ changed app.ts", "success", true));
 });
+
+test("an allow leaves no line: the step's Ctrl+T view and /status's judge row keep the judge's reason", async () => {
+  const { RuntimeEventView } = await import("../src/app/events");
+  const { judgeReasonFor, judgeStatusLine, noteJudgeAllowed } = await import("../src/app/auto-mode");
+  const app = { judgeAllows: [] as Array<{ command: string; reason: string }> };
+  expect(judgeStatusLine(app as never)).toBeUndefined();
+  noteJudgeAllowed(app as never, "python3 app.py", "starts the project's own dev server, as asked");
+  expect(judgeReasonFor(app as never, "python3 app.py")).toBe("starts the project's own dev server, as asked");
+  expect(judgeReasonFor(app as never, "ls")).toBeUndefined();
+  expect(judgeStatusLine(app as never)).toBe(" judge     1 command allowed this session (no line each); the last: python3 app.py · starts the project's own dev server, as asked");
+  const output: string[] = [];
+  const terminal = { rich: true, columns: 120, questionsShown: 0, questionOpen: false, endAssistant() {}, assistant() {}, setWork() {}, writeFold() {} };
+  const view = new RuntimeEventView(terminal as never, { write(text: string) { output.push(text); } }, {
+    updateFooter() {}, onToolEnd() {}, setTaskStop() {}, markRuntimeFailed() {}, turnLimitReached() {}, cancelled: () => false,
+    homeDir: () => "/nonexistent-home", projectRoot: () => "/repo", judgeReason: (command: string) => judgeReasonFor(app as never, command),
+  });
+  try {
+    view.handle({ type: "tool_start", toolName: "bash", toolCallId: "c1", input: { command: "python3 app.py" } });
+    view.handle({ type: "tool_end", toolName: "bash", toolCallId: "c1", input: { command: "python3 app.py" }, isError: false, output: { text: "Running on http://127.0.0.1:5000", truncated: false } });
+    expect(view.lastStep()?.body).toBe("✓ judge: starts the project's own dev server, as asked\nRunning on http://127.0.0.1:5000");
+    expect(output.join("")).not.toContain("judge");
+  } finally { view.reset(); }
+});

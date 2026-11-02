@@ -108,7 +108,7 @@ test.skipIf(process.platform === "win32")("a line steered in while a slow comman
     const waits = new SteerWaits(), listening = Promise.withResolvers();
     const commands = new BackgroundCommands({ notify: () => {}, limitSeconds: 60 });`;
   const shell = "shell: { wrap: async (command) => ({ command }), background: () => commands, whenSteered: (end) => { listening.resolve(); return waits.listen(end); } }";
-  const { result, payloads } = await run(count => count === 1 ? bashCall("echo started; sleep 20; echo finished") : answer("DONE"), `
+  const { result, payloads } = await run(count => count === 1 ? bashCall("echo started; sleep 20; mkdir -p slow-step; echo finished") : answer("DONE"), `
     // As steerOrQueue does once the command waits: the line goes to the model, then the waits end.
     const steered = Promise.race([listening.promise.then(async () => ({ sent: await session.steer("ALSO_MENTION_PINEAPPLE"), ended: waits.steered() })),
       new Promise(resolve => setTimeout(() => resolve("the command never listened"), 30_000).unref())]);

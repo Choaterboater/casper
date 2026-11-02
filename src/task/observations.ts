@@ -6,12 +6,12 @@ import { boundObservationText, type ToolObservationInput } from "../runtime/obse
 import type { RuntimeEvent } from "../runtime/types";
 import { CHECK_NAMES } from "../verify/evidence";
 import { rememberableTestCommand } from "../flows/runners";
-import type { ObservedCheck, TaskResult } from "./result";
+import type { McpChange, ObservedCheck, TaskResult } from "./result";
 import { remoteChanges } from "./remote-changes";
 import { Published } from "./published";
 import { leavesLocalFilesAlone } from "../flows/plan";
 
-type TaskObservationSnapshot = Required<Pick<TaskResult, "observedEdits" | "observedChecks" | "possibleMutations" | "usage">> & Pick<TaskResult, "changedPaths" | "changedDuringChecks" | "testRunner" | "remoteChanges" | "remoteNotRun" | "secretInCommand" | "secretInFiles" | "secretWhere" | "secretCommandKind" | "published">;
+type TaskObservationSnapshot = Required<Pick<TaskResult, "observedEdits" | "observedChecks" | "possibleMutations" | "usage">> & Pick<TaskResult, "changedPaths" | "changedDuringChecks" | "testRunner" | "remoteChanges" | "remoteNotRun" | "secretInCommand" | "secretInFiles" | "secretWhere" | "secretCommandKind" | "published" | "mcpChanges">;
 
 /** One retained tool call, newest last. Output is already bounded by the runtime adapter. */
 export interface RetainedToolOutput {
@@ -57,6 +57,8 @@ export class TaskObservations {
   private readonly outputs: RetainedToolOutput[] = [];
   private readonly calls: ToolCallLine[] = [];
   private mutationToolRan = false;
+  /** Changes sent through MCP servers, in plain words, and how each call ended. */
+  private readonly mcpChanges: Array<McpChange & { outcome: "sent" | "ran" | "failed" | "unknown" }> = [];
   /** The last known test-runner command the model ran without error while the project had no test command. */
   private testRunner?: string;
   private turns = 0;
@@ -72,7 +74,7 @@ export class TaskObservations {
   private delegations = 0;
   private delegationReports = 0;
   /** Changes on other machines seen in the AI's commands (ssh, scp), per host as the command names it. */
-  private readonly remote = new Map<string, { host: string; changes: string[] }>();
+  private readonly remote = new Map<string, { host: string; changes: string[]; looked: boolean }>();
   /** Commands to other machines Casper stopped before they ran, by address. */
   private readonly remoteStopped = new Map<string, { host: string; commands: number }>();
   /** Pushes, releases and packages the AI's commands sent out: /undo can't take them back. */
@@ -180,9 +182,10 @@ export class TaskObservations {
       this.published.observe(event.input.command, event.output?.text ?? "", event.isError);
     }
     if ((event.toolName === "bash" || event.toolName === "powershell") && event.input?.command && !refused && this.remote.size < 16) {
-      for (const { host, address, changes } of remoteChanges(event.input.command)) {
+      for (const { host, address, changes, looked } of remoteChanges(event.input.command)) {
         // One machine by its address: "build-server" and "198.51.100.20" are one line, named "198.51.100.20 (build-server)".
-        const entry = this.remote.get(address) ?? { host, changes: [] };
+        const entry = this.remote.get(address) ?? { host, changes: [], looked: true };
+        entry.looked &&= looked;
         if (host.length > entry.host.length) entry.host = host;
         for (const change of changes) if (!entry.changes.includes(change) && entry.changes.length < 12) entry.changes.push(change);
         this.remote.set(address, entry);
@@ -221,8 +224,16 @@ export class TaskObservations {
   /** Whether the model started any tool call this task. */
   get madeToolCalls(): boolean { return this.toolStarts > 0 || this.calls.length > 0; }
 
-  /** An approved MCP change ran: like a shell command, it may have changed files Casper did not see. */
-  recordChangeCall(): void { this.mutationToolRan = true; }
+  /** An approved MCP change is being sent: like a shell command, it may have changed files Casper did not see. With
+   * what it changes in plain words, the receipt lists it once the returned function says how the call ended (a call
+   * that failed or never went out changed nothing; one never said is "can't tell"). */
+  recordChangeCall(change?: Omit<McpChange, "unknown">): (outcome: "ran" | "failed" | "unknown") => void {
+    this.mutationToolRan = true;
+    if (!change || this.mcpChanges.length >= OBSERVED_EDITS_LIMIT) return () => {};
+    const entry = { ...change, outcome: "sent" as "sent" | "ran" | "failed" | "unknown" };
+    this.mcpChanges.push(entry);
+    return (outcome) => { entry.outcome = outcome; };
+  }
 
   /** Files the task's own tools wrote, as the tools named them. */
   edited(): string[] { return [...this.edits]; }
@@ -234,9 +245,11 @@ export class TaskObservations {
       ...(changedPaths ? { changedPaths: [...changedPaths] } : {}),
       ...(changedDuringChecks.length ? { changedDuringChecks: [...changedDuringChecks] } : {}),
       ...(this.testRunner ? { testRunner: this.testRunner } : {}),
-      ...(this.remote.size ? { remoteChanges: [...this.remote.values()].map(({ host, changes }) => ({ host, changes: [...changes] })) } : {}),
+      ...(this.remote.size ? { remoteChanges: [...this.remote.values()].map(({ host, changes, looked }) => ({ host, changes: [...changes], ...(looked ? { looked: true as const } : {}) })) } : {}),
       ...(this.remoteStopped.size ? { remoteNotRun: [...this.remoteStopped.values()].map((entry) => ({ ...entry })) } : {}),
       ...(this.published.lines().length ? { published: this.published.lines() } : {}),
+      ...(this.mcpChanges.some((change) => change.outcome !== "failed") ? { mcpChanges: this.mcpChanges.filter((change) => change.outcome !== "failed")
+        .map(({ where, what, undo, outcome }) => ({ where, what, ...(undo ? { undo } : {}), ...(outcome === "ran" ? {} : { unknown: true as const }) })) } : {}),
       ...(this.secretInCommand ? { secretInCommand: true as const, ...(this.secretKind ? { secretCommandKind: this.secretKind } : {}) } : {}),
       ...(this.secretFiles.size ? { secretInFiles: [...this.secretFiles], ...(this.secretWhere.size ? { secretWhere: Object.fromEntries(this.secretWhere) } : {}) } : {}),
       possibleMutations: (this.mutationToolRan || this.edits.size > 0) && !changedPaths,

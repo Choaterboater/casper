@@ -378,7 +378,9 @@ coloured edge, for example
 A row shows only when it has something to say, in this order: **Open** (what needs you, `⚠` first, and a plan step the
 AI did not finish), **Checks** (one per check with its time, the repairs, and checks Casper did not run or count),
 **Changed**, **Config** (the config files the task changed, its lockfiles as one entry, and risky config lines),
-**Devices** (other machines, from the commands Casper saw), **Proof** (only when the proof is missing or weak),
+**Devices** (other machines, from the commands Casper saw, and each change sent through an MCP server in plain words
+with how to undo it: `In Mist: site Lab-Site now uses RF template Standard-RF-80MHz (was Standard-RF). To undo: set it back
+to Standard-RF`), **Proof** (only when the proof is missing or weak),
 **Notes** (grey, at most three, then `+N more · /receipt`), **Undo**, and **Next** (what to type, then the numbered
 keys, each a key cap: a bold, reversed ` 1 ` in the theme's selection colour, `[1]` with `NO_COLOR`, then a grey
 `· press a number`; `tests/next-keycaps-ansi.test.ts` checks these). Config files are package.json and other dependency lists, tsconfig, `.env` files, YAML, TOML and INI files,
@@ -451,6 +453,7 @@ The lines below the verdict give the evidence:
 – Changed (seen by Casper's edit and write tools): lab.md
 – Changed on 198.51.100.20 (build-server) (from the commands Casper saw): made an API token (pveum user token add …); installed a service (/etc/systemd/system/sampleapp.service)
 – Ran commands on build-server over ssh; Casper can't tell from the command text whether they changed anything there
+– Ran commands on nas over ssh; looked only
 – Not run on 198.51.100.20 (build-server): 3 commands Casper stopped before they reached it
 – Incomplete — commands to 198.51.100.20 (build-server) did not run
 ⚠ A secret appeared in a command; change it after this task.
@@ -525,6 +528,13 @@ Casper saw and a risky config line always keep their card, with the line under i
 say that no files changed (no check ran, nothing changed in the project, outside it or on another machine, and nothing
 needs you), there is no card at all: the AI's message is the whole result, as with a plain question. `--verbose` always prints the full receipt (the line follows it), and one-shot runs and `--json` are
 unchanged.
+
+A question asked in your home folder or at the top of a drive, where Casper never runs checks and can't compare the
+files, gets no card either when nothing Casper can see changed. When the AI only looked (`ls`, `cat`), nothing follows
+its answer; when it ran a command Casper can't read as a look (`python3 -c …`), one grey line says
+`– Changes unknown: not a project folder (your home folder)`. An edit, a command with a change Casper knows (an install,
+a commit, a deletion, another machine), a change sent through an MCP server, or a request to change something keeps
+the card. With the grey line the receipt is saved, so `/receipt` shows what ran ([decision 65](adr/0002/65-a-question-in-a-folder-casper-never-checks.md)).
 
 **The request's next step.** Some models finish one step of a pasted list and stop with nothing open and nothing
 asked, so there is nothing to keep going on. When the request lists several steps (numbered or bulleted, also run

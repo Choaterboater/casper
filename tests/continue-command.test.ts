@@ -136,7 +136,7 @@ function withPrompts(base: AgentRuntime, prompts: string[]): AgentRuntime {
 }
 /** What /continue says in the conversation you went back to. */
 const STAY_LINE = "[session] You're in the conversation you went back to, so you stay in it. /resume lists the others.";
-const ROW = `Next: 1 ${continueLabel(EARLIER[0]!.modified)} (Fix the login bug · 12 messages)`;
+const ROW = `Next:  1  ${continueLabel(EARLIER[0]!.modified)} (Fix the login bug, 12 messages)`;
 
 test("a plain start begins a new conversation and offers one row to continue the last one: 1 continues it", async () => {
   const resumed: Array<[string, unknown]> = [];
