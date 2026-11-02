@@ -78,6 +78,7 @@
           </li>
           <li><a href="#released">Released</a>
             <ul>
+              <li><a href="#v0403">v0.4.3: still running</a></li>
               <li><a href="#v0402">v0.4.2: walk away</a></li>
               <li><a href="#v0401">v0.4.1: boxes copy clean</a></li>
               <li><a href="#v0400">v0.4.0: sudo inside Casper</a></li>
@@ -137,7 +138,7 @@
         <h2 id="next-h">Next release</h2>
         <aside class="callout soon">
           <strong class="callout-title">Built, not released</strong>
-          <p>Nothing on the main branch is waiting: everything built so far is in v0.4.2. New work shows here before the next preview.</p>
+          <p>Nothing on the main branch is waiting: everything built so far is in v0.4.3. New work shows here before the next preview.</p>
         </aside>
       </section>
 
@@ -379,10 +380,27 @@
         and on the <a href="https://github.com/Choaterboater/casper/releases">Releases page</a>.</p>
         <div class="stack">
 
+        <details class="card release" id="v0403" aria-labelledby="v0403-h" open>
+          <summary class="release-heading">
+            <h3 id="v0403-h">v0.4.3 · Receipts that say when work is still running, and a service and browser small models can use</h3>
+            <span class="badge ok">current preview</span>
+          </summary>
+          <ul>
+            <li><strong>Still running, said plainly.</strong> When work a task started still runs in the background, the receipt's first line is <code>◐ Still running</code> with what it is; one line says when it ends, and the Next row offers to carry on.</li>
+            <li><strong>Questions run no checks.</strong> "is it still running?" runs no checks and claims no files the task didn't write; when only logs or results changed, checks are skipped and <code>/verify</code> runs them anyway.</li>
+            <li><strong>Long jobs on purpose.</strong> The AI can start a long job in the background, <code>/tasks</code> lists it, and the AI's commands no longer get Casper's own settings, so another agent you start uses its own.</li>
+            <li><strong>A service tool small models can use.</strong> <code>service</code> takes the call shapes small models send, a wrong call gets back the call that works, and a restarted app keeps its port.</li>
+            <li><strong>A friendlier browser tool.</strong> A missing reason is filled in, a long one is cut, and <code>serve</code> picks a free port when no address is given.</li>
+            <li><strong>Checks that follow the app.</strong> A recorded check follows its app to a new address; one whose server is gone is stale, not failed, starts no repair and exits 2, not 1.</li>
+            <li><strong>No test data in what ships.</strong> A repair is told never to put test data in the app's settings, and the receipt flags settings changed while checking. A host the sandbox keeps an app from reaching is named, not a name lookup error.</li>
+            <li><strong>Measured.</strong> In a blind build on Haiku 5.5: 6 of 6 shared checks (was 4), 39 turns (was 73), 206k output tokens (was 314k), 22 minutes (was 27), and no test data left behind.</li>
+          </ul>
+        </details>
+
         <details class="card release" id="v0402" aria-labelledby="v0402-h" open>
           <summary class="release-heading">
             <h3 id="v0402-h">v0.4.2 · Tasks that keep going after you close the terminal, saved pages from any folder, and other agents as ordinary commands</h3>
-            <span class="badge ok">current preview</span>
+            <span class="badge">previous preview</span>
           </summary>
           <ul>
             <li><strong>Walk away.</strong> On macOS and Linux, a task keeps going when you close the terminal or the window, or SSH drops. The same Casper finishes it with the answers you gave, saves its receipt with Undo, and sends a desktop notification.</li>
@@ -397,7 +415,7 @@
         <details class="card release" id="v0401" aria-labelledby="v0401-h" open>
           <summary class="release-heading">
             <h3 id="v0401-h">v0.4.1 · Claude Ultra sign-ins work again, boxes copy clean, and a tighter Linux sandbox</h3>
-            <span class="badge">previous preview</span>
+            <span class="badge">released</span>
           </summary>
           <ul>
             <li><strong>Claude Ultra sign-ins.</strong> A Claude Max sign-in that Claude Code now reports as <code>Claude Ultra</code> works with <code>claude-subscription</code> again.</li>
@@ -410,7 +428,7 @@
           </ul>
         </details>
 
-        <details class="card release" id="v0400" aria-labelledby="v0400-h" open>
+        <details class="card release" id="v0400" aria-labelledby="v0400-h">
           <summary class="release-heading">
             <h3 id="v0400-h">v0.4.0 · sudo and commands that need you run inside Casper, a hidden box for keys and tokens, Auto mode, Trust this folder?, and shorter approval boxes</h3>
             <span class="badge">released</span>
@@ -1488,7 +1506,7 @@
   <footer class="site-footer">
     <div class="container footer-inner">
       <div>
-        <p><strong>Casper 0.4.2</strong> · early preview, unsigned</p>
+        <p><strong>Casper 0.4.3</strong> · early preview, unsigned</p>
         <p><a href="https://github.com/Choaterboater/casper/blob/main/LICENSE">MIT licence</a> · © 2026 Choaterboater</p>
         <p>Built on the <a href="https://github.com/earendil-works/pi">Pi SDK</a>. Other parts keep their own licences (<a href="https://github.com/Choaterboater/casper/blob/main/THIRD_PARTY_NOTICES.txt">notices</a>).</p>
       </div>
