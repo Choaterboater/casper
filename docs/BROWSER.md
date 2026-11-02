@@ -263,7 +263,7 @@ is already the same.
 A check the model wrote wrong (an expected text or a selector that was never
 right) can be taken out of the result with
 `{"action":"withdraw","id":"<returned-id>","reason":"expected text had a typo"}`.
-The reason is required (one line, up to 200 bytes). Casper accepts it only when
+The reason is required: one line, and a longer one is cut to 200 bytes rather than refused. Casper accepts it only when
 the check's last run failed and nothing changed since the check was recorded: no
 edit or command after it, and its inputs are the same. Otherwise it refuses and
 says why, such as `Code/tool writes observed after this browser check: fix the
@@ -301,6 +301,7 @@ Supported assertions:
 
 - `text`: exact comparison of `textContent` (nonempty expected text), with runs of
   spaces and line breaks counted as one space on both sides and the ends trimmed.
+  With no `selector`, it passes when some element of the page reads exactly that.
 - `visible`: positive geometry and browser visibility checks.
 - `no-horizontal-overflow`: the page's width does not exceed the viewport's; with
   a `selector`, that one element's content fits its box and the element stays
@@ -343,11 +344,21 @@ Send) only with Browser clicks on, as it ran for the model. Nothing is asked: an
 other step, an address that would need a yes, a busy or closed browser, or a replay that can't finish keeps the
 check as it was, and the receipt still says `ran before a later edit or command
 (replay to count)`. A withdrawn check is never replayed.
+A check recorded on one of Casper's managed services (the model's `service` start, or
+the page checks' server) belongs to that service, not to its port: a replay while it
+runs opens the same path wherever it runs now, restarting it first after an edit as a
+`service` request does, and the check's `notes` say `followed <service> to <origin>: it
+ran at <old origin> when this check was recorded`.
 A replay (Casper's or the model's) whose page is on a loopback server that no
 longer answers (the model started it in a command and stopped it) opens the same
 path on the server Casper runs for the project, from `serve` or the page checks,
 and the check's `notes` say so: `opened on Casper's server <origin>: nothing
-answers at <old origin> any more`. With no server of Casper's up, nothing was
+answers at <old origin> any more`. That server may hold other data than the one the
+check ran on, so a check that passed on its own server and fails there is stale, not
+failed: it is incomplete with the reason `Stale, not failed: the server it ran on
+(<old origin>) is gone, …`, it starts no repair, and the receipt says `1 stale, its
+server gone: <name>`. One that already failed on its own server stays failed
+([decision 52](adr/0002/52-checks-follow-their-service.md)). With no server of Casper's up, nothing was
 checked: the check becomes incomplete with the reason `Could not check. Nothing
 answers at <origin> any more and Casper runs no server for this project; start it
 with serve and replay`, neither its old pass nor its old failure. A page on
@@ -439,7 +450,10 @@ The AI's browser is headless and starts with an empty profile, so a page behind 
 
 ## Permissions and ownership
 
-Every interaction/server start declares `impact` and a reason. Clicks, typing and
+Every interaction/server start declares `impact`, and may give a reason: with none,
+Casper writes the action and selector (`click #save`) in its place, and a reason longer
+than 512 bytes is cut, not refused. `serve` with no `url` runs on a free loopback port
+and its result names the address. Clicks, typing and
 key presses run without asking, on any page, a Send or Delete button included, so the
 AI can test what it built (**Browser clicks: on** in `/settings`). Turn it off (it writes
 `browser_clicks: false` in `~/.casper/config.yaml`; a project can't change it) and a

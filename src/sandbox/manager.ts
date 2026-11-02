@@ -295,8 +295,11 @@ export class ShellSandbox {
     // "Yes, this once" for a shell write: this command may write there, the one after asks again.
     this.nextWrites.length = 0;
     // Temp files land in the session's own temp folder; socat inside the sandbox listens on IPv4 when this
-    // machine has no IPv6 (it would fail to start otherwise and every host would look blocked).
-    const prefix = [`TMPDIR=${quote(this.tempDir!)}; export TMPDIR`, ...(IPV6_MISSING ? ["SOCAT_DEFAULT_LISTEN_IP=4; export SOCAT_DEFAULT_LISTEN_IP"] : [])].join("; ");
+    // machine has no IPv6 (it would fail to start otherwise and every host would look blocked). Node's fetch and http
+    // ignore HTTP(S)_PROXY unless told: without this they look the host up themselves, which the sandbox refuses, so
+    // an app's call to a host this run may not reach failed as a DNS error (ENOTFOUND) nobody was asked about or told.
+    const prefix = [`TMPDIR=${quote(this.tempDir!)}; export TMPDIR`, "NODE_USE_ENV_PROXY=1; export NODE_USE_ENV_PROXY",
+      ...(IPV6_MISSING ? ["SOCAT_DEFAULT_LISTEN_IP=4; export SOCAT_DEFAULT_LISTEN_IP"] : [])].join("; ");
     const network = options.network ?? "ask";
     const wrapped = await this.engine.wrap(command, policy, { id, cwd: options.cwd, network, prefix });
     this.parent?.crewRuns.set(id, this);

@@ -125,6 +125,20 @@ needsSandbox("a host that is not listed is blocked when nobody can answer, and s
   expect(notes.filter((line) => line.startsWith(`[sandbox] Blocked ${UNLISTED}`))).toHaveLength(1);
 });
 
+needsSandbox("node's own fetch goes through the sandbox's proxy, so a host it may not reach is named, not a DNS error", async () => {
+  if (!Bun.which("node")) return;
+  answer = undefined;
+  const host = "casper-unlisted.invalid";
+  const script = `fetch("http://${host}/").then(r => console.log("status " + r.status), e => console.log("failed " + (e.cause?.code ?? e.message)))`;
+  // macOS holds a service's network ("host") through the same proxy; Linux gives a service the machine's own.
+  for (const network of process.platform === "darwin" ? ["ask", "host"] as const : ["ask"] as const) {
+    const result = await run(`node -e '${script}'`, network);
+    expect({ network, out: result.out }).not.toEqual({ network, out: expect.stringContaining("ENOTFOUND") });
+    expect(sandbox.refused(result.id)).toContain(`wanted to reach ${host}`);
+  }
+  expect(notes.filter((line) => line.startsWith(`[sandbox] Blocked ${host}`))).toHaveLength(1);
+});
+
 needsSandbox("a command that reaches out at once waits for the sandbox's proxy, even when it starts slowly (Linux)", async () => {
   if (process.platform !== "linux") return;
   // A socat that takes a moment to start, as on a loaded machine: the request must still reach the proxy.

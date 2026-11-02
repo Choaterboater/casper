@@ -1,12 +1,13 @@
 import type { VerificationScope } from "../verify/scope";
 import { isVerificationScope } from "../verify/scope";
-import { blank, webURL } from "./arguments";
+import { blank, oneLine, webURL } from "./arguments";
 
 const ASSERTION_FIELDS: Record<string, string[]> = { text: ["selector", "expected"], visible: ["selector"], "no-horizontal-overflow": ["selector"], "no-overlap": ["selector", "other"] };
 function record(value: unknown): value is Record<string, unknown> { return Boolean(value && typeof value === "object" && !Array.isArray(value)); }
 
 export interface BrowserStep { action: "click" | "fill" | "press" | "select"; selector: string; value?: string; impact: "local-test" | "consequential" | "uncertain"; reason: string }
-export type BrowserAssertion = { kind: "text"; selector: string; expected: string }
+/** text without a selector: some element on the page reads exactly `expected`. */
+export type BrowserAssertion = { kind: "text"; selector?: string; expected: string }
   | { kind: "visible"; selector: string }
   /** Page-wide, or one element (its own scrolling content, or running past the viewport) when a selector names it. */
   | { kind: "no-horizontal-overflow"; selector?: string }
@@ -26,6 +27,8 @@ export interface BrowserCheck {
   freshness: "fresh" | "stale" | "unavailable"; scope?: VerificationScope; reason?: string;
   /** The AI's reason for withdrawing it, shown on the receipt. */
   withdrawn?: string;
+  /** The address of the server it last ran on, gone when Casper replayed it: its failure on Casper's own server is stale. */
+  gone?: string;
   /** What its steps met: a click that changed nothing, a native dialog Casper dismissed. Notes, never a failure. */
   notes?: string[];
   assertions: Array<{ kind: string; status: "pass" | "fail"; actual: unknown
@@ -75,7 +78,8 @@ export function parseScenario(input: unknown): BrowserScenario {
     if (!["local-test", "consequential", "uncertain"].includes(String(step.impact))) throw new Error(`Browser scenario step ${index + 1} needs impact: local-test, consequential or uncertain`);
     if (step.action === "click" && step.value !== undefined) throw new Error(`Browser scenario step ${index + 1}: click does not take a value`);
     if (step.action !== "click") string(step.value, `scenario step ${index + 1} value`, 1024);
-    return { action: step.action, selector: string(step.selector, `scenario step ${index + 1} selector`), impact: step.impact, reason: string(step.reason, `scenario step ${index + 1} reason`),
+    const selector = string(step.selector, `scenario step ${index + 1} selector`);
+    return { action: step.action, selector, impact: step.impact, reason: oneLine(step.reason, `scenario step ${index + 1} reason`, 512, `${String(step.action)} ${selector}`),
       ...(step.value === undefined ? {} : { value: step.value }) } as BrowserStep;
   });
   const assertions = entry.assertions.map((value, index) => {
@@ -85,7 +89,7 @@ export function parseScenario(input: unknown): BrowserScenario {
     if (!fields) throw new Error(`Browser ${label} kind must be one of: ${Object.keys(ASSERTION_FIELDS).join(", ")}`);
     const a = object(value, ["kind", ...fields], `${label} (${String(kind)})`);
     if (kind === "no-horizontal-overflow") return a.selector === undefined ? { kind } : { kind, selector: string(a.selector, `${label} selector`) };
-    if (kind === "text") return { kind, selector: string(a.selector, `${label} selector`), expected: string(a.expected, `${label} expected`, 1024) };
+    if (kind === "text") return { kind, ...(a.selector === undefined ? {} : { selector: string(a.selector, `${label} selector`) }), expected: string(a.expected, `${label} expected`, 1024) };
     if (kind === "visible") return { kind, selector: string(a.selector, `${label} selector`) };
     return { kind, selector: string(a.selector, `${label} selector`), other: string(a.other, `${label} other`) };
   }) as BrowserAssertion[];

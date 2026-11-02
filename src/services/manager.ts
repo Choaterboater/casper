@@ -25,6 +25,8 @@ export interface ServiceStatus {
   tail?: string;
   /** Casper could not confirm the service's processes were stopped. */
   cleanup?: "unknown";
+  /** The name the AI gave an ad-hoc service when it started it ("app"); requests may use either. */
+  alias?: string;
 }
 
 interface Slot {
@@ -51,6 +53,14 @@ interface Slot {
   options?: SlotOptions;
   /** An ad-hoc command's question when the sandbox fails to start on it (see ManagedProcessOptions.unsandboxed). */
   approve?: (signal: AbortSignal) => Promise<string | undefined>;
+  /** The name the AI gave this ad-hoc service (ServiceStatus.alias). */
+  alias?: string;
+  /** The freshness check in progress: parallel requests wait for it instead of each restarting the service. */
+  freshening?: Promise<{ restarted: boolean }>;
+  /** The port it had before a start had to pick another one, until a tool call reports the move. */
+  movedFrom?: number;
+  /** Hosts the sandbox kept it from reaching that a tool call already reported. */
+  blockedSaid?: Set<string>;
 }
 
 const HOST = "127.0.0.1";
@@ -62,6 +72,18 @@ const HOST = "127.0.0.1";
 export interface SlotOptions { listen?: "network"; sandbox?: false; owner?: "casper" }
 const portTaken = (port: number, name: string) => `Port ${port} is in use by a process Casper didn't start; stop that process or set services.${name}.port: auto. Casper never replaces a process it does not own.`;
 const TAIL_LINES = 20;
+/** How long a start waits for its own old port to be let go (a stopped tree can hold it a moment) before it moves. */
+const PORT_RELEASE_MS = 3000;
+/** Whether `port` is free, waiting up to PORT_RELEASE_MS for a process that is going away to let go of it. */
+async function released(port: number, signal: AbortSignal): Promise<boolean> {
+  const until = performance.now() + PORT_RELEASE_MS;
+  for (;;) {
+    if (!(await portInUse(HOST, port))) return true;
+    if (performance.now() >= until) return false;
+    await new Promise(resolve => setTimeout(resolve, 100));
+    signal.throwIfAborted();
+  }
+}
 
 /**
  * The managed services of one session. Each runs on the shared owned-process runner
@@ -95,6 +117,33 @@ export class ServiceManager {
   declared(name: string): boolean { return this.slots.has(name) && !this.detected.has(name) && !name.startsWith("adhoc-"); }
   /** Names the AI may use: every slot but Casper's own. */
   aiNames(): string[] { return this.names().filter(name => !this.casperOnly(name)); }
+  /** The slot's name for `name` or for the alias the AI gave an ad-hoc service; undefined when neither is known. */
+  resolve(name: string): string | undefined {
+    if (this.slots.has(name)) return name;
+    return [...this.slots.values()].find(slot => slot.alias === name)?.name;
+  }
+  /** Ports that moved since the last call, each reported once: the AI may hold the old address. */
+  takeMoves(): Array<{ name: string; from: string; to: string }> {
+    const moves: Array<{ name: string; from: string; to: string }> = [];
+    for (const slot of this.slots.values()) {
+      if (slot.movedFrom === undefined || slot.port === undefined || slot.state !== "ready" || slot.options?.owner === "casper") continue;
+      moves.push({ name: slot.name, from: `http://${HOST}:${slot.movedFrom}`, to: `http://${HOST}:${slot.port}` });
+      slot.movedFrom = undefined;
+    }
+    return moves;
+  }
+  /** Hosts the sandbox kept a running service from reaching (its outside calls failed for that reason), each said once. */
+  takeBlocked(): Array<{ name: string; hosts: string[] }> {
+    const found: Array<{ name: string; hosts: string[] }> = [];
+    for (const slot of this.slots.values()) {
+      if (slot.options?.owner === "casper") continue;
+      const hosts = (slot.process?.refusedHosts() ?? []).filter(host => !slot.blockedSaid?.has(host));
+      if (!hosts.length) continue;
+      for (const host of hosts) (slot.blockedSaid ??= new Set()).add(host);
+      found.push({ name: slot.name, hosts });
+    }
+    return found;
+  }
   /** Whether any service is starting or ready. `detected: false` leaves out the dev server Casper started for its
    * own page check, so that server alone never hands the model the service tool (and its tokens) on later tasks. */
   live(options: { detected?: boolean } = {}): boolean {
@@ -129,7 +178,7 @@ export class ServiceManager {
    * (the caller makes it fresh); one that stopped, failed or crashed is relaunched under its name.
    * At most MAX_SERVICES ad-hoc slots are kept: past that the oldest one not running is dropped. */
   async startCommand(command: string, options: { ready?: ServiceSpec["ready"]; timeoutMs?: number;
-    approve?: (signal: AbortSignal) => Promise<string | undefined> }, signal: AbortSignal): Promise<ServiceStatus> {
+    approve?: (signal: AbortSignal) => Promise<string | undefined>; alias?: string }, signal: AbortSignal): Promise<ServiceStatus> {
     if (this.closing) throw new Error("Casper's services were stopped with the conversation; start them again after it changes");
     const ready = options.ready ?? { http: "/" }, timeoutMs = options.timeoutMs ?? 30_000;
     if (!command.trim() || Buffer.byteLength(command) > 4096) throw new Error("command must be a nonempty shell command of at most 4 KiB");
@@ -140,7 +189,10 @@ export class ServiceManager {
     const adhoc = [...this.slots.values()].filter(slot => slot.name.startsWith("adhoc-"));
     const running = (slot: Slot) => slot.work !== undefined || slot.state === "starting" || slot.state === "ready";
     const spec: ServiceSpec = { command, port: "auto", ready, timeoutMs };
+    // The name the AI chose answers too, unless a slot already has it (the same command keeps its own).
+    const alias = options.alias && SERVICE_NAME.test(options.alias) && !options.alias.startsWith("adhoc-") && this.resolve(options.alias) === undefined ? options.alias : undefined;
     const same = adhoc.find(slot => slot.spec.command === command);
+    if (same && alias && !same.alias) same.alias = alias;
     if (same && running(same)) return same.work ?? this.describe(same);
     if (same) { same.spec = spec; same.approve = options.approve; return this.launch(same, signal); }
     if (adhoc.filter(running).length >= MAX_SERVICES) throw new Error(`At most ${MAX_SERVICES} ad-hoc services run at once; stop one first`);
@@ -150,7 +202,7 @@ export class ServiceManager {
       this.slots.delete(oldest.name);
       if (oldest.process) this.retired.push(this.closeProcess(oldest).catch(() => {}));
     }
-    const slot: Slot = { name: `adhoc-${++this.adhocCount}`, spec, state: "idle", stale: false, ...(options.approve ? { approve: options.approve } : {}) };
+    const slot: Slot = { name: `adhoc-${++this.adhocCount}`, spec, state: "idle", stale: false, ...(options.approve ? { approve: options.approve } : {}), ...(alias ? { alias } : {}) };
     this.slots.set(slot.name, slot);
     return this.launch(slot, signal);
   }
@@ -228,6 +280,15 @@ export class ServiceManager {
   /** Restarts a stale or crashed service, starts one that is not running, and re-probes a ready one. */
   async ensureFresh(name: string, signal: AbortSignal): Promise<{ restarted: boolean }> {
     const slot = this.slot(name);
+    // One check at a time per service: parallel requests after an edit share one restart, instead of each
+    // stopping the server the one before it just started (and the requests in flight with it).
+    const previous = slot.freshening;
+    const run = (async () => { await previous?.catch(() => {}); return this.freshen(slot, name, signal); })();
+    slot.freshening = run;
+    try { return await run; } finally { if (slot.freshening === run) slot.freshening = undefined; }
+  }
+
+  private async freshen(slot: Slot, name: string, signal: AbortSignal): Promise<{ restarted: boolean }> {
     await slot.work?.catch(() => {});
     if (slot.state === "ready" && !slot.stale && await this.answers(slot, signal)) return { restarted: false };
     const restarted = slot.state === "ready" || slot.state === "crashed";
@@ -249,7 +310,7 @@ export class ServiceManager {
   }
 
   private slot(name: string): Slot {
-    const slot = this.slots.get(name);
+    const slot = this.slots.get(this.resolve(name) ?? name);
     if (!slot) throw new Error(`No service named ${JSON.stringify(name)}; declared: ${this.names().join(", ") || "none"} (.casper/project.yaml services)`);
     return slot;
   }
@@ -265,7 +326,8 @@ export class ServiceManager {
       ...(slot.error && slot.state === "failed" ? { error: slot.error } : {}),
       ...(slot.exit && (slot.state === "crashed" || slot.state === "failed") ? { exit: { ...slot.exit } } : {}),
       ...(tail && (slot.state === "crashed" || slot.state === "failed") ? { tail } : {}),
-      ...(slot.cleanup ? { cleanup: slot.cleanup } : {}) };
+      ...(slot.cleanup ? { cleanup: slot.cleanup } : {}),
+      ...(slot.alias ? { alias: slot.alias } : {}) };
   }
 
   private launch(slot: Slot, callerSignal: AbortSignal): Promise<ServiceStatus> {
@@ -284,11 +346,13 @@ export class ServiceManager {
       try {
         let port: number;
         if (spec.port === "auto") {
-          // Keep the address the model already knows when it is still free.
-          port = slot.port !== undefined && !(await portInUse(HOST, slot.port)) ? slot.port : await freePort(HOST);
+          // Keep the address the model already knows: a tree just stopped may hold it a moment longer.
+          const known = slot.port;
+          port = known !== undefined && await released(known, signal) ? known : await freePort(HOST);
+          if (known !== undefined && port !== known) slot.movedFrom ??= known;
         } else {
           port = spec.port;
-          if (await portInUse(HOST, port)) throw new Error(portTaken(port, name));
+          if (!(await released(port, signal))) throw new Error(portTaken(port, name));
         }
         signal.throwIfAborted();
         if (this.closing) throw new Error("Casper's services were stopped with the conversation; start them again after it changes");

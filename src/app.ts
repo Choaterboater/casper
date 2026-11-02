@@ -1,4 +1,5 @@
 import type { SideQuestionUsage } from "./app/side-question";
+import { readOnlyCommand } from "./sandbox/read-only";
 import type { FolderTrust } from "./project/trust";
 import type { KnownFolderName } from "./platform/known-folders";
 import { reviewerLine } from "./crew/review-line";
@@ -632,8 +633,14 @@ export class CasperApp {
         }
         if (event.sessionOnlyCheck) return;
         if (["bash", "powershell", "edit", "write"].includes(event.toolName)) this.browser?.invalidate();
-        // A shell command's files are unknown, so it marks every running service stale.
-        if (event.toolName === "bash" || event.toolName === "powershell") { this.services?.markEdited(); if (this.taskEdits) this.taskEdits.shell = true; }
+        // A shell command's files are unknown, so it marks every running service stale, unless it only reads files in
+        // the project (cat, grep, ls …): restarting the server for those moved its port and broke requests in flight.
+        if (event.toolName === "bash" || event.toolName === "powershell") {
+          const command = event.input?.command;
+          const reads = event.toolName === "bash" && typeof command === "string" && this.projectContext !== undefined && readOnlyCommand(command, { root: this.activeWorkspaceRoot() });
+          if (!reads) this.services?.markEdited();
+          if (this.taskEdits) this.taskEdits.shell = true;
+        }
         // A server it reached or started: the service tool joins the next task, never this one (a tool list that
         // changes mid-task throws away the provider's prompt cache).
         if ((event.toolName === "bash" || event.toolName === "powershell") && typeof event.input?.command === "string" && reachesLocalServer(event.input.command)) this.serverSeen = true;

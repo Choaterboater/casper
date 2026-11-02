@@ -3,7 +3,7 @@ import type { SandboxPolicy } from "../../src/sandbox/policy";
 
 export interface FakeEngine extends SandboxEngine {
   /** Every wrap, in order. */
-  readonly wrapped: Array<{ command: string; network: string; id: string; policy: SandboxPolicy }>;
+  readonly wrapped: Array<{ command: string; network: string; id: string; policy: SandboxPolicy; prefix: string }>;
   /** The host question the sandbox passed to the engine. */
   ask?: (host: string, port: number | undefined) => Promise<boolean>;
   allowed: string[];
@@ -23,7 +23,7 @@ export function fakeEngine(refuse: (command: string) => string[] = () => []): Fa
     ended: [],
     async initialize(policy, ask) { engine.ask = ask; engine.allowed = [...policy.allowedDomains]; },
     async wrap(command, policy, run) {
-      engine.wrapped.push({ command, network: run.network, id: run.id, policy });
+      engine.wrapped.push({ command, network: run.network, id: run.id, policy, prefix: run.prefix });
       refusals.set(run.id, refuse(command));
       return `CASPER_FAKE_HELD=${run.network}; export CASPER_FAKE_HELD; ${command}`;
     },

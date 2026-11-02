@@ -581,7 +581,7 @@ test("an ad-hoc service that reaches another machine asks Reach once, even when 
   const shell = runtimeShell(terminal.value, sandbox, new SandboxStore(context.stateDirectory));
   let second: string | undefined = "not asked";
   // The manager's start: the sandbox fails on this command, so it asks before running it not sandboxed.
-  const manager = { root: project, takeCrashes: () => [],
+  const manager = { root: project, takeCrashes: () => [], takeMoves: () => [], takeBlocked: () => [], declared: () => false,
     startCommand: async (command: string, options: { approve?: (signal: AbortSignal) => Promise<string | undefined> }, signal: AbortSignal) => {
       await sandbox.wrap(command, { cwd: project }).catch(() => {});
       second = await options.approve!(signal);

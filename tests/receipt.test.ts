@@ -464,3 +464,23 @@ test("a browser check the AI withdrew is named with its reason and never decides
   expect(noneReceipt).toContain("– 1 check withdrawn by the AI: A (wrong selector)");
   expect(taskExitCode(undefined, none)).toBe(2);
 });
+
+test("a browser check whose server is gone is said as stale, not failed, and the task is incomplete (exit 2), not failed", () => {
+  const browser = { status: "incomplete", checks: [
+    { name: "Status dots", status: "incomplete", freshness: "stale", baseline: "pass", gone: "http://127.0.0.1:49848" },
+    { name: "Market search", status: "pass", freshness: "fresh", baseline: "pass" }] } as unknown as TaskResult["browser"];
+  const task = done({ changedPaths: ["server.js"], browser });
+  const receipt = formatReceipt(task);
+  expect(receipt.split("\n")[0]).toBe("– Incomplete — 1 browser check is stale: the server it ran on is gone");
+  expect(receipt).toContain("– Browser checks: 1 of 2 passed; 1 stale, its server gone: Status dots");
+  expect(receipt).not.toContain("not finished");
+  expect(receipt).not.toContain("Failed");
+  expect(taskOutcome(undefined, task)).toBe("incomplete");
+  expect(taskExitCode(undefined, task)).toBe(2);
+});
+
+test("settings or data files changed while checking and repairing are flagged, apart from code, lockfiles and dependency lists", () => {
+  const receipt = formatReceipt(done({ changedPaths: ["server.js"], changedDuringChecks: ["config/services.yaml", "config/widgets.yaml", "public/style.css", "package.json", "package-lock.json", "data/items.json"] }));
+  expect(receipt).toContain("⚠ Checks and repairs changed app settings or data: config/services.yaml, config/widgets.yaml, data/items.json; look for test data left in them");
+  expect(formatReceipt(done({ changedPaths: ["server.js"], changedDuringChecks: ["public/style.css", "package.json"] }))).not.toContain("settings or data");
+});

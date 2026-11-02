@@ -147,7 +147,7 @@ test.skipIf(!unix)("beyond the most at once a slow command is stopped as before;
 test.skipIf(!unix)("the service tool lists a background command, shows its output and stops it without a note", async () => {
   const { notes, commands, run } = setup();
   await run("echo first line; sleep 43.1");
-  const manager = { status: () => [], takeCrashes: () => [], casperOnly: () => false } as unknown as ServiceManager;
+  const manager = { status: () => [], takeCrashes: () => [], takeMoves: () => [], takeBlocked: () => [], casperOnly: () => false } as unknown as ServiceManager;
   const tool = serviceTool(() => manager, undefined, undefined, undefined, () => commands);
   const signal = new AbortController().signal;
   expect((await tool.execute({ action: "status" }, signal)).text).toContain("cmd-1");
