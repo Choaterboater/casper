@@ -81,6 +81,26 @@ test("an answer counts only for the question it was given for", async () => {
   await expect(writeAnswer(dir, "../escape", { question: "q", picked: null })).rejects.toThrow("not a job");
 });
 
+test("on Windows a record write that meets another Casper reading the file tries again, so a held question still shows", async () => {
+  const dir = jobsDirectory(await temp());
+  writeJobSync(dir, record());
+  // A rename onto a file another process has open fails on Windows (EPERM, EACCES or EBUSY) for a moment. Before,
+  // the write was dropped: the record stayed "running" and the other terminal never saw the question.
+  let refused = 0;
+  const busy = (code: string) => async (file: string, text: string) => {
+    if (refused < 2) { refused++; throw Object.assign(new Error(`${code}: operation not permitted, rename`), { code }); }
+    await writeFile(file, text);
+  };
+  const waiting = record({ status: "waiting", question: { id: "q1", kind: "approve", question: "Run this command?", choices: [{ label: "No" }], askedAt: "x" } });
+  await writeJob(dir, waiting, { platform: "win32", write: busy("EPERM"), waitMs: 1 });
+  expect((await readJob(dir, waiting.id))?.question?.id).toBe("q1");
+  expect(refused).toBe(2);
+  // Elsewhere those codes are real permission problems: no second try.
+  refused = 0;
+  await expect(writeJob(dir, record(), { platform: "linux", write: busy("EACCES"), waitMs: 1 })).rejects.toThrow("EACCES");
+  expect(refused).toBe(1);
+});
+
 /** Just what AwayJob reads of the app. */
 function fakeApp(lines: string[], over: Record<string, unknown> = {}): CasperApp {
   return { output: { write: (text: string) => { lines.push(text); } }, projectContext: { notifications: true }, closing: false,
@@ -97,7 +117,7 @@ test("a held question waits for your answer from another Casper, then the job go
   const job = new AwayJob(app, dir, record(), () => { cancelled++; }, { pollMs: 10, notify: async (text) => { notes.push(text); return true; } });
   job.start();
   const answer = job.ask(question);
-  await waitUntil(async () => (await readJob(dir, record().id))?.status === "waiting");
+  expect(await waitUntil(async () => (await readJob(dir, record().id))?.status === "waiting")).toBe(true);
   const waiting = await readJob(dir, record().id);
   expect(waiting?.question).toMatchObject({ kind: "approve", preview: "crontab -l\n", question: "Run this command?" });
   expect(notes).toEqual(["Waiting on you: fix the VLAN script · Run this command?"]);
@@ -278,7 +298,7 @@ test("a No with a note from another terminal reaches the job's AI as at the keyb
   const job = new AwayJob(app, dir, record(), () => {}, { pollMs: 5, notify: async () => true });
   for (const [picked, note] of [["No", "use the lab switch instead"], ["Yes, this once", "ignored"]] as const) {
     const answer = job.ask(question);
-    await waitUntil(async () => (await readJob(dir, record().id))?.status === "waiting");
+    expect(await waitUntil(async () => (await readJob(dir, record().id))?.status === "waiting")).toBe(true);
     const held = await readJob(dir, record().id);
     await writeAnswer(dir, record().id, { question: held!.question!.id, picked: [picked], note });
     expect(await answer).toEqual([picked]);

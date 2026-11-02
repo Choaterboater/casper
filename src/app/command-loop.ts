@@ -71,7 +71,14 @@ export async function runInteractive(app: CasperApp, cwd = process.cwd(), firstR
     if (app.projectContext) await openWorkspaceBeforeRuntime(app, workspace);
   } else if (!app.projectContext) workspace = await openProjectFolder(app, cwd);
   if (!app.projectContext) {
-    await app.start(workspace);
+    // Closed while the folder was still opening (the window shut just after the folder question): end quietly, as a
+    // close at the prompt does, never with "Casper is closing" as an error.
+    try { await app.start(workspace); } catch (error) {
+      if (!app.closing) throw error;
+      app.terminal.close();
+      app.interactive = false;
+      return;
+    }
   }
 
   app.savedModelDisplay = await modelPreference(app.sessionHomeDir ?? os.homedir());

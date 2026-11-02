@@ -34,6 +34,7 @@ export interface PickerLists {
  * the rows the browser reloads have both. */
 export function pickerCatalog(catalog: ModelRuntime, refreshLocal?: (signal?: AbortSignal) => Promise<string[]>,
   refreshOpenRouter?: (signal?: AbortSignal) => Promise<void>, lists?: PickerLists): ModelRuntime {
+  const engine = engineRefreshes(catalog);
   return new Proxy(catalog, {
     get(target, key) {
       if (key === "getError") return () => {
@@ -51,7 +52,15 @@ export function pickerCatalog(catalog: ModelRuntime, refreshLocal?: (signal?: Ab
           // The browser shows freshness status and keeps cached rows on failure, so live
           // catalog refresh (new provider models) is safe here, unlike startup paths. No
           // allowNetwork override: Pi's default fetches unless PI_OFFLINE is set.
-          const result = await target.refresh(options);
+          // The engine re-reads every list offline after each provider registration, and a re-read that resets the
+          // providers after this refresh began drops it with no error. Wait for those first; read again if one began.
+          await engine.settled(options?.signal);
+          const registered = engine.registrations;
+          let result = await target.refresh(options);
+          if (engine.registrations !== registered && !options?.signal?.aborted) {
+            await engine.settled(options?.signal);
+            result = await target.refresh(options);
+          }
           await refreshOpenRouter?.(options?.signal).catch(() => undefined);
           await lists?.refresh(options?.signal).catch(() => undefined);
           return { ...result, errors: new Map([...result.errors].map(([provider, error]) =>
@@ -67,6 +76,43 @@ export function pickerCatalog(catalog: ModelRuntime, refreshLocal?: (signal?: Ab
       return typeof value === "function" ? value.bind(target) : value;
     },
   });
+}
+
+/** The engine's own refreshes and provider registrations, seen on the runtime itself (its registerProvider calls
+ * `this.refresh`, so a wrapper on the instance sees that call too). Installed once per runtime. */
+interface EngineRefreshes { readonly pending: Set<Promise<unknown>>; registrations: number; settled(signal?: AbortSignal): Promise<void> }
+const engines = new WeakMap<object, EngineRefreshes>();
+function engineRefreshes(runtime: ModelRuntime): EngineRefreshes {
+  const known = engines.get(runtime);
+  if (known) return known;
+  const tracked: EngineRefreshes = {
+    pending: new Set(), registrations: 0,
+    async settled(signal) {
+      for (let round = 0; round < 5 && tracked.pending.size && !signal?.aborted; round++) await Promise.allSettled([...tracked.pending]);
+    },
+  };
+  const target = runtime as unknown as Record<string, unknown>;
+  // The method as it is at each call (its own, else the class's now), never a copy taken once.
+  const method = (name: string) => {
+    const own = Object.hasOwn(target, name) ? target[name] : undefined;
+    return () => (own ?? (Object.getPrototypeOf(runtime) as Record<string, unknown>)[name]) as (...args: unknown[]) => unknown;
+  };
+  if (typeof target.refresh === "function") {
+    const refresh = method("refresh");
+    target.refresh = (...args: unknown[]) => {
+      const running = Promise.resolve(refresh().apply(runtime, args));
+      tracked.pending.add(running);
+      void running.finally(() => tracked.pending.delete(running)).catch(() => {});
+      return running;
+    };
+  }
+  for (const name of ["registerProvider", "registerNativeProvider", "unregisterProvider"]) {
+    if (typeof target[name] !== "function") continue;
+    const original = method(name);
+    target[name] = (...args: unknown[]) => { tracked.registrations++; return original().apply(runtime, args); };
+  }
+  engines.set(runtime, tracked);
+  return tracked;
 }
 
 export async function pickPiModel(view: RuntimePickerView, catalog: ModelRuntime, current: AgentSession["model"],

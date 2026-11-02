@@ -526,7 +526,7 @@ Each row names the test that fails without it.
   never in one-shot/`--json` runs, and never restart or reload the session. A private lock prevents
   overlapping sessions. Quiet failures write updater-controlled diagnostics (no environment or
   subprocess output) to `~/.casper/update.log`. `updates: notify` checks only; `off`, legacy `false`,
-  `CASPER_NO_UPDATE_CHECK=1` and `CI` disable it. A project or project-selected profile cannot change it.
+  `CASPER_NO_UPDATE_CHECK=1`, `CASPER_OFFLINE=1` and `CI` disable it. A project or project-selected profile cannot change it.
 - **The model provider sees what the AI reads.** Code, file contents, command output and chat go to the
   provider you picked, with secrets hidden as [SECRETS.md](SECRETS.md) says (known formats only; there is
   no full secret scanner). They may also stay on disk as plain text. Use read-only credentials for AI

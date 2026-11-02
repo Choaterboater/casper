@@ -87,7 +87,7 @@ the checked installer is ready and the helper waits until this Casper exits befo
 limit. Nothing restarts Casper or changes the running program. After quitting, allow the helper
 time to install before starting Casper again. Failures are in `~/.casper/update.log` and the notice
 says `update failed · casper update`. **Updates: notify only** (`updates: notify`) checks without
-installing; **off**, `CASPER_NO_UPDATE_CHECK=1` or `CI` stops background activity. One-shot and
+installing; **off**, `CASPER_NO_UPDATE_CHECK=1`, `CASPER_OFFLINE=1` or `CI` stops background activity. One-shot and
 `--json` runs never install.
 
 ### Starting a session or running once

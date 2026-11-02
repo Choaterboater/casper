@@ -35,10 +35,11 @@ export interface NoticeOptions extends Omit<UpdateOptions, "check" | "write" | "
   startedAt?: number;
 }
 
-/** CASPER_NO_UPDATE_CHECK (any value but 0, false or empty) or CI turns all update activity off. */
+/** CASPER_NO_UPDATE_CHECK (any value but 0, false or empty), CASPER_OFFLINE=1 or CI turns all background update
+ * activity off. */
 export function updateChecksOff(env: NodeJS.ProcessEnv): boolean {
   const set = (value: string | undefined) => Boolean(value?.trim()) && value!.trim() !== "0" && value!.trim().toLowerCase() !== "false";
-  return set(env.CASPER_NO_UPDATE_CHECK) || set(env.CI);
+  return set(env.CASPER_NO_UPDATE_CHECK) || env.CASPER_OFFLINE === "1" || set(env.CI);
 }
 
 async function readSaved(stateDir: string): Promise<Saved | undefined> {

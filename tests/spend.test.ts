@@ -94,7 +94,9 @@ async function fixture(status: Partial<RuntimeStatus> = {}, costs = [1.2, 3.82])
   const listeners = new Set<RuntimeEventListener>();
   const emit = (event: RuntimeEvent) => { for (const listener of listeners) listener(event); };
   let start!: RuntimeStartOptions;
-  const state = { costs, toolRan: 0, reasons: [] as Array<string | undefined> };
+  const state = { costs, toolRan: 0, reasons: [] as Array<string | undefined>,
+    /** Set: the next request waits here until it is stopped (Esc), so a stop lands on a running task, never on the prompt. */
+    hold: undefined as ReturnType<typeof Promise.withResolvers<void>> | undefined, prompts: 0 };
   const runtime: AgentRuntime = {
     async start(options) {
       start = options;
@@ -103,8 +105,10 @@ async function fixture(status: Partial<RuntimeStatus> = {}, costs = [1.2, 3.82])
         getState: () => ({ cwd: project, isStreaming: false }),
         setTools: () => {},
         subscribe: (listener: RuntimeEventListener) => { listeners.add(listener); return () => listeners.delete(listener); },
-        abort: async () => {},
+        abort: async () => { state.hold?.resolve(); },
         prompt: async () => {
+          state.prompts++;
+          if (state.hold) { await state.hold.promise; state.hold = undefined; }
           for (const cost of state.costs) {
             emit({ type: "assistant_response_start", provider: "fixture", model: "demo" });
             if (cost === state.costs[0]) emit({ type: "assistant_text_delta", delta: "Looking around." });
@@ -282,13 +286,20 @@ test("the session total grows across tasks and never drops when a new one starts
     // A stopped task, then a new request: the session figure keeps what came before, and only grows.
     const sessionTokens = () => [...Bun.stripANSI(screen.output).matchAll(/session (\d+(?:\.\d)?)k tok/g)].map(match => Number(match[1]));
     f.state.costs = [0.1];
+    // Held until Esc: before, the request often finished first and the Esc reached the prompt, where it waited to see
+    // whether a key sequence followed and swallowed the start of the next line.
+    f.state.hold = Promise.withResolvers<void>();
+    const before = f.state.prompts;
     input.write("one more\r");
-    await screen.until(output => output.lastIndexOf("one more") > 0);
+    for (let tries = 0; tries < 500 && f.state.prompts === before; tries++) await Bun.sleep(10);
     input.write("\x1b");
-    await screen.until(idleAfter("one more"));
+    await screen.until(output => idleAfter("one more")(output) && idleAfter("Stopped.")(output));
     expect(sessionTokens().at(-1)).toBeGreaterThanOrEqual(4.8);
+    // The footer redraws "idle" as soon as the line is typed, so wait for this request's own run to end (its answer
+    // counted, and idle after the running hint), or /exit lands mid-task and stays as a draft.
+    const beforeLast = f.state.prompts;
     input.write("last one\r");
-    await screen.until(output => idleAfter("last one")(output) && (sessionTokens().at(-1) ?? 0) >= 6);
+    await screen.until(output => f.state.prompts > beforeLast && idleAfter("type to queue")(output) && (sessionTokens().at(-1) ?? 0) >= 7.2);
     const seen = sessionTokens();
     expect(seen.every((value, i) => i === 0 || value >= seen[i - 1]!)).toBe(true);
   } finally {

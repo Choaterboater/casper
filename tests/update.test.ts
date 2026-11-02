@@ -897,8 +897,11 @@ test("notice: with updates: false a session says nothing, shows no note and asks
   }
 });
 
-test("notice: CASPER_NO_UPDATE_CHECK or CI turns it off", () => {
+test("notice: CASPER_NO_UPDATE_CHECK, CASPER_OFFLINE=1 or CI turns it off", () => {
   expect(updateChecksOff({})).toBe(false);
+  // Offline stops every other download Casper starts on its own; the update check is one of them.
+  expect(updateChecksOff({ CASPER_OFFLINE: "1" })).toBe(true);
+  expect(updateChecksOff({ CASPER_OFFLINE: "0" })).toBe(false);
   expect(updateChecksOff({ CASPER_NO_UPDATE_CHECK: "1" })).toBe(true);
   expect(updateChecksOff({ CASPER_NO_UPDATE_CHECK: "0" })).toBe(false);
   expect(updateChecksOff({ CI: "true" })).toBe(true);
