@@ -245,13 +245,30 @@ function startRuntime(saved: RuntimeConversation[], project: string): AgentRunti
 
 const RADAR = { [`.casper/pages/${HA}/planes-radar.html`]: PAGE("planes-radar") };
 
+test("1 sent before a Saved pages-only row shows waits for it and lists the pages, never going to the AI as \"1\"", async () => {
+  // A real start in ~/Documents: "Next: 1 Saved pages (12)", the person typed 1 and the AI answered "I only see \"1\"".
+  let release!: () => void;
+  const looked = new Promise<void>(resolve => { release = resolve; });
+  await withEnv({ TERM: "xterm-256color" }, async () => {
+    const app = await richApp(project => startRuntime([], project), { savedConversations: async () => { await looked; return []; } }, { homeFiles: RADAR });
+    try {
+      await app.until(text => text.includes("idle"));
+      app.input.write("1\r");
+      await Bun.sleep(100);
+      release();
+      await app.until(text => text.includes("Saved pages, this folder first, then newest:"));
+      expect(app.screen()).not.toContain("I only see");
+    } finally { await app.close(); }
+  });
+}, 30_000);
+
 test("the start's row offers your saved pages when there are any; its key lists them", async () => {
   await withEnv({ TERM: "xterm-256color" }, async () => {
     const app = await richApp(project => startRuntime([], project), { savedConversations: async () => [] }, { homeFiles: RADAR });
     try {
       await app.until(text => /Next:\s+1\s+Saved pages \(1\)/.test(text));
       // No conversation to continue: nothing says typing starts a new one.
-      expect(app.screen()).not.toContain("Anything you type starts a new conversation.");
+      expect(app.screen()).not.toContain("Anything you type starts a new conversation");
       app.input.write("1");
       await app.until(text => text.includes("Saved pages, this folder first, then newest:"));
       expect(app.screen()).toContain("planes-radar");
@@ -265,7 +282,7 @@ test("with an earlier conversation too, Continue stays 1 and Saved pages is 2; a
     const app = await richApp(project => startRuntime(earlier, project), { savedConversations: async () => earlier }, { homeFiles: RADAR });
     try {
       await app.until(text => /Next:\s+1\s+Continue today's conversation \([^\n]*\)[ ·]+2\s+Saved pages \(1\)/.test(text));
-      expect(app.screen()).toContain("Anything you type starts a new conversation.");
+      expect(app.screen()).toContain("Anything you type starts a new conversation");
     } finally { await app.close(); }
     const bare = await richApp(project => startRuntime(earlier, project), { savedConversations: async () => earlier });
     try {

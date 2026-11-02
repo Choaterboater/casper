@@ -62,6 +62,7 @@ import { showReceiptDetail } from "./undo";
 import { UndoStore } from "../task/undo";
 import { tildePath } from "../new/scaffold";
 import { conversationLabel, matchConversation, recentTurnLines } from "../sessions/resume";
+import { conversationDay } from "./earlier-conversation";
 import { readFile, stat } from "node:fs/promises";
 import type { SessionWorkspaceManager } from "../sessions/manager";
 import { typedDuringTask } from "../tui/give-way";
@@ -80,6 +81,9 @@ import type { ShellSandbox } from "../sandbox/manager";
 import { allowKindsChoices, PERMISSIONS_ALL_CHOICES, PERMISSIONS_ALL_QUESTION, DOCS_COPY_CHOICES, SKILL_TRUST_CHOICES, LAB_IMPORT_CHOICES, MCP_ALLOW_KEEP_CHOICES, MCP_REMEMBER_CHOICES, MCP_WRITES_CHOICES } from "./safe-choices";
 import { KIND_TEXT, RISKY_KINDS } from "../capabilities/kinds";
 import { forgetSshSecrets } from "../ssh/login";
+
+/** The last line after /resume or /continue: nothing runs until you type. */
+export const RESUMED_READY = "Ready: nothing is running; type what to do next in this conversation.";
 
 /** Output sink for the app; lives here so the command host stays import-cycle-free. */
 export interface OutputWriter {
@@ -174,6 +178,9 @@ export interface CommandHost {
   debugSession?: DebugSession;
   lastTaskRequest?: string;
   continuedConversation?: string;
+  /** Set for one /continue that a request rides on: one line ("Continuing today's conversation (…): <why>.") instead of
+   * the command's own lines; "" says no why. */
+  continueQuietly?: string;
   ensureRuntime(): Promise<RuntimeSession>;
   acquireRuntime(): Promise<AgentRuntime>;
   /** /copy's clipboard; tests pass a fake. */
@@ -403,6 +410,7 @@ export async function runSlashCommand(host: CommandHost, prompt: string): Promis
       const session = await host.ensureRuntime();
       let id = prompt.startsWith("/resume") ? prompt.slice(7).trim() : "";
       let title: string | undefined;
+      let day: string | undefined;
       if (prompt === "/continue") {
         if (!session.listConversations || !session.resumeConversation) throw new Error("This runtime does not support saved conversations.");
         let current: string | undefined;
@@ -422,6 +430,7 @@ export async function runSlashCommand(host: CommandHost, prompt: string): Promis
           return;
         }
         id = newest.id; title = conversationLabel(newest).title;
+        day = conversationDay(newest.modified);
       } else if (prompt !== "/clear") {
         if (!session.listConversations) {
           if (!id) throw new Error("This runtime does not support conversation listing. Use /branch and /switch for named workspaces.");
@@ -479,6 +488,11 @@ export async function runSlashCommand(host: CommandHost, prompt: string): Promis
       // Like --continue and --resume, a one-shot /clear or /resume does not change what later sessions open, and says so.
       if (host.interactive) await (await host.ensureSessionWorkspace()).rememberConversation(session);
       const named = title ? `"${terminalText(title)}"` : "that conversation";
+      if (prompt === "/continue" && host.continueQuietly !== undefined && day) {
+        const which = day.endsWith("'s") ? `${day} conversation` : `the ${day} conversation`;
+        host.output.write(`[session] Continuing ${which}${title ? ` (${terminalText(title)})` : ""}${host.continueQuietly ? `: ${host.continueQuietly}` : ""}.\n`);
+        return;
+      }
       host.output.write(!host.interactive
         ? prompt === "/clear"
           ? "[session] New conversation for this run only: a one-shot run doesn't change what Casper opens next.\n"
@@ -489,6 +503,8 @@ export async function runSlashCommand(host: CommandHost, prompt: string): Promis
       host.output.write(`${formatRuntimeStatus(session.getStatus?.())}\n`);
       const turns = prompt === "/clear" ? [] : recentTurnLines(session.recentTurns?.(12) ?? []);
       if (turns.length) host.output.write(`Last turns:\n${turns.map(line => terminalText(line)).join("\n")}\n`);
+      // Back in a conversation, nothing runs until you type: say so, so the prompt doesn't look stuck.
+      if (host.interactive && prompt !== "/clear") host.output.write(`${RESUMED_READY}\n`);
       return;
     }
     if (prompt === "/diff") {

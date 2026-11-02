@@ -1,6 +1,6 @@
 import { SHELL_CANT_ASK, SHELL_CANT_ASK_SCREEN } from "./sandbox";
 import type { InteractiveTerminal } from "../tui/terminal";
-import { BUSY_GLYPH, CHANGE_GLYPH, commandLabel, formatDuration, formatElapsed, formatToolActivity, lastOutputLine, lineText, NOT_RUN_GLYPH, NOTE_GLYPH, redactPreview, runningElapsed, terminalText, toolTarget } from "../tui/format";
+import { BUSY_GLYPH, CHANGE_GLYPH, commandLabel, formatDuration, formatElapsed, formatToolActivity, lastOutputLine, lineText, NOT_RUN_GLYPH, NOTE_GLYPH, redactPreview, runningElapsed, terminalText, toolTarget, unescapeMarkdown } from "../tui/format";
 import type { RuntimeEvent } from "../runtime/types";
 import type { OutputWriter } from "./commands";
 import { SPEND_STOP_REASON } from "../task/spend";
@@ -166,7 +166,7 @@ const SENTENCES = new Intl.Segmenter("en", { granularity: "sentence" });
 export function intentLine(words: string): string | undefined {
   const last = redactPreview(words).split("\n").map(line => line.trim()).filter(Boolean).at(-1);
   if (!last) return undefined;
-  const plain = lineText(last).replace(/^(?:[-*+>]\s+|\d+[.)]\s+|#+\s+)+/, "").replace(/\*\*|__|`/g, "").replace(/\s+/g, " ").trim();
+  const plain = unescapeMarkdown(lineText(last)).replace(/^(?:[-*+>]\s+|\d+[.)]\s+|#+\s+)+/, "").replace(/\*\*|__|`/g, "").replace(/\s+/g, " ").trim();
   const sentence = (Array.from(SENTENCES.segment(plain)).at(-1)?.segment ?? "").trim().replace(/[\s.:;…]+$/, "");
   const chars = Array.from(sentence);
   if (chars.length < 3) return undefined;

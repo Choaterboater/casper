@@ -1,6 +1,6 @@
 import { type Component, Markdown, type MarkdownTheme, visibleWidth } from "@earendil-works/pi-tui";
 import { stripVTControlCharacters } from "node:util";
-import { tint } from "./format";
+import { tint, unescapeCodeSpans } from "./format";
 import { renderCodeBlock } from "./presentation";
 
 const INDENTED_CODE = /^(?: {4}|\t)/;
@@ -156,7 +156,7 @@ export class StreamingMarkdown implements Component {
     this.scratch = new Markdown("", 0, 0, tagged);
   }
 
-  setText(text: string): void { this.source = text; }
+  setText(text: string): void { this.source = unescapeCodeSpans(text); }
   invalidate(): void { this.cache = undefined; this.full.invalidate(); this.scratch.invalidate(); }
 
   render(width: number): string[] {

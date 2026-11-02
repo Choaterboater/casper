@@ -407,6 +407,10 @@ export class CasperApp {
   lastTaskRequest?: string;
   /** The conversation /continue or --continue opened: /continue in it stays, rather than going back to the one left. */
   continuedConversation?: string;
+  continueQuietly?: string;
+  /** The other way to read the first request ("run test": the project's check, or the conversation offered at the
+   * start): offered first on that task's Next row, then forgotten. */
+  otherReading?: NextItem;
   commandActive = false;
   /** What the session's earlier model tasks spent; the footer adds the current task to it. */
   spentBefore = { tokens: 0, cost: 0 };

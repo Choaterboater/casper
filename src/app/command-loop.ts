@@ -22,7 +22,8 @@ import { leadingImagePath, startsWithImageFile } from "./images";
 import { serviceManager } from "./task-tools";
 import { updateFooter, loadPaneSetting, askPaneOnce, paneCommand, detailsCommand } from "./footer";
 import { holdBackSteered, settleQueuedLines } from "./during-work";
-import { continueWords, EARLY_ONE_WAIT_MS, offerEarlierConversation } from "./earlier-conversation";
+import { CHECK_NAMES } from "../verify/evidence";
+import { checkWordsOnly, continueWords, EARLY_ONE_WAIT_MS, offerEarlierConversation, refersBack } from "./earlier-conversation";
 import { copyRequest, pasteBlocks } from "./copy-words";
 import { newProjectFlowWithAbort, openProjectFolder, newProjectCommand, initialProjectRequest, openWorkspaceBeforeRuntime } from "./workspace";
 import { rebindWorkspace } from "./session-branches";
@@ -104,14 +105,25 @@ export async function runInteractive(app: CasperApp, cwd = process.cwd(), firstR
     if (!prompt) {
       continue;
     }
-    // A lone 1 typed before the start's row showed is the row's key: wait a moment for the row, then run it.
-    if (firstLine && queued === undefined && prompt === "1"
-      && await Promise.race([earlier, Bun.sleep(EARLY_ONE_WAIT_MS).then(() => false)])) prompt = "/continue";
+    const offered = () => Promise.race([earlier, Bun.sleep(EARLY_ONE_WAIT_MS).then(() => undefined)]);
+    // A lone 1 typed before the start's row showed is the row's key: wait a moment for the row, then run its first step.
+    if (firstLine && queued === undefined && prompt === "1") { const row = await offered(); if (row) prompt = row.first; }
     // "continue session" as the first line, with the row offered: the same as 1. Only short lines that ask nothing else.
-    else if (firstLine && queued === undefined && continueWords(prompt, pasted)
-      && await Promise.race([earlier, Bun.sleep(EARLY_ONE_WAIT_MS).then(() => false)])) {
+    else if (firstLine && queued === undefined && continueWords(prompt, pasted) && (await offered())?.continues) {
       app.output.write(`[session] "${terminalText(prompt)}" at the start: continuing that conversation, as 1 does.\n`);
       prompt = "/continue";
+    } else if (firstLine && queued === undefined && !prompt.startsWith("/")) {
+      const offer = refersBack(prompt, pasted) || checkNamed(app, prompt) ? (await offered())?.continues : undefined;
+      // "re run test", "do that again": today's or yesterday's conversation is what it means. One line, no question.
+      if (offer?.recent && refersBack(prompt, pasted)) {
+        app.continueQuietly = `"${terminalText(prompt)}" refers back to it`;
+        prompt = `/continue ${prompt}`;
+      } else if (offer?.recent) {
+        // "run test" could be the project's check or the conversation's work: say which runs; the row offers the other.
+        const check = checkNamed(app, prompt)!;
+        app.output.write(`[task] "${terminalText(prompt)}" runs this project's ${check.name} check (${terminalText(check.command)}) in a new conversation.\n`);
+        app.otherReading = { label: `Ask in ${offer.day} conversation instead`, command: `/continue ${prompt}`, ...(offer.title ? { note: offer.title } : {}) };
+      }
     }
     firstLine = false;
 
@@ -156,6 +168,14 @@ export async function runInteractive(app: CasperApp, cwd = process.cwd(), firstR
 /** `typed`: the line came from the person at the prompt (with what was pasted into it), so its words are read. */
 export async function handlePrompt(app: CasperApp, prompt: string, typed?: { pasted: readonly string[] }): Promise<VerificationReport | undefined> {
   if (app.closing) return;
+  // "/continue <request>": back to the last conversation, then the request in it (the start's row, a refer-back line).
+  const back = /^\/continue\s+(\S[\s\S]*)$/.exec(prompt);
+  if (back) {
+    app.continueQuietly ??= "";
+    try { await handlePrompt(app, "/continue"); } finally { app.continueQuietly = undefined; }
+    if (app.closing) return;
+    return handlePrompt(app, back[1]!.trim(), typed);
+  }
   if (app.commandActive) throw new Error("Another command is active; wait for active subagents or workspace transition");
   // Bare /branch only lists them.
   const transition = /^\/(?:branch\s+\S|switch(?:\s|$))/.test(prompt);
@@ -433,4 +453,14 @@ export function cancelCurrent(app: CasperApp): void {
 
 export function writePrompt(app: CasperApp, prompt: string): void {
   app.events.writePrompt(prompt);
+}
+
+/** The project's check a short line only names ("run test"), with its command; undefined otherwise. */
+function checkNamed(app: CasperApp, line: string): { name: string; command: string } | undefined {
+  const model = app.projectContext?.model;
+  if (!model) return undefined;
+  const commands: Record<string, string> = Object.fromEntries([...CHECK_NAMES.flatMap((name) => model.commands[name]?.trim() ? [[name, model.commands[name]!.trim()]] : []),
+    ...Object.entries(model.namedChecks ?? {}).flatMap(([name, spec]) => spec.kind === "lab" || !spec.run ? [] : [[name, spec.run]])]);
+  const name = checkWordsOnly(line, Object.keys(commands));
+  return name ? { name, command: commands[name]! } : undefined;
 }

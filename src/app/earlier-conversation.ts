@@ -11,7 +11,13 @@ import { buildNextRow, type NextItem } from "../tui/next-row";
 import { SessionWorkspaceManager } from "../sessions/manager";
 import { jobRowItems, jobWorkingHere } from "./jobs";
 
-export const NEW_CONVERSATION_HINT = "Anything you type starts a new conversation.";
+export const NEW_CONVERSATION_HINT = "Anything you type starts a new conversation, unless it refers back to this one (\"run it again\").";
+
+/** The start's offer to continue: which conversation, in the row's words, and whether it is today's or yesterday's (only
+ * then does a request that refers back go to it on its own). */
+export interface EarlierOffer { day: string; title?: string; recent: boolean }
+/** The start's row as shown: what its key 1 runs, and the conversation it offers to continue, if any. */
+export interface StartRow { first: string; continues?: EarlierOffer }
 
 /** "Oct 21", or "today's" / "yesterday's" when it was. */
 export function conversationDay(modified: string, now = new Date()): string {
@@ -30,16 +36,16 @@ export function continueLabel(modified: string, now = new Date()): string {
 }
 
 /** The start's row: "1 Continue …" when this folder has an earlier conversation, then "Saved pages (N)" when any folder
- * has pages (/pages lists them). True when 1 continues, so a lone 1 typed before the row shows waits for it. */
-export async function offerEarlierConversation(app: CasperApp): Promise<boolean> {
-  if (app.closing || !app.interactive || app.runConversation || app.queuedPrompt !== undefined || !app.projectContext) return false;
+ * has pages (/pages lists them). The row once shown, so a lone 1 typed before it shows waits for it and runs its key 1. */
+export async function offerEarlierConversation(app: CasperApp): Promise<StartRow | undefined> {
+  if (app.closing || !app.interactive || app.runConversation || app.queuedPrompt !== undefined || !app.projectContext) return undefined;
   const context = app.projectContext;
   const [found, pages, jobs, working] = await Promise.all([newestConversation(app), savedPageCount(app), jobRowItems(app).catch(() => []),
     jobWorkingHere(app).catch(() => false)]);
   // A job still working here is writing its conversation: no second Casper continues it until the job ends.
   const newest = working ? undefined : found;
   // Too late once a request or command has started: the row is for the empty prompt at the start.
-  if ((!newest && !pages && !jobs.length) || app.closing || app.commandActive || app.session || app.projectContext !== context) return false;
+  if ((!newest && !pages && !jobs.length) || app.closing || app.commandActive || app.session || app.projectContext !== context) return undefined;
   // A walk-away job's result or question comes first (decision 51).
   const more: NextItem[] = [...jobs];
   if (newest) {
@@ -50,7 +56,11 @@ export async function offerEarlierConversation(app: CasperApp): Promise<boolean>
   }
   if (pages) more.push({ label: "Saved pages", command: "/pages", note: String(pages) });
   app.terminal.offerNext(buildNextRow({ more, ...(newest ? { hint: NEW_CONVERSATION_HINT } : {}) }));
-  return Boolean(newest) && !jobs.length;
+  const first = more[0]!.command;
+  if (!newest || jobs.length) return { first };
+  const day = conversationDay(newest.modified);
+  const title = conversationLabel(newest).title;
+  return { first, continues: { day: day.endsWith("'s") ? day : `the ${day}`, ...(title ? { title } : {}), recent: day.endsWith("'s") } };
 }
 
 /** This folder's newest earlier conversation with messages, or undefined (none, a /branch folder, or unreadable). */
@@ -88,4 +98,21 @@ const BACK = new RegExp(String.raw`^(?:please\s+)?(?:(?:continue|resume)${WHICH}
 export function continueWords(line: string, pasted: readonly string[] = []): boolean {
   const text = line.trim();
   return !pasted.some(Boolean) && text.length <= 60 && !/[\r\n]/.test(text) && BACK.test(text);
+}
+
+/** Words that do again what was done before, or a short "fix it", "run that": they mean the last conversation's work. */
+const AGAIN = /\b(?:re-?\s?run|re-?do|re-?try|again|repeat|same\s+(?:as\s+before|thing|again)|as\s+before|one\s+more\s+time|like\s+last\s+time)\b/i;
+const DO_TO_THAT = /^(?:please\s+)?(?:run|fix|finish|do|check|try|test|show|open|start|launch|stop|restart|build|ship|deploy|publish|push|commit|undo|continue|redo)\s+(?:it|that|those|them|this)\b/i;
+/** A short first line, typed, that refers back to earlier work ("re run test", "do that again", "fix it"): while today's
+ * or yesterday's conversation is offered, it is continued and the line sent there (decision 42, amended). */
+export function refersBack(line: string, pasted: readonly string[] = []): boolean {
+  const text = line.trim();
+  if (pasted.some(Boolean) || /[\r\n?]/.test(text) || text.length > 60 || text.split(/\s+/).length > 8) return false;
+  return AGAIN.test(text) || DO_TO_THAT.test(text);
+}
+
+/** "run test", "test", "run the lint": a short line that only names one of the project's checks. Undefined otherwise. */
+export function checkWordsOnly(line: string, checks: readonly string[]): string | undefined {
+  const words = line.trim().toLowerCase().replace(/[.!]+$/, "").split(/\s+/).filter((word) => !["run", "the", "a", "please", "now"].includes(word));
+  return words.length === 1 && checks.includes(words[0]!) ? words[0] : undefined;
 }
