@@ -1,6 +1,6 @@
 # 60. A line you send stops a command that only waits
 
-Date: 2026-11-02. Status: proposed. Amends [26](26-a-line-ends-a-wait.md) (a line you send ends a step that only waits).
+Date: 2026-11-02. Status: accepted (merged 2026-11-02 in #576). Amends [26](26-a-line-ends-a-wait.md) (a line you send ends a step that only waits).
 
 ## Decision
 

@@ -1,6 +1,6 @@
-# 56. An ssh that only looks is no change; BatchMode and sudo -n keep Casper's terminal
+# 57. An ssh that only looks is no change; BatchMode and sudo -n keep Casper's terminal
 
-Date: 2026-11-02. Status: proposed. Amends 48 (sudo box and terminal hand-over) and the remote-change rows of the
+Date: 2026-11-02. Status: accepted (merged 2026-11-02 in #576). Amends 48 (sudo box and terminal hand-over) and the remote-change rows of the
 terminal (docs/TERMINAL_UX.md).
 
 ## Decision

@@ -1,6 +1,6 @@
 # 56. A check step may accept its dialog; checks bring back the services and leave none of the app's files
 
-Date: 2026-11-02. Status: proposed. Amends 55 (the end replay starts a check's own service again) and deliberate
+Date: 2026-11-02. Status: accepted (merged 2026-11-02 in #574). Amends 55 (the end replay starts a check's own service again) and deliberate
 choice 5 (Casper's end-of-task replay).
 
 ## Decision
