@@ -253,7 +253,9 @@ check it puts them back, a file that was absent then is removed, and it restarts
 server it runs (`serve`, or the page checks' server) so the app reads them afresh. So
 checks written as a chain, each expecting the totals the one before left, replay as
 they ran, even after the AI tidied up `data.json`. After the replays the data the AI
-left comes back (and the server restarts again): replays leave no rows of their own.
+left comes back (and the server restarts again): replays leave no rows of their own. The settings files an app
+may write as it runs (YAML, TOML and INI, not lockfiles: a widget a check installs into `config/widgets.yaml`) come back
+as the AI left them too, kept apart so a project with many of them still has its data put back.
 A server Casper doesn't run (the AI started it with a command) can't be restarted;
 the files are still put back and the check notes that the app may hold other data.
 Data files are copied only up to 32 files, 1 MiB each and 8 MiB in all; a project
@@ -402,7 +404,8 @@ repository a `.gitignore` in the project folder is still read), and the app's ow
 data files, the same ones the [app smoke](VERIFICATION.md) leaves out (`data.json`,
 `.jsonl`, `.csv`, `.log`, SQLite; not `package.json` or other manifests and configs).
 So an app that saves to `data.json` or `data/db.json` while the check adds a row
-keeps the check fresh. A file named in `scope.inputs` counts even when git ignores
+keeps the check fresh, and so does one that writes its YAML, TOML or INI settings (a widget installed into
+`config/widgets.yaml`); an edit the AI makes to those still makes the check stale. A file named in `scope.inputs` counts even when git ignores
 it or it holds data. Any edit or command of the model still makes the check stale,
 whichever file it touches; what a page or a server the model started earlier writes
 to an ignored or data file is not seen. Unsupported or

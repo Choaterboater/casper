@@ -5,7 +5,7 @@ import type { ServiceManager } from "../services/manager";
 import { readReferenceFile, referenceText } from "../references/files";
 import { type InputState, workspaceState } from "../verify/workspace-state";
 import { appDataFile } from "../services/app-data";
-import { type AppData, restoreAppData, sameAppData, snapshotAppData } from "./app-data";
+import { type AppData, restoreAppData, sameAppData, settingsFile, snapshotAppData } from "./app-data";
 import { parseScenario, scopeOf, viewport, type BrowserScenario, type BrowserCheck, type BrowserReport, type BrowserStep } from "./scenario";
 import { mkdtemp, realpath, rm } from "node:fs/promises";
 import os from "node:os";
@@ -967,9 +967,10 @@ class ServerGone extends Error {}
 /** The scenario's inputs as they are now; a check that names none is told how to get a fresh pass when the whole project can't be watched.
  * Watching the whole project leaves out what git ignores, so a page that saves to an ignored data/db.json stays fresh. */
 // With no scope the whole project is watched, but not the data files the app writes as a check uses it (data.json):
-// they would make every check that adds a row stale. Edits by the model still do, through invalidate().
+// they would make every check that adds a row stale. Nor the settings it writes (a widget installed into
+// config/widgets.yaml). Edits by the model still do, through invalidate().
 async function inputState(root: string, scenario: BrowserScenario, signal?: AbortSignal): Promise<InputState> {
-  const state = await workspaceState(root, scopeOf(scenario), signal, scenario.scope ? {} : { skipGitIgnored: true, skipFound: appDataFile });
+  const state = await workspaceState(root, scopeOf(scenario), signal, scenario.scope ? {} : { skipGitIgnored: true, skipFound: file => appDataFile(file) || settingsFile(file) });
   return state.fingerprint || scenario.scope ? state
     : { reason: `${state.reason} With no scope.inputs Casper watches the whole project; name the files the page depends on.` };
 }
@@ -1540,6 +1541,9 @@ export class BrowserSession {
     this.replayUntil = performance.now() + 60_000;
     // The data as the AI left it, put back after the replays: they leave no rows of their own behind.
     const left = await snapshotAppData(this.options.projectRoot, signal).catch(() => undefined);
+    // And the settings it may write (a widget installed into config/widgets.yaml): a replay that installs something
+    // leaves nothing of its own there either.
+    const settings = await snapshotAppData(this.options.projectRoot, signal, settingsFile).catch(() => undefined);
     try {
       for (const [id, entry] of this.scenarios) {
         if (this.controller.signal.aborted || signal?.aborted || this.work || !this.page || performance.now() > this.replayUntil - 1_000) return;
@@ -1558,6 +1562,7 @@ export class BrowserSession {
       }
     } finally {
       this.replayUntil = undefined;
+      if (settings) await this.useAppData(settings, signal).catch(() => undefined);
       if (left) await this.useAppData(left, signal).catch(() => undefined);
     }
   }
@@ -1568,7 +1573,7 @@ export class BrowserSession {
    * can't be restarted: the files are still restored, and the note says the app may hold the old data.
    */
   private async useAppData(wanted: AppData, signal?: AbortSignal): Promise<string | undefined> {
-    const now = await snapshotAppData(this.options.projectRoot, signal);
+    const now = await snapshotAppData(this.options.projectRoot, signal, wanted.pick);
     if (!now || sameAppData(wanted, now)) return undefined;
     await restoreAppData(this.options.projectRoot, wanted, now);
     const restart = signal ?? this.controller.signal;

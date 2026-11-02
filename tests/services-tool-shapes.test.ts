@@ -100,6 +100,20 @@ test("a restarted service keeps its address; parallel requests after an edit res
   expect(f.manager.origin("api")).toBe(origin);
 }, 30_000);
 
+test("a restart and a request sent in the same turn share one start: the request waits, and the port stays", async () => {
+  // In a real run the request saw the service stopped and started it on the old port, so the restart found the port
+  // taken, moved the service and stopped the copy the request had started: "not ready", then a moved port.
+  const f = await fixture();
+  const origin = (await f.call({ action: "start", service: "api" })).data.service.origin as string;
+  f.manager.markEdited(path.join(f.root, "src", "app.ts"));
+  const [restarted, answered] = await Promise.all([f.call({ action: "restart", service: "api" }),
+    f.call({ action: "request", service: "api", method: "GET", path: "/health" })]);
+  expect(restarted.data.service.origin).toBe(origin);
+  expect(restarted.data.moved).toBeUndefined();
+  expect(answered).toMatchObject({ isError: false, data: { status: 200 } });
+  expect(f.manager.status()[0]).toMatchObject({ state: "ready", origin });
+}, 30_000);
+
 test("a service whose port something else took moves, and the result says so loudly", async () => {
   const f = await fixture();
   const origin = (await f.call({ action: "start", service: "api" })).data.service.origin as string;

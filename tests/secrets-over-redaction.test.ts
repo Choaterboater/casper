@@ -163,3 +163,14 @@ test("a negated name in code is not a secret: `secret = !pagination` stays, a va
     expect(out, line).not.toMatch(/s3cretValue9|hunter|wxyz/);
   }
 });
+
+test("a value that only names a file is not a secret: secrets: 'secrets.yaml' stays as it is", () => {
+  // A real build hid this line from the AI, which then spent three turns working out what its own file was called.
+  const code = ["const FILES = {", "  secrets: 'secrets.yaml',", "  token_file: \"token.json\",", "  api_key: 'config/keys.env',", "};"].join("\n");
+  expect(scrubPlainSecrets(code, { env: {} }).text).toBe(code);
+  expect(scrubText(code).text).toBe(code);
+  // A real value next to a secret name is still hidden, file-like or not.
+  for (const line of ["secret: 'hunter2-Prod.9x'", "api_key = \"Qz7x-Tm3P9-wLk2-Rv8n\"", "password: 'mail.example'"]) {
+    expect({ line, out: scrubPlainSecrets(line, { env: {} }).text }).toEqual({ line, out: expect.stringContaining(SECRET_MARKER) });
+  }
+});

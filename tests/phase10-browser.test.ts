@@ -461,6 +461,40 @@ browserTest("an end replay starts from the data its check was recorded with, and
   expect(await count()).toBe(5);
 }, 60_000);
 
+browserTest("an end replay of a check that installs something leaves no trace in an app that keeps its data in YAML settings", async () => {
+  // A real build kept installed widgets in config/widgets.yaml. The AI removed its test widgets, then Casper's own end
+  // replay of "install sonarr" put one back, and that test widget shipped. YAML isn't one of the app's data files.
+  const f = await fixture();
+  const file = path.join(f.project, "config", "widgets.yaml");
+  await mkdir(path.dirname(file), { recursive: true });
+  await writeFile(file, "widgets: []\n");
+  const server = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request) {
+    if (new URL(request.url).pathname === "/install") { await writeFile(file, `widgets:\n  - id: sonarr-${Date.now()}\n`); return new Response("Installed"); }
+    return new Response(`<!doctype html><button id="install" onclick="fetch('/install',{method:'POST'}).then(r=>r.text()).then(t=>{document.querySelector('#out').textContent=t})">Install</button><p id="out"></p>`, { headers: { "content-type": "text/html" } });
+  } });
+  cleanup.push(async () => { server.stop(true); });
+  const check = await f.session.run({ action: "check", scenario: { name: "install sonarr", url: `http://127.0.0.1:${server.port}`,
+    steps: [{ action: "click", selector: "#install", impact: "local-test", reason: "installs a test widget" }], assertions: [{ kind: "text", selector: "#out", expected: "Installed" }] } });
+  expect(check).toMatchObject({ status: "pass" });
+  // The AI removes its test widget; a later command makes the check stale.
+  await writeFile(file, "widgets: []\n");
+  f.session.invalidate();
+  await f.session.replayStale(0);
+  expect((await f.session.report()).checks[0]).toMatchObject({ name: "install sonarr", status: "pass" });
+  expect(await readFile(file, "utf8")).toBe("widgets: []\n");
+}, 60_000);
+
+browserTest("a check that names no scope stays fresh when the app writes its YAML settings, as it does for its data files", async () => {
+  // Another check's replay installed a widget into config/widgets.yaml and made the checks replayed before it stale: exit 2.
+  const f = await fixture();
+  await mkdir(path.join(f.project, "config"));
+  await writeFile(path.join(f.project, "config", "widgets.yaml"), "widgets: []\n");
+  const result = await f.session.run({ action: "check", scenario: { name: "Heading", url: f.url, steps: [], assertions: [{ kind: "text", selector: "h1", expected: "Hello Casper" }] } });
+  expect(result).toMatchObject({ status: "pass", freshness: "fresh" });
+  await writeFile(path.join(f.project, "config", "widgets.yaml"), "widgets:\n  - id: sonarr-1\n");
+  expect(await f.session.report()).toMatchObject({ status: "pass", checks: [{ freshness: "fresh" }] });
+}, 20_000);
+
 browserTest("at the end Casper replays checks that ran before a later edit: a pass counts, a break fails, a fresh check is left alone", async () => {
   const f = await fixture();
   const html = (saved: string) => `<!doctype html><button id="save" onclick="document.querySelector('#status').textContent='${saved}'">Save</button><p id="status">Not saved</p>`;
