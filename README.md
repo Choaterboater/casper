@@ -36,20 +36,20 @@ Casper itself is free and open source. A task spends money only with your own mo
 macOS / Linux:
 
 ```sh
-curl -fsSL https://github.com/Choaterboater/casper/releases/download/v0.4.6/install.sh | sh
+curl -fsSL https://github.com/Choaterboater/casper/releases/download/v0.4.7/install.sh | sh
 ```
 
 Windows (x64 or ARM64), in PowerShell:
 
 ```powershell
-[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; irm https://github.com/Choaterboater/casper/releases/download/v0.4.6/install.ps1 | iex
+[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; irm https://github.com/Choaterboater/casper/releases/download/v0.4.7/install.ps1 | iex
 ```
 
 No admin rights, Bun or source checkout needed. The installer checks the file's SHA-256 (with
 `gh` signed in, also where it was built; for releases signed with the
 [release key](docs/RELEASE.md#the-release-key), none yet, the signature too) and keeps your old install
-if anything is wrong. These commands pin **v0.4.6**; after that,
-`casper update` gets the newest preview. `install.sh` takes `--dir <path>`, `--version 0.4.6`,
+if anything is wrong. These commands pin **v0.4.7**; after that,
+`casper update` gets the newest preview. `install.sh` takes `--dir <path>`, `--version 0.4.7`,
 `--sha256 <hex>` and `--force`. [Installer details](docs/RELEASE.md#installer-contract).
 
 Use the one-line command above rather than downloading a program in your browser: the installer
@@ -83,7 +83,7 @@ From the shell:
 ```sh
 casper "Explain this project"  # start a session with this first request
 casper --no-verify   # no Casper-run checks this run
-casper --version     # casper 0.4.6 (/absolute/path/of/the/binary/or/cli.ts)
+casper --version     # casper 0.4.7 (/absolute/path/of/the/binary/or/cli.ts)
 casper doctor        # check Casper's own setup and fix what it can (no model)
 ```
 
@@ -227,6 +227,8 @@ Ctrl+D on an empty prompt exits. [Keys and commands](docs/TERMINAL_UX.md#quick-r
 | Contributing | [How Casper is built](docs/ARCHITECTURE.md) · [Working on Casper](docs/DEVELOPING.md) |
 
 ## What's new
+
+v0.4.7: a password on a line naming a test domain (`ada@example.test`) is made up and gets no secret warning; an app with nothing to start it is a grey note, never Incomplete; and a request's topic words are not cases to test.
 
 v0.4.6: a turn that changed only output files gets a quieter receipt: line 1 counts the files and says where they are, no proof line, a run's own logs and moved files count as its own, and the commands and number keys share one Next row.
 
