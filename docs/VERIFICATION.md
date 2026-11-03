@@ -86,7 +86,8 @@ says `Checks skipped — only a running app's database files changed (...)`. The
 `.log` or `.out` file, never code or tests wherever they sit. When only those (with docs or database files) changed, the receipt says
 `Checks skipped — only output files changed (results/report.html, …)` as line 1, grey: nothing to act on. More than three
 files are counted, not listed: `only output files changed (129 in builds/, runs/, results/ and 2 more places)`. A comparison that
-wrote 22 files under `results/` ran a 45 s test suite for them.
+wrote 22 files under `results/` ran a 45 s test suite for them. The same holds where checks are offered with `/verify`:
+such a receipt is grey too, with no `/verify` push and no line about the request's cases.
 
 **A question.** A request that reads as a question (Casper's question intent, a closing `?`, or a bare `status`) whose
 AI's own `edit` and `write` tools changed nothing, and that changed no code or tests, runs no checks:
@@ -115,9 +116,18 @@ its tools ran, stays the AI's. A deleted file (it has no time of its own) or a c
 task left running could still write stays the AI's on the receipt, and `/undo` asks before touching it
 ([UNDO.md](UNDO.md#the-rules)). `tests/changed-by-others.test.ts` covers this.
 
+**Left by your test runs.** A data file that was not there before the task and that the task's own runs could have
+written (it ran a shell command, a service or the browser): a SQLite database with its `-wal` and `-shm`, or JSON, YAML
+or CSV under a `data/` or `db/` folder, never in a program's output folder. It is the task's, for undo too, never
+`Changed by something else`. While it is still there after the AI's turn, Casper tells the AI once what it holds
+(`↻ data/tracker.db (2 rows in 2 tables): left by this task's own runs; asking the AI to remove it unless it ships`), and
+a file still there at the end is a grey receipt line: `– Left by your test runs: data/tracker.db (2 rows in 2 tables); it
+ships with the app unless you delete it`. A tracker build once shipped the user its own test run signed up, so the first
+person to register on a fresh install was not the admin. `tests/test-data-left.test.ts` covers this.
+
 A running app rewrites some files by itself all the time, also while one of the AI's commands runs: a SQLite database
 and its `-wal`, `-shm` and `-journal` files (`.db`, `.sqlite`, `.sqlite3`), and logs (`*.log`, `*.log.1`, `*.log.gz`).
-Those are always the app's, `Changed by something else`, unless the AI's `edit` or `write` tools or one of its commands
+When they were there before the task, those are always the app's, `Changed by something else`, unless the AI's `edit` or `write` tools or one of its commands
 named them (`sqlite3 config/home-assistant_v2.db …`). A log in a run's own output folder (`builds/`, `runs/`,
 `results/`) is not an app's: a comparison's `node evaluate.mjs` starts each build's server, which logs into
 `results/checks/`, so its time decides as for any file (written while the AI's command ran: that command's output). A
