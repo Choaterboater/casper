@@ -84,7 +84,8 @@ says `Checks skipped — only a running app's database files changed (...)`. The
 **Only output changed.** Files a program writes when it runs, not what it runs from: everything in a top-level
 `results`, `output`, `out`, `reports`, `logs`, `coverage`, `screenshots`, `builds`, `dist` or `runs` folder and any
 `.log` or `.out` file, never code or tests wherever they sit. When only those (with docs or database files) changed, the receipt says
-`Checks skipped — only output files changed (results/report.html, …)` as line 1, grey: nothing to act on. A comparison that
+`Checks skipped — only output files changed (results/report.html, …)` as line 1, grey: nothing to act on. More than three
+files are counted, not listed: `only output files changed (129 in builds/, runs/, results/ and 2 more places)`. A comparison that
 wrote 22 files under `results/` ran a 45 s test suite for them.
 
 **A question.** A request that reads as a question (Casper's question intent, a closing `?`, or a bare `status`) whose
@@ -117,7 +118,11 @@ task left running could still write stays the AI's on the receipt, and `/undo` a
 A running app rewrites some files by itself all the time, also while one of the AI's commands runs: a SQLite database
 and its `-wal`, `-shm` and `-journal` files (`.db`, `.sqlite`, `.sqlite3`), and logs (`*.log`, `*.log.1`, `*.log.gz`).
 Those are always the app's, `Changed by something else`, unless the AI's `edit` or `write` tools or one of its commands
-named them (`sqlite3 config/home-assistant_v2.db …`). A Home Assistant folder's investigation that changed nothing
+named them (`sqlite3 config/home-assistant_v2.db …`). A log in a run's own output folder (`builds/`, `runs/`,
+`results/`) is not an app's: a comparison's `node evaluate.mjs` starts each build's server, which logs into
+`results/checks/`, so its time decides as for any file (written while the AI's command ran: that command's output). A
+file the task moved into another folder (`mv results logs run-3/`) is the task's, whatever wrote it before; an app
+renaming its own log in its folder (`app.log` to `app.log.1`) is not a move. A Home Assistant folder's investigation that changed nothing
 says so, instead of `Changed 7 files` and an undo line for its database. `tests/home-assistant-session.test.ts` covers this.
 A file that changed after the last task in this folder ended and before this one began, while no task ran, is being
 written by something still running: a job an earlier task started, an app. When it changes again during this task it
@@ -371,8 +376,7 @@ coloured edge, for example
 ▌   Config   .casper/project.yaml, package.json
 ▌   Devices  build-server: installed a service (/etc/systemd/system/app.service)
 ▌            from the commands Casper saw, not checked there
-▌   Next     /verify repair test
-▌            [1] Show diff   [2] Undo   · press a number
+▌   Next     [1] Show diff   [2] Undo   · press a number · /verify repair test
 ```
 
 A row shows only when it has something to say, in this order: **Open** (what needs you, `⚠` first, and a plan step the
@@ -381,9 +385,9 @@ AI did not finish), **Checks** (one per check with its time, the repairs, and ch
 **Devices** (other machines, from the commands Casper saw, and each change sent through an MCP server in plain words
 with how to undo it: `In Mist: site Lab-Site now uses RF template Standard-RF-80MHz (was Standard-RF). To undo: set it back
 to Standard-RF`), **Proof** (only when the proof is missing or weak),
-**Notes** (grey, at most three, then `+N more · /receipt`), **Undo**, and **Next** (what to type, then the numbered
-keys, each a key cap: a bold, reversed ` 1 ` in the theme's selection colour, `[1]` with `NO_COLOR`, then a grey
-`· press a number`; `tests/next-keycaps-ansi.test.ts` checks these). Config files are package.json and other dependency lists, tsconfig, `.env` files, YAML, TOML and INI files,
+**Notes** (grey, at most three, then `+N more · /receipt`), **Undo**, and **Next** (one row: the numbered keys, each a
+key cap: a bold, reversed ` 1 ` in the theme's selection colour, `[1]` with `NO_COLOR`, then a grey `· press a number`,
+then what to type; `tests/next-keycaps-ansi.test.ts` checks these). Config files are package.json and other dependency lists, tsconfig, `.env` files, YAML, TOML and INI files,
 Dockerfiles and compose files, CI workflows, `.casper/project.yaml`, Ansible inventories and variables, and device
 configs (Junos `.set`, `.conf`, `.cfg`). The edge and line 1 are green for Verified or Checks passed, red only for
 Failed, the accent colour with `◐` while a job the task started still runs, and amber with `⚠` for the rest (not
@@ -714,7 +718,8 @@ How it works:
 
 **Seeing the list.** The receipt names the checklist only when something is wrong with it: a case
 the model's own review says is not done, or cases that could not be confirmed because the checks
-did not pass or did not run. `/receipt` lists every case.
+did not pass or did not run. Checks rightly skipped (only output files changed, or a question) are not
+"did not run": that receipt has no such line. `/receipt` lists every case.
 
 ```
 ⚠ 1 requirement not met, the model says: the 6th call within a minute is rejected — not implemented

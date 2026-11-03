@@ -222,8 +222,10 @@ Each mark at the start of a line means one thing, in one colour (the `default` t
 | `◐` | accent, bold | work in the background: a receipt whose job still runs (`◐ Still running — …`), and the line when it ends |
 
 A receipt whose checks were rightly skipped (only docs, data or a program's output changed, or a question) is grey with
-`–` on line 1 (`– Checks skipped — only output files changed (…)`), not amber; and a task stopped before it did
-anything ends with one grey line, `– Stopped. Nothing was changed.`, not a Stopped card.
+`–` on line 1 (`– Checks skipped — only output files changed (…)`), not amber. Line 1 names up to three files and
+counts more (`only output files changed (129 in builds/, runs/, results/ and 2 more places)`), and such a receipt has no
+Proof row: the cases from your request are not "not confirmed" for want of checks that had nothing to check. A task
+stopped before it did anything ends with one grey line, `– Stopped. Nothing was changed.`, not a Stopped card.
 | `○` | amber | did not run (refused, stopped at the spend limit) |
 | `✗` | amber | a step failed, and the AI is still working |
 | `▌ ✗` | red | the task's result failed (the receipt), or an error stopped work (`[error]`) |
@@ -414,7 +416,8 @@ every request until `/plan off`, and the footer badge says `PLAN · /plan off` w
 
 After an interactive receipt, the row under it starts suggestions at 1 when there is no diff or
 undo: `Next: 1 Add a test that proves this bug stays fixed (uses tokens)`. Under a receipt card the row joins the
-card's Next row, on its edge, without the `Next:` word. On the rich terminal each number is a key cap, so the row
+card's Next row, on its edge, without the `Next:` word: one row, the keys first and the card's own commands after them
+(`Next  [1] Show diff   [2] Undo   · press a number · /verify repair test`), never a second Next row. On the rich terminal each number is a key cap, so the row
 reads as something to press: a bold, reversed ` 1 ` in the theme's selection colour, the steps spaced apart, then a
 grey `· press a number` (`[1] Show diff   [2] Undo   · press a number` with `NO_COLOR`); the plain terminal keeps
 `Next: 1 Show diff · 2 Undo` as written ([`tests/next-keycaps-ansi.test.ts`](../tests/next-keycaps-ansi.test.ts)). With diff or undo offered,

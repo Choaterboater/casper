@@ -28,7 +28,7 @@ import { changedSoFar, endingLine, mustStand, quietReceipt, taskEnding, withEarl
 import { OBSERVED_EDITS_LIMIT, TaskObservations } from "../task/observations";
 import { isToolCallAsText, TOOL_CALL_AS_TEXT_LINE } from "../task/text-tool-call";
 import { diffSnapshots, findMoves, tooManyFiles, withoutMoves, type TreeChanges } from "../task/changes";
-import { attributeChanges, withoutFiles, WriteWindows } from "../task/attribution";
+import { attributeChanges, movedElsewhere, withoutFiles, WriteWindows } from "../task/attribution";
 import { OutsideWork } from "../task/outside-work";
 import { headMoved, taskHead } from "../task/git-movement";
 import type { CheckName, VerificationReport } from "../verify/evidence";
@@ -378,6 +378,7 @@ export async function runModelTask(app: CasperApp, prompt: string, options: { fl
     if (before && afterModel && edits.windows && (edits.tools || liveFiles.size)) {
       const changes = diffSnapshots(before, afterModel);
       const split = edits.tools ? await attributeChanges({ root: workspaceRoot, changes, windows: edits.windows.windows(),
+        moved: movedElsewhere(findMoves(before, afterModel, changes), changes),
         since: edits.windows.since, until: Date.now(), toolFiles: new Set(toolFiles(workspaceRoot, app.observations.edited(), "inside")),
         unsure: Boolean(edits.windows.unsure || app.backgroundCommands?.list().length || app.services?.live() || app.subagents.runs().length),
         commands: app.observations.toolCalls.flatMap((call) => typeof call.input?.command === "string" ? [call.input.command] : []), liveFiles }).catch(() => undefined)

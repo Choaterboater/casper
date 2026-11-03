@@ -4,13 +4,15 @@
  * task's work and deleted by its undo. The task's tools that can write (any tool but reads, searches and a plain ssh)
  * are timed while they run; a file whose time of change falls while none of them ran is another program's. A file the
  * task's own edit and write tools named is always the task's. A running app's database and log files (serviceFile) are
- * the app's whenever they changed, unless the AI's tools or commands named them; so is a file that kept changing between
- * tasks (liveFiles), unless the AI's edit and write tools named it. A deleted file, an unreadable time, or anything while a
+ * the app's whenever they changed, unless the AI's tools or commands named them, or they sit in a run's own output folder
+ * (builds/, runs/, results/), where their time decides; so is a file that kept changing between tasks (liveFiles), unless
+ * the AI's edit and write tools named it. A file the task moved into another folder is the task's. A deleted file, an unreadable time, or anything while a
  * command or service the task left running could still write, is one Casper can't tell: it stays the task's on the
  * receipt, and undo asks before touching it.
  */
 import { lstat } from "node:fs/promises";
 import path from "node:path";
+import { builtOutput } from "../verify/mode";
 import type { TreeChanges } from "./changes";
 
 /** File times are compared this loosely: some file systems keep them to the second (FAT, SMB keeps two). */
@@ -82,6 +84,8 @@ export interface AttributionInput {
    * running writes them (a job the AI started in an earlier task, an app). A change to one now is that writer's too,
    * also while a command of this task ran (reading its log names it), unless the task's edit and write tools named it. */
   liveFiles?: ReadonlySet<string>;
+  /** Files the task moved into another folder, where they went and where they left (movedElsewhere). */
+  moved?: ReadonlySet<string>;
   /** The time a file or folder last changed, or undefined when it can't be read. */
   changedAt?: (absolute: string) => Promise<number | undefined>;
   slackMs?: number;
@@ -108,9 +112,10 @@ export async function attributeChanges(input: AttributionInput): Promise<Attribu
   };
   // A running app rewrites its database and log by itself, also while one of the AI's commands runs: unless the AI's
   // edit tools or its commands named the file, it is the app's.
-  const theApps = (file: string) => serviceFile(file) && !input.toolFiles?.has(file)
+  // A log in a run's own output folder (a comparison's servers log into results/) is what the run wrote: its time decides.
+  const theApps = (file: string) => serviceFile(file) && !builtOutput(file) && !input.toolFiles?.has(file) && !input.moved?.has(file)
     && !(input.commands ?? []).some((command) => command.includes(path.posix.basename(file).replace(/-(?:wal|shm|journal)$/, "")));
-  const live = (file: string) => Boolean(input.liveFiles?.has(file)) && !input.toolFiles?.has(file);
+  const live = (file: string) => Boolean(input.liveFiles?.has(file)) && !input.toolFiles?.has(file) && !input.moved?.has(file);
   for (const file of [...input.changes.added, ...input.changes.modified, ...input.changes.removed]) if (theApps(file) || live(file)) result.others.push(file);
   for (const file of [...input.changes.added, ...input.changes.modified]) {
     if (result.others.includes(file)) continue;
@@ -134,6 +139,14 @@ export async function attributeChanges(input: AttributionInput): Promise<Attribu
   }
   for (const list of [result.task, result.others, result.unsure]) list.sort();
   return result;
+}
+
+/** The files moved into another folder (`mv results run-3/`): where each went, and where it left when nothing took its
+ * place. A rename in the same folder is not one: an app rotating app.log to app.log.1 renames its own log. */
+export function movedElsewhere(moves: ReadonlyArray<{ from: string; to: string }>, changes: TreeChanges): Set<string> {
+  const removed = new Set(changes.removed);
+  return new Set(moves.filter((move) => path.posix.dirname(move.from) !== path.posix.dirname(move.to))
+    .flatMap((move) => [move.to, ...removed.has(move.from) ? [move.from] : []]));
 }
 
 /** `snapshot` with `files` as they were in `before`: the task's comparisons then leave another program's files out. */

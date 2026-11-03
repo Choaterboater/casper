@@ -73,7 +73,7 @@ test("a failed receipt's card: red only on its edge, its verdict and the failed 
     }
     // Nothing else is red: the edge, the verdict and the failed check's mark.
     expect(cells.flat().filter((cell) => cell.foreground === error).length).toBe(cells.length + "✗ Failed".length + 1);
-  }, { theme: theme.name });
+  }, { theme: theme.name, next: true });
 });
 
 test("not verified, not checked, incomplete and stopped are amber with ⚠, never red", async () => {
@@ -100,13 +100,13 @@ test("a clean pass is one green line, edge and words", async () => {
   });
 });
 
-test("notes are grey, and the next-step keys join the card's Next row on its edge", async () => {
+test("notes are grey, and the next-step keys and the card's own commands are one Next row on its edge", async () => {
   const task = done({ changedPaths: ["sum.js"], autoSkipped: "no-checks", sandbox: { held: false, reason: "--no-sandbox" } });
   await drawn(task, (cells, rows) => {
     // The first problem receipt of a session ends with where its words are explained (tests/receipt-detail.test.ts).
     // Each key is a key cap (a reversed " 1 "), then the step's words, plain (tests/next-keycaps-ansi.test.ts).
-    expect(text(cells).slice(-4).map((row) => row.trimEnd())).toEqual(["▌   Notes    Shell commands and checks were not sandboxed (--no-sandbox)", '▌   Next     "add tests"',
-      "▌             1  Show diff    2  Undo   · press a number", "▌   What these words mean: /help receipt"]);
+    expect(text(cells).slice(-3).map((row) => row.trimEnd())).toEqual(["▌   Notes    Shell commands and checks were not sandboxed (--no-sandbox)",
+      '▌   Next      1  Show diff    2  Undo   · press a number · "add tests"', "▌   What these words mean: /help receipt"]);
     expect(painted(cellsFor(cells, "Shell commands and checks were not sandboxed"), "muted")).toBe(true);
     expect(painted([cells.at(-2)![0]!], "warning") && plain(cellsFor(cells, "Show diff")) && plain(cellsFor(cells, "Undo"))).toBe(true);
     expect(rows.join("\n")).not.toContain("Next: 1");
