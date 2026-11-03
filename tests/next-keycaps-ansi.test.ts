@@ -18,7 +18,7 @@ beforeEach(() => { previous = activeThemeName(); });
 afterEach(() => { useTheme(previous); });
 
 /** The receipt card and its Next row as the real terminal drew them: the rows holding `texts`, found in the writer's bytes. */
-async function drawn(texts: readonly string[], { theme = "default", noColor = false, row = buildNextRow({ diff: { label: "Show diff", command: "/diff 1" }, undo: { label: "Undo", command: "/undo 1" } }) } = {}): Promise<Cell[][]> {
+async function drawn(texts: readonly string[], { theme = "default", noColor = false, keys = true, row = buildNextRow({ diff: { label: "Show diff", command: "/diff 1" }, undo: { label: "Undo", command: "/undo 1" } }) } = {}): Promise<Cell[][]> {
   let cells: Cell[][] = [];
   await withEnv({ TERM: "xterm-256color", NO_COLOR: noColor ? "1" : undefined }, async () => {
     useTheme(theme);
@@ -27,7 +27,7 @@ async function drawn(texts: readonly string[], { theme = "default", noColor = fa
     try {
       f.terminal.start();
       f.terminal.writeResult(formatShortReceipt(task, { surface: "interactive" }), receiptView(task, { surface: "interactive" }));
-      f.terminal.offerNext(row);
+      f.terminal.offerNext(keys ? row : undefined);
       await f.screen.until(text => texts.every(want => text.includes(want)));
       const rendered = (f.terminal as unknown as { surface: { tui: { render(width: number): string[] } } }).surface.tui.render(WIDTH);
       const rows = rendered.filter(row => texts.some(want => Bun.stripANSI(row).includes(want)));
@@ -74,4 +74,34 @@ test("a step's reason says Why, not a second number, and only the step's own key
   expect(cells.flat().filter((cell) => cell.inverse).map((cell) => cell.char).join("")).toBe(" 1 ");
   expect(lines.find((line) => line.includes("Why:"))).not.toMatch(/\b1:/);
   expect(cellsFor(cells, "Why: no test shows the fix works").some((cell) => cell.inverse || cell.bold)).toBe(false);
+});
+
+test("the card's own commands and the keys are one Next row, never two", async () => {
+  // The owner's v0.4.5 receipt: "Next  /receipt" and, under it, the key caps on a second row.
+  const cells = await drawn(["[1] Show diff", "/verify"], { noColor: true });
+  const lines = cells.map((line) => line.map((cell) => cell.char).join("").trimEnd());
+  expect(lines.filter((line) => /▌\s+Next\b/.test(line))).toEqual(["▌   Next     [1] Show diff   [2] Undo   · press a number · /verify"]);
+  expect(lines.filter((line) => line.includes("/verify") && !line.includes("Checks skipped"))).toHaveLength(1);
+});
+
+test("with no keys after it, the card's commands still have their Next row", async () => {
+  const cells = await drawn(["Next", "/verify"], { noColor: true, keys: false });
+  const lines = cells.map((line) => line.map((cell) => cell.char).join("").trimEnd());
+  expect(lines.filter((line) => line.includes("Next"))).toEqual(["▌   Next     /verify"]);
+});
+
+test("a line written between the card and its keys never loses the card's commands", async () => {
+  await withEnv({ TERM: "xterm-256color", NO_COLOR: "1" }, async () => {
+    const f = interactiveTerminal();
+    f.screen.writer.columns = WIDTH;
+    try {
+      f.terminal.start();
+      f.terminal.writeResult(formatShortReceipt(task, { surface: "interactive" }), receiptView(task, { surface: "interactive" }));
+      f.terminal.writeReceipt("[crew] Reviewer 1: no problems found\n");
+      await f.screen.until((text) => text.includes("Reviewer 1"));
+      const rendered = (f.terminal as unknown as { surface: { tui: { render(width: number): string[] } } }).surface.tui.render(WIDTH).map((row) => Bun.stripANSI(row).trimEnd());
+      expect(rendered.filter((row) => row.includes("Next"))).toEqual(["▌   Next     /verify"]);
+      expect(rendered.findIndex((row) => row.includes("Next"))).toBeLessThan(rendered.findIndex((row) => row.includes("Reviewer 1")));
+    } finally { f.close(); }
+  });
 });

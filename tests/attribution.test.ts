@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { attributeChanges, withoutFiles, WriteWindows } from "../src/task/attribution";
+import { attributeChanges, movedElsewhere, withoutFiles, WriteWindows } from "../src/task/attribution";
 
 /** Times by path under the fake root "/r" (path.join writes it \r on Windows). */
 const at = (times: Record<string, number | undefined>) => async (absolute: string) => times[absolute.replaceAll("\\", "/").replace(/^\/r\/?/, "") || "."];
@@ -75,4 +75,32 @@ test("files a job from an earlier task keeps writing are its own, even while thi
   const edited = await attributeChanges({ root: "/r", since: 1_000, until: 60_000, windows: [[10_000, 12_000]], changes, changedAt: during,
     liveFiles: new Set(["logs/casper.json"]), toolFiles: new Set(["logs/casper.json"]) });
   expect(edited.task).toContain("logs/casper.json");
+});
+
+test("a server log in results/ written while the AI's command ran is that command's output; one written between commands is not", async () => {
+  // The comparison's "re run the test for test 4": `node evaluate.mjs` started each build's server, which logged into
+  // results/checks/. The command never names the log, and a log is a running app's by default; in a run's own output
+  // folder (builds/, runs/, results/) its time decides, as for any other file. An app's log in logs/ is still the app's.
+  const changes = { ...none, modified: ["results/checks/A.server.log", "results/checks/B.server.log", "logs/app.log"] };
+  const split = await attributeChanges({ root: "/r", since: 1_000, until: 60_000, windows: [[10_000, 12_000]], changes,
+    changedAt: at({ "results/checks/A.server.log": 11_000, "results/checks/B.server.log": 30_000, "logs/app.log": 11_000 }), commands: ["node evaluate.mjs"] });
+  expect(split).toEqual({ task: ["results/checks/A.server.log"], others: ["logs/app.log", "results/checks/B.server.log"], unsure: [] });
+});
+
+test("a log the task moved into another folder is the task's: the move was its command, whatever wrote the log", async () => {
+  // `mv builds runs results logs run-3/`: the logs moved with the rest, their times from before the task.
+  const changes = { ...none, added: ["run-3/logs/omp.stderr.log", "run-3/results/checks/A.server.log", "logs/app.log.1"], removed: ["logs/omp.stderr.log"] };
+  const split = await attributeChanges({ root: "/r", since: 5_000, until: 60_000, windows: [[10_000, 12_000]], changes,
+    changedAt: at({ "run-3/logs/omp.stderr.log": 1_000, "run-3/results/checks/A.server.log": 2_000, "logs/app.log.1": 30_000, logs: 11_000 }),
+    commands: ["mkdir run-3 && mv builds runs results logs run-3/"], liveFiles: new Set(["logs/omp.stderr.log"]),
+    moved: new Set(["run-3/logs/omp.stderr.log", "run-3/results/checks/A.server.log", "logs/omp.stderr.log"]) });
+  // A rotated log (app.log to app.log.1 in its own folder) is not a move into another folder: still the app's.
+  expect(split).toEqual({ task: ["logs/omp.stderr.log", "run-3/logs/omp.stderr.log", "run-3/results/checks/A.server.log"], others: ["logs/app.log.1"], unsure: [] });
+});
+
+test("moved elsewhere: into another folder, both ends when the old path is gone; a rename in its own folder is not", () => {
+  const changes = { added: ["run-3/logs/omp.stderr.log", "run-3/results/checks/A.server.log", "logs/app.log.1"], modified: ["results/checks/A.server.log", "logs/app.log"], removed: ["logs/omp.stderr.log"] };
+  expect([...movedElsewhere([{ from: "logs/omp.stderr.log", to: "run-3/logs/omp.stderr.log" }, { from: "results/checks/A.server.log", to: "run-3/results/checks/A.server.log" },
+    { from: "logs/app.log", to: "logs/app.log.1" }], changes)].sort())
+    .toEqual(["logs/omp.stderr.log", "run-3/logs/omp.stderr.log", "run-3/results/checks/A.server.log"]);
 });

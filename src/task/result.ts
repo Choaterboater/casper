@@ -704,6 +704,8 @@ function checklistLines(task: TaskResult, safe: (text: string) => string): Recei
   }
   const changed = Boolean(task.changedPaths?.length || task.changedDuringChecks?.length || (!task.changedPaths && task.possibleMutations));
   if (!changed || checksPassed(task.verification, task)) return [];
+  // Checks rightly skipped (only output files changed, or a question): there was nothing for them to confirm.
+  if (!task.verification && (task.autoSkipped === "output" || task.autoSkipped === "question")) return [];
   const why = task.execution !== "completed" || task.turnLimit !== undefined || task.spendLimit !== undefined ? "the task did not finish" : !task.verification ? "no checks ran"
     : task.verification.status === "pass" ? "the checks do not prove the change"
     : failingBeforeOnly(task.verification) ? "a check fails with and without this change" : "the checks did not pass";
@@ -815,7 +817,8 @@ function receiptParts(task: TaskResult, options: ReceiptOptions, onScreen = fals
     // The files it changed itself: moved files are their own line.
     const movedAway = new Set((task.moved ?? []).flatMap((move) => [move.to, ...move.rewritten ? [] : [move.from]]));
     const own = task.changedPaths?.filter((file) => !movedAway.has(file));
-    const only = (what: string) => `only ${what} changed${here}${own?.length ? ` (${pathList(own, safe, false)})` : ""}`;
+    // A few files are named; more are counted, with where most of them are (line 1 is not a file list).
+    const only = (what: string) => `only ${what} changed${here}${!own?.length ? "" : own.length <= 3 ? ` (${pathList(own, safe, false)})` : ` (${filesFolders(own, safe)})`}`;
     if (task.autoSkipped === "no-checks") {
       if (options.checksHintShown) why("– Not verified — no checks set up", "Not verified", "no checks set up");
       else if (task.testsWithoutCommand) why(TESTS_WITHOUT_COMMAND_LINE, "Not checked", undefined, SET_UP_TEST_COMMAND);
@@ -1362,6 +1365,15 @@ export function liveCheckLine(result: VerificationResult): string {
   const why = typeof result.exitCode === "number" ? `exit ${result.exitCode}` : result.signal ? `stopped by ${result.signal}`
     : result.reason ? lineText(result.reason) : "no exit status";
   return `✗ ${name} · ${label}${why}${elapsed(result.durationMs) ? ` · ${elapsed(result.durationMs)}` : ""}`;
+}
+
+/** "129 in builds/, runs/, results/ and 2 more places": how many, and the top folders most of them are in. */
+function filesFolders(paths: readonly string[], safe: (text: string) => string): string {
+  const where = new Map<string, number>();
+  for (const file of paths) { const top = file.includes("/") ? `${file.split("/")[0]}/` : "here"; where.set(top, (where.get(top) ?? 0) + 1); }
+  const most = [...where].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).map(([folder]) => safe(folder));
+  const named = most.slice(0, 3), rest = most.length - named.length;
+  return `${paths.length} in ${named.length > 1 && !rest ? `${named.slice(0, -1).join(", ")} and ${named.at(-1)}` : named.join(", ")}${rest ? ` and ${rest} more ${rest === 1 ? "place" : "places"}` : ""}`;
 }
 
 function pathList(paths: string[], safe: (text: string) => string, count = true): string {

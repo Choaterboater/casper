@@ -143,7 +143,8 @@ export class InteractiveTerminal {
   /** The receipt card just drawn, for the next-step row that follows it: its edge's tone, whether it has a Next row of
    * its own, and whether the pointer to what its words mean goes last. Forgotten once anything else is written or the
    * prompt is back. */
-  private card?: { tone: CardTone; next: boolean; hint: boolean };
+  /** The receipt card just drawn: its Next commands wait for the next-step keys, so the two are one Next row. */
+  private card?: { tone: CardTone; next: string[]; hint: boolean };
   /** The first problem receipt of the session has shown where its words are explained. */
   private receiptHintShown = false;
 
@@ -357,7 +358,7 @@ export class InteractiveTerminal {
    * titled plain block otherwise. Both title and body are sanitized as untrusted text. `diff`
    * colors unified-diff lines in the theme's diff colours (added, removed, hunk headers). */
   writePanel(title: string, body: string, options: { tone?: PanelTone; diff?: boolean } = {}): void {
-    this.card = undefined;
+    this.flushCard();
     const heading = terminalText(title).replace(/\s+/g, " ").trim();
     const plain = terminalText(body).replace(/\n$/, "").split("\n");
     if (!this.surface) { this.write(`${heading}\n${plain.join("\n")}\n`); return; }
@@ -381,7 +382,7 @@ export class InteractiveTerminal {
   writeReceipt(text: string): void { this.writeStyled(text, "line", true); }
 
   private writeStyled(text: string, kind: EntryKind, result: boolean): void {
-    this.card = undefined;
+    this.flushCard();
     const styled = terminalText(text).split("\n").map(line => this.styleLine(line, result)).join("\n");
     if (this.surface && /^\[crew\]/.test(terminalText(styled))) {
       this.surface.writeBlock({ render: width => styled.trimEnd().split("\n")
@@ -415,7 +416,7 @@ export class InteractiveTerminal {
    * receipt), it is the receipt card (receipt-card.ts); otherwise, and on a terminal too narrow for the card, the lines
    * under the edge. The plain terminal gets the lines as they are. */
   writeResult(text: string, view?: ReceiptView): void {
-    this.card = undefined;
+    this.flushCard();
     const card = this.surface && view ? receiptCard(view, this.color) : undefined;
     if (!this.surface || !card) {
       if (!this.surface) { this.writeReceipt(text); return; }
@@ -426,15 +427,26 @@ export class InteractiveTerminal {
       this.surface.write(lines.map(line => line ? `${edge} ${this.styleLine(line, true)}` : line).join("\n"), "group");
       return;
     }
-    this.writeCard(card, text);
+    // Its Next commands join the next-step keys on one Next row (offerNext), not a second Next row under it.
+    const next = card.rows.find(row => row.label === "Next")?.values ?? [];
+    this.writeCard({ ...card, rows: card.rows.filter(row => row.label !== "Next") }, text);
     // The first problem receipt of a session ends with where its words are explained, after the next-step keys.
-    if (card.rows.length) this.card = { tone: card.tone, next: card.rows.some(row => row.label === "Next"), hint: card.tone !== "success" && !this.receiptHintShown };
+    if (card.rows.length) this.card = { tone: card.tone, next, hint: card.tone !== "success" && !this.receiptHintShown };
+  }
+
+  /** The last card's Next commands, drawn on their own when something else is written before the keys come. */
+  private flushCard(): void {
+    const card = this.card;
+    this.card = undefined;
+    if (!this.surface || !card?.next.length) return;
+    const color = this.color;
+    this.surface.writeBlock({ render: width => width >= CARD_MIN_COLUMNS ? cardNextRows(undefined, card.tone, card.next, width, color) : [], invalidate() {} }, "attached");
   }
 
   /** A receipt card on the rich terminal, in a block of its own; too narrow for its label column, or on the plain
    * terminal, `text` (the receipt's own lines) instead, under the card's edge on the rich one, a failure red. */
   writeCard(card: ReceiptCard, text: string): void {
-    this.card = undefined;
+    this.flushCard();
     if (!this.surface) { this.writeReceipt(text); return; }
     const lines = terminalText(text).split("\n").filter(Boolean);
     const color = this.color;
@@ -468,23 +480,25 @@ export class InteractiveTerminal {
   offerNext(row: NextRow | undefined): void {
     const card = this.card;
     this.card = undefined;
+    const color = this.color;
     if (this.surface && card?.hint) this.receiptHintShown = true;
     const hint = (width: number) => card?.hint ? width >= CARD_MIN_COLUMNS ? cardHintRows(card.tone, width, this.color)
       : [tint(RECEIPT_HINT, "muted", this.color)] : [];
+    const commands = card?.next ?? [];
     if (!row) {
       this.nextKeys = undefined; this.surface?.offerNext(undefined);
-      if (this.surface && card?.hint) this.surface.writeBlock({ render: hint, invalidate() {} }, "attached");
+      if (this.surface && (card?.hint || commands.length)) this.surface.writeBlock({ render: width => [...commands.length && width >= CARD_MIN_COLUMNS
+        ? cardNextRows(undefined, card!.tone, commands, width, color) : [], ...hint(width)], invalidate() {} }, "attached");
       return;
     }
     // The keys as key caps on the rich terminal, so they read as something to press (keyCaps); the plain terminal
     // keeps the row as written.
-    const color = this.color;
     const lines = terminalText(row.line).split("\n");
     const capped = (width: number) => lines.flatMap((line, index) => wrapTextWithAnsi(index ? this.styleLine(line)
       : line.startsWith("Next: ") ? `Next: ${keyCaps(line.slice(6), color)}` : keyCaps(line, color), Math.max(1, width)));
     if (this.surface && card) {
       // Under a receipt card, on its edge: the keys join its Next row.
-      this.surface.writeBlock({ render: width => [...width >= CARD_MIN_COLUMNS ? cardNextRows(row.line, card.tone, !card.next, width, color)
+      this.surface.writeBlock({ render: width => [...width >= CARD_MIN_COLUMNS ? cardNextRows(row.line, card.tone, card.next, width, color)
         : capped(width), ...hint(width)], invalidate() {} }, "attached");
       this.surface.offerNext(row.keys);
       return;
@@ -500,7 +514,7 @@ export class InteractiveTerminal {
   }
 
   readCommand(): Promise<string | undefined> {
-    this.card = undefined;
+    this.flushCard();
     // Nobody is at a terminal that went away: the job ends after its task.
     if (this.awayAsker) return Promise.resolve(undefined);
     if (this.surface) return this.surface.readCommand();

@@ -270,10 +270,13 @@ export function cardRows(card: ReceiptCard, width: number, color: boolean): stri
   return out;
 }
 
-/** The next-step row printed under a card ("Next: 1 Show diff · 2 Undo" and a line for each step's reason) as the card's
- * last rows: its keys on the Next row, or under the card's own Next commands, and the reasons grey under them. */
-export function cardNextRows(row: string, tone: CardTone, labelled: boolean, width: number, color: boolean): string[] {
-  const [keys = "", ...why] = terminalText(row).split("\n");
-  const values = [keyCaps(keys.replace(/^Next: /, ""), color), ...why.map((line) => tint(line.trim(), "muted", color))];
-  return cardRows({ tone, rows: [{ label: labelled ? "Next" : "", values }] }, width, color);
+/** The card's one Next row: the next-step keys ("Next: 1 Show diff · 2 Undo", and a line for each step's reason) with
+ * the card's own Next commands after them on the same line, the reasons grey under it. With no keys (`row`
+ * undefined), the commands alone. */
+export function cardNextRows(row: string | undefined, tone: CardTone, commands: readonly string[], width: number, color: boolean): string[] {
+  const [keys = "", ...why] = row === undefined ? [] : terminalText(row).split("\n");
+  const [first, ...more] = commands;
+  const line = [...keys ? [keyCaps(keys.replace(/^Next: /, ""), color)] : [], ...first ? [first] : []].join(tint(" · ", "muted", color));
+  const values = [...line ? [line] : [], ...more, ...why.map((text) => tint(text.trim(), "muted", color))];
+  return cardRows({ tone, rows: [{ label: "Next", values }] }, width, color);
 }
