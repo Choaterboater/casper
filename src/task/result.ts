@@ -23,6 +23,7 @@ import { formatCost, formatDuration, lineText, redactPreview } from "../tui/form
 import { planReceipt, planSummary, type PlanStepReport } from "../flows/plan-build";
 import type { OutsideChange } from "./outside-work";
 import { PUBLISHED_NOTE } from "./published";
+import { testDataLine, type TestData } from "./test-data";
 
 /** Files that changed while none of the AI's tools that may write ran, on the receipt and in undo's words. */
 export const CHANGED_BY_OTHERS = "Changed by something else while Casper worked";
@@ -158,6 +159,8 @@ export interface TaskResult {
   changedWhilePlanning?: string[];
   /** Files that changed while none of the AI's tools that may write ran: another program's, not checked, never undone. */
   changedNotByModel?: string[];
+  /** New data files the task's own runs made and left (a database its server wrote), with what each holds. */
+  testDataLeft?: TestData[];
   /** Files the task may or may not have changed (a deleted file, a command or service it left running): the task's
    * here, but undo asks before touching them. */
   changedUnsure?: string[];
@@ -803,6 +806,7 @@ function receiptParts(task: TaskResult, options: ReceiptOptions, onScreen = fals
   if (settled.length) add("open", `⚠ Checks and repairs changed app settings or data: ${pathList(settled, safe, false)}; look for test data left in them`);
   if (task.changedWhilePlanning?.length) add("changed", `– Changed while planning: ${pathList(task.changedWhilePlanning, safe, false)}`);
   if (task.changedNotByModel?.length) add("changed", `– ${CHANGED_BY_OTHERS} (not checked): ${pathList(task.changedNotByModel, safe, false)}`);
+  if (task.testDataLeft?.length) add("changed", testDataLine(task.testDataLeft, safe));
   // A plan step the model did not finish (often a question it stopped on) needs you; the rest of the plan is a note.
   for (const line of onScreen ? planSummary(task.planSteps) : planReceipt(task.planSteps)) add(onScreen && line.startsWith("– Plan:") ? "open" : "notes", line);
   if (task.branchChangesUnknown) add("notes", `– ${task.branchMoved ? "The branch moved during this task; " : ""}${GIT_MOVEMENT_UNKNOWN}; undo is unavailable`);

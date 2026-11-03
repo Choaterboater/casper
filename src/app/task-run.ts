@@ -29,6 +29,7 @@ import { OBSERVED_EDITS_LIMIT, TaskObservations } from "../task/observations";
 import { isToolCallAsText, TOOL_CALL_AS_TEXT_LINE } from "../task/text-tool-call";
 import { diffSnapshots, findMoves, tooManyFiles, withoutMoves, type TreeChanges } from "../task/changes";
 import { attributeChanges, movedElsewhere, withoutFiles, WriteWindows } from "../task/attribution";
+import { describeTestData, testDataNote, testDataNotice } from "../task/test-data";
 import { OutsideWork } from "../task/outside-work";
 import { headMoved, taskHead } from "../task/git-movement";
 import type { CheckName, VerificationReport } from "../verify/evidence";
@@ -277,6 +278,8 @@ export async function runModelTask(app: CasperApp, prompt: string, options: { fl
   /** The tree with another program's files as it left them, and the files Casper can't tell about (undo asks). */
   let othersAsFound: Map<string, string> | undefined;
   let changedUnsure: string[] | undefined;
+  /** New data files the task's own runs made (a database its server wrote): told to the AI once, named on the receipt. */
+  let testData: string[] = [];
   // Another program's files stay out of every later comparison while they are as it left them.
   const masked = (snapshot: Map<string, string> | undefined) => snapshot && before && changedNotByModel
     ? withoutFiles(snapshot, before, changedNotByModel, othersAsFound) : snapshot;
@@ -381,15 +384,27 @@ export async function runModelTask(app: CasperApp, prompt: string, options: { fl
         moved: movedElsewhere(findMoves(before, afterModel, changes), changes),
         since: edits.windows.since, until: Date.now(), toolFiles: new Set(toolFiles(workspaceRoot, app.observations.edited(), "inside")),
         unsure: Boolean(edits.windows.unsure || app.backgroundCommands?.list().length || app.services?.live() || app.subagents.runs().length),
-        commands: app.observations.toolCalls.flatMap((call) => typeof call.input?.command === "string" ? [call.input.command] : []), liveFiles }).catch(() => undefined)
+        commands: app.observations.toolCalls.flatMap((call) => typeof call.input?.command === "string" ? [call.input.command] : []), liveFiles,
+        ownRuns: app.observations.toolCalls.some((call) => OWN_RUNS.has(call.toolName)) }).catch(() => undefined)
         // No tool of the AI's ran: a live file that changed is its writer's.
-        : { task: [], others: flatten(changes).filter((file) => liveFiles.has(file)), unsure: [] };
+        : { task: [], others: flatten(changes).filter((file) => liveFiles.has(file)), unsure: [], testData: [] };
       if (split?.others.length) {
         changedNotByModel = split.others;
         othersAsFound = afterModel;
         afterModel = withoutFiles(afterModel, before, split.others);
       }
       if (split?.unsure.length) changedUnsure = split.unsure;
+      testData = split?.testData ?? [];
+    }
+    // Data the task's own runs left (its server's database, with the user it signed up): the AI is told once what is in
+    // it, and removes it unless it is meant to ship. A database that was there before the task is never one of these.
+    const leftData = testData.length && afterModel && !app.closing && !app.commandAbort?.signal.aborted && !app.taskRuntimeCancelled
+      && !app.taskRuntimeFailed && app.taskTurnLimit === undefined && app.taskSpendStop === undefined ? await describeTestData(workspaceRoot, testData) : [];
+    if (leftData.length) {
+      app.events.ensureLineBreak();
+      app.output.write(`${testDataNotice(leftData)}\n`);
+      await promptRound(app, session, testDataNote(leftData), prompt);
+      afterModel = !app.closing ? masked(await app.snapshotWorkspace(workspaceRoot)) ?? afterModel : afterModel;
     }
     // A project the model just set up (package.json, pyproject.toml, Package.swift...) gets its checks now,
     // not on the next task: the checks known at the start were those of the folder before the change.
@@ -424,6 +439,14 @@ export async function runModelTask(app: CasperApp, prompt: string, options: { fl
     const edited = app.observations.edited();
     const toolLanded = !before && app.snapshotFailure !== undefined && edited.length < OBSERVED_EDITS_LIMIT ? toolFiles(workspaceRoot, edited, "inside") : undefined;
     if (!stopped && toolLanded?.length && !app.closing) workFolder = await childProjectOfTask(app, context, toolLanded, { unlisted: true });
+    // Checks offered with /verify: a change of only a program's output (a run and its scoring, moved runs) has nothing for
+    // them to check either, so the receipt says so in grey instead of pushing /verify, as automatic checks do.
+    if (!stopped && verificationMode === "offer" && !workFolder && before && afterModel) {
+      const offered = planAutoChecks({ selected: context.verification.checks, commands: context.model.commands, scopes: context.model.verificationScopes,
+        named: context.model.namedChecks, detected: autoDetectedChecks(context.model), changedPaths: flatten(taskChanges(before, afterModel)), root: workspaceRoot,
+        toolFiles: new Set(toolFiles(workspaceRoot, app.observations.edited(), "inside")) });
+      if (offered.skipped === "output") autoChecks = { run: [], skipped: "output" };
+    }
     if (!stopped && app.checkTask && verificationMode === "auto" && !workFolder) {
       const changedByModel = before && afterModel ? flatten(taskChanges(before, afterModel)) : undefined;
       autoChecks = planAutoChecks({
@@ -633,6 +656,8 @@ export async function runModelTask(app: CasperApp, prompt: string, options: { fl
       if (execution === "completed") execution = "failed";
     }
     const outsideChanges = await app.outsideWork?.finish().catch(() => []) ?? [];
+    // The task's test data still there at the end: named on the receipt (it would ship).
+    const testDataLeft = testData.length && !app.closing ? await describeTestData(workspaceRoot, testData) : [];
     // A one-shot run's background stops when it exits: only a session's job goes on after the receipt.
     const stillRunning: StillRunning[] = app.interactive && !app.closing ? (app.backgroundCommands?.list() ?? []).filter((job) => job.startedAt >= taskBegan)
       .map((job) => ({ id: job.id, command: redactPreview(hideCommandSecrets(job.command).text), startedAt: job.startedAt, ...(job.log ? { log: job.log } : {}) })) : [];
@@ -661,7 +686,7 @@ export async function runModelTask(app: CasperApp, prompt: string, options: { fl
       ...(app.taskTurnLimit !== undefined ? { turnLimit: app.taskTurnLimit } : {}), ...(app.taskSpendStop ? { spendLimit: { ...app.taskSpendStop } } : {}), ...(proof ? { proof } : {}), ...(proofSkipped && !proof ? { proofSkipped } : {}), ...(review ? { review } : {}),
       ...(acceptance ? { acceptance } : {}), ...(checklist ? { checklist } : {}), ...bigModelReceipt(app),
       ...(app.planBuild ? { planSteps: app.planBuild.finish(execution) } : {}),
-      ...(changedWhilePlanning?.length ? { changedWhilePlanning } : {}), ...(changedNotByModel ? { changedNotByModel } : {}), ...(changedUnsure ? { changedUnsure } : {}), ...(app.sandbox ? { sandbox: sandboxReceipt(app.sandbox)! } : {}),
+      ...(changedWhilePlanning?.length ? { changedWhilePlanning } : {}), ...(changedNotByModel ? { changedNotByModel } : {}), ...(testDataLeft.length ? { testDataLeft } : {}), ...(changedUnsure ? { changedUnsure } : {}), ...(app.sandbox ? { sandbox: sandboxReceipt(app.sandbox)! } : {}),
       ...outsideWrites, ...(outsideChanges.length ? { outsideChanges } : {}), ...(moved.length ? { moved } : {}), ...(stillRunning.length ? { stillRunning } : {}) };
     rememberMachines(app, observations.remoteChanges);
     if (app.cleanupReports.length) app.lastTaskResult.cleanup = [...app.cleanupReports];
@@ -1418,6 +1443,9 @@ export const PAGES_ANSWER_ONLY_PROOF = "pages answer, but their console was not 
 /** What kind of request Casper does not prove, in the receipt's words. */
 const NOT_COMPARED: Record<string, string> = { document: "this was a docs request", configure: "this was a setup request",
   inspect: "this read as a question", visualize: "this asked for a diagram" };
+
+/** Tools that may start the task's own app or tests, whose data files are then the task's (src/task/test-data.ts). */
+const OWN_RUNS = new Set(["bash", "powershell", "service", "browser"]);
 
 export function proofSkipReason(options: { intent: string; testCommand?: string; snapshot: boolean; changedCode: boolean; testsAddedNow?: boolean; testsWithoutCommand?: boolean }): string {
   if (options.intent === "refactor") return "a refactor should not change behavior, so no test is expected to fail without it";

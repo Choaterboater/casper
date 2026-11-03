@@ -12,7 +12,7 @@
  */
 import { lstat } from "node:fs/promises";
 import path from "node:path";
-import { builtOutput } from "../verify/mode";
+import { builtOutput, inOutputFolder } from "../verify/mode";
 import type { TreeChanges } from "./changes";
 
 /** File times are compared this loosely: some file systems keep them to the second (FAT, SMB keeps two). */
@@ -65,6 +65,9 @@ export interface Attribution {
   others: string[];
   /** The task's on the receipt, but Casper can't tell: undo asks before touching them. */
   unsure: string[];
+  /** New data files the task's own runs wrote (a database its server made while the AI tried it): among `task`, and
+   * named so the AI and the receipt can say they would ship (testDataFile). */
+  testData: string[];
 }
 
 export interface AttributionInput {
@@ -86,6 +89,9 @@ export interface AttributionInput {
   liveFiles?: ReadonlySet<string>;
   /** Files the task moved into another folder, where they went and where they left (movedElsewhere). */
   moved?: ReadonlySet<string>;
+  /** The task ran something that may start its app: a shell command, a service, the browser. A data file it made new is
+   * then the task's own test data, not another program's (testDataFile). */
+  ownRuns?: boolean;
   /** The time a file or folder last changed, or undefined when it can't be read. */
   changedAt?: (absolute: string) => Promise<number | undefined>;
   slackMs?: number;
@@ -98,11 +104,18 @@ const modified = async (absolute: string) => (await lstat(absolute).catch(() => 
 const SERVICE_FILE = /\.(?:db|sqlite3?)(?:-(?:wal|shm|journal))?$|\.log(?:\.\d+)?(?:\.gz)?$/i;
 export function serviceFile(file: string): boolean { return SERVICE_FILE.test(file); }
 
+/** A file an app writes its data into: a SQLite database and its -wal, -shm and -journal files, or JSON, YAML or CSV under
+ * a data/ or db/ folder. Never one in a program's output folder (a comparison's builds). */
+const SQLITE_FILE = /\.(?:db|sqlite3?|db3)(?:-(?:wal|shm|journal))?$/i;
+export function testDataFile(file: string): boolean {
+  return !inOutputFolder(file) && (SQLITE_FILE.test(file) || /(?:^|\/)(?:data|db)\/[^/]+(?:\/[^/]+)*\.(?:json|ya?ml|csv)$/i.test(file));
+}
+
 export async function attributeChanges(input: AttributionInput): Promise<Attribution> {
   const slack = input.slackMs ?? ATTRIBUTION_SLACK_MS;
   const changedAt = input.changedAt ?? modified;
   const during = (time: number) => input.windows.some(([start, end]) => time >= start - slack && time <= end + slack);
-  const result: Attribution = { task: [], others: [], unsure: [] };
+  const result: Attribution = { task: [], others: [], unsure: [], testData: [] };
   const absolute = (file: string) => path.join(input.root, ...file.split("/"));
   const place = async (file: string, time: number | undefined) => {
     if (time === undefined) { result.unsure.push(file); return; }
@@ -116,9 +129,14 @@ export async function attributeChanges(input: AttributionInput): Promise<Attribu
   const theApps = (file: string) => serviceFile(file) && !builtOutput(file) && !input.toolFiles?.has(file) && !input.moved?.has(file)
     && !(input.commands ?? []).some((command) => command.includes(path.posix.basename(file).replace(/-(?:wal|shm|journal)$/, "")));
   const live = (file: string) => Boolean(input.liveFiles?.has(file)) && !input.toolFiles?.has(file) && !input.moved?.has(file);
-  for (const file of [...input.changes.added, ...input.changes.modified, ...input.changes.removed]) if (theApps(file) || live(file)) result.others.push(file);
+  // New with the task, written by its own runs: a database's -wal or -shm counts only with its database new too.
+  const added = new Set(input.changes.added);
+  const testData = (file: string) => Boolean(input.ownRuns) && testDataFile(file) && !input.toolFiles?.has(file) && !live(file)
+    && added.has(file.replace(/-(?:wal|shm|journal)$/i, ""));
+  for (const file of input.changes.added) if (testData(file)) { result.task.push(file); result.testData.push(file); }
+  for (const file of [...input.changes.added, ...input.changes.modified, ...input.changes.removed]) if (!result.testData.includes(file) && (theApps(file) || live(file))) result.others.push(file);
   for (const file of [...input.changes.added, ...input.changes.modified]) {
-    if (result.others.includes(file)) continue;
+    if (result.others.includes(file) || result.testData.includes(file)) continue;
     if (input.toolFiles?.has(file)) { result.task.push(file); continue; }
     await place(file, await changedAt(absolute(file)));
   }
@@ -137,7 +155,7 @@ export async function attributeChanges(input: AttributionInput): Promise<Attribu
     if (time !== undefined && (during(time) || time < input.since - slack)) result.task.push(file);
     else result.unsure.push(file);
   }
-  for (const list of [result.task, result.others, result.unsure]) list.sort();
+  for (const list of [result.task, result.others, result.unsure, result.testData]) list.sort();
   return result;
 }
 

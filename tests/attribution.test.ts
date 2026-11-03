@@ -9,7 +9,7 @@ test("a change while a writing tool ran is the task's; one while none ran is ano
   const split = await attributeChanges({ root: "/r", since: 1_000, until: 60_000, windows: [[10_000, 12_000]],
     changes: { ...none, added: ["new.py", "PROJECT_SUMMARY.md"], modified: ["app.py"] },
     changedAt: at({ "new.py": 11_000, "PROJECT_SUMMARY.md": 30_000, "app.py": 13_500 }) });
-  expect(split).toEqual({ task: ["app.py", "new.py"], others: ["PROJECT_SUMMARY.md"], unsure: [] });
+  expect(split).toEqual({ task: ["app.py", "new.py"], others: ["PROJECT_SUMMARY.md"], unsure: [] , testData: [] });
 });
 
 test("the task's own edit and write tools, a time from before the task, and an unreadable time", async () => {
@@ -17,16 +17,16 @@ test("the task's own edit and write tools, a time from before the task, and an u
     changes: { ...none, added: ["named.py", "unpacked.py", "gone.py"] },
     changedAt: at({ "named.py": 40_000, "unpacked.py": 100, "gone.py": undefined }) });
   // A file the edit tool named is the task's whatever its time; an archive's old time says nothing.
-  expect(split).toEqual({ task: ["named.py", "unpacked.py"], others: [], unsure: ["gone.py"] });
+  expect(split).toEqual({ task: ["named.py", "unpacked.py"], others: [], unsure: ["gone.py"] , testData: [] });
 });
 
 test("a deleted file goes by its folder's time; while a command or service the task left runs, Casper can't tell", async () => {
   const removed = await attributeChanges({ root: "/r", since: 1_000, until: 60_000, windows: [[10_000, 12_000]],
     changes: { ...none, removed: ["src/a.py", "docs/b.md"] }, changedAt: at({ src: 11_000, docs: 30_000 }) });
-  expect(removed).toEqual({ task: ["src/a.py"], others: [], unsure: ["docs/b.md"] });
+  expect(removed).toEqual({ task: ["src/a.py"], others: [], unsure: ["docs/b.md"] , testData: [] });
   const running = await attributeChanges({ root: "/r", since: 1_000, until: 60_000, windows: [[10_000, 12_000]], unsure: true,
     changes: { ...none, modified: ["data/export.csv"] }, changedAt: at({ "data/export.csv": 30_000 }) });
-  expect(running).toEqual({ task: [], others: [], unsure: ["data/export.csv"] });
+  expect(running).toEqual({ task: [], others: [], unsure: ["data/export.csv"] , testData: [] });
 });
 
 test("tool windows: an end without a start counts from the last end; a picture is held until released", () => {
@@ -70,7 +70,7 @@ test("files a job from an earlier task keeps writing are its own, even while thi
   const split = await attributeChanges({ root: "/r", since: 1_000, until: 60_000, windows: [[10_000, 12_000]], changes, changedAt: during,
     commands: ["cat compare.out; ps -axo pid=,etime=,command=; tail -c 600 logs/casper.stderr.log"],
     liveFiles: new Set(["logs/casper.json", "logs/casper.stderr.log", "compare.out"]) });
-  expect(split).toEqual({ task: ["notes.txt"], others: ["logs/casper.json", "logs/casper.stderr.log"], unsure: [] });
+  expect(split).toEqual({ task: ["notes.txt"], others: ["logs/casper.json", "logs/casper.stderr.log"], unsure: [] , testData: [] });
   // The AI's own edit of one keeps it the task's.
   const edited = await attributeChanges({ root: "/r", since: 1_000, until: 60_000, windows: [[10_000, 12_000]], changes, changedAt: during,
     liveFiles: new Set(["logs/casper.json"]), toolFiles: new Set(["logs/casper.json"]) });
@@ -84,7 +84,7 @@ test("a server log in results/ written while the AI's command ran is that comman
   const changes = { ...none, modified: ["results/checks/A.server.log", "results/checks/B.server.log", "logs/app.log"] };
   const split = await attributeChanges({ root: "/r", since: 1_000, until: 60_000, windows: [[10_000, 12_000]], changes,
     changedAt: at({ "results/checks/A.server.log": 11_000, "results/checks/B.server.log": 30_000, "logs/app.log": 11_000 }), commands: ["node evaluate.mjs"] });
-  expect(split).toEqual({ task: ["results/checks/A.server.log"], others: ["logs/app.log", "results/checks/B.server.log"], unsure: [] });
+  expect(split).toEqual({ task: ["results/checks/A.server.log"], others: ["logs/app.log", "results/checks/B.server.log"], unsure: [] , testData: [] });
 });
 
 test("a log the task moved into another folder is the task's: the move was its command, whatever wrote the log", async () => {
@@ -95,7 +95,7 @@ test("a log the task moved into another folder is the task's: the move was its c
     commands: ["mkdir run-3 && mv builds runs results logs run-3/"], liveFiles: new Set(["logs/omp.stderr.log"]),
     moved: new Set(["run-3/logs/omp.stderr.log", "run-3/results/checks/A.server.log", "logs/omp.stderr.log"]) });
   // A rotated log (app.log to app.log.1 in its own folder) is not a move into another folder: still the app's.
-  expect(split).toEqual({ task: ["logs/omp.stderr.log", "run-3/logs/omp.stderr.log", "run-3/results/checks/A.server.log"], others: ["logs/app.log.1"], unsure: [] });
+  expect(split).toEqual({ task: ["logs/omp.stderr.log", "run-3/logs/omp.stderr.log", "run-3/results/checks/A.server.log"], others: ["logs/app.log.1"], unsure: [] , testData: [] });
 });
 
 test("moved elsewhere: into another folder, both ends when the old path is gone; a rename in its own folder is not", () => {
@@ -103,4 +103,24 @@ test("moved elsewhere: into another folder, both ends when the old path is gone;
   expect([...movedElsewhere([{ from: "logs/omp.stderr.log", to: "run-3/logs/omp.stderr.log" }, { from: "results/checks/A.server.log", to: "run-3/results/checks/A.server.log" },
     { from: "logs/app.log", to: "logs/app.log.1" }], changes)].sort())
     .toEqual(["logs/omp.stderr.log", "run-3/logs/omp.stderr.log", "run-3/results/checks/A.server.log"]);
+});
+
+test("a new data file the task's own commands could have written is the task's test data, never another program's", async () => {
+  // Run 8: the AI started its own server (`PORT=3456 node src/server.js &`) and signed up through it. data/tracker.db and
+  // its -wal and -shm were new, written while no tool of the AI's ran, and the receipt called them "Changed by
+  // something else"; the build shipped them with a user in them.
+  const changes = { ...none, added: ["data/tracker.db", "data/tracker.db-wal", "data/tracker.db-shm", "db/seed-run.json", "src/server.js", "builds/A/data/app.db"] };
+  const between = at({ "data/tracker.db": 30_000, "data/tracker.db-wal": 30_000, "data/tracker.db-shm": 30_000, "db/seed-run.json": 30_000, "src/server.js": 11_000, "builds/A/data/app.db": 30_000 });
+  const split = await attributeChanges({ root: "/r", since: 1_000, until: 60_000, windows: [[10_000, 12_000]], changes, changedAt: between,
+    commands: ["PORT=3456 node src/server.js &"], ownRuns: true });
+  expect(split.testData).toEqual(["data/tracker.db", "data/tracker.db-shm", "data/tracker.db-wal", "db/seed-run.json"]);
+  expect(split.task).toEqual(["data/tracker.db", "data/tracker.db-shm", "data/tracker.db-wal", "db/seed-run.json", "src/server.js"]);
+  // A comparison's output folder is that program's, as before.
+  expect(split.others).toEqual(["builds/A/data/app.db"]);
+  // With no command, service or browser of its own, a new database is still another program's.
+  expect((await attributeChanges({ root: "/r", since: 1_000, until: 60_000, windows: [[10_000, 12_000]], changes, changedAt: between })).testData).toEqual([]);
+  // A database that was there before the task is a running app's (the Home Assistant case), even its new -wal.
+  const live = await attributeChanges({ root: "/r", since: 1_000, until: 60_000, windows: [[10_000, 12_000]], changedAt: between, ownRuns: true,
+    changes: { ...none, modified: ["config/home-assistant_v2.db"], added: ["config/home-assistant_v2.db-wal"] } });
+  expect(live).toEqual({ task: [], others: ["config/home-assistant_v2.db", "config/home-assistant_v2.db-wal"], unsure: [], testData: [] });
 });
