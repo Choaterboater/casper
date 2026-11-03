@@ -226,6 +226,12 @@ export function credentialShaped(value: string): boolean {
   return digits >= 2 && classes >= 3;
 }
 
+/** A name reserved for examples and tests (RFC 2606, RFC 6761): example.com, .org and .net, and any name under .example,
+ * .test, .invalid or .localhost (not localhost itself). A sign-in on a line that names one (`ada@example.test`) is made up.
+ * A file name like `tracker.test.mjs` is not a host: the name must end there. */
+const RESERVED_TEST_HOST = /(?:^|[@/\s'"`=(,:])(?:[a-z0-9-]+\.)*(?:example\.(?:com|org|net)|[a-z0-9-]+\.(?:example|test|invalid|localhost))(?![\w.-])/i;
+export function reservedTestHost(line: string): boolean { return RESERVED_TEST_HOST.test(line); }
+
 /** The values `scrubPlainSecrets` hid in one line, in order, or undefined when they can't be lined up. */
 function hiddenIn(line: string, scrubbed: string): string[] | undefined {
   const pieces = scrubbed.split(SECRET_MARKER);
@@ -242,7 +248,8 @@ const KIND_WORDS: Record<SecretKind, string> = { password: "a password", hash: "
  * behind a secret name (`token = "fake-token-123"`, `--token YOUR_TOKEN`, `**Token:** the one from the dashboard`): hiding
  * those costs nothing, but telling you to change a secret for them trains you to skip the warning that matters. Here a
  * value counts only when it is a secret Casper knows (your environment's, one you typed), a private key, or credential
- * shaped (credentialShaped). In a test file only a secret Casper knows counts: its keys and passwords are made up.
+ * shaped (credentialShaped). In a test file only a secret Casper knows counts: its keys and passwords are made up. So on a
+ * line that names a reserved test host (reservedTestHost).
  */
 export function realSecrets(text: string, options: { env?: NodeJS.ProcessEnv; testFile?: boolean } = {}): SecretFinding[] {
   const env = secretEnvValues(options.env);
@@ -254,7 +261,7 @@ export function realSecrets(text: string, options: { env?: NodeJS.ProcessEnv; te
     const values = hiddenIn(line, result.text) ?? [];
     const known = values.find((value) => env.includes(value) || typed.includes(value));
     if (known) { found.push({ line: index + 1, kind: env.includes(known) ? "a secret from your environment" : "a secret you typed" }); return; }
-    if (options.testFile) return;
+    if (options.testFile || reservedTestHost(line)) return;
     if (result.kinds.includes("private-key")) { found.push({ line: index + 1, kind: KIND_WORDS["private-key"] }); return; }
     // A value may carry its name along (PVEAPIToken=root@pam!app=<uuid>): any part of it may be the credential.
     if (values.some((value) => credentialShaped(value) || value.split(/[=:!@,;"'\s]+/).some(credentialShaped))) found.push({ line: index + 1, kind: KIND_WORDS[result.kinds[0] ?? "key"] });

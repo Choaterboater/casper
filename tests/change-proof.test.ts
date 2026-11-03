@@ -4,7 +4,7 @@ import { chmod, mkdir, mkdtemp, readdir, realpath, symlink, writeFile } from "no
 import os from "node:os";
 import path from "node:path";
 import { diffSnapshots, snapshotTree } from "../src/task/changes";
-import { ChangeBaseline, isCodePath, isTestPath, withoutEnded } from "../src/verify/proof";
+import { ChangeBaseline, changesCode, isCodePath, isTestPath, withoutEnded } from "../src/verify/proof";
 import { SLOW_TEST } from "../src/verify/command";
 import { removeTempDir } from "./support/temp-dir";
 import { childTestLimit } from "./support/limits";
@@ -369,4 +369,12 @@ test.skipIf(process.platform === "win32")("making a file executable, or not, is 
   // Read and write bits are not the file's identity: only whether anyone can run it.
   await chmod(file, 0o600);
   expect(diffSnapshots(before, await snapshotTree(root, undefined, { git: false })).modified).toEqual(["big.bin"]);
+});
+
+test("a turn that changed only tests and their fixtures has no code change to prove, so the tests are not run again without it", () => {
+  // The harness turn's tests, fixture app and its package.json: none of them is code a test must fail without.
+  const fixturesOnly = { added: ["tests/fixtures/tracker-app/server.mjs", "tests/fixtures/tracker-app/package.json"], modified: ["tests/tracker.test.mjs", "tests/run.test.mjs", "package.json"], removed: [] };
+  expect(changesCode(fixturesOnly)).toBe(false);
+  // Code the tests import (scripts/tracker-checks.mjs) is a change to prove: the proof is what shows the tests check it.
+  expect(changesCode({ ...fixturesOnly, modified: [...fixturesOnly.modified, "scripts/tracker-checks.mjs"] })).toBe(true);
 });

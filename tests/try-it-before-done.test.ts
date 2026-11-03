@@ -252,14 +252,13 @@ test("cancelling a started smoke still stops the owned process", async () => {
   await f.stopped();
 }, 20_000);
 
-test("a recognized app without launch information says not run", async () => {
+test("a recognized app without launch information says not run, as a note: nothing to start is never unfinished", async () => {
   const f = await fixture({ config: { services: {} }, manifest: { name: "app", dependencies: { react: "19" } } });
   f.edit("src/App.tsx", "export default function App() { return null; }\n");
   const task = await f.run();
-  expect(task.appSmoke).toMatchObject({ status: "not-run", reason: "no start/dev command or declared service found for this app" });
-  // A real app (React) that can't be started is still unfinished.
-  expect(task.appSmoke?.nothingToStart).toBeUndefined();
+  expect(task.appSmoke).toMatchObject({ status: "not-run", reason: "no start/dev command or declared service found for this app", nothingToStart: true });
   expect(f.text()).toContain("App smoke: not run");
+  expect(f.text()).not.toContain("Incomplete");
   expect(await lines(f.starts)).toEqual([]);
 });
 
@@ -295,7 +294,7 @@ test("a start command that exits 0 at once, before serving, is not checked rathe
 test("a framework-less server without launch information says not run", async () => {
   const f = await fixture({ config: { services: {} } }); f.edit();
   const task = await f.run();
-  expect(task.appSmoke).toMatchObject({ status: "not-run", reason: "no start/dev command or declared service found for this app" });
+  expect(task.appSmoke).toMatchObject({ status: "not-run", reason: "no start/dev command or declared service found for this app", nothingToStart: true });
   expect(await lines(f.starts)).toEqual([]);
 });
 
@@ -724,4 +723,26 @@ test("only identical known final-file inputs reuse runtime evidence", () => {
   expect(sameRuntimeInputs(new Map([["server.ts", "old"]]), new Map([["server.ts", "new"]]))).toBe(false);
   expect(sameRuntimeInputs(undefined, undefined)).toBe(false);
   expect(sameRuntimeInputs(new Map([["server.ts", "same"]]), new Map([["server.ts", "same"]]))).toBe(true);
+});
+
+// The comparison harness (v0.4.6 session): its scripts probe for a free port with net.createServer, and the app it tests
+// is a fixture under tests/fixtures/. The receipt's headline was "⚠ Incomplete: app smoke didn't run: no start/dev
+// command or declared service found for this app".
+test("a harness's scripts and a test fixture's server are not the project's app: no app smoke at all", async () => {
+  const root = await realpath(await mkdtemp(path.join(os.tmpdir(), "casper-harness-")));
+  cleanups.push(() => removeTempDir(root));
+  await mkdir(path.join(root, "scripts"), { recursive: true });
+  await mkdir(path.join(root, "tests/fixtures/tracker-app"), { recursive: true });
+  await writeFile(path.join(root, "package.json"), JSON.stringify({ name: "harness", type: "module",
+    scripts: { test: "node --test tests/*.test.mjs", compare: "node scripts/run.mjs" }, devDependencies: { playwright: "1.64.1" } }));
+  const probe = "import net from 'node:net';\nexport const free = (port) => new Promise((resolve) => {\n  const probe = net.createServer().once('error', () => resolve(false));\n  probe.once('listening', () => probe.close(() => resolve(true))).listen(port);\n});\n";
+  await writeFile(path.join(root, "scripts/evaluate.mjs"), probe);
+  await writeFile(path.join(root, "scripts/tracker-checks.mjs"), probe);
+  await writeFile(path.join(root, "tests/fixtures/tracker-app/package.json"), JSON.stringify({ name: "tracker", scripts: { start: "node server.mjs" } }));
+  await writeFile(path.join(root, "tests/fixtures/tracker-app/server.mjs"), "import http from 'node:http';\nhttp.createServer((q, s) => s.end('ok')).listen(process.env.PORT);\n");
+  expect(await planAppSmoke(root, {}, ["scripts/evaluate.mjs", "scripts/tracker-checks.mjs", "tests/fixtures/tracker-app/server.mjs",
+    "tests/fixtures/tracker-app/package.json", "tests/tracker.test.mjs", "package.json"])).toBeUndefined();
+  // A start script that runs a file under scripts/ still makes it the app.
+  await writeFile(path.join(root, "package.json"), JSON.stringify({ name: "harness", scripts: { start: "node scripts/evaluate.mjs" } }));
+  expect(await planAppSmoke(root, {}, ["scripts/evaluate.mjs"])).toMatchObject({ service: { source: "package.json" } });
 });

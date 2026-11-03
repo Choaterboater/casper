@@ -112,3 +112,25 @@ test("the receipt names each file with the line and kind of its secret", () => {
   expect(formatReceipt({ execution: "completed", ...observations.snapshot(["cloudflared/config.py"]) }))
     .toContain("– A secret was written into cloudflared/config.py (line 3, a token or key) (not shown). Keep secrets in an env file or a secrets store.");
 });
+
+test("a value on a line with a reserved test domain is made up: a harness's sign-in fixtures are not a secret", () => {
+  // The comparison harness's scripts/tracker-checks.mjs (not a test path): the receipt said "A secret was written into
+  // scripts/tracker-checks.mjs (line 14, a password)". RFC 2606 and 6761 reserve these names for examples and tests.
+  const harness = `export const TRACKER_CASES = taskOf('tracker').cases;
+export const ADMIN = { name: 'Ada Admin', email: 'ada@example.test', password: 'Correct-horse-42' };
+export const MEMBER = { name: 'Max Member', email: 'max@example.test', password: 'Member-pass-77' };
+`;
+  expect(addsSecret("scripts/tracker-checks.mjs", "", harness, {})).toBeUndefined();
+  for (const host of ["ada@example.com", "https://api.example.org/v1", "ops@example.net", "admin@lab.example", "http://app.localhost:3000", "user@nowhere.invalid"]) {
+    expect([host, addsSecret("scripts/seed.mjs", "", `const login = { user: '${host}', password: 'Correct-horse-42' };\n`, {})]).toEqual([host, undefined]);
+  }
+  // A real domain, a file named *.test.*, or plain localhost is not a reserved name: the password still counts.
+  for (const line of [`const login = { user: 'ada@acme.io', password: 'Correct-horse-42' };`,
+    `import { run } from './tracker.test.mjs'; const password = 'Correct-horse-42';`,
+    `const url = 'postgres://app:Correct-horse-42@localhost:5432/app';`]) {
+    expect([line, addsSecret("scripts/seed.mjs", "", `${line}\n`, {})]).toEqual([line, { line: 1, kind: "a password" }]);
+  }
+  // A secret Casper knows is reported on any line.
+  expect(addsSecret("scripts/seed.mjs", "", "const login = { user: 'ada@example.test', password: 'Correct-horse-42' };\n", { ADMIN_PASSWORD: "Correct-horse-42" }))
+    .toEqual({ line: 1, kind: "a secret from your environment" });
+});
