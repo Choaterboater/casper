@@ -1,6 +1,6 @@
 # 69. Casper's checks leave the app's data as the AI left it
 
-Date: 2026-11-03. Status: proposed. Extends 19 and 20 (app data during the smoke and browser checks) to the whole check
+Date: 2026-11-03. Status: accepted (merged 2026-11-03 in #585). Extends 19 and 20 (app data during the smoke and browser checks) to the whole check
 phase of a task.
 
 ## Decision

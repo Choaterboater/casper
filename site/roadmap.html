@@ -78,6 +78,7 @@
           </li>
           <li><a href="#released">Released</a>
             <ul>
+              <li><a href="#v0409">v0.4.9: checks keep the data</a></li>
               <li><a href="#v0408">v0.4.8: test data named</a></li>
               <li><a href="#v0407">v0.4.7: no false alarms</a></li>
               <li><a href="#v0406">v0.4.6: quieter receipts</a></li>
@@ -143,7 +144,7 @@
         <h2 id="next-h">Next release</h2>
         <aside class="callout soon">
           <strong class="callout-title">Built, not released</strong>
-          <p>Nothing on the main branch is waiting: everything built so far is in v0.4.8. New work shows here before the next preview.</p>
+          <p>Nothing on the main branch is waiting: everything built so far is in v0.4.9. New work shows here before the next preview.</p>
         </aside>
       </section>
 
@@ -385,10 +386,22 @@
         and on the <a href="https://github.com/Choaterboater/casper/releases">Releases page</a>.</p>
         <div class="stack">
 
+        <details class="card release" id="v0409" aria-labelledby="v0409-h" open>
+          <summary class="release-heading">
+            <h3 id="v0409-h">v0.4.9 · Casper's checks leave the app's data as the AI left it</h3>
+            <span class="badge ok">current preview</span>
+          </summary>
+          <ul>
+            <li><strong>Checks keep the data.</strong> Before Casper's checks, replays, repair rounds or app smoke use the app, its data files are copied, and afterwards they are put back byte for byte: the users a check signs up never ship.</li>
+            <li><strong>Output at any depth.</strong> A <code>builds/</code>, <code>runs/</code> or <code>results/</code> folder below the top (a copied harness's <code>run-9/builds/</code>) is a program's output, and files copied into a folder the task made are said with the moves.</li>
+            <li><strong>A stopped poll says why.</strong> A command stopped at its own time limit says so, and the check that its processes stopped has more time on a busy machine.</li>
+          </ul>
+        </details>
+
         <details class="card release" id="v0408" aria-labelledby="v0408-h" open>
           <summary class="release-heading">
             <h3 id="v0408-h">v0.4.8 · Test data your runs left is named, and an app that redirects to its sign-in page is up</h3>
-            <span class="badge ok">current preview</span>
+            <span class="badge">previous preview</span>
           </summary>
           <ul>
             <li><strong>Test data, named.</strong> A database the AI's own test runs made (the user a test signed up) is the task's, never "changed by something else". The AI is told once what it holds and asked to delete it unless it ships, and one still there is a grey <code>Left by your test runs</code> line.</li>
@@ -401,7 +414,7 @@
         <details class="card release" id="v0407" aria-labelledby="v0407-h" open>
           <summary class="release-heading">
             <h3 id="v0407-h">v0.4.7 · Test logins are not secrets, nothing to start is a note, and topic words are not cases</h3>
-            <span class="badge">previous preview</span>
+            <span class="badge">released</span>
           </summary>
           <ul>
             <li><strong>Test logins are made up.</strong> A password on a line naming a domain reserved for tests and examples (<code>ada@example.test</code>, <code>example.com</code>, <code>.invalid</code>) gets no "A secret was written into" warning. A real domain still does.</li>
@@ -410,7 +423,7 @@
           </ul>
         </details>
 
-        <details class="card release" id="v0406" aria-labelledby="v0406-h" open>
+        <details class="card release" id="v0406" aria-labelledby="v0406-h">
           <summary class="release-heading">
             <h3 id="v0406-h">v0.4.6 · A quieter receipt when only output files changed</h3>
             <span class="badge">released</span>
@@ -1585,7 +1598,7 @@
   <footer class="site-footer">
     <div class="container footer-inner">
       <div>
-        <p><strong>Casper 0.4.8</strong> · early preview, unsigned</p>
+        <p><strong>Casper 0.4.9</strong> · early preview, unsigned</p>
         <p><a href="https://github.com/Choaterboater/casper/blob/main/LICENSE">MIT licence</a> · © 2026 Choaterboater</p>
         <p>Built on the <a href="https://github.com/earendil-works/pi">Pi SDK</a>. Other parts keep their own licences (<a href="https://github.com/Choaterboater/casper/blob/main/THIRD_PARTY_NOTICES.txt">notices</a>).</p>
       </div>
