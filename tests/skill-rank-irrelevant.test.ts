@@ -22,6 +22,7 @@ const SKILLS: Record<string, string> = {
   "skill-creator": "Guide for creating effective skills. Use when users want to create a new skill (or update an existing skill) that extends the agent's capabilities.",
   "simrack": "SimRack runbook for vJunos sandboxes on Proxmox. Use for SimRack deploys, lab builds, rebuilds, teardowns and lab troubleshooting.",
   "xlsx": "Use for any spreadsheet file: open, read, edit, create or fix data in a workbook, with formulas and charts.",
+  "docx": "Comprehensive document creation, editing, and analysis with support for tracked changes, comments, formatting preservation, and text extraction. When Claude needs to work with professional documents (.docx files) for: (1) Creating new documents, (2) Modifying or editing content, (3) Working with tracked changes, (4) Adding comments, or any other document tasks",
 };
 
 const temporary: string[] = [];
@@ -63,4 +64,16 @@ test("a request that is about one of those skills still picks it", async () => {
   expect(await picked(skills, "audit the design of my site against best practices")).toContain("web-design-guidelines");
   expect(await picked(skills, "debug this: the import is slow since the last change, a performance regression")).toContain("diagnosing-bugs");
   expect(await picked(skills, "rebuild the simrack lab")).toEqual(["simrack"]);
+});
+
+test("one word of a skill's name, or a word any request uses, doesn't pick it: a network session's requests pick neither mcp-builder nor docx", async () => {
+  // From a real session with the network MCP: adding a second Central login, testing it, and asking about recent changes.
+  const skills = await registry();
+  for (const request of ["add another mcp central server to network mcp - for temp use", "test temp mcp", "fix the temp mcp login",
+    "when were the last changes to make sure i know which one he was working", "they recently added a ap and said it got it online but not working"]) {
+    const unrelated = (await picked(skills, request)).filter((name) => name === "mcp-builder" || name === "docx");
+    expect({ request, unrelated }).toEqual({ request, unrelated: [] });
+  }
+  // A request about documents still picks docx.
+  expect(await picked(skills, "accept the tracked changes and comments in the report docx")).toContain("docx");
 });

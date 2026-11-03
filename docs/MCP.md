@@ -133,7 +133,7 @@ file and set no variable.
    Casper asks once:
 
    ```text
-   Casper can set up its network server (casper-network-mcp 0.1.6, about 60 MB from pypi.org, installed with uv into ~/.casper/tools).
+   Casper can set up its network server (casper-network-mcp 0.1.7, about 60 MB from pypi.org, installed with uv into ~/.casper/tools).
    It starts read-only. Logins are asked per product the first time you use it.
    → 1 Not now
      2 Set it up
@@ -1007,6 +1007,13 @@ Every tool gets a label. From least to most strict: `read`, `diagnostic`,
     `Preview only: nothing changes (dry_run=true).`, or
     `May make the change (dry_run is not set).` for a router. When the switch is left
     out, the tool's schema default decides.
+  - A troubleshooting check (label `diagnostic`: ping, traceroute) is never "Change in": the box opens
+    `Run a check on SG1 in Central: cx ping` (the device when its arguments name one), says
+    `A check: it changes no settings.` and asks `Run this check?`. It isn't a `◆ Changed in` row or on the
+    receipt's Devices row. A check the server's `find_tool` labels `read` (`kind: troubleshoot, label: read`, such as
+    `get_lldp_neighbors`, which only runs `show lldp neighbors`) runs like a read, with no box; one whose name is a
+    link check (ping, traceroute, iperf, cable test) still asks whatever its label
+    ([decision 70](adr/0002/70-a-show-only-check-is-a-read.md)).
   - For an AI-set confirm:
     `⚠ The AI set confirm=true. That skips the server's own check. Only your answer here lets it run.`
   - The last preview of the same call on the same connection, masked and cut to about
@@ -1238,7 +1245,9 @@ the background.
   `<server> login is read-only.`, `Junos writes are off; only show commands run.`,
   `this change still has <secret hidden> in it`, `bad arguments`,
   `tool changed; search again`, `server not connected`, `arguments over 16 KB`,
-  `schema not supported`, or `unknown capability; use find_capability`.
+  `schema not supported`, or `unknown capability "<id>"`. An unknown id says what to call instead, so the AI can
+  retry in one step: for a tool behind a server's router, `call id "mcp:network:invoke_read_tool" with {"name":
+  "<tool>", "arguments": {…}}`; otherwise `Closest ids: …`.
 - `executed` is `true` when the server answered, `false` when nothing was sent, and
   `"unknown"` when the call may have run. Never repeat a change just to get more
   output.

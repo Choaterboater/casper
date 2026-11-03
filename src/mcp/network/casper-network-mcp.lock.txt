@@ -618,4 +618,4 @@ uvicorn==0.54.0 ; sys_platform != 'emscripten' \
     --hash=sha256:505bdb0f318731d45f1f712071fc781a8981f6847a31c902c9f5e652d4f67faf \
     --hash=sha256:a2e33cbfaa0306f8e6b0c13e0cb89d7d7a2da3e62b90c66e18c33d9807b28620
     # via mcp
-casper-network-mcp==0.1.6 --hash=sha256:9a19689f58962e3d29a2dcea2f8acf1e66e02e5be25ee8ea8d050bbb7f5f2250
+casper-network-mcp==0.1.7 --hash=sha256:0b6aa6bcd171475758d26d5782ab80ecab7bee63eaf003c88740a0e058f25feb

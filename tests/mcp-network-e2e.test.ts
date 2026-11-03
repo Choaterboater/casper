@@ -35,6 +35,9 @@ const HITS = [
   hit("mist_bounce_switch_port", "disruptive", "mist", "destructive"),
   hit("mist_update_device", "firmware", "mist"),
   hit("cx_show", "troubleshoot", "central", "diagnostic"),
+  // The real server labels a check that only runs fixed show commands read-only; a ping it labelled so would still ask.
+  hit("get_lldp_neighbors", "troubleshoot", "central", "read"),
+  hit("cx_ping", "troubleshoot", "central", "read"),
 ];
 const WLAN = { name: "mist_update_wlan", arguments: { site_id: "s1", wlan_id: "w1", changes: { vlan_id: 30 } } };
 const SETTING = { name: "mist_update_site_setting", arguments: { site_id: "s1", changes: { ntp: "192.0.2.10" } } };
@@ -130,7 +133,7 @@ async function networkSession(options: {
     await app.runOnce("/mcp connect network", project);
     await app.runInteractive();
   }
-  const boxes = output.split("Change in ").slice(1).map((part) => `Change in ${part.slice(0, part.search(/Type [\d, ]*\d or \d: /))}`);
+  const boxes = output.split(/(?=Change in |Run a check )/).slice(1).map((part) => part.slice(0, part.search(/Type [\d, ]*\d or \d: /)));
   return { output, results, boxes, answersLeft: answers, serverArgs, log, starts: async () => (await log()).filter((line) => line.startsWith("start ")),
     ran: async (name: string) => (await log()).filter((line) => line.startsWith("call invoke_") && line.includes(`"name":"${name}"`)).length };
 }
@@ -205,11 +208,46 @@ test("a show command runs after one 2 with no restart", async () => {
   });
   expect(s.boxes).toHaveLength(1);
   expect(s.boxes[0]).toContain("[diagnostic]");
-  // The box names the tool's own product, and shows only that product's reach (Central has no login here).
-  expect(s.boxes[0]).toStartWith("Change in Central: cx show\n");
+  // The box names the tool's own product, and shows only that product's reach (Central has no login here). A check is
+  // never "Change in", and with no preview switch it doesn't say "dry_run is not set".
+  expect(s.boxes[0]).toStartWith("Run a check in Central: cx show\n");
+  expect(s.boxes[0]).toContain("A check: it changes no settings.\n");
+  expect(s.boxes[0]).toContain("Run this check?");
+  expect(s.boxes[0]).not.toContain("May make the change");
   expect(s.boxes[0]).not.toContain("Your login can change");
+  // A check changes nothing: no change row and no Devices row in the receipt.
+  expect(s.output).not.toContain("Changed in");
+  expect(s.output).not.toContain("Devices");
   expect(await s.ran("cx_show")).toBe(1);
   expect(await s.starts()).toEqual(['start ["--read-only"]']);
+});
+
+test("a show-only check the server labels read (get_lldp_neighbors) runs like a read: no box, no change row, no Devices row", async () => {
+  const s = await networkSession({
+    steps: [async (ai) => {
+      await ai.call("find_tool", { query: "lldp neighbors on the closet switch" });
+      await ai.call("invoke_read_tool", { name: "get_lldp_neighbors", arguments: { serial_number: "SAMPLE0001" } });
+    }],
+  });
+  expect(s.boxes).toEqual([]);
+  expect(s.output).not.toContain("Make this change?");
+  expect(s.output).not.toContain("Changed in");
+  expect(s.output).not.toContain("Devices");
+  expect(await s.ran("get_lldp_neighbors")).toBe(1);
+  expect(await s.starts()).toEqual(['start ["--read-only"]']);
+});
+
+test("a ping the server labels read still asks, as a check on its device", async () => {
+  const s = await networkSession({
+    answers: ["1"],
+    steps: [async (ai) => {
+      await ai.call("find_tool", { query: "ping the gateway from the switch" });
+      await ai.call("invoke_read_tool", { name: "cx_ping", arguments: { serial_number: "SAMPLE0001", destination: "192.0.2.1" } });
+    }],
+  });
+  expect(s.boxes).toHaveLength(1);
+  expect(s.boxes[0]).toStartWith("Run a check on SAMPLE0001 in Central: cx ping\n");
+  expect(await s.ran("cx_ping")).toBe(0);
 });
 
 test("a disruptive tool asks every time even after 'Yes, for this session'", async () => {
@@ -371,4 +409,12 @@ test("without a find_tool hit, the box takes the product from the tool's name, a
   expect(s.boxes[0]).not.toContain("Your login can change");
   // A tool of no known product on a server with more than one: the reach is unknown, so no line.
   expect(s.boxes[1]).not.toContain("Your login can change");
+});
+
+test("an id for a tool behind the router says which id to call instead, so the AI can retry in one step", async () => {
+  const s = await networkSession({
+    steps: [async (ai) => { await ai.call("central_get_device_config_v1", { serial_number: "SAMPLE0001" }); }],
+  });
+  expect(s.results[0]).toContain('Not executed (unknown capability \\"mcp:network:central_get_device_config_v1\\")');
+  expect(s.results[0]).toContain('call id \\"mcp:network:invoke_read_tool\\" with {\\"name\\": \\"central_get_device_config_v1\\", \\"arguments\\": {…}}');
 });

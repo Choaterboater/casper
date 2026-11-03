@@ -37,6 +37,9 @@ export interface RoutedCall {
   name: string; arguments: Record<string, unknown>;
   /** The kind the server's find_tool gave this tool (set by the broker). It can only make the call stricter. */
   kind?: ChangeKind;
+  /** The server labels this troubleshooting check read-only (a show command): it runs like a read, unless its name is a
+   * link check (ping, cable test), which still asks. */
+  read?: true;
 }
 
 export interface ApprovalPlan {
@@ -121,17 +124,21 @@ export function buildPlan(input: {
   return { ...input, routed, routerUnclear };
 }
 
-/** The least label a server-given kind implies: a troubleshooting check asks (diagnostic), a change is a write. */
-function kindLabel(kind: ChangeKind | undefined): CapabilitySafety[] {
+/** The least label a server-given kind implies: a troubleshooting check asks (diagnostic), a change is a write. A check
+ * the server labels read-only (a show command) runs like a read. */
+function kindLabel(call: RoutedCall): CapabilitySafety[] {
+  const kind = call.kind;
   if (kind === undefined || kind === "read" || !(KIND_TEXT as Record<string, string>)[kind]) return [];
-  return [kind === "troubleshoot" ? "diagnostic" : "write"];
+  if (kind === "troubleshoot") return call.read ? [] : ["diagnostic"];
+  return ["write"];
 }
 
 /** The label the call is judged by: the tool's own, the real tools' names, and "not read" for an unclear router. */
 export function planLabel(plan: ApprovalPlan): CapabilitySafety {
-  // A link check (cable test, ping) the server hasn't named a kind for yet still asks: it can take a port's link down.
-  return strictest(plan.label, ...plan.routed.map((call) => nameLabel(call.name)), ...plan.routed.flatMap((call) => kindLabel(call.kind)),
-    ...plan.routed.filter((call) => call.kind === undefined && namesLinkCheck(call.name)).map(() => "diagnostic" as const),
+  // A link check (cable test, ping) still asks when the server hasn't named a kind for it yet, or calls it read-only:
+  // it can take a port's link down.
+  return strictest(plan.label, ...plan.routed.map((call) => nameLabel(call.name)), ...plan.routed.flatMap(kindLabel),
+    ...plan.routed.filter((call) => (call.kind === undefined || call.read) && namesLinkCheck(call.name)).map(() => "diagnostic" as const),
     ...(plan.routerUnclear ? ["external-action" as const] : []));
 }
 
@@ -407,6 +414,12 @@ function modeLine(detail: ModeDetail): string {
   return `Preview only: nothing changes (${detail.key}=true).`;
 }
 
+/** What a troubleshooting check does, in place of the change line: it sets nothing; a cable test can drop the link. */
+function checkLine(tool: string): string {
+  return /cable/i.test(tool) ? "A check: it changes no settings, but a cable test can take the port's link down briefly."
+    : "A check: it changes no settings.";
+}
+
 /** "set_ssid" -> "set ssid", "rebootDevice" -> "reboot device". */
 export function toolWords(name: string): string {
   return name.replace(/([a-z0-9])([A-Z])/g, "$1 $2").split(/[_\-\s.]+/).filter(Boolean).join(" ").toLowerCase();
@@ -446,6 +459,17 @@ export function sessionAllowed(label: CapabilitySafety): boolean { return label 
 
 /** The change box's question, under what changes. */
 export const APPROVAL_QUESTION = "Make this change?";
+/** The question when the call is a troubleshooting check (ping, traceroute): it changes no settings. */
+export const CHECK_QUESTION = "Run this check?";
+
+/** Argument names that say which device a check runs on. */
+const DEVICE_KEY = /^(?:serial(?:_?number)?|device(?:_?(?:name|id|serial))?|switch(?:_?(?:name|serial))?|ap(?:_?(?:name|serial))?|host(?:name)?|gateway(?:_?serial)?)$/i;
+
+/** The device a check runs on, from its arguments, when they name one plainly. */
+function checkDevice(args: Record<string, unknown>): string | undefined {
+  const found = Object.entries(args).find(([key, value]) => DEVICE_KEY.test(key) && (typeof value === "string" || typeof value === "number") && String(value) !== "");
+  return found ? String(found[1]).slice(0, 60) : undefined;
+}
 
 /** What one digit in the change box means. */
 export type ApprovalChoice = "no" | "preview" | "yes" | "yes-session" | "allow-all" | "show-session";
@@ -464,7 +488,13 @@ export function formatApproval(plan: ApprovalPlan, lastPreview?: LastPreview,
   // The product the one real tool belongs to, when the server said ("Mist"); "Yes to everything" still names the
   // whole server, because that is what it covers.
   // A network product's write says what it does in plain words first (src/network/change-words.ts).
-  const lines = [`Change in ${options.toolProduct ?? options.product ?? plan.server}: ${single && options.words ? options.words.box : toolWords(single?.name ?? plan.tool)}`];
+  // A troubleshooting check (ping, traceroute) changes no settings: the box says it runs a check, never "Change in".
+  const check = planLabel(plan) === "diagnostic";
+  const where = options.toolProduct ?? options.product ?? plan.server;
+  const device = check ? checkDevice(single ? single.arguments : plan.arguments) : undefined;
+  const lines = [check
+    ? `Run a check${device ? ` on ${device}` : ""} in ${where}: ${toolWords(single?.name ?? plan.tool)}`
+    : `Change in ${where}: ${single && options.words ? options.words.box : toolWords(single?.name ?? plan.tool)}`];
   // Where the login can change things (access-check v2); the server enforces it.
   if (options.scope) lines.push(`Your login can change: ${options.scope}`);
   if (plan.routerUnclear && !plan.routed.length) lines.push(`Runs: a tool Casper can't see (through ${plan.tool})`);
@@ -479,7 +509,9 @@ export function formatApproval(plan: ApprovalPlan, lastPreview?: LastPreview,
   if (masked.hidden.length) {
     lines.push(`Hidden: ${masked.hidden.join(", ")}. The server still gets the real value${masked.hidden.length > 1 ? "s" : ""}.`);
   }
-  lines.push(modeLine(modeDetail(plan)));
+  const detail = modeDetail(plan);
+  // A check with no preview switch in sight: "may make the change (dry_run is not set)" would name a switch it hasn't got.
+  lines.push(check && detail.why === "none" ? checkLine(single?.name ?? plan.tool) : modeLine(detail));
   if (plan.hint?.executeNote) lines.push(`Note: ${plan.hint.executeNote}`);
   const confirms = [...new Set(aiConfirm(plan.arguments).map((path) => path.split(".").at(-1)!))];
   if (confirms.length) {
@@ -507,7 +539,7 @@ export function formatApproval(plan: ApprovalPlan, lastPreview?: LastPreview,
   return {
     // Every line is one line: a tool name, key or value can't add a fake choice or question line.
     preview: `${lines.map((line) => terminalText(line.replace(LINE_BREAKS, " "))).join("\n")}\n`,
-    question: APPROVAL_QUESTION,
+    question: check ? CHECK_QUESTION : APPROVAL_QUESTION,
     labels: [...labels],
     choices,
     answers,

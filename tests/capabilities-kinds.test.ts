@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { buildPlan, planLabel } from "../src/capabilities/approval";
 import { CapabilityBroker } from "../src/capabilities/broker";
-import { asksEveryTime, changeKind, hitKindsFrom, MAX_HITS_PER_SERVER, planKinds, RISKY_KINDS, isRiskyKind, withHitKinds, withKindFloor } from "../src/capabilities/kinds";
+import { asksEveryTime, changeKind, hitKindsFrom, MAX_HITS_PER_SERVER, mergeHit, planKinds, RISKY_KINDS, isRiskyKind, withHitKinds, withKindFloor } from "../src/capabilities/kinds";
 import type { MCPServerDefinition } from "../src/mcp/config";
 import { MCPManager } from "../src/mcp/manager";
 import { networkServerEntry } from "../src/mcp/network/server";
@@ -311,4 +311,22 @@ test("a kind floor only raises a tool's change kind, never lowers it", () => {
   const other: MCPTool = { name: "x", inputSchema: { type: "object" }, _meta: { "casper/safety": "write" } };
   expect(withKindFloor(other, "disruptive")._meta).toEqual({ "casper/safety": "write", "casper/change-kind": "disruptive" });
   expect(changeKind(withKindFloor(tool(), "delete"), "write")).toBe("delete");
+});
+
+test("a troubleshooting check the server labels read runs like a read; a link check or a later diagnostic hit still asks", async () => {
+  const { planLabel } = await import("../src/capabilities/approval");
+  const show = { name: "get_lldp_neighbors", product: "central", summary: "LLDP.", kind: "troubleshoot", label: "read" };
+  const hits = hitKindsFrom({ content: [], structuredContent: { result: [show, { ...show, name: "cx_ping" }, { ...show, name: "set_vlan", kind: "config" }] } });
+  expect(hits.get("get_lldp_neighbors")).toEqual({ kind: "troubleshoot", product: "central", read: true });
+  // Only a troubleshoot kind can be a read-only check.
+  expect(hits.get("set_vlan")).toEqual({ kind: "config", product: "central" });
+  const kinds = new Map([...hits].map(([name, hit]) => [name, hit.kind]));
+  const reads = new Set([...hits].filter(([, hit]) => hit.read).map(([name]) => name));
+  expect(planLabel(withHitKinds(routedPlan("invoke_read_tool", "get_lldp_neighbors"), kinds, reads))).toBe("read");
+  expect(planLabel(withHitKinds(routedPlan("invoke_read_tool", "cx_ping"), kinds, reads))).toBe("diagnostic");
+  expect(planLabel(withHitKinds(routedPlan("invoke_read_tool", "set_vlan"), kinds, reads))).toBe("write");
+  // Without the read label it is a diagnostic, as before; a hit that says diagnostic again ends the read.
+  expect(planLabel(withHitKinds(routedPlan("invoke_read_tool", "get_lldp_neighbors"), kinds))).toBe("diagnostic");
+  expect(mergeHit({ kind: "troubleshoot", read: true }, { kind: "troubleshoot" })).toEqual({ kind: "troubleshoot" });
+  expect(mergeHit({ kind: "troubleshoot", read: true }, { kind: "config", read: true })).toEqual({ kind: "config" });
 });

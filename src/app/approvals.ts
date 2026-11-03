@@ -116,7 +116,7 @@ export async function confirmCapability(app: CasperApp, ...[call, signal]: Param
       recorded = sure.recorded;
     }
     // A call you allowed that can change things: undo can't reach it, and /undo says so.
-    if ((result === "yes" || result === "yes-session" || result === "allow-all") && planLabel(call.plan) !== "read") app.taskChangeServers.add(call.plan.server);
+    if ((result === "yes" || result === "yes-session" || result === "allow-all") && !["read", "diagnostic"].includes(planLabel(call.plan))) app.taskChangeServers.add(call.plan.server);
     const said = { yes: "allowed", "yes-session": "allowed for this session", "allow-all": "allowed (allow all)", preview: "preview first", no: "denied",
       "show-session": `allowed show commands on ${terminalText(call.plan.server)} for this session` }[result];
     recordOutcome(app, `[approval] ${said}\n`, recorded);

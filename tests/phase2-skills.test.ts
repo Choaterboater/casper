@@ -203,7 +203,7 @@ describe("Phase 2 skills", () => {
     const options = await fixture();
     const root = path.join(options.homeDir, ".pi/agent/skills");
     await mkdir(root, { recursive: true });
-    await writeFile(path.join(root, "legacy.md"), "---\nname: legacy-mcp\ndescription: MCP authoring.\n---\nLEGACY_BODY");
+    await writeFile(path.join(root, "legacy.md"), "---\nname: legacy-mcp\ndescription: MCP tool authoring.\n---\nLEGACY_BODY");
     await skill(path.join(root, "nested"), "nested-mcp", "NESTED_BODY", metadata);
     await skill(path.join(root, "nested/references"), "not-a-skill", "REFERENCE_BODY");
     const registry = await SkillRegistry.discover({ ...options, imports: ["pi"] });

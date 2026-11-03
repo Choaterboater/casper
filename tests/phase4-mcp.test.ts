@@ -354,6 +354,14 @@ test("list-change notifications refresh and remove stale tools without restartin
   await expect(broker.invoke("mcp:generic:status", {})).rejects.toThrow("Not executed (unknown capability");
 });
 
+test("an unknown id names the closest ids, so the AI can retry in one step", async () => {
+  const mcp = manager([definition("generic", "schema-change")]);
+  await mcp.connect("generic");
+  const broker = new CapabilityBroker(mcp);
+  const message = (await rejection(broker.invoke("mcp:generic:inspect_quantum", {}))).message;
+  expect(message).toStartWith('Not executed (unknown capability "mcp:generic:inspect_quantum"). Closest ids: mcp:generic:inspect_quantum_flux');
+});
+
 test("cached descriptors, input validators, and safety decisions invalidate together after refresh", async () => {
   const mcp = manager([definition("generic", "schema-change")]);
   await mcp.connect("generic");

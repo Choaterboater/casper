@@ -4,7 +4,7 @@ import type { MCPManager, MCPTool, ServerPolicy } from "../mcp/manager";
 import { ACCESS_TOOL, accessModelLines, parseAccessCheck, readOnlyLoginReason, writesOffReason } from "../mcp/access";
 import { approvalNotes, guardArguments, hasNoPreview, isHidden, tightenSafety } from "../mcp/presets";
 import type { RuntimeTool } from "../runtime/types";
-import { redactPreview } from "../tui/format";
+import { redactPreview, terminalText } from "../tui/format";
 import { scrubExactValues } from "../secrets/assignments";
 import { secretEnvValues } from "../secrets/files";
 import { containsHiddenSecret, scrubText, scrubValue, SECRET_MARKER } from "../secrets/scrub";
@@ -20,7 +20,7 @@ import { OTHER_WAY_IN, showsDeviceOffline } from "../network/offline";
 import { loginExpired, loginMissing, type LoginTrouble } from "../mcp/network/ask-login";
 import { getsLogins, isNetworkProduct, PRODUCT_LABELS, type NetworkProduct } from "../mcp/network/logins";
 import {
-  asksEveryTime, hitKindsFrom, isRiskyKind, KIND_TEXT, MAX_HITS_PER_SERVER, planKinds, riskier, withHitKinds, withKindFloor, type ChangeKind, type RouterHit,
+  asksEveryTime, hitKindsFrom, isRiskyKind, KIND_TEXT, MAX_HITS_PER_SERVER, mergeHit, planKinds, withHitKinds, withKindFloor, type ChangeKind, type RouterHit,
 } from "./kinds";
 import { boundCapabilityResult, capabilityErrorResult, NotExecutedError, OutcomeUnknownError, type BoundedCapabilityResult } from "./result";
 import { indexWords, termScore, tokenize } from "./search";
@@ -401,7 +401,7 @@ export class CapabilityBroker {
       server: capability.descriptor.source, tool: capability.tool.name, label: capability.descriptor.safety,
       schema: capability.tool.inputSchema, arguments: frozenArgs,
       ...(notes.length || noPreview ? { hint: { ...(notes.length ? { executeNote: notes.join(" ") } : {}), ...(noPreview ? { noPreview } : {}) } } : {}),
-    }), hitKinds);
+    }), hitKinds, this.hitReads(capability.descriptor.source));
     if (byRealTool && plan.routed.length === 1 && !plan.routerUnclear && hitKinds.has(plan.routed[0]!.name)) plan.label = "write";
     const label = planLabel(plan);
     // While planning a read runs (a device's state is research for the plan); a change, or any call that would ask, waits.
@@ -470,7 +470,8 @@ export class CapabilityBroker {
       }
       if (allCovered) this.onAllowAll?.(plan.server, realToolOf(plan));
       else if (covered && !ownCovered) this.onSessionCovered?.(plan.server, realToolOf(plan));
-      if (answer && label !== "read") {
+      // A troubleshooting check (ping, traceroute) changes no settings: it isn't a change row or in the receipt's Devices.
+      if (answer && label !== "read" && label !== "diagnostic") {
         const ended = this.onChangeCall?.(plan.server, realToolOf(plan), maskSecrets(frozenArgs, { scrubText: (value) => scrubText(redactPreview(value)).text }).value, words);
         if (typeof ended === "function") settle = ended as (outcome: ChangeOutcome) => void;
       }
@@ -778,6 +779,11 @@ export class CapabilityBroker {
     return new Map([...this.hitsFor(server) ?? []].map(([name, hit]) => [name, hit.kind]));
   }
 
+  /** The troubleshooting checks the server's find_tool labels read-only (show commands): they run like reads. */
+  hitReads(server: string): Set<string> {
+    return new Set([...this.hitsFor(server) ?? []].filter(([, hit]) => hit.read).map(([name]) => name));
+  }
+
   /** The product the server's find_tool named for an inner tool ("mist"), when it named one Casper knows. */
   hitProduct(server: string, tool: string): RouterHit["product"] {
     return this.hitsFor(server)?.get(tool)?.product;
@@ -792,7 +798,7 @@ export class CapabilityBroker {
     for (const [name, hit] of found) {
       const prev = tools.get(name);
       tools.delete(name);
-      tools.set(name, prev ? { kind: riskier(prev.kind, hit.kind), ...(hit.product ?? prev.product ? { product: hit.product ?? prev.product! } : {}) } : hit);
+      tools.set(name, mergeHit(prev, hit));
     }
     while (tools.size > MAX_HITS_PER_SERVER) tools.delete(tools.keys().next().value!);
   }
@@ -872,8 +878,24 @@ export class CapabilityBroker {
 
   private get(id: string): Capability {
     const capability = this.capabilities.get(id);
-    if (!capability) throw new NotExecutedError("unknown capability; use find_capability");
+    if (!capability) throw new NotExecutedError(`unknown capability ${JSON.stringify(terminalText(id).slice(0, 120))}`, this.unknownHint(id));
     return capability;
+  }
+
+  /** What to call instead of an id Casper doesn't know, so the AI can retry in one step: a tool behind a server's router
+   * goes through its invoke_read_tool; anything else gets the closest ids. Built from Casper's own ids and the AI's id. */
+  private unknownHint(id: string): string {
+    const parts = id.replace(/^mcp:/, "").split(":").map((part) => { try { return decodeURIComponent(part); } catch { return part; } });
+    const name = terminalText(parts.at(-1) ?? "").slice(0, 120);
+    const server = parts.length > 1 ? parts[0] : undefined;
+    const readers = [...this.capabilities.values()].filter((c) => c.router && !c.hidden && c.descriptor.name === "invoke_read_tool")
+      .sort((a, b) => Number(b.descriptor.source === server) - Number(a.descriptor.source === server)
+        || Number(b.policy.match?.preset.id === OWN_NETWORK) - Number(a.policy.match?.preset.id === OWN_NETWORK) || order(a.descriptor.id, b.descriptor.id));
+    if (readers.length && /^[\w.-]+$/.test(name)) {
+      return `If ${name} is a tool its find_tool named, call id "${readers[0]!.descriptor.id}" with {"name": "${name}", "arguments": {…}}; ${readers[0]!.descriptor.source}'s find_tool lists its tools.`;
+    }
+    const close = this.rank(name.replace(/[_.-]+/g, " "), { prefix: true }).slice(0, 3).map((c) => c.descriptor.id);
+    return close.length ? `Closest ids: ${close.join(", ")}. Or use find_capability.` : "Use find_capability to find the id.";
   }
 
   /** Plural-aware word match. `prefix` (search only) also lets a 5+ letter word match the start of a name word. */

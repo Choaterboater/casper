@@ -11,7 +11,7 @@ casper-skill:
     weak: ["central", "glp"]
     unless: ["classic central", "central classic"]
   frameworks: [central]
-  version: 3
+  version: 4
 ---
 # HPE Aruba Networking Central (new Central) REST API
 
@@ -51,6 +51,13 @@ These calls ask for data. Run them first to learn the account:
 
 The version part of a path (`v1`, `v1alpha1`) changes over time; check the current docs.
 
+What manages a device's config: check before you call a device set up in new Central or give a fix.
+- Provisioned, a device function and a site are inventory labels: not proof new Central pushes its config.
+- New Central manages it only when the device is in a device group and config health tracks it (casper-network-mcp:
+  find_tool "what manages this device's config").
+- Neither: say first it is not managed by new Central, and give no new Central fix steps. Look in Classic Central (its
+  group) or on the device; if you can't reach Classic Central, say plainly that you can't see where the device is configured.
+
 ```python
 def get_all(c: httpx.Client, path: str, limit: int = 100) -> list[dict]:
     items, nxt, tries = [], 1, 0
@@ -74,19 +81,7 @@ with httpx.Client(base_url=base, timeout=httpx.Timeout(30, connect=10),
     print(len(get_all(c, "network-monitoring/v1/devices")), "devices")
 ```
 
-With pycentral 2.x (a pre-release: `pip install --pre pycentral`), it gets and renews the token:
-
-```python
-from pycentral import NewCentralBase
-conn = NewCentralBase(token_info={"new_central": {
-    "base_url": os.environ["CENTRAL_BASE_URL"],
-    "client_id": os.environ["CENTRAL_CLIENT_ID"],
-    "client_secret": os.environ["CENTRAL_CLIENT_SECRET"]}})
-resp = conn.command(api_method="GET", api_path="network-monitoring/v1/devices",
-                    api_params={"limit": 100, "next": 1})
-if resp["code"] != 200:
-    raise SystemExit(f"Central said {resp['code']}: {resp['msg']}")
-```
+pycentral 2.x (`pip install --pre pycentral`): `NewCentralBase` gets and renews the token.
 
 ## Changing things (Casper asks)
 MCP: Casper's change box asks; don't ask again in chat. Else ask the user first; show the exact call.
@@ -118,8 +113,7 @@ Casper also asks before a shell command reaches a new host.
 ## Testing with saved sample data
 - Tests make no live calls. Use `respx` for httpx: return a saved answer for
   `GET {base}/network-monitoring/v1/devices` and patch `get_token` to return `"test-token"`.
-- Or pytest-recording (vcrpy) with `--record-mode=none` and
-  `vcr_config = {"filter_headers": ["authorization"]}`, as `casper new mist-python` does.
+- Or pytest-recording with `--record-mode=none`, filtering the authorization header.
 - Record once by hand, only with the user's OK. Before saving, replace tokens, IDs, hostnames,
   serials and MAC addresses with placeholders.
 - Sample data, not from a real network:
