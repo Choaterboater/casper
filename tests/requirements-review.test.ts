@@ -184,3 +184,14 @@ test("an open item is never dropped, however long the checklist; done items are 
   expect(parsed.open).toEqual(["the 6th call is rejected"]);
   expect(parsed.done).toHaveLength(50);
 });
+
+test("the review looks for an order that ties: a sort on a timestamp needs a unique tie-breaker", () => {
+  // Run 7: issues sorted newest first on a whole-second created_at, with nothing to break ties, lost a shared check.
+  // Said only in the review round (off unless verification.review is on), never in every task's prompt.
+  expect(requirementsReviewPrompt("List issues newest first.")).toContain("an order on a timestamp breaks ties with a unique key, such as the id");
+  const model = { commands: { test: "npm test" } } as unknown as Parameters<typeof formatTaskPrompt>[2];
+  for (const reviewFollows of [true, false]) {
+    expect(formatTaskPrompt("List issues newest first.", { intent: "implement", mode: "modify", verification: [] }, model,
+      { verificationMode: "auto", proveChange: true, reviewFollows })).not.toContain("tie");
+  }
+});

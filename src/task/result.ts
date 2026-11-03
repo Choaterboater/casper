@@ -1189,7 +1189,8 @@ function appSmokeLine(report: AppSmokeReport, text: (text: string) => string): s
   const mark = report.status === "pass" ? "✓" : report.status === "fail" ? "✗" : "–";
   const status = report.status === "pass" ? "passed" : report.status === "fail" ? "failed" : report.status === "off" ? "not run (off)"
     : report.exitedEarly ? "not checked" : "not run";
-  const request = report.path ? ` · ${safe(report.method ?? "GET")} ${safe(report.path)}${report.httpStatus !== undefined ? ` → HTTP ${report.httpStatus}` : ""}` : "";
+  const redirect = report.redirectedTo ? ` redirects to ${safe(report.redirectedTo)}` : "";
+  const request = report.path ? ` · ${safe(report.method ?? "GET")} ${safe(report.path)}${redirect}${report.httpStatus !== undefined ? ` → HTTP ${report.httpStatus}` : ""}` : "";
   const cleanup = report.cleanup === "stopped" ? "; app stopped" : report.cleanup === "preserved" ? "; existing service left running"
     : report.cleanup === "unconfirmed" ? "; cleanup unconfirmed" : "";
   return `${mark} App smoke: ${status}${report.label ? ` · ${safe(report.label)}` : ""}${request}${report.reason ? ` — ${safe(report.reason)}` : ""}${cleanup}${report.reused ? " (reused final-file check)" : ""}`;

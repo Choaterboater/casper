@@ -190,7 +190,8 @@ export function redactSmoke(smoke: SmokeReport): SmokeReport {
 /** The new report follows the same preview rules as the existing service/page evidence. */
 export function redactAppSmoke(report: AppSmokeReport): AppSmokeReport {
   return { ...report, ...(report.label ? { label: redactPreview(report.label) } : {}), ...(report.command ? { command: redactPreview(report.command) } : {}),
-    ...(report.path ? { path: redactPreview(report.path) } : {}), ...(report.reason ? { reason: redactPreview(report.reason) } : {}) };
+    ...(report.path ? { path: redactPreview(report.path) } : {}), ...(report.redirectedTo ? { redirectedTo: redactPreview(report.redirectedTo) } : {}),
+    ...(report.reason ? { reason: redactPreview(report.reason) } : {}) };
 }
 
 /** Proof output is the failing test run's tail and may echo env or tokens; redact a copy, never the evidence. */
