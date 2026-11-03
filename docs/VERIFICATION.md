@@ -83,7 +83,11 @@ says `Checks skipped — only a running app's database files changed (...)`. The
 
 **Only output changed.** Files a program writes when it runs, not what it runs from: everything in a top-level
 `results`, `output`, `out`, `reports`, `logs`, `coverage`, `screenshots`, `builds`, `dist` or `runs` folder and any
-`.log` or `.out` file, never code or tests wherever they sit. When only those (with docs or database files) changed, the receipt says
+`.log` or `.out` file, never code or tests wherever they sit. Below the top too, a `builds/`, `runs/` or `results/`
+folder is a program's output, code included, and a `logs/` folder for what is not code (a harness copied into `run-9/`
+with its own), unless a source folder such as `src/`, `lib/` or `packages/` comes first. Files copied into a folder
+the task made, with the bytes of a file from before (`cp -R scripts package.json run-9/`), are copies, said with the
+moves (`Moved 141 files into run-10/; copied 12 into run-9/`), never new work, config or test data. When only those (with docs or database files) changed, the receipt says
 `Checks skipped — only output files changed (results/report.html, …)` as line 1, grey: nothing to act on. More than three
 files are counted, not listed: `only output files changed (129 in builds/, runs/, results/ and 2 more places)`. A comparison that
 wrote 22 files under `results/` ran a 45 s test suite for them. The same holds where checks are offered with `/verify`:
@@ -115,6 +119,15 @@ work is in ..." or touched by undo. A file the AI's `edit` and `write` tools nam
 its tools ran, stays the AI's. A deleted file (it has no time of its own) or a change while a command or service the
 task left running could still write stays the AI's on the receipt, and `/undo` asks before touching it
 ([UNDO.md](UNDO.md#the-rules)). `tests/changed-by-others.test.ts` covers this.
+
+**Casper's checks leave the app's data as the AI left it.** Before any of Casper's own checks, end replays, repair
+rounds or app smoke use the app, Casper keeps a copy of the app's data files: SQLite databases with their `-wal`, `-shm`
+and `-journal` files, and JSON, YAML or CSV data under a `data/`, `db/` or `var/` folder, outside a program's output
+folders. After the last check it puts them back byte for byte and removes data files the checks made; a file the AI's
+own edit or write tools changed in a repair round stays as the AI left it. A tracker build once shipped six users that
+Casper's own replays and repair round signed up after the AI had deleted its test database. A project whose data is
+larger than 256 MB, or more than 64 files, is not copied ([decision 69](adr/0002/69-checks-leave-the-data-as-the-ai-left-it.md)).
+`tests/checks-keep-data.test.ts` covers this.
 
 **Left by your test runs.** A data file that was not there before the task and that the task's own runs could have
 written (it ran a shell command, a service or the browser): a SQLite database with its `-wal` and `-shm`, or JSON, YAML

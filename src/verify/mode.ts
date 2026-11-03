@@ -130,15 +130,32 @@ const OUTPUT_FOLDER = /^(?:results?|outputs?|out|reports?|logs?|coverage|screens
 /** A file in a top-level folder a program writes its output into (results/, logs/, builds/, dist/, runs/ …), code
  * included: a comparison's builds there are what it made, not this task's change, so no proof is asked for them, no
  * app is started for them and checks writing there leave no test data in the app. */
-export const inOutputFolder = (file: string): boolean => OUTPUT_FOLDER.test(file);
+export const inOutputFolder = (file: string): boolean => OUTPUT_FOLDER.test(file) || nestedOutput(file, NESTED_BUILT);
 /** What a program built or ran into a top-level builds/, runs/ or results/ folder, code and tests included: a
  * comparison's builds are not this project's, so changing only them runs no check (a check whose declared scope covers
  * them still runs, and so do files the AI's own edit and write tools wrote there). Code in dist/, logs/ or out/ is still
  * the project's. */
 const BUILT_FOLDER = /^(?:builds?|runs?|results?)\//i;
-export const builtOutput = (file: string): boolean => BUILT_FOLDER.test(file);
+export const builtOutput = (file: string): boolean => BUILT_FOLDER.test(file) || nestedOutput(file, NESTED_BUILT);
 const OUTPUT_FILE = /\.(?:log|out)$/i;
-export const isOutputPath = (file: string): boolean => !isCodePath(file) && !isTestPath(file) && (OUTPUT_FOLDER.test(file) || OUTPUT_FILE.test(file));
+export const isOutputPath = (file: string): boolean => !isCodePath(file) && !isTestPath(file)
+  && (OUTPUT_FOLDER.test(file) || OUTPUT_FILE.test(file) || nestedOutput(file, NESTED_OUTPUT));
+
+/** Below the top too (a copied harness in run-9/ with its own builds/, runs/, results/ and logs/): such a folder anywhere,
+ * unless a source folder comes first (src/runs/ and packages/web/results/ are the project's code). */
+const NESTED_BUILT = /^(?:builds?|runs?|results?)$/i;
+const NESTED_OUTPUT = /^(?:builds?|runs?|results?|logs?)$/i;
+const SOURCE_FOLDER = /^(?:src|source|lib|libs|app|apps|packages|pkg|internal|cmd|components|pages|server|client|backend|frontend|api|web|modules|tests?|specs?|__tests__|scripts|tools)$/i;
+/** A file in a builds/, runs/, results/ or logs/ folder below the top (run-9/logs/omp.stderr.log). */
+export const nestedOutputFolder = (file: string): boolean => nestedOutput(file, NESTED_OUTPUT);
+function nestedOutput(file: string, names: RegExp): boolean {
+  const folders = file.replace(/\\/g, "/").split("/").slice(0, -1);
+  for (const [index, folder] of folders.entries()) {
+    if (SOURCE_FOLDER.test(folder)) return false;
+    if (index > 0 && names.test(folder)) return true;
+  }
+  return false;
+}
 
 /** The checks auto mode runs after a model turn. `changedPaths` undefined means the change set
  * is unknown (a snapshot failed), so nothing can be skipped for being unaffected. A check with a

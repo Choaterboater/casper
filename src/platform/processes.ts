@@ -44,12 +44,16 @@ function parsePS(stdout: string): Map<number, ProcessRecord> {
   return all;
 }
 
+/** How long one process listing may take. At 2 s it failed on a machine at load 77, and every stop there read as
+ * unconfirmed cleanup. */
+export const PROCESS_LIST_TIMEOUT_MS = 10_000;
+
 async function listPosix(): Promise<Map<number, ProcessRecord>> {
   let failure: unknown;
   for (const command of PS_COMMANDS) {
     try {
       const { stdout } = await exec(command, ["-axo", "pid=,ppid=,pgid=,stat=,lstart=,command="], {
-        encoding: "utf8", timeout: 2000, maxBuffer: 4 * 1024 * 1024,
+        encoding: "utf8", timeout: PROCESS_LIST_TIMEOUT_MS, maxBuffer: 4 * 1024 * 1024,
         env: { PATH: process.env.PATH ?? "/usr/bin:/bin", LC_ALL: "C" }, windowsHide: true,
       });
       return parsePS(stdout);

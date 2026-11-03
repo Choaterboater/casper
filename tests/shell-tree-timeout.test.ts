@@ -122,3 +122,20 @@ test("failed background adoption preserves unconfirmed cleanup instead of replac
     expect(blocked).toBe(1);
   } finally { await commands.close(); }
 });
+
+test("a command stopped at its own limit whose cleanup can't be confirmed says it was stopped at the limit", async () => {
+  // Runs 9 and 10: `sleep 118; …ps…` with timeout 130 ran past its limit on a machine at load 77, and the step only said
+  // "Owned process cleanup is unconfirmed." The person must still be told processes may run; the step says why it stopped.
+  const stopping = spyOn(processes, "terminateTree").mockResolvedValue("unknown");
+  try {
+    const bash = casperBashOperations({ wrap: async command => ({ command }), onCleanupFailure: () => {} });
+    const failed = await bash.exec("sleep 5", process.cwd(), { timeout: 1, onData() {} }).then(() => undefined, (error: Error) => error);
+    expect(failed).toBeInstanceOf(ProcessCleanupError);
+    expect(failed?.message).toBe("Stopped at its 1 s limit, and Casper could not confirm that every process it started has stopped.");
+  } finally { stopping.mockRestore(); }
+}, 20_000);
+
+test("the process listing that confirms a cleanup has time on a busy machine", () => {
+  // At 2 s it failed under load, and every stop on that machine read as unconfirmed.
+  expect(processes.PROCESS_LIST_TIMEOUT_MS).toBeGreaterThanOrEqual(10_000);
+});

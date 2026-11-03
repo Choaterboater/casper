@@ -21,7 +21,11 @@ const MAX_TOTAL_BYTES = 8 * 1024 * 1024;
 const MAX_ENTRIES = 4096;
 const SKIPPED = new Set([...(PROJECT_SCOPE.exclude ?? []), ".casper"]);
 
-export async function snapshotAppData(root: string, signal?: AbortSignal, pick: (file: string) => boolean = appDataFile): Promise<AppData | undefined> {
+/** Bounds for a snapshot: how many files, how big each, and all of them together. */
+export interface AppDataLimits { files: number; fileBytes: number; totalBytes: number }
+
+export async function snapshotAppData(root: string, signal?: AbortSignal, pick: (file: string) => boolean = appDataFile,
+  limits: AppDataLimits = { files: MAX_FILES, fileBytes: MAX_FILE_BYTES, totalBytes: MAX_TOTAL_BYTES }): Promise<AppData | undefined> {
   const files = new Map<string, Buffer>();
   let total = 0, entries = 0;
   const visit = async (relative: string): Promise<boolean> => {
@@ -35,7 +39,7 @@ export async function snapshotAppData(root: string, signal?: AbortSignal, pick: 
       } else if (entry.isFile() && pick(child)) {
         const size = (await lstat(path.join(root, child))).size;
         total += size;
-        if (size > MAX_FILE_BYTES || total > MAX_TOTAL_BYTES || files.size >= MAX_FILES) return false;
+        if (size > limits.fileBytes || total > limits.totalBytes || files.size >= limits.files) return false;
         files.set(child, await readFile(path.join(root, child)));
       }
     }

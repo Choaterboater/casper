@@ -12,7 +12,7 @@
  */
 import { lstat } from "node:fs/promises";
 import path from "node:path";
-import { builtOutput, inOutputFolder } from "../verify/mode";
+import { builtOutput, inOutputFolder, nestedOutputFolder } from "../verify/mode";
 import type { TreeChanges } from "./changes";
 
 /** File times are compared this loosely: some file systems keep them to the second (FAT, SMB keeps two). */
@@ -126,12 +126,13 @@ export async function attributeChanges(input: AttributionInput): Promise<Attribu
   // A running app rewrites its database and log by itself, also while one of the AI's commands runs: unless the AI's
   // edit tools or its commands named the file, it is the app's.
   // A log in a run's own output folder (a comparison's servers log into results/) is what the run wrote: its time decides.
-  const theApps = (file: string) => serviceFile(file) && !builtOutput(file) && !input.toolFiles?.has(file) && !input.moved?.has(file)
+  const theApps = (file: string) => serviceFile(file) && !builtOutput(file) && !nestedOutputFolder(file) && !input.toolFiles?.has(file) && !input.moved?.has(file)
     && !(input.commands ?? []).some((command) => command.includes(path.posix.basename(file).replace(/-(?:wal|shm|journal)$/, "")));
   const live = (file: string) => Boolean(input.liveFiles?.has(file)) && !input.toolFiles?.has(file) && !input.moved?.has(file);
   // New with the task, written by its own runs: a database's -wal or -shm counts only with its database new too.
   const added = new Set(input.changes.added);
-  const testData = (file: string) => Boolean(input.ownRuns) && testDataFile(file) && !input.toolFiles?.has(file) && !live(file)
+  // Never a file the task moved or copied (an archived build's database): only one its own runs wrote.
+  const testData = (file: string) => Boolean(input.ownRuns) && testDataFile(file) && !input.toolFiles?.has(file) && !live(file) && !input.moved?.has(file)
     && added.has(file.replace(/-(?:wal|shm|journal)$/i, ""));
   for (const file of input.changes.added) if (testData(file)) { result.task.push(file); result.testData.push(file); }
   for (const file of [...input.changes.added, ...input.changes.modified, ...input.changes.removed]) if (!result.testData.includes(file) && (theApps(file) || live(file))) result.others.push(file);
