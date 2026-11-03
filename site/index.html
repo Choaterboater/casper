@@ -40,7 +40,7 @@
       <div class="container">
         <div class="hx-row">
           <div class="hx-copy">
-            <p class="hx-meta">Casper 0.4.7 · early preview, not signed · MIT licence</p>
+            <p class="hx-meta">Casper 0.4.8 · early preview, not signed · MIT licence</p>
             <h1 id="hero-title">The coding agent that proves it's done.</h1>
             <p class="lead">A coding helper for your terminal. Build web apps, APIs, command-line tools and scripts in the language your project uses, and Casper checks the AI's work before it tells you "done". Network engineers get extra care built in.</p>
             <div class="actions">
@@ -75,8 +75,8 @@
             <button type="button" role="tab" id="tab-unix" aria-controls="cmd-unix" aria-selected="true">macOS / Linux</button>
             <button type="button" role="tab" id="tab-windows" aria-controls="cmd-windows" aria-selected="false" tabindex="-1">Windows</button>
           </div>
-          <div class="cmd" id="cmd-unix"><span class="cmd-label visually-hidden">macOS / Linux</span><pre><code>curl -fsSL https://github.com/Choaterboater/casper/releases/download/v0.4.7/install.sh | sh</code></pre></div>
-          <div class="cmd" id="cmd-windows"><span class="cmd-label">Windows x64 or ARM64 · PowerShell</span><pre><code>[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; irm https://github.com/Choaterboater/casper/releases/download/v0.4.7/install.ps1 | iex</code></pre></div>
+          <div class="cmd" id="cmd-unix"><span class="cmd-label visually-hidden">macOS / Linux</span><pre><code>curl -fsSL https://github.com/Choaterboater/casper/releases/download/v0.4.8/install.sh | sh</code></pre></div>
+          <div class="cmd" id="cmd-windows"><span class="cmd-label">Windows x64 or ARM64 · PowerShell</span><pre><code>[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; irm https://github.com/Choaterboater/casper/releases/download/v0.4.8/install.ps1 | iex</code></pre></div>
         </div>
         <p class="small muted">No Bun or source checkout needed. The installer checks the file's SHA-256 and runs the new program's <code>--version</code> before it replaces an older install. Then run <code>casper</code> in your project folder.</p>
       </div>
@@ -308,9 +308,10 @@ Exit codes: 0 no problems, 1 problems (or warnings with --strict), 64 usage mist
           </ul>
         </div>
         <div>
-          <h2 id="next">New in 0.4.7</h2>
+          <h2 id="next">New in 0.4.8</h2>
           <ul>
-            <li>A password on a line naming a test domain, such as <code>ada@example.test</code>, is made up and gets no secret warning. An app with nothing to start it is a grey note, never an Incomplete headline, and a request's topic words ("front end", "database") are no longer cases to test.</li>
+            <li>A database your own test runs left, such as the user a test signed up, is named on the receipt (<code>Left by your test runs</code>), and the AI is asked to delete it unless it is meant to ship. App smoke follows a redirect within the app, so an app that sends <code>/</code> to <code>/login</code> is up.</li>
+            <li>From 0.4.7: a password on a line naming a test domain, such as <code>ada@example.test</code>, is made up and gets no secret warning. An app with nothing to start it is a grey note, never an Incomplete headline, and a request's topic words ("front end", "database") are no longer cases to test.</li>
             <li>From 0.4.6: a turn that changed only output files, such as a comparison's builds and results, gets a quieter receipt: line 1 counts the files and says where they are, there is no proof line, a run's own logs and the files it moved count as its own, and the commands and number keys share one <strong>Next</strong> row.</li>
             <li>From 0.4.5: commands sent over ssh go through the same read check as here, so a look at a server is one neutral line and the receipt says <code>looked only</code>. A dim line under the running step shows what the command is printing, a line you send stops a command that only waits, and changes made through a network MCP server read in plain words with how to undo.</li>
             <li>From 0.4.4: with a Claude plan, a conversation runs in one live Claude Code session that keeps its own thinking between steps, and the plan stays signed in when one status check fails. At the end of a task, a check whose app had stopped is replayed on that app, started again; a check is stale only when its app can't start. In the same blind build on Haiku 5.5, Casper used 107k output tokens (was 167k) and 9 minutes (was 19), and passed 6 of 6 shared checks in all three runs.</li>
@@ -331,7 +332,7 @@ Exit codes: 0 no problems, 1 problems (or warnings with --strict), 64 usage mist
   <footer class="site-footer">
     <div class="container footer-inner">
       <div>
-        <p><strong>Casper 0.4.7</strong> · early preview, unsigned</p>
+        <p><strong>Casper 0.4.8</strong> · early preview, unsigned</p>
         <p><a href="https://github.com/Choaterboater/casper/blob/main/LICENSE">MIT licence</a> · © 2026 Choaterboater</p>
         <p>Built on the <a href="https://github.com/earendil-works/pi">Pi SDK</a>. Other parts keep their own licences (<a href="https://github.com/Choaterboater/casper/blob/main/THIRD_PARTY_NOTICES.txt">notices</a>).</p>
       </div>

@@ -14,11 +14,23 @@ when releasing. Existing historical notes below stay as written; feature tests c
 reference docs, not a per-PR release-note or roadmap entry. Release-prep checks verify the version and
 installer targets (`tests/release-install.test.ts`, `tests/release-targets.test.ts`).
 
-Casper distributes an unsigned **v0.4.7 preview**, not a stable release. The installers
-download from `https://github.com/Choaterboater/casper/releases/download/v0.4.7`,
+Casper distributes an unsigned **v0.4.8 preview**, not a stable release. The installers
+download from `https://github.com/Choaterboater/casper/releases/download/v0.4.8`,
 because GitHub's `latest/download` link skips preview releases. The first published
 preview was **v0.1.0**. A published release is never changed; every fix ships under a
 new version.
+
+## v0.4.8: test data your runs left is named, and an app that redirects to its sign-in page is up
+
+### Changed
+
+- A database your own test runs made, such as the user a test signed up, is the task's and is never another program's.
+- The AI is told once what such a file holds and asked to delete it unless it ships.
+- A test data file still there at the end gets a grey `Left by your test runs` line on the receipt.
+- App smoke follows a redirect within the app, so `GET / redirects to /login → HTTP 200` passes.
+- A redirect off the app, a loop or more than 5 hops still fails app smoke.
+- Where checks are offered with `/verify`, a change of only output files is a grey `Checks skipped` line with no `/verify` push.
+- The requirements review checks that an order on a timestamp breaks ties with a unique key.
 
 ## v0.4.7: test logins are not secrets, nothing to start is a note, and topic words are not cases
 

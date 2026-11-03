@@ -1,6 +1,6 @@
 # 67. App smoke follows redirects within the app
 
-Date: 2026-11-03. Status: proposed. Amends 17 (try changed apps before the receipt): its guard rail "Redirects are not
+Date: 2026-11-03. Status: accepted (merged 2026-11-03 in #582). Amends 17 (try changed apps before the receipt): its guard rail "Redirects are not
 followed" now holds only for a redirect that leaves the app.
 
 ## Decision
