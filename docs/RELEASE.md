@@ -14,11 +14,21 @@ when releasing. Existing historical notes below stay as written; feature tests c
 reference docs, not a per-PR release-note or roadmap entry. Release-prep checks verify the version and
 installer targets (`tests/release-install.test.ts`, `tests/release-targets.test.ts`).
 
-Casper distributes an unsigned **v0.4.6 preview**, not a stable release. The installers
-download from `https://github.com/Choaterboater/casper/releases/download/v0.4.6`,
+Casper distributes an unsigned **v0.4.7 preview**, not a stable release. The installers
+download from `https://github.com/Choaterboater/casper/releases/download/v0.4.7`,
 because GitHub's `latest/download` link skips preview releases. The first published
 preview was **v0.1.0**. A published release is never changed; every fix ships under a
 new version.
+
+## v0.4.7: test logins are not secrets, nothing to start is a note, and topic words are not cases
+
+### Changed
+
+- A password on a line naming a test domain, such as `ada@example.test`, is made up and gets no secret warning.
+- An app with nothing to start it gets a grey note, never an Incomplete headline.
+- A script under `scripts/` or `tools/` that opens a port is tooling, not the app.
+- A request's topic words, such as front end or database, are not cases to test.
+- Tests for your request's cases are named for the behavior they check, not after the request's words.
 
 ## v0.4.6: a quieter receipt when only output files changed
 

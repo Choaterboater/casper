@@ -78,6 +78,7 @@
           </li>
           <li><a href="#released">Released</a>
             <ul>
+              <li><a href="#v0407">v0.4.7: no false alarms</a></li>
               <li><a href="#v0406">v0.4.6: quieter receipts</a></li>
               <li><a href="#v0405">v0.4.5: looks are not changes</a></li>
               <li><a href="#v0404">v0.4.4: live sessions</a></li>
@@ -141,7 +142,7 @@
         <h2 id="next-h">Next release</h2>
         <aside class="callout soon">
           <strong class="callout-title">Built, not released</strong>
-          <p>Nothing on the main branch is waiting: everything built so far is in v0.4.6. New work shows here before the next preview.</p>
+          <p>Nothing on the main branch is waiting: everything built so far is in v0.4.7. New work shows here before the next preview.</p>
         </aside>
       </section>
 
@@ -383,10 +384,22 @@
         and on the <a href="https://github.com/Choaterboater/casper/releases">Releases page</a>.</p>
         <div class="stack">
 
+        <details class="card release" id="v0407" aria-labelledby="v0407-h" open>
+          <summary class="release-heading">
+            <h3 id="v0407-h">v0.4.7 · Test logins are not secrets, nothing to start is a note, and topic words are not cases</h3>
+            <span class="badge ok">current preview</span>
+          </summary>
+          <ul>
+            <li><strong>Test logins are made up.</strong> A password on a line naming a domain reserved for tests and examples (<code>ada@example.test</code>, <code>example.com</code>, <code>.invalid</code>) gets no "A secret was written into" warning. A real domain still does.</li>
+            <li><strong>Nothing to start is a note.</strong> An app with no start command and no declared service says <code>App smoke: not run</code> as a grey note, never <code>⚠ Incomplete</code>, and a script under <code>scripts/</code> that opens a port is tooling, not the app.</li>
+            <li><strong>Topics are not cases.</strong> "make it harder front end backend database" lists no cases to test, and tests are named for the behavior they check, not after the request's words.</li>
+          </ul>
+        </details>
+
         <details class="card release" id="v0406" aria-labelledby="v0406-h" open>
           <summary class="release-heading">
             <h3 id="v0406-h">v0.4.6 · A quieter receipt when only output files changed</h3>
-            <span class="badge ok">current preview</span>
+            <span class="badge">previous preview</span>
           </summary>
           <ul>
             <li><strong>Counted, not listed.</strong> When only output files changed, line 1 says how many and where: <code>– Checks skipped: only output files changed (129 in builds/, runs/, results/ and 2 more places)</code>.</li>
@@ -399,7 +412,7 @@
         <details class="card release" id="v0405" aria-labelledby="v0405-h" open>
           <summary class="release-heading">
             <h3 id="v0405-h">v0.4.5 · An ssh that only looks is no change, a live line for what a command prints, and network changes in plain words</h3>
-            <span class="badge">previous preview</span>
+            <span class="badge">released</span>
           </summary>
           <ul>
             <li><strong>Looks are not changes.</strong> Commands sent over ssh go through the same read check as here: <code>uname</code>, <code>docker ps</code> or <code>ls</code> on a server is one neutral line, <code>✓ Ran on nas: … (looked only)</code>, and the receipt says <code>looked only</code>. A command that may change things keeps its ◆ row, counted.</li>
@@ -414,7 +427,7 @@
           </ul>
         </details>
 
-        <details class="card release" id="v0404" aria-labelledby="v0404-h" open>
+        <details class="card release" id="v0404" aria-labelledby="v0404-h">
           <summary class="release-heading">
             <h3 id="v0404-h">v0.4.4 · A live Claude Code session per conversation, checks that start their app again, and a Claude plan that stays signed in</h3>
             <span class="badge">released</span>
@@ -1558,7 +1571,7 @@
   <footer class="site-footer">
     <div class="container footer-inner">
       <div>
-        <p><strong>Casper 0.4.6</strong> · early preview, unsigned</p>
+        <p><strong>Casper 0.4.7</strong> · early preview, unsigned</p>
         <p><a href="https://github.com/Choaterboater/casper/blob/main/LICENSE">MIT licence</a> · © 2026 Choaterboater</p>
         <p>Built on the <a href="https://github.com/earendil-works/pi">Pi SDK</a>. Other parts keep their own licences (<a href="https://github.com/Choaterboater/casper/blob/main/THIRD_PARTY_NOTICES.txt">notices</a>).</p>
       </div>

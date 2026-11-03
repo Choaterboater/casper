@@ -1,6 +1,6 @@
 # 66. Nothing to start is a note, not an unfinished check
 
-Date: 2026-11-02. Status: proposed. Amends 17 (try changed apps before the receipt): "recognized apps with no launch
+Date: 2026-11-02. Status: accepted (merged 2026-11-02 in #580). Amends 17 (try changed apps before the receipt): "recognized apps with no launch
 command get an explanation" stays, and that explanation never makes the task Incomplete.
 
 ## Decision
