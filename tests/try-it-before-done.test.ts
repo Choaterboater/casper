@@ -206,6 +206,40 @@ test("a JSON 404 or 405 at a guessed root means the API is up; an HTML 404 or a 
   expect(await requestApp(origin, "/", signal)).toMatchObject({ status: "fail", reason: "HTTP 404, expected 2xx" });
 });
 
+// Run 7's tracker: / sends a signed-out visitor to /login (302), as its prompt required. The receipt said "✗ App smoke:
+// failed · npm run start · GET / → HTTP 302 — HTTP 302, expected 2xx" and Casper exited 1.
+test("a redirect within the app is followed to its page and said plainly; one off the app, a loop or too many hops fails", async () => {
+  const server = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch(request) {
+    const route = new URL(request.url).pathname;
+    const go = (location: string, status = 302) => new Response(null, { status, headers: { location } });
+    switch (route) {
+      case "/": return go("/login");
+      case "/login": return new Response("<form>Sign in</form>", { headers: { "content-type": "text/html" } });
+      case "/old": return go("/moved", 301);
+      case "/moved": return go("/missing", 307);
+      case "/away": return go("https://example.com/login");
+      case "/loop": return go("/loop-b");
+      case "/loop-b": return go("/loop");
+      case "/far": return go("/far1");
+      default: {
+        const hop = /^\/far(\d)$/.exec(route);
+        return hop ? go(`/far${Number(hop[1]) + 1}`) : new Response("<h1>Not found</h1>", { status: 404, headers: { "content-type": "text/html" } });
+      }
+    }
+  } });
+  cleanups.push(() => server.stop(true));
+  const origin = `http://127.0.0.1:${server.port}`, signal = new AbortController().signal;
+  expect(await requestApp(origin, "/", signal)).toEqual({ status: "pass", httpStatus: 200, redirectedTo: "/login" });
+  expect(await requestApp(origin, "/old", signal)).toMatchObject({ status: "fail", httpStatus: 404, redirectedTo: "/missing", reason: "HTTP 404, expected 2xx" });
+  expect(await requestApp(origin, "/away", signal)).toMatchObject({ status: "fail", httpStatus: 302, reason: "it redirects off the app, to https://example.com/login" });
+  expect(await requestApp(origin, "/loop", signal)).toMatchObject({ status: "fail", reason: "it redirects in a loop (/loop-b → /loop)" });
+  expect(await requestApp(origin, "/far", signal)).toMatchObject({ status: "fail", reason: "it redirects more than 5 times" });
+  // The receipt says where it went.
+  expect(formatReceipt({ execution: "completed", changedPaths: ["server.ts"], verificationMode: "auto",
+    appSmoke: { status: "pass", label: "npm run start", path: "/", method: "GET", httpStatus: 200, redirectedTo: "/login", cleanup: "stopped" } }, { surface: "interactive" }))
+    .toContain("App smoke: passed · npm run start · GET / redirects to /login → HTTP 200; app stopped");
+});
+
 test("service scopes select only the server touched by the change", async () => {
   const f = await fixture();
   await mkdir(path.join(f.project, "api")); await mkdir(path.join(f.project, "ui"));

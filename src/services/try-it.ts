@@ -15,6 +15,8 @@ export interface AppSmokeReport {
   path?: string;
   method?: string;
   httpStatus?: number;
+  /** Where a redirect within the app led (`/login`): the status is that page's. */
+  redirectedTo?: string;
   reason?: string;
   cleanup: "stopped" | "not-started" | "preserved" | "unconfirmed";
   reused?: true;
@@ -30,6 +32,8 @@ const EXITED_EARLY_MS = 5_000;
 
 export const APP_SMOKE_START_MS = 15_000;
 const REQUEST_MS = 10_000;
+/** Redirects followed within the app before the smoke gives up (decision 67). */
+const MAX_REDIRECTS = 5;
 const message = (error: unknown) => redactPreview((error instanceof Error ? error.message : String(error)).split("\nLog tail:")[0]!).slice(0, 500);
 
 /** A private service owner: start, one GET, check its status, stop the entire owned tree in finally.
@@ -75,18 +79,35 @@ export async function tryApp(root: string, target: AppSmokeTarget, signal: Abort
   }
 }
 
-/** One bounded GET, without starting, restarting or stopping the service that owns the origin.
+/** One bounded GET, without starting, restarting or stopping the service that owns the origin. A redirect within the
+ * app (a signed-out visitor sent from / to /login) is followed, at most MAX_REDIRECTS hops, and the page it leads to is
+ * judged; one to another origin, a loop or too many hops fails (decision 67).
  * When `/` is only a guess, a JSON 404/405 is an API answering that it has no page there: the app is up. */
-export async function requestApp(origin: string | undefined, requestPath: string, signal: AbortSignal, rootGuess = false): Promise<Pick<AppSmokeReport, "status" | "httpStatus" | "reason">> {
+export async function requestApp(origin: string | undefined, requestPath: string, signal: AbortSignal, rootGuess = false): Promise<Pick<AppSmokeReport, "status" | "httpStatus" | "reason" | "redirectedTo">> {
   try {
     if (!origin) throw new Error("the app stopped before the request");
-    const response = await fetch(new URL(requestPath, origin), { method: "GET", redirect: "manual",
-      signal: AbortSignal.any([signal, AbortSignal.timeout(REQUEST_MS)]) });
-    await response.body?.cancel();
-    if (rootGuess && (response.status === 404 || response.status === 405) && /\bjson\b/i.test(response.headers.get("content-type") ?? ""))
+    const deadline = AbortSignal.any([signal, AbortSignal.timeout(REQUEST_MS)]);
+    let url = new URL(requestPath, origin);
+    const seen = [url.href];
+    let response: Response;
+    for (let hops = 0; ; hops++) {
+      response = await fetch(url, { method: "GET", redirect: "manual", signal: deadline });
+      await response.body?.cancel();
+      const location = response.status >= 300 && response.status < 400 ? response.headers.get("location") : null;
+      if (!location) break;
+      const next = new URL(location, url);
+      const shown = (target: URL) => redactPreview(target.origin === url.origin ? `${target.pathname}${target.search}` : target.href);
+      if (next.origin !== url.origin) return { status: "fail", httpStatus: response.status, reason: `it redirects off the app, to ${shown(next)}` };
+      if (seen.includes(next.href)) return { status: "fail", httpStatus: response.status, reason: `it redirects in a loop (${shown(url)} → ${shown(next)})` };
+      if (hops >= MAX_REDIRECTS - 1) return { status: "fail", httpStatus: response.status, reason: `it redirects more than ${MAX_REDIRECTS} times` };
+      seen.push(next.href);
+      url = next;
+    }
+    const redirect = seen.length > 1 ? { redirectedTo: redactPreview(`${url.pathname}${url.search}`) } : {};
+    if (rootGuess && !redirect.redirectedTo && (response.status === 404 || response.status === 405) && /\bjson\b/i.test(response.headers.get("content-type") ?? ""))
       return { status: "pass", httpStatus: response.status, reason: "the API answered; it has no page at /" };
     const status = response.status >= 200 && response.status < 300 ? "pass" : "fail";
-    return { status, httpStatus: response.status, ...(status === "fail" ? { reason: `HTTP ${response.status}, expected 2xx` } : {}) };
+    return { status, httpStatus: response.status, ...redirect, ...(status === "fail" ? { reason: `HTTP ${response.status}, expected 2xx` } : {}) };
   } catch (error) {
     return { status: signal.aborted ? "not-run" : "fail", reason: `the request did not finish: ${message(error)}` };
   }

@@ -71,7 +71,7 @@ export function requirementsReviewPrompt(request: string): string {
     "Casper requirements review.",
     "The checks pass. Now find what the request asks for that no test checks yet.",
     "Go through every requirement that the request and the project's docs (for example CONTEXT.md) state: each behavior, output format, order, default, limit, error case and edge case, including the small ones.",
-    "Check one case at a time. A rule that covers several inputs, options or errors is several requirements (for example: each missing option, each malformed value, an unknown option).",
+    "Check one case at a time. A rule that covers several inputs, options or errors is several requirements (for example: each missing option, each malformed value, an unknown option). Check that an order on a timestamp breaks ties with a unique key, such as the id (rows made in the same second).",
     "If your earlier answer ends with a checklist, start from it: add what it missed and split what it merged. Work from what you have already read; reopen a file only to check a detail.",
     "A requirement is covered only when a test you can name asserts it; code that merely looks right or an unasserted claim is not enough. For every uncovered one, add the test now and fix the code if it fails. Do not weaken, skip or delete tests. Run the tests once your additions are done.",
     "Your answer reports only the gaps, one case per line: do not list requirements that were already covered and do not summarize the change. End it with:",

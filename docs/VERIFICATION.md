@@ -787,7 +787,9 @@ verification:
 
 **With it on**, when the checks pass on such a change, Casper gives the model one review round
 before proving the change: check every requirement the request and the project docs (for example
-`CONTEXT.md`) state, one case at a time, confirm each is implemented and tested, and fix any gap.
+`CONTEXT.md`) state, one case at a time, confirm each is implemented and tested, and fix any gap. It also checks that
+an order on a timestamp breaks ties with a unique key such as the id (rows made in the same second). That line is in the
+review round only, never in every task's prompt.
 The answer reports only the gaps and a count, not the requirements that were already covered:
 
 ```
@@ -910,8 +912,10 @@ not an unfinished attempt and does not by itself make the task incomplete.
 Casper selects one declared service whose scope covers the change, or the project's own `dev` (else
 `start`) command. API servers need no HTML page. A server with no framework is known by its entry file: `Bun.serve(`,
 `serve(` imported from `bun`, `Deno.serve(`, `createServer(` or `.listen(`. For an automatic request it chooses the first concrete
-changed page, otherwise the service's `ready.http` path, otherwise `/`. It sends one local GET, without
-following redirects, and expects HTTP 2xx. When `/` is only a guess (that last fallback, or an app Casper found from `package.json`, whose
+changed page, otherwise the service's `ready.http` path, otherwise `/`. It sends one local GET and expects HTTP 2xx.
+A redirect within the app (a signed-out visitor sent from `/` to `/login`) is followed, at most 5 hops, and the page it
+leads to is judged: `GET / redirects to /login → HTTP 200`. A redirect to another origin, a loop or more than 5 hops
+fails ([decision 67](adr/0002/67-a-smoke-follows-redirects-within-the-app.md)). When `/` is only a guess (that last fallback, or an app Casper found from `package.json`, whose
 readiness path is Casper's own default `/`), a JSON 404 or 405 also passes:
 the API answered and has no page there (`GET / → HTTP 404 — the API answered; it has no page at /`). An HTML
 404, a 5xx, or a 404 on a changed page or declared path still fails. Readiness polling is separate from this one smoke request.
