@@ -12,3 +12,13 @@ export function settingsFile(file: string): boolean {
   const name = file.replace(/\\/g, "/").split("/").pop()!.toLowerCase();
   return /\.(?:ya?ml|toml|ini)$/.test(name) && !/^(?:pnpm-lock\.yaml|poetry\.lock|cargo\.lock)$/.test(name) && !name.endsWith(".lock.yaml");
 }
+
+/** The data an app keeps that a check could change by using it (signing a user up): SQLite databases with their -wal,
+ * -shm and -journal files wherever they are, and JSON, YAML or CSV data under a data/, db/ or var/ folder. Manifests and
+ * lockfiles are not data. */
+export function checkDataFile(file: string): boolean {
+  const normal = file.replace(/\\/g, "/");
+  if (/\.(?:db|db3|sqlite3?)(?:-(?:wal|shm|journal))?$/i.test(normal)) return true;
+  return /(?:^|\/)(?:data|db|var)\//i.test(normal) && /\.(?:json|jsonl|ndjson|ya?ml|csv)$/i.test(normal)
+    && !/(?:^|\/)(?:package|package-lock|composer|tsconfig[^/]*|jsconfig[^/]*|pnpm-lock)\.(?:json|ya?ml)$/i.test(normal);
+}

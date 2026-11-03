@@ -208,14 +208,14 @@ function errorCode(error: unknown): string | undefined {
 
 /** Files moved or renamed: an added file whose content is that of a removed one (`mv run run-1/run`). A move is no
  * change of code: it is left out of checks, the proof and the config list, and said on the receipt as one line. */
-export function findMoves(before: ReadonlyMap<string, string>, after: ReadonlyMap<string, string>, changes: TreeChanges): Array<{ from: string; to: string; rewritten?: true }> {
+export function findMoves(before: ReadonlyMap<string, string>, after: ReadonlyMap<string, string>, changes: TreeChanges): Array<{ from: string; to: string; rewritten?: true; copied?: true }> {
   const gone = new Map<string, string[]>();
   // Its old path removed, or written anew since (a relaunched run writes runs/ again after the old one moved aside).
   for (const file of [...changes.removed, ...changes.modified]) {
     const digest = before.get(file);
     if (digest !== undefined) gone.set(digest, [...gone.get(digest) ?? [], file]);
   }
-  const moves: Array<{ from: string; to: string; rewritten?: true }> = [];
+  const moves: Array<{ from: string; to: string; rewritten?: true; copied?: true }> = [];
   const rewritten = new Set(changes.modified);
   const unmatched: string[] = [];
   for (const file of changes.added) {
@@ -226,22 +226,25 @@ export function findMoves(before: ReadonlyMap<string, string>, after: ReadonlyMa
   // Into a folder files were moved into, a file with the bytes of one from before is moved too, also when its old path
   // holds the same bytes again (a relaunched run writes the same template). A copy anywhere else is new work.
   const into = new Set(moves.map((move) => move.to.split("/")[0]!));
-  if (into.size) {
-    const sources = new Map<string, string>();
-    for (const [file, digest] of before) if (!sources.has(digest)) sources.set(digest, file);
-    for (const file of unmatched) {
-      const from = into.has(file.split("/")[0]!) ? sources.get(after.get(file) ?? "\0") : undefined;
-      if (from) moves.push({ from, to: file, rewritten: true });
-    }
+  const sources = new Map<string, string>();
+  for (const [file, digest] of before) if (!sources.has(digest)) sources.set(digest, file);
+  // A folder the task made (`cp -R scripts package.json run-9/`): what it holds with the bytes of a file from before is a
+  // copy, not new work. A copy anywhere else is new work.
+  const tops = new Set([...before.keys()].map((file) => file.split("/")[0]!));
+  for (const file of unmatched) {
+    const top = file.split("/")[0]!, from = file.includes("/") ? sources.get(after.get(file) ?? "\0") : undefined;
+    if (!from) continue;
+    if (into.has(top)) moves.push({ from, to: file, rewritten: true });
+    else if (!tops.has(top)) moves.push({ from, to: file, copied: true });
   }
   return moves.sort((left, right) => left.to.localeCompare(right.to));
 }
 
 /** `changes` without the moved files: where they went, and where they came from when that is gone. A path written anew
  * after its file moved away stays a change. */
-export function withoutMoves(changes: TreeChanges, moves: ReadonlyArray<{ from: string; to: string }>): TreeChanges {
+export function withoutMoves(changes: TreeChanges, moves: ReadonlyArray<{ from: string; to: string; copied?: true }>): TreeChanges {
   if (!moves.length) return changes;
-  const moved = new Set(moves.flatMap((move) => [move.from, move.to]));
+  const moved = new Set(moves.flatMap((move) => [move.to, ...move.copied ? [] : [move.from]]));
   const keep = (file: string) => !moved.has(file);
   return { added: changes.added.filter(keep), modified: changes.modified, removed: changes.removed.filter(keep) };
 }

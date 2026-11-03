@@ -55,7 +55,11 @@ export function createOwnedBashOperations(): BashOperations {
       if (first === "unknown" || last === "unknown") throw new ProcessCleanupError(owner);
     })();
     let timedOut = false;
-    const abort = () => { void cleanup().catch(error => failExit?.(error)); };
+    const abort = () => { void cleanup().catch(error => {
+      // Stopped at its own limit: the step says so, and the person is still told what may be running.
+      if (error instanceof ProcessCleanupError && timedOut) error.message = `Stopped at its ${timeout} s limit, and Casper could not confirm that every process it started has stopped.`;
+      failExit?.(error);
+    }); };
     const timer = timeout === undefined ? undefined : setTimeout(() => { timedOut = true; abort(); }, timeout * 1000);
     signal?.addEventListener("abort", abort, { once: true });
     // Observe exit rather than close: an inherited pipe can outlive the shell.

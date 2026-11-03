@@ -212,7 +212,7 @@ export interface TaskResult {
    * after the receipt, so line 1 says so instead of a done-style pass. The command is shown without its secrets. */
   stillRunning?: StillRunning[];
   /** Files the task moved or renamed: the change list says them in one line ("Moved 150 files into run-1/"). */
-  moved?: Array<{ from: string; to: string; rewritten?: true }>;
+  moved?: Array<{ from: string; to: string; rewritten?: true; copied?: true }>;
   /** Dangerous lines in the config files this task changed (reload, shutdown, erase …): shown, never a pass or a fail. */
   riskyLines?: RiskyLine[];
   /** How many more risky lines there were past the 20 listed. */
@@ -736,8 +736,11 @@ function receiptParts(task: TaskResult, options: ReceiptOptions, onScreen = fals
   const movedSet = new Set((task.moved ?? []).flatMap((move) => [move.to, ...move.rewritten ? [] : [move.from]]));
   const ownChanges = task.changedPaths?.filter((file) => !movedSet.has(file));
   if (task.moved?.length) {
-    const what = `${task.moved.length} ${task.moved.length === 1 ? "file" : "files"} into ${safe(movedInto(task.moved))}`;
-    fold("changed", `✓ Moved ${what}`, `moved ${what}`, changedPart("Moved", what));
+    const moves = task.moved.filter((move) => !move.copied), copies = task.moved.filter((move) => move.copied);
+    const into = (list: typeof moves, files: boolean) => `${list.length}${files ? ` ${list.length === 1 ? "file" : "files"}` : ""} into ${safe(movedInto(list))}`;
+    const what = [...moves.length ? [into(moves, true)] : [], ...copies.length ? [`${moves.length ? "copied " : ""}${into(copies, !moves.length)}`] : []].join("; ");
+    const verb = moves.length ? "Moved" : "Copied";
+    fold("changed", `✓ ${verb} ${what}`, `${verb.toLowerCase()} ${what}`, changedPart(verb, what));
   }
   if (ownChanges?.length) {
     const list = pathList(ownChanges, safe);
