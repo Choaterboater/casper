@@ -14,11 +14,21 @@ when releasing. Existing historical notes below stay as written; feature tests c
 reference docs, not a per-PR release-note or roadmap entry. Release-prep checks verify the version and
 installer targets (`tests/release-install.test.ts`, `tests/release-targets.test.ts`).
 
-Casper distributes an unsigned **v0.4.5 preview**, not a stable release. The installers
-download from `https://github.com/Choaterboater/casper/releases/download/v0.4.5`,
+Casper distributes an unsigned **v0.4.6 preview**, not a stable release. The installers
+download from `https://github.com/Choaterboater/casper/releases/download/v0.4.6`,
 because GitHub's `latest/download` link skips preview releases. The first published
 preview was **v0.1.0**. A published release is never changed; every fix ships under a
 new version.
+
+## v0.4.6: a quieter receipt when only output files changed
+
+### Changed
+
+- When only output files changed, line 1 counts them and says where they are, such as `129 in builds/, runs/, results/`.
+- Checks rightly skipped leave no proof line saying your request's cases were not confirmed.
+- A log written into builds/, runs/ or results/ while the AI's command ran is that command's output, not another program's.
+- Files the AI moved into another folder are its own change, not another program's.
+- The receipt's commands and its number keys share one Next row.
 
 ## v0.4.5: an ssh that only looks is no change, a live line for what a command prints, and network changes in plain words
 

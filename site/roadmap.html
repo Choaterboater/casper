@@ -78,6 +78,7 @@
           </li>
           <li><a href="#released">Released</a>
             <ul>
+              <li><a href="#v0406">v0.4.6: quieter receipts</a></li>
               <li><a href="#v0405">v0.4.5: looks are not changes</a></li>
               <li><a href="#v0404">v0.4.4: live sessions</a></li>
               <li><a href="#v0403">v0.4.3: still running</a></li>
@@ -140,7 +141,7 @@
         <h2 id="next-h">Next release</h2>
         <aside class="callout soon">
           <strong class="callout-title">Built, not released</strong>
-          <p>Nothing on the main branch is waiting: everything built so far is in v0.4.5. New work shows here before the next preview.</p>
+          <p>Nothing on the main branch is waiting: everything built so far is in v0.4.6. New work shows here before the next preview.</p>
         </aside>
       </section>
 
@@ -382,10 +383,23 @@
         and on the <a href="https://github.com/Choaterboater/casper/releases">Releases page</a>.</p>
         <div class="stack">
 
+        <details class="card release" id="v0406" aria-labelledby="v0406-h" open>
+          <summary class="release-heading">
+            <h3 id="v0406-h">v0.4.6 · A quieter receipt when only output files changed</h3>
+            <span class="badge ok">current preview</span>
+          </summary>
+          <ul>
+            <li><strong>Counted, not listed.</strong> When only output files changed, line 1 says how many and where: <code>– Checks skipped: only output files changed (129 in builds/, runs/, results/ and 2 more places)</code>.</li>
+            <li><strong>No proof line for skipped checks.</strong> Checks rightly skipped (only output files, or a question) no longer leave a line saying your request's cases were not confirmed.</li>
+            <li><strong>A run's own files are its own.</strong> A log written into <code>builds/</code>, <code>runs/</code> or <code>results/</code> while the AI's command ran is that command's output, and files the AI moved into another folder are its change, not "changed by something else".</li>
+            <li><strong>One Next row.</strong> The receipt's commands and its number keys share one row: <code>Next  [1] Show diff   [2] Undo   · press a number · /verify</code>.</li>
+          </ul>
+        </details>
+
         <details class="card release" id="v0405" aria-labelledby="v0405-h" open>
           <summary class="release-heading">
             <h3 id="v0405-h">v0.4.5 · An ssh that only looks is no change, a live line for what a command prints, and network changes in plain words</h3>
-            <span class="badge ok">current preview</span>
+            <span class="badge">previous preview</span>
           </summary>
           <ul>
             <li><strong>Looks are not changes.</strong> Commands sent over ssh go through the same read check as here: <code>uname</code>, <code>docker ps</code> or <code>ls</code> on a server is one neutral line, <code>✓ Ran on nas: … (looked only)</code>, and the receipt says <code>looked only</code>. A command that may change things keeps its ◆ row, counted.</li>
@@ -403,7 +417,7 @@
         <details class="card release" id="v0404" aria-labelledby="v0404-h" open>
           <summary class="release-heading">
             <h3 id="v0404-h">v0.4.4 · A live Claude Code session per conversation, checks that start their app again, and a Claude plan that stays signed in</h3>
-            <span class="badge">previous preview</span>
+            <span class="badge">released</span>
           </summary>
           <ul>
             <li><strong>One live Claude Code session.</strong> With a Claude plan, a conversation runs in one Claude Code session that keeps its own thinking between steps, instead of a fresh start with the whole conversation every time. Casper still runs every tool, and compaction, forks and resumes start a new session from Casper's own record.</li>
@@ -418,7 +432,7 @@
           </ul>
         </details>
 
-        <details class="card release" id="v0403" aria-labelledby="v0403-h" open>
+        <details class="card release" id="v0403" aria-labelledby="v0403-h">
           <summary class="release-heading">
             <h3 id="v0403-h">v0.4.3 · Receipts that say when work is still running, and a service and browser small models can use</h3>
             <span class="badge">released</span>
@@ -1544,7 +1558,7 @@
   <footer class="site-footer">
     <div class="container footer-inner">
       <div>
-        <p><strong>Casper 0.4.5</strong> · early preview, unsigned</p>
+        <p><strong>Casper 0.4.6</strong> · early preview, unsigned</p>
         <p><a href="https://github.com/Choaterboater/casper/blob/main/LICENSE">MIT licence</a> · © 2026 Choaterboater</p>
         <p>Built on the <a href="https://github.com/earendil-works/pi">Pi SDK</a>. Other parts keep their own licences (<a href="https://github.com/Choaterboater/casper/blob/main/THIRD_PARTY_NOTICES.txt">notices</a>).</p>
       </div>
