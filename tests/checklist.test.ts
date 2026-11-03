@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { extractChecklist, normalizeCases, parseChecklistCases } from "../src/task/checklist";
+import { CHECKLIST_SYSTEM_PROMPT, extractChecklist, formatChecklistPrompt, normalizeCases, parseChecklistCases } from "../src/task/checklist";
 
 test("the first JSON array in prose or a fence is the checklist", () => {
   expect(parseChecklistCases("Here are the cases [from the request]:\n```json\n[\"limit(0) throws \\\"limit must be positive\\\"\", \"returns [1, 2] in order\"]\n```\nDone."))
@@ -52,4 +52,18 @@ test("edited lines get the answer's limits; a leading bullet and blank lines are
     .toEqual(["limit(0) throws", "returns [1, 2]", "a b", "x".repeat(200)]);
   expect(normalizeCases(Array.from({ length: 90 }, (_, index) => `case ${index}`))).toHaveLength(80);
   expect(normalizeCases(["", " - "])).toEqual([]);
+});
+
+// "next test make it harder front end backend database" was listed as four cases ('Test includes a "front end"' …), the
+// AI named its tests after them ("Front end: …"), and the receipt said "4 cases from your request not confirmed".
+test("topic words from the request are not cases: a list of them is no checklist, and real cases next to them stay", () => {
+  const topics = ['Next test is "harder" than the previous one', 'Test includes a "front end"', 'Test includes a "backend"', 'Test includes a "database"'];
+  expect(parseChecklistCases(JSON.stringify(topics))).toEqual({ cases: [], dropped: 0 });
+  const mixed = [...topics, 'POST /issues with an empty title returns 400 "title is required"', "Issue keys stay unique under 20 parallel creates"];
+  expect(parseChecklistCases(JSON.stringify(mixed))).toEqual({ cases: mixed.slice(4), dropped: 0 });
+  // The call is told so, and the task prompt never asks for tests named after the cases.
+  expect(CHECKLIST_SYSTEM_PROMPT).toContain("A list of topics or areas");
+  const prompt = formatChecklistPrompt(["sum(2, 3) returns 5"]);
+  expect(prompt).not.toContain("asserts exactly that case");
+  expect(prompt).toContain("not after the case's words");
 });

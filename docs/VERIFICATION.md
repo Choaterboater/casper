@@ -713,7 +713,10 @@ How it works:
 - It reads a JSON array. If the answer was cut off mid-array it keeps the complete cases; if the
   model wrote a bullet or numbered list instead, it reads that.
 - It keeps up to 80 cases of at most 200 characters (one line says how many more were left out)
-  and adds them to the task prompt, asking for one test per case that checks exactly that case.
+  and adds them to the task prompt, asking for one test per case that checks what it states, named for that behavior,
+  not after the case's words.
+- A list of topics or a wish is no case: "next test make it harder front end backend database" lists none. A case
+  that only restates the request's quoted words with filler around it (`Test includes a "front end"`) is dropped.
   It does not print them before work.
 
 **Seeing the list.** The receipt names the checklist only when something is wrong with it: a case
@@ -928,10 +931,11 @@ The request goes there instead of launching a second copy, even on a fixed port.
 not an automatic service, and completion cleanup never stops it. The receipt says `existing service left running`.
 If the restart fails, app smoke says not run with the reason, and no GET is sent.
 
-A change to page files that nothing in the folder serves (no web framework, no server code, no start
-command or service: a card or page another program loads) says `App smoke: not run — no start/dev command or
-declared service found for this app` as a note; it does not make the task Incomplete. An app that has a framework
-or server code but no launch command still does.
+A change with nothing to start (no start or dev command and no declared service) says `App smoke: not run — no
+start/dev command or declared service found for this app` as a grey note; it never makes the task Incomplete
+([decision 66](adr/0002/66-nothing-to-start-is-a-note.md)). Only changed app files count: tests and their fixtures
+(`tests/fixtures/app/server.mjs`) never do, and a script under `scripts/` or `tools/` that opens a socket (a harness
+probing for a free port) is tooling, not the app, unless the start command runs it.
 
 A new completion launch has at most 15 s to start (less if the declaration has a shorter deadline), and
 its request has at most 10 s. Casper stops its automatically started services and their child processes

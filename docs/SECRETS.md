@@ -100,7 +100,9 @@ through. Check what a tool returns before you share it.
   holding a real secret (as above) to a file, the receipt names the file, the line and the kind, never the
   value: `A secret was written into config/app.yaml (line 2, a token or key) (not shown). Keep
   secrets in an env file or a secrets store.` Nothing is stopped or asked. In a test file (`tests/`, `test_*.py`,
-  `*.test.ts`, fixtures) only a secret Casper knows counts: a test's keys and passwords are made up.
+  `*.test.ts`, fixtures) only a secret Casper knows counts: a test's keys and passwords are made up. So on a line that
+  names a host reserved for examples and tests (RFC 2606, 6761: `example.com`, `.org` and `.net`, or a name under
+  `.example`, `.test`, `.invalid` or `.localhost`), such as a harness's `{ email: 'ada@example.test', password: … }`.
   `tests/secret-claims.test.ts` covers a token form, its tests and a README full of token, csrf and password. A reference to a value
   kept elsewhere (`!secret weather_key`, `${WEATHER_KEY}`, `{{ weather_key }}`), a value that only names a file
   (`secrets: 'secrets.yaml'`, `token_file: tls/server.key`), which is also never hidden from the AI, a placeholder, and

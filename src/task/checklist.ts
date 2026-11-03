@@ -3,7 +3,7 @@ import { lineText } from "../tui/format";
 
 /** verification.checklist: the concrete cases a request states, listed by one model call outside the
  * task conversation before the model's turn, so the model can test each one. */
-export const CHECKLIST_SYSTEM_PROMPT = "Casper checklist. List every concrete behavior case the request states: inputs and the outputs they must give, errors and when they happen, boundaries and edge values, orders, and formats. Write each case as one short line that quotes the request's specifics (names, values, messages). Leave out process instructions such as which files to read, which dependencies to use, or keeping existing tests. Do not add cases the request does not state. Answer with only a JSON array of strings.";
+export const CHECKLIST_SYSTEM_PROMPT = "Casper checklist. List every concrete behavior case the request states: inputs and the outputs they must give, errors and when they happen, boundaries and edge values, orders, and formats. Write each case as one short line that quotes the request's specifics (names, values, messages). Leave out process instructions such as which files to read, which dependencies to use, or keeping existing tests. Do not add cases the request does not state. A list of topics or areas (front end, database) or a wish (harder, better) states no outcome: list no case for it. Answer with only a JSON array of strings.";
 
 /** Listing cases is a short answer, so the call is low effort. A long request can still list 50-60
  * cases and some models reason at length first, so the answer has room: at 8,000 tokens DeepSeek V4.1
@@ -34,7 +34,7 @@ export function parseChecklistCases(text: string): { cases: string[]; dropped: n
   const array = firstJsonArray(text);
   const listed = array ? array.filter((item): item is string => typeof item === "string") : cutOffArray(text) ?? listLines(text);
   if (!listed) return { error: "the checklist answer had no list of cases" };
-  const all = cleanCases(listed);
+  const all = cleanCases(listed).filter((item) => !topicOnly(item));
   return all.length ? { cases: all.slice(0, CASE_COUNT), dropped: Math.max(0, all.length - CASE_COUNT) } : { cases: [], dropped: 0 };
 }
 
@@ -49,6 +49,19 @@ function cleanCases(lines: readonly string[]): string[] {
     .map((item) => lineText(item).replace(/\s+/g, " ").trim()
       .replace(/^[-*•](?: |$)/, "").trim().slice(0, CASE_LIMIT).trimEnd())
     .filter(Boolean);
+}
+
+/** Words that carry no outcome around a quoted request word: 'Test includes a "front end"', 'Next test is "harder"
+ * than the previous one'. */
+const FILLER = new Set(["a", "an", "the", "is", "are", "be", "has", "have", "includes", "include", "including", "covers", "cover",
+  "uses", "use", "test", "tests", "next", "new", "than", "previous", "last", "one", "it", "its", "more", "should", "must", "with",
+  "of", "and", "or", "in", "there", "made", "make", "makes", "also", "now"]);
+
+/** A case that only restates the request's words (quoted) with filler around them: a topic, not an outcome. */
+function topicOnly(item: string): boolean {
+  if (!/"[^"]+"/.test(item)) return false;
+  const words = item.replace(/"[^"]*"/g, " ").toLowerCase().match(/[a-z0-9]+/g) ?? [];
+  return words.every((word) => FILLER.has(word));
 }
 
 /** An array whose closing `]` never came (the answer hit its budget): the complete strings after the first `[`. */
@@ -92,7 +105,10 @@ function firstJsonArray(text: string): unknown[] | undefined {
   return undefined;
 }
 
+/** How the cases become tests: what each states is checked, and the tests are named for what they check. */
+export const CASE_TESTS = "one test per case that checks what it states, named for that behavior, not after the case's words";
+
 /** The section appended to the task prompt. */
 export function formatChecklistPrompt(cases: readonly string[]): string {
-  return `Cases your request states (Casper's checklist). Handle every one, and write one test per case that asserts exactly that case:\n${cases.map((item) => `- ${item}`).join("\n")}`;
+  return `Cases your request states (Casper's checklist). Handle every one, and write ${CASE_TESTS}:\n${cases.map((item) => `- ${item}`).join("\n")}`;
 }

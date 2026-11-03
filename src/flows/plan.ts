@@ -13,7 +13,7 @@
 import os from "node:os";
 import { visibleWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
 import { remoteTargets } from "../sandbox/remote";
-import { formatChecklistPrompt } from "../task/checklist";
+import { CASE_TESTS, formatChecklistPrompt } from "../task/checklist";
 import { lineText } from "../tui/format";
 
 /** Pi's built-in tools that only look at files, and the web lookups, which only read. GitHub lookups, read-only
@@ -440,7 +440,7 @@ export function formatPlanChangePrompt(plan: ParsedPlan, change: string): string
     `User's change: ${change}`,
     "Current plan:",
     planMarkdown(plan),
-    "Keep Done means / Tests as concrete checklist cases: handle every case and write one test per case that asserts exactly that case.",
+    `Keep Done means / Tests as concrete checklist cases: handle every case and write ${CASE_TESTS}.`,
   ].join("\n\n");
 }
 
@@ -578,7 +578,7 @@ export function formatPlanBlock(plan: ParsedPlan): string {
       : `${prefix} Build the first version described below.`,
     planMarkdown({ ...plan, steps: [] }),
     "Keep the first version in scope; Later is not part of this build. Treat What I found as established facts and Open questions as unresolved, not decisions. The accepted requirements take precedence over implementation Details.",
-    ...plan.tests.length ? ["Handle every Done means / Tests case and write one test per case that asserts exactly that case."] : [],
+    ...plan.tests.length ? [`Handle every Done means / Tests case and write ${CASE_TESTS}.`] : [],
   ].filter(Boolean).join("\n\n");
 }
 
