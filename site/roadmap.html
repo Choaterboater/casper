@@ -78,6 +78,7 @@
           </li>
           <li><a href="#released">Released</a>
             <ul>
+              <li><a href="#v0408">v0.4.8: test data named</a></li>
               <li><a href="#v0407">v0.4.7: no false alarms</a></li>
               <li><a href="#v0406">v0.4.6: quieter receipts</a></li>
               <li><a href="#v0405">v0.4.5: looks are not changes</a></li>
@@ -142,7 +143,7 @@
         <h2 id="next-h">Next release</h2>
         <aside class="callout soon">
           <strong class="callout-title">Built, not released</strong>
-          <p>Nothing on the main branch is waiting: everything built so far is in v0.4.7. New work shows here before the next preview.</p>
+          <p>Nothing on the main branch is waiting: everything built so far is in v0.4.8. New work shows here before the next preview.</p>
         </aside>
       </section>
 
@@ -384,10 +385,23 @@
         and on the <a href="https://github.com/Choaterboater/casper/releases">Releases page</a>.</p>
         <div class="stack">
 
+        <details class="card release" id="v0408" aria-labelledby="v0408-h" open>
+          <summary class="release-heading">
+            <h3 id="v0408-h">v0.4.8 · Test data your runs left is named, and an app that redirects to its sign-in page is up</h3>
+            <span class="badge ok">current preview</span>
+          </summary>
+          <ul>
+            <li><strong>Test data, named.</strong> A database the AI's own test runs made (the user a test signed up) is the task's, never "changed by something else". The AI is told once what it holds and asked to delete it unless it ships, and one still there is a grey <code>Left by your test runs</code> line.</li>
+            <li><strong>Redirects within the app.</strong> App smoke follows a redirect on the app's own address, so <code>GET / redirects to /login → HTTP 200</code> passes; a redirect off the app, a loop or more than 5 hops still fails.</li>
+            <li><strong>Opt-in checks, quiet for output.</strong> Where checks are offered with <code>/verify</code>, a run that changed only output files is a grey <code>Checks skipped</code> line, with no <code>/verify</code> push.</li>
+            <li><strong>Ties in an order.</strong> The requirements review checks that a sort on a timestamp breaks ties with a unique key.</li>
+          </ul>
+        </details>
+
         <details class="card release" id="v0407" aria-labelledby="v0407-h" open>
           <summary class="release-heading">
             <h3 id="v0407-h">v0.4.7 · Test logins are not secrets, nothing to start is a note, and topic words are not cases</h3>
-            <span class="badge ok">current preview</span>
+            <span class="badge">previous preview</span>
           </summary>
           <ul>
             <li><strong>Test logins are made up.</strong> A password on a line naming a domain reserved for tests and examples (<code>ada@example.test</code>, <code>example.com</code>, <code>.invalid</code>) gets no "A secret was written into" warning. A real domain still does.</li>
@@ -399,7 +413,7 @@
         <details class="card release" id="v0406" aria-labelledby="v0406-h" open>
           <summary class="release-heading">
             <h3 id="v0406-h">v0.4.6 · A quieter receipt when only output files changed</h3>
-            <span class="badge">previous preview</span>
+            <span class="badge">released</span>
           </summary>
           <ul>
             <li><strong>Counted, not listed.</strong> When only output files changed, line 1 says how many and where: <code>– Checks skipped: only output files changed (129 in builds/, runs/, results/ and 2 more places)</code>.</li>
@@ -409,7 +423,7 @@
           </ul>
         </details>
 
-        <details class="card release" id="v0405" aria-labelledby="v0405-h" open>
+        <details class="card release" id="v0405" aria-labelledby="v0405-h">
           <summary class="release-heading">
             <h3 id="v0405-h">v0.4.5 · An ssh that only looks is no change, a live line for what a command prints, and network changes in plain words</h3>
             <span class="badge">released</span>
@@ -1571,7 +1585,7 @@
   <footer class="site-footer">
     <div class="container footer-inner">
       <div>
-        <p><strong>Casper 0.4.7</strong> · early preview, unsigned</p>
+        <p><strong>Casper 0.4.8</strong> · early preview, unsigned</p>
         <p><a href="https://github.com/Choaterboater/casper/blob/main/LICENSE">MIT licence</a> · © 2026 Choaterboater</p>
         <p>Built on the <a href="https://github.com/earendil-works/pi">Pi SDK</a>. Other parts keep their own licences (<a href="https://github.com/Choaterboater/casper/blob/main/THIRD_PARTY_NOTICES.txt">notices</a>).</p>
       </div>

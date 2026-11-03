@@ -1,6 +1,6 @@
 # 68. Data the task's own runs left is the task's, and the AI is told
 
-Date: 2026-11-03. Status: proposed.
+Date: 2026-11-03. Status: accepted (merged 2026-11-03 in #583).
 
 ## Decision
 
