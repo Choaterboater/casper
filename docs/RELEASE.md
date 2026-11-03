@@ -14,11 +14,21 @@ when releasing. Existing historical notes below stay as written; feature tests c
 reference docs, not a per-PR release-note or roadmap entry. Release-prep checks verify the version and
 installer targets (`tests/release-install.test.ts`, `tests/release-targets.test.ts`).
 
-Casper distributes an unsigned **v0.4.8 preview**, not a stable release. The installers
-download from `https://github.com/Choaterboater/casper/releases/download/v0.4.8`,
+Casper distributes an unsigned **v0.4.9 preview**, not a stable release. The installers
+download from `https://github.com/Choaterboater/casper/releases/download/v0.4.9`,
 because GitHub's `latest/download` link skips preview releases. The first published
 preview was **v0.1.0**. A published release is never changed; every fix ships under a
 new version.
+
+## v0.4.9: Casper's checks leave the app's data as the AI left it
+
+### Changed
+
+- Data Casper's own checks, replays, repair rounds and app smoke write is put back afterwards, so the app ships as the AI left it.
+- A `builds/`, `runs/` or `results/` folder below the top counts as a program's output, unless it sits in a source folder.
+- Files copied into a folder the task made are said with the moves, never as new work, config or test data.
+- A run-and-score turn in a copied harness is a grey `Checks skipped` line with no `/verify` push.
+- A command stopped at its own time limit says so when its cleanup can't be confirmed, and that check has more time.
 
 ## v0.4.8: test data your runs left is named, and an app that redirects to its sign-in page is up
 
