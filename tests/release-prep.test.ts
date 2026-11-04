@@ -11,14 +11,15 @@ const section = (text: string, start: string, end: string) => {
 
 // These are release-preparation assertions, not tests of the features themselves.
 const changes = {
-  Changed: ["`/mcp remove` takes a server out", "`/mcp update` changes what a server runs", "through Casper's box", "says Forgot only once", "came from the old logins",
-    "unlabeled read", "Casper's own records", "model's own output cap", "warms its cache"],
+  Changed: ["requirements review and one self-review turn", "from 17.7 points to 6.0", "An empty folder is trusted", "Trust is the first answer",
+    "proven against the folder from before", "assert exactly their case", "Incomplete instead of verified", "repaired with no question first",
+    "keeps its proof", "requirements.txt or CMakeLists.txt", "sort ties on a time", "starts over"],
 };
 
-test("v0.4.11 notes publish each user-facing change once under Added or Changed", async () => {
-  expect(CASPER_VERSION).toBe("0.4.11");
+test("v0.4.12 notes publish each user-facing change once under Added or Changed", async () => {
+  expect(CASPER_VERSION).toBe("0.4.12");
   const release = await read("docs/RELEASE.md");
-  const notes = section(release, "## v0.4.11:", "## v0.4.10:");
+  const notes = section(release, "## v0.4.12:", "## v0.4.11:");
   expect(notes).not.toMatch(/not released|unreleased|test-only|#5[7-9]\d|#58\d/i);
   expect([...notes.matchAll(/^### (.+)$/gm)].map(match => match[1])).toEqual(Object.keys(changes));
   const groups = notes.split(/^### /m).slice(1);
@@ -31,7 +32,7 @@ test("v0.4.11 notes publish each user-facing change once under Added or Changed"
     for (const phrase of phrases) expect(bullets.filter(line => line.includes(phrase))).toHaveLength(1);
   }
   // Historical release content must retain its original version and WMI transition.
-  expect(release).toContain("## v0.4.10: a show-only network check is a read, and a check is never a change");
+  expect(release).toContain("## v0.4.11: remove and update MCP servers, and long Claude subscription turns that finish");
   expect(release).toContain("## v0.4.9: Casper's checks leave the app's data as the AI left it");
   expect(release).toContain("## v0.4.8: test data your runs left is named, and an app that redirects to its sign-in page is up");
   expect(release).toContain("## v0.4.7: test logins are not secrets, nothing to start is a note, and topic words are not cases");
@@ -68,8 +69,8 @@ test("v0.4.11 notes publish each user-facing change once under Added or Changed"
   expect(release).toContain("updater, so install 0.2.35 on Windows");
 });
 
-test("v0.4.11 release bullets are short single sentences without internal implementation terms", async () => {
-  const notes = section(await read("docs/RELEASE.md"), "## v0.4.11:", "## v0.4.10:");
+test("v0.4.12 release bullets are short single sentences without internal implementation terms", async () => {
+  const notes = section(await read("docs/RELEASE.md"), "## v0.4.12:", "## v0.4.11:");
   const bullets = notes.split("\n").filter(line => line.startsWith("- "));
   expect(bullets.length).toBeGreaterThan(0);
   for (const bullet of bullets) {
@@ -80,29 +81,29 @@ test("v0.4.11 release bullets are short single sentences without internal implem
   }
 });
 
-test("the roadmap ships v0.4.11 first and leaves no merged work in the next-release box", async () => {
+test("the roadmap ships v0.4.12 first and leaves no merged work in the next-release box", async () => {
   const page = await read("site/roadmap.html");
   const box = section(page, '<section id="next"', '<section id="coming"');
   expect(box).toContain("Built, not released");
-  expect(box).toContain("everything built so far is in v0.4.11");
+  expect(box).toContain("everything built so far is in v0.4.12");
   expect(box).not.toContain("<li>");
-  const current = section(page, 'id="v0411"', 'id="v0410"');
-  expect(page).toContain('href="#v0411"');
+  const current = section(page, 'id="v0412"', 'id="v0411"');
+  expect(page).toContain('href="#v0412"');
   expect(current).toContain("current preview");
-  for (const phrase of ["Remove and update servers", "The AI, with your yes", "Forgot means gone", "Long Claude turns finish"]) {
+  for (const phrase of ["Builds review themselves", "New folders are checked", "New projects are proven", "Repairs by default"]) {
     expect(current).toContain(phrase);
   }
-  const previous = section(page, 'id="v0410"', 'id="v0409"');
+  const previous = section(page, 'id="v0411"', 'id="v0410"');
   expect(previous).toContain("previous preview");
-  for (const phrase of ["Show checks are reads", "A check is not a change", "What manages the config", "Fewer stray skills"]) {
+  for (const phrase of ["Remove and update servers", "The AI, with your yes", "Forgot means gone", "Long Claude turns finish"]) {
     expect(previous).toContain(phrase);
   }
-  expect(section(page, 'id="v0409"', 'id="v0408"')).toContain("released");
+  expect(section(page, 'id="v0410"', 'id="v0409"')).toContain("released");
   // A release card's id is its own: the planned "v0.3 · Crews" card keeps id="v030".
   expect(page.match(/id="v030"/g)).toHaveLength(1);
 });
 
-test("current docs and site installation targets name v0.4.11 without relabelling old captures", async () => {
+test("current docs and site installation targets name v0.4.12 without relabelling old captures", async () => {
   const tag = `v${CASPER_VERSION}`;
   for (const file of ["README.md", "docs/SCRIPTING.md", "docs/WINDOWS.md", "docs/RELEASE.md", "site/index.html"]) {
     const tags = [...(await read(file)).matchAll(/releases\/download\/(v\d+\.\d+\.\d+)/g)].map(match => match[1]);
@@ -124,7 +125,7 @@ test("current docs and site installation targets name v0.4.11 without relabellin
   expect(faq).toContain("Updates: auto / notify only / off");
   expect(faq).toContain("row above the prompt");
   expect(faq).not.toContain("Nothing updates on its own");
-  for (const text of [faq, await read("docs/TERMINAL_UX.md")]) expect(text).toContain("Casper 0.4.12 is out · casper update");
+  for (const text of [faq, await read("docs/TERMINAL_UX.md")]) expect(text).toContain("Casper 0.4.13 is out · casper update");
   expect(await read("site/tour.html")).toContain(`More in ${CASPER_VERSION}`);
   expect(await read("site/compare.html")).toContain(`plain Pi vs Casper ${CASPER_VERSION}`);
   const readme = await read("README.md");

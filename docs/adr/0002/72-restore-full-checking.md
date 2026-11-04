@@ -1,6 +1,6 @@
 # 72. Restore full checking: the AI's own work is checked, proven and repaired by default
 
-Date: 2026-11-04. Status: proposed. Amends 44 (trust a folder), 66 (nothing to start is a note), 67 (the tie-break line)
+Date: 2026-11-04. Status: accepted (merged 2026-11-04 in #594). Amends 44 (trust a folder), 66 (nothing to start is a note), 67 (the tie-break line)
 and 68/69 (output folders), and #539's question before a browser repair and #580's checklist wording.
 
 ## Decision
