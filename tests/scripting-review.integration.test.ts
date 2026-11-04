@@ -76,7 +76,7 @@ shellCheckTest("verification.checklist: a separate call lists the request's case
   // The checklist call comes first, outside the conversation; its usage joins the task's (3 × 120 tokens).
   expect(listed.payloads.map(isChecklist)).toEqual([true, false, false]);
   expect(asked(listed.payloads[0], "Fix sum.js: it prints fixed and sum(2, 3) returns 5")).toBe(true);
-  expect(lastUser(listed.payloads[1])).toContain("write one test per case that checks what it states, named for that behavior, not after the case's words:\\n- sum.js prints fixed\\n- sum(2, 3) returns 5");
+  expect(lastUser(listed.payloads[1])).toContain("write one test per case that asserts exactly that case, named for that behavior, not after the case's words:\\n- sum.js prints fixed\\n- sum(2, 3) returns 5");
   expect(receipt.usage.tokens).toBe(360);
   const phases = events(result.stdout, await realpath(listed.project)).filter((event) => event.type === "phase").map((event) => `${event.phase}:${event.state}`);
   expect(phases.slice(0, 3)).toEqual(["checklist:start", "checklist:end", "task:start"]);

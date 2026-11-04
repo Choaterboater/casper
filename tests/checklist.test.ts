@@ -64,6 +64,7 @@ test("topic words from the request are not cases: a list of them is no checklist
   // The call is told so, and the task prompt never asks for tests named after the cases.
   expect(CHECKLIST_SYSTEM_PROMPT).toContain("A list of topics or areas");
   const prompt = formatChecklistPrompt(["sum(2, 3) returns 5"]);
-  expect(prompt).not.toContain("asserts exactly that case");
   expect(prompt).toContain("not after the case's words");
+  // A test that asserts less than its case (the 09-27 misses) is still asked against: it asserts exactly that case.
+  expect(prompt).toContain("one test per case that asserts exactly that case, named for that behavior");
 });

@@ -33,7 +33,7 @@ async function fixture(input: { vision: boolean; showPages?: "ask" | "on" | "off
   if (input.showPages) await writeFile(path.join(home, ".casper", "config.yaml"), `showPages: ${input.showPages}\n`);
   await writeFile(path.join(project, "server.ts"), SERVER);
   await writeFile(path.join(project, "package.json"), JSON.stringify({ name: "web", dependencies: { next: "15.0.0", react: "19.0.0" } }));
-  await writeFile(path.join(project, ".casper", "project.yaml"), stringify({ verification: { mode: "auto", checklist: false }, repair: { maxAttempts: 1 },
+  await writeFile(path.join(project, ".casper", "project.yaml"), stringify({ verification: { mode: "auto", checklist: false, review: false }, repair: { maxAttempts: 1 },
     services: { web: { command: `"${process.execPath}" server.ts`, port: "auto", ready: { http: "/" }, timeoutMs: 10_000 } } }));
   const desktop = path.join(shots, "page-1-desktop.png"), phone = path.join(shots, "page-1-phone.png");
   await writeFile(desktop, PNG); await writeFile(phone, PNG);

@@ -218,6 +218,12 @@ export class ChangeBaseline {
     private readonly pathContext: Omit<PathContext, "root">,
   ) {}
 
+  /** Files the test command needs (package.json, the runner's settings), taken as they are now in each comparison,
+   * as tests are; with them, installed dependencies are linked as they are now. For a copy kept before the project had
+   * a test command: "without the change" is then the tests and their setup, and none of the code. */
+  private setup?: readonly string[];
+  useSetupFromWorkspace(files: readonly string[]): void { this.setup = files; }
+
   /** Throws when the workspace cannot be copied (too large, unreadable). */
   static async capture(root: string, options: { scratch?: string; fileLimit?: number; byteLimit?: number; signal?: AbortSignal;
     command?: string; pathContext?: Omit<PathContext, "root"> } = {}): Promise<ChangeBaseline> {
@@ -257,10 +263,14 @@ export class ChangeBaseline {
       const linkDependencies = async (tree: string, links: readonly string[]) => {
         for (const relative of links) await linkDependency(options.root, tree, relative);
       };
-      // Without the change: the tree from before, with the tests as they are now.
+      // A copy kept before the project was set up has no dependencies of its own: they come from the workspace as it is now.
+      const current = path.join(copies, "with");
+      const linksNow = this.setup ? await cloneTree(options.root, current, this.limits, options.signal, this.inputs) : undefined;
+      const links = linksNow ? [...new Set([...this.links, ...linksNow])] : this.links;
+      // Without the change: the tree from before, with the tests (and the setup the tests need) as they are now.
       const without = path.join(copies, "without");
       await cloneTree(this.tree, without, this.limits, options.signal, this.inputs);
-      for (const relative of tests) {
+      for (const relative of [...new Set([...tests, ...this.setup ?? []])]) {
         const from = path.join(options.root, relative);
         const to = path.join(without, relative);
         // A folder the change turned into a link must not carry the copy's edits outside it.
@@ -272,7 +282,7 @@ export class ChangeBaseline {
         if (stats.isSymbolicLink()) await symlink(await readlink(from), to);
         else if (stats.isFile()) await copyFile(from, to, constants.COPYFILE_FICLONE);
       }
-      await linkDependencies(without, this.links);
+      await linkDependencies(without, links);
       const result = await run(without);
       if (result.exitCode === null) {
         return { status: "unavailable", check, reason: `${check} could not run without the change (${(result.reason ?? "no exit status").replace(/\.$/, "").toLowerCase()})` };
@@ -282,8 +292,7 @@ export class ChangeBaseline {
       const evidence = withoutRun({ ...result, exitCode: result.exitCode });
       if (result.status === "pass") return { status: "unproven", check, command, testsChanged: tests.length > 0, without: evidence };
       // A copy that cannot run the tests at all would look like proof: the current code must pass there too.
-      const current = path.join(copies, "with");
-      await linkDependencies(current, await cloneTree(options.root, current, this.limits, options.signal, this.inputs));
+      await linkDependencies(current, linksNow ?? await cloneTree(options.root, current, this.limits, options.signal, this.inputs));
       const control = await run(current);
       if (control.status !== "pass") return { status: "unavailable", check, reason: `${check} does not pass in a copy of the workspace, so Casper cannot compare with and without the change` };
       return { status: "proven", check, command, testsChanged: tests.length > 0, without: evidence };

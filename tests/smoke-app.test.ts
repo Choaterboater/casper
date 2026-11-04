@@ -50,7 +50,7 @@ async function fixture(config: Record<string, unknown> = {}, options: { verbose?
   const home = path.join(root, "home"), project = path.join(root, "project");
   await mkdir(home); await mkdir(path.join(project, ".casper"), { recursive: true }); await mkdir(path.join(project, "src"));
   await writeFile(path.join(project, "src/server.ts"), notesServer(false));
-  await writeFile(path.join(project, ".casper", "project.yaml"), stringify({ verification: { mode: "auto" },
+  await writeFile(path.join(project, ".casper", "project.yaml"), stringify({ verification: { mode: "auto", review: false },
     services: { api: { command: options.command ?? `"${process.execPath}" src/server.ts`, port: "auto", ready: { http: "/health" }, timeoutMs: 10_000, scope: { inputs: ["src"] } } },
     ...config }));
   await writeFile(path.join(root, "session.jsonl"), "");

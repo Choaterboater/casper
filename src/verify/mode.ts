@@ -117,7 +117,10 @@ export type AutoCheckSkip = "no-changes" | "no-checks" | "not-covered" | "docs-o
 
 /** Prose nothing runs: Markdown, plain text and the like. (Not yaml or json: a check may read those.) */
 const DOC_FILE = /\.(?:md|mdx|markdown|txt|rst|adoc)$/i;
-export const isDocPath = (file: string): boolean => DOC_FILE.test(file);
+/** Plain text a build reads, not prose: Python's requirements and constraints (a requirements/ folder too), CMake's
+ * lists and a platform's runtime.txt. Their changes run the checks. */
+const BUILD_INPUT = /(^|\/)(?:(?:requirements|constraints)[^/]*\.txt|CMakeLists\.txt|runtime\.txt)$|(^|\/)requirements\/[^/]+\.txt$/i;
+export const isDocPath = (file: string): boolean => DOC_FILE.test(file) && !BUILD_INPUT.test(file);
 /** A running app's SQLite database and its journal (glance.db, -wal, -shm, -journal): the app writes them all the time,
  * and no check reads a binary database as code. On a NAS whose app ran next to its code, every request ran go test and
  * go build for them. */

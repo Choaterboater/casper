@@ -503,9 +503,12 @@ Each row names the test that fails without it.
   the sandbox, not a dev server Casper started; the service tool's `request` reaches those.
 - **Windows, and Linux without bubblewrap**, have no sandbox: the AI's shell asks before each command that changes something (reads like `ls` and routine work like `npm test` or `git commit` don't; `sudo`, `curl … | sh`, a force push and a new package still ask),
   and a trusted project's checks, services and dev servers run with your permissions and network.
-  Casper asks "Trust this folder?" the first time a session opens a folder. In one you haven't
+  Casper asks "Trust this folder?" the first time a session opens a folder (Enter is Not now; with
+  the sandbox on, Enter trusts it). In one you haven't
   trusted, no check, service or smoke check runs, and the project's scripts, builds, tests and
-  installs ask like any other command. Your home folder is never trusted. A run that can't ask is
+  installs ask like any other command. An empty folder, or one with no code, tests or build files and
+  nothing for Casper to run, holds nothing of anyone else's to run: it is trusted without the question (an empty one saved, the other
+  for that session only). Your home folder is never trusted. A run that can't ask is
   trusted for that run; use `--no-verify` there for a repository you don't trust.
 - **Releases are checked, not code-signed.** Until the owner makes the release key, `SHA256SUMS` is
   not signed and the installers check only the SHA-256 (and, with `gh` signed in, where the file was

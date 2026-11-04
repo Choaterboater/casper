@@ -325,10 +325,13 @@ test("a start command that exits 0 at once, before serving, is not checked rathe
   expect(g.text()).toContain("Incomplete — app smoke");
 }, 30_000);
 
-test("a framework-less server without launch information says not run", async () => {
+test("server code with nothing to start is unfinished: the receipt says the app was never started", async () => {
   const f = await fixture({ config: { services: {} } }); f.edit();
   const task = await f.run();
-  expect(task.appSmoke).toMatchObject({ status: "not-run", reason: "no start/dev command or declared service found for this app", nothingToStart: true });
+  expect(task.appSmoke).toMatchObject({ status: "not-run", reason: "the app was never started: no start/dev command or declared service found for its server" });
+  expect(task.appSmoke?.nothingToStart).toBeUndefined();
+  expect(f.text()).toContain("Incomplete — app smoke");
+  expect(f.text()).toContain("the app was never started");
   expect(await lines(f.starts)).toEqual([]);
 });
 

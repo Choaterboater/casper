@@ -42,8 +42,9 @@ import { VerificationTask } from "../verify/task";
 import { evidenceForModel } from "../verify/model-output";
 import { ChangeBaseline, changesCode, isCodePath, isTestPath, proofRepairPrompt, type ChangeProof } from "../verify/proof";
 import { independentAcceptance } from "../verify/acceptance";
-import { definitionChangedReason, definitionChanges, testDefinition } from "../verify/test-definition";
-import { parseChecklist, parseReview, requirementsReviewPrompt, ROUND_MAX_TURNS, type RequirementsReview } from "../task/review";
+import { definitionChangedReason, definitionChanges, definitionFile, testDefinition } from "../verify/test-definition";
+import type { ProjectContext } from "../project/context";
+import { parseChecklist, parseReview, requirementsReviewPrompt, ROUND_MAX_TURNS, selfReviewPrompt, SELF_REVIEW_TURNS, type RequirementsReview } from "../task/review";
 import { KEEP_GOING_ROUNDS, keepGoingNeed, keepGoingPrompt, openPlanNote } from "../task/keep-going";
 import { answerNextStep, answerNextStepItem, findNextStep, requestStepCount } from "../task/next-step";
 import { copyStep } from "./copy-words";
@@ -64,7 +65,7 @@ import { emptyFolderNote, planQuestions, readPlan, savePlan, updatePlan, wantsSp
 import { PlanBuild } from "../flows/plan-build";
 import { PROJECT_YAML, saveProjectCommand } from "../project/config-write";
 import type { TaskClassification } from "../task/classify";
-import { inOutputFolder, planAutoChecks, TESTS_WITHOUT_COMMAND } from "../verify/mode";
+import { builtOutput, inOutputFolder, planAutoChecks, TESTS_WITHOUT_COMMAND } from "../verify/mode";
 import { outsideWritesReceipt, sandboxReceipt } from "./sandbox";
 import { explainModelError } from "../runtime/model-errors";
 import { tildePath } from "../new/scaffold";
@@ -79,7 +80,7 @@ import { confirmYes } from "./approvals";
 import { lookPrompt, pageLook, SHOW_PAGES_CHOICES, SHOW_PAGES_QUESTION } from "../services/page-look";
 import { offerNamedProject, offerNewProject, childProjectOfTask, runChildChecks, offerWorkFolder } from "./workspace";
 import { settlePictures } from "./pictures";
-import { finishConfiguredTest, repairFailingWhenRecorded, runVerification, writeCheckResult, taskNetworkOptions, checksPlan, saveFoundCheck, projectAfterSetup } from "./verification";
+import { finishConfiguredTest, noteFailingWhenRecorded, runVerification, writeCheckResult, taskNetworkOptions, checksPlan, saveFoundCheck, projectAfterSetup } from "./verification";
 import { projectPrivatePaths, reportSkillWarnings } from "./wiring";
 import { appAgentDir, ensureRuntime } from "./runtime-start";
 import { reloadProject, writeProjectFile } from "./project-file";
@@ -302,9 +303,9 @@ export async function runModelTask(app: CasperApp, prompt: string, options: { fl
   // that are clearly not behavior changes are exempt; the keyword intent is too coarse to decide more
   // ("add X; you may add new test files" reads as intent "test"), so the work itself decides later.
   // The workspace as it is now is what "without the change" means.
-  const testCommand = context.model.commands.test?.trim();
-  const proving = verificationMode === "auto" && Boolean(testCommand) && before !== undefined
-    && !["refactor", "document", "inspect", "visualize", "configure"].includes(classification.intent);
+  let testCommand = context.model.commands.test?.trim();
+  const provable = verificationMode === "auto" && before !== undefined && !["refactor", "document", "inspect", "visualize", "configure"].includes(classification.intent);
+  let proving = provable && Boolean(testCommand);
   let baseline: ChangeBaseline | undefined;
   let baselineUnavailable: string | undefined;
   // Code that changed while planning would be in the copy taken now, so a change made then and undone later would read
@@ -318,7 +319,23 @@ export async function runModelTask(app: CasperApp, prompt: string, options: { fl
       if (app.commandAbort?.signal.aborted) return;
       baselineUnavailable = `Casper could not copy the workspace to compare: ${error instanceof Error ? error.message : String(error)}`;
     }
+  } else if (provable && !plannedCode.length && before!.size <= NEW_PROJECT_FILES) {
+    // A new project has no test command yet. The folder as it is now is kept so that the tests the AI sets up can still be
+    // proven (startProof). It is not the repair's "failed before this change too" copy: there, every new check would fail.
+    baseline = await ChangeBaseline.capture(workspaceRoot, { signal: app.commandAbort?.signal,
+      pathContext: { home: app.homeDir(), agentDir: appAgentDir(app), denyRead: projectPrivatePaths(app) } }).catch(() => undefined);
+    if (app.commandAbort?.signal.aborted) return;
   }
+  /** The AI set up a test command (projectAfterSetup): its tests are proven against the copy from before the task, with
+   * the files the command needs (package.json, the runner's settings) taken from now, as the tests are. */
+  const startProof = async (refreshed: ProjectContext) => {
+    const command = refreshed.model.commands.test?.trim();
+    if (proving || !provable || !baseline || !command) return;
+    const files = [...(await testDefinition(workspaceRoot, command).catch(() => new Map<string, string>())).keys()].map(definitionFile);
+    baseline.useSetupFromWorkspace([...new Set(files)]);
+    testCommand = command;
+    proving = true;
+  };
   let proof: ChangeProof | undefined;
   let proofSkipped: string | undefined;
   let review: RequirementsReview | undefined;
@@ -420,6 +437,7 @@ export async function runModelTask(app: CasperApp, prompt: string, options: { fl
       const refreshed = await projectAfterSetup(app, context, flatten(diffSnapshots(before, afterModel)));
       if (refreshed) {
         context = refreshed;
+        await startProof(refreshed);
         // The same task keeps what the model's casper_check already recorded this turn; repair rounds rebuild
         // the model's tools (prepareCapabilities), so its casper_check offers the new checks.
         app.checkTask?.useRegistry(VerifierRegistry.forProject(context.model, context.verification.timeoutMs, app.blockOnCleanupFailure, taskNetworkOptions(app)));
@@ -485,7 +503,7 @@ export async function runModelTask(app: CasperApp, prompt: string, options: { fl
         ({ verification, shown: pagesShown, after: afterLook } = await lookAtPages(app, session, prompt, autoChecks.run, verification, workspaceRoot));
         // Code the AI changed while looking at the pages is part of the change the proof compares.
         const afterWork = afterLook ?? afterModel;
-        const changedCode = Boolean(before && afterWork && changesCode(taskChanges(before, afterWork, true)));
+        const changedCode = Boolean(before && afterWork && changesCode(taskChanges(before, afterWork, new Set(toolFiles(workspaceRoot, app.observations.edited(), "inside")))));
         const redefined = testCommand && definitionBefore
           ? definitionChanges(definitionBefore, await testDefinition(workspaceRoot, testCommand).catch(() => new Map<string, string>())) : [];
         if (proving && changedCode && redefined.length && verification.status === "pass") {
@@ -499,8 +517,14 @@ export async function runModelTask(app: CasperApp, prompt: string, options: { fl
         }
         if (proving && verification.status === "pass" && changedCode && !redefined.length) {
           const initialReview = parseChecklist(app.lastAnswer);
-          ({ verification, proof, review } = await finishChange(app, { baseline, baselineUnavailable, before, root: workspaceRoot,
+          ({ verification, proof, review } = await finishChange(app, { baseline, baselineUnavailable, before: before!, root: workspaceRoot,
             command: testCommand!, request: prompt, checks: autoChecks.run, verification, session, initialReview, definitionBefore }));
+        }
+        // A build's review (decision 72): the requirements review round, then one self-review turn, once its checks pass.
+        // Unless verification.review is false; with it true, finishChange already reviewed a change it proves.
+        if (classification.intent === "implement" && context.verification.review !== false && verification.status === "pass" && changedCode
+          && !app.closing && !app.commandAbort?.signal.aborted && !app.taskRuntimeFailed && app.taskTurnLimit === undefined && app.taskSpendStop === undefined) {
+          ({ verification, review } = await reviewBuild(app, { session, request: prompt, root: workspaceRoot, checks: autoChecks.run, verification, review }));
         }
         // Not tied to the proof: any code change whose checks pass (server tasks and configure requests too).
         const acceptanceMode = context.verification.acceptance;
@@ -546,12 +570,9 @@ export async function runModelTask(app: CasperApp, prompt: string, options: { fl
     let browserFailures = await replay();
     const max = context.repair.maxAttempts;
     const used = verification?.repairAttempts ?? 0;
-    // A check that already failed when it was recorded gets the question a command check gets when it failed before.
+    // A check that already failed when it was recorded is said, then repaired with the rest.
     const failingBefore = browserFailures.filter(check => check.baseline === "fail");
-    if (failingBefore.length && used < max && !stoppedNow()
-      && !await repairFailingWhenRecorded(app, failingBefore.map(check => check.name), app.commandAbort?.signal)) {
-      browserFailures = browserFailures.filter(check => check.baseline !== "fail");
-    }
+    if (failingBefore.length && used < max && !stoppedNow()) noteFailingWhenRecorded(app, failingBefore.map(check => check.name));
     if (browserFailures.length && used < max && !stoppedNow()) {
       const attempt = used + 1;
       // Browser-only tasks still record the spent turn, without claiming any repository command ran.
@@ -580,6 +601,7 @@ export async function runModelTask(app: CasperApp, prompt: string, options: { fl
           const refreshed = finalPaths && await projectAfterSetup(app, context, finalPaths);
           if (refreshed) {
             context = refreshed;
+            await startProof(refreshed);
             app.checkTask.useRegistry(VerifierRegistry.forProject(context.model, context.verification.timeoutMs, app.blockOnCleanupFailure, taskNetworkOptions(app)));
           }
           autoChecks = planAutoChecks({ selected: context.verification.checks, commands: context.model.commands,
@@ -598,7 +620,7 @@ export async function runModelTask(app: CasperApp, prompt: string, options: { fl
         if (verification.status === "pass" && !stoppedNow()) {
           const now = before && await app.snapshotWorkspace(workspaceRoot);
           if (stoppedNow()) return verification;
-          const changedCode = Boolean(before && now && changesCode(taskChanges(before, now, true)));
+          const changedCode = Boolean(before && now && changesCode(taskChanges(before, now, new Set(toolFiles(workspaceRoot, app.observations.edited(), "inside")))));
           if (proving && changedCode) {
             ({ proof } = await proveChange(app, { baseline, baselineUnavailable, before: before!, root: workspaceRoot,
               command: testCommand!, request: prompt, checks: autoChecks?.run ?? [], verification, session, definitionBefore, repair: false }));
@@ -1118,6 +1140,40 @@ export async function finishChange(app: CasperApp, input: {
   return { ...result, review };
 }
 
+/** A build's review once its checks pass: the requirements review round (unless one already ran), then one self-review
+ * turn for what builds keep missing (transactions, input types, ordering ties, the README). The checks run again when
+ * either changed a file, with the repairs left. */
+async function reviewBuild(app: CasperApp, input: { session: RuntimeSession; request: string; root: string; checks: readonly CheckName[];
+  verification: VerificationReport; review?: RequirementsReview }): Promise<{ verification: VerificationReport; review?: RequirementsReview }> {
+  const stopped = () => app.closing || Boolean(app.commandAbort?.signal.aborted) || app.taskRuntimeFailed || app.taskTurnLimit !== undefined || app.taskSpendStop !== undefined;
+  let review = input.review;
+  const unreviewed = await app.snapshotWorkspace(input.root);
+  phase(app, "review", "start");
+  await prepareCapabilities(app, input.request);
+  if (!review) {
+    app.events.ensureLineBreak();
+    app.output.write("↻ review: checking the work against every requirement\n");
+    app.lastAnswer = "";
+    const cutOff = await promptRound(app, input.session, requirementsReviewPrompt(input.request), input.request);
+    if (stopped()) { phase(app, "review", "end"); return { verification: input.verification }; }
+    if (cutOff) app.output.write(`↻ review: stopped at its ${ROUND_MAX_TURNS}-turn budget\n`);
+    review = { ...(parseReview(app.lastAnswer) ?? { missing: true as const }), ...(cutOff ? { incomplete: true as const } : {}) };
+  }
+  app.events.ensureLineBreak();
+  app.output.write("↻ self-review: re-reading the request and the code once more\n");
+  await promptRound(app, input.session, selfReviewPrompt(input.request), input.request, undefined, SELF_REVIEW_TURNS);
+  phase(app, "review", "end");
+  if (stopped()) return { verification: input.verification, review };
+  const reviewed = unreviewed && await app.snapshotWorkspace(input.root);
+  const edited = !unreviewed || !reviewed || [...Object.values(diffSnapshots(unreviewed, reviewed))].some((paths) => paths.length);
+  if (!edited) return { verification: input.verification, review };
+  app.events.ensureLineBreak();
+  app.output.write(`• Casper checking: ${input.checks.join(", ")}\n`);
+  const max = app.projectContext!.repair.maxAttempts;
+  const again = await runVerification(app, input.checks, true, input.request, app.checkTask, Math.max(0, max - input.verification.repairAttempts));
+  return { verification: { ...again, repairAttempts: input.verification.repairAttempts + again.repairAttempts }, review };
+}
+
 /** Compare the tests with and without the change. An unproven change gets one repair round,
  * within the repair budget, to add a test that fails without it; checks and comparison rerun. */
 export async function proveChange(app: CasperApp, input: {
@@ -1243,9 +1299,9 @@ async function keepGoing(app: CasperApp, session: RuntimeSession, request: strin
   }
 }
 
-export async function promptRound(app: CasperApp, session: RuntimeSession, text: string, request: string, images?: RuntimeImage[]): Promise<boolean> {
-  const roundBudget = app.maxTurns === undefined || ROUND_MAX_TURNS < app.maxTurns;
-  try { await session.prompt(text, app.commandAbort?.signal, { request, maxTurns: roundBudget ? ROUND_MAX_TURNS : app.maxTurns, ...(images?.length ? { images } : {}) }); }
+export async function promptRound(app: CasperApp, session: RuntimeSession, text: string, request: string, images?: RuntimeImage[], turns = ROUND_MAX_TURNS): Promise<boolean> {
+  const roundBudget = app.maxTurns === undefined || turns < app.maxTurns;
+  try { await session.prompt(text, app.commandAbort?.signal, { request, maxTurns: roundBudget ? turns : app.maxTurns, ...(images?.length ? { images } : {}) }); }
   // A picture the round made is there before the checks and the proof look again.
   finally { await settlePictures(app); }
   if (!roundBudget || app.taskTurnLimit === undefined) return false;
@@ -1457,6 +1513,8 @@ const NOT_COMPARED: Record<string, string> = { document: "this was a docs reques
 /** Data files Casper keeps as the AI left them through its checks: an app's data outside a program's output folders. */
 const keptByChecks = (file: string) => checkDataFile(file) && !inOutputFolder(file);
 /** Larger than a replay's own snapshot: a database's -wal grows past a megabyte quickly. */
+/** A folder this small when a task starts is a new project: Casper keeps a copy of it for a proof even with no test command yet. */
+const NEW_PROJECT_FILES = 500;
 const CHECK_DATA_LIMITS = { files: 64, fileBytes: 64 * 1024 * 1024, totalBytes: 256 * 1024 * 1024 };
 
 /** The data files as `wanted` holds them, files made since removed; `keep` (the AI's own edits) stays as it is now. */
@@ -1501,12 +1559,13 @@ export function readsAsQuestion(request: string, classification: Pick<TaskClassi
 /** The line a task that was stopped before it changed or ran anything ends with, instead of a receipt card. */
 export const STOPPED_NOTHING_CHANGED = "– Stopped. Nothing was changed.";
 
-/** What the task changed from `before` to `after`, without files it only moved; `forProof`: also without the top-level
- * output folders (builds/, runs/, results/ …), whose code is what a program made, not this task's change. */
-function taskChanges(before: Map<string, string>, after: Map<string, string>, forProof = false): TreeChanges {
+/** What the task changed from `before` to `after`, without files it only moved; `forProof` (the files the AI's own edit
+ * and write tools wrote): also without what a program built or ran into builds/, runs/ or results/, which is not this
+ * task's change. A project's own reports/ or out/ code, and anything the AI wrote itself, is. */
+function taskChanges(before: Map<string, string>, after: Map<string, string>, forProof?: ReadonlySet<string>): TreeChanges {
   const all = diffSnapshots(before, after);
   const changes = withoutMoves(all, findMoves(before, after, all));
   if (!forProof) return changes;
-  const own = (file: string) => !inOutputFolder(file);
+  const own = (file: string) => !builtOutput(file) || forProof.has(file);
   return { added: changes.added.filter(own), modified: changes.modified.filter(own), removed: changes.removed.filter(own) };
 }

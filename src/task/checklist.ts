@@ -106,7 +106,7 @@ function firstJsonArray(text: string): unknown[] | undefined {
 }
 
 /** How the cases become tests: what each states is checked, and the tests are named for what they check. */
-export const CASE_TESTS = "one test per case that checks what it states, named for that behavior, not after the case's words";
+export const CASE_TESTS = "one test per case that asserts exactly that case, named for that behavior, not after the case's words";
 
 /** The section appended to the task prompt. */
 export function formatChecklistPrompt(cases: readonly string[]): string {

@@ -185,13 +185,16 @@ test("an open item is never dropped, however long the checklist; done items are 
   expect(parsed.done).toHaveLength(50);
 });
 
-test("the review looks for an order that ties: a sort on a timestamp needs a unique tie-breaker", () => {
-  // Run 7: issues sorted newest first on a whole-second created_at, with nothing to break ties, lost a shared check.
-  // Said only in the review round (off unless verification.review is on), never in every task's prompt.
+test("a build's own prompt says an order on a timestamp breaks ties, with or without the review and the tests", () => {
+  // Runs 7, 10 and 11: issues sorted newest first on a whole-second created_at, with nothing to break ties, lost a shared
+  // check and a confirmed defect each time. The review round said it, but it is off unless verification.review is on.
   expect(requirementsReviewPrompt("List issues newest first.")).toContain("an order on a timestamp breaks ties with a unique key, such as the id");
   const model = { commands: { test: "npm test" } } as unknown as Parameters<typeof formatTaskPrompt>[2];
-  for (const reviewFollows of [true, false]) {
-    expect(formatTaskPrompt("List issues newest first.", { intent: "implement", mode: "modify", verification: [] }, model,
-      { verificationMode: "auto", proveChange: true, reviewFollows })).not.toContain("tie");
+  for (const proveChange of [true, false]) {
+    expect(formatTaskPrompt("Build an issue tracker; list issues newest first.", { intent: "implement", mode: "modify", verification: [] }, model,
+      { verificationMode: "auto", proveChange })).toContain("Sorting by a time? Also sort by the id: rows made in one second share a time.");
   }
+  expect(formatTaskPrompt("What does the list page do?", { intent: "inspect", mode: "read", verification: [] }, model,
+    { verificationMode: "auto", proveChange: false })).not.toContain("ties");
 });
+

@@ -158,7 +158,7 @@ test("in auto mode the model is told Casper runs the final checks; casper_check 
   const auto = formatTaskPrompt("fix the failing test", classification, model, { verificationMode: "auto" });
   const offered = formatTaskPrompt("fix the failing test", classification, model, { verificationMode: "offer" });
   expect(offered).not.toContain("Casper runs the final checks");
-  expect(auto).toContain("Casper runs the final checks itself after your last edit and records them; you do not need to. Use casper_check while iterating if it helps. Bash runs of checks are diagnostics only.");
+  expect(auto).toContain("Casper runs and records the final checks after your last edit. casper_check while iterating is optional; bash runs of checks are diagnostics only.");
   expect(auto.endsWith("User request:\nfix the failing test")).toBe(true);
 });
 

@@ -136,6 +136,14 @@ test("a job left running: its receipt says so, a question about it runs no check
   }
 }, 60_000);
 
+test("a build input that ends in .txt is not prose: requirements.txt and CMakeLists.txt changes run the checks; notes don't", () => {
+  const commands = { test: "pytest" };
+  for (const file of ["requirements.txt", "requirements-dev.txt", "constraints.txt", "requirements/base.txt", "CMakeLists.txt", "src/CMakeLists.txt", "runtime.txt"]) {
+    expect([file, planAutoChecks({ commands, changedPaths: [file] }).run]).toEqual([file, ["test"]]);
+  }
+  for (const file of ["notes.txt", "docs/README.txt", "LICENSE.txt"]) expect([file, planAutoChecks({ commands, changedPaths: [file] })]).toEqual([file, { run: [], skipped: "docs-only" }]);
+});
+
 test("only output files changed (results/, logs/, *.out): no checks, and the receipt says so; code beside them still runs them", () => {
   const commands = { test: "npm run test" };
   // The smoke session's receipt 7: the evaluation and the blind review wrote 22 files, all under results/.

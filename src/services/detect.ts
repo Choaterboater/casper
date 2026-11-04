@@ -336,7 +336,9 @@ export async function planAppSmoke(root: string, input: DetectInput, files: read
   const app = server || [...frameworks].some(name => (WEB_FRAMEWORKS as readonly string[]).includes(name) || HTTP_FRAMEWORKS.includes(name))
     || pagePlan.open.length > 0;
   if (!app) return undefined;
-  // Nothing to start (no launch command, no declared service): a note, never an unfinished check (decision 66).
+  // Server code the change touched, with nothing to start it, was never tried: unfinished, not verified. Anything else with
+  // nothing to start (a component, a page another program serves) is a note, never an unfinished check (decision 66).
+  if (!script && server) return { reason: "the app was never started: no start/dev command or declared service found for its server" };
   if (!script) return { reason: "no start/dev command or declared service found for this app", nothingToStart: true };
   const manager = input.packageManager ?? await lockfileManager(root);
   const dependencies = [manifest?.dependencies, manifest?.devDependencies].some(section => isMapping(section) && Object.keys(section).length);

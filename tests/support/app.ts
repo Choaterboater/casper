@@ -27,6 +27,8 @@ export interface RichAppSetup {
   trustParent?: boolean;
   /** Open Casper in the fixture's home folder instead of the project. */
   openHome?: boolean;
+  /** The project folder has nothing in it (no notes.txt). */
+  empty?: boolean;
 }
 
 /** An interactive CasperApp over a fake rich TTY in a temp project, with `until` on the (ANSI-free) screen. The project
@@ -37,7 +39,7 @@ export async function richApp(makeRuntime: (project: string) => AgentRuntime, op
   const project = path.join(root, "project");
   await mkdir(home, { recursive: true });
   await mkdir(project, { recursive: true });
-  await writeFile(path.join(project, "notes.txt"), "An empty folder would ask about a new project.\n");
+  if (!setup.empty) await writeFile(path.join(project, "notes.txt"), "An empty folder would ask about a new project.\n");
   for (const [name, text] of Object.entries(setup.files ?? {})) {
     await mkdir(path.dirname(path.join(project, name)), { recursive: true });
     await writeFile(path.join(project, name), text);
