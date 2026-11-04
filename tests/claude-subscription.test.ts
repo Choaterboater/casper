@@ -13,6 +13,7 @@ import { assertSubscriptionAccount, claudeExecutable, CLAUDE_SUBSCRIPTION, isSub
 import { subscriptionName } from "../src/tui/usage";
 import { INVALID_ARGUMENTS } from "../src/runtime/tool-repair";
 import { ClaudeSessions } from "../src/runtime/claude-session";
+import { isRetryableAssistantError } from "@earendil-works/pi-ai/utils/retry";
 
 const account: AccountInfo = { apiProvider: "firstParty", subscriptionType: "max", apiKeySource: "none" };
 const tool = { name: "read", description: "Read a file", parameters: { type: "object", properties: { path: { type: "string" } }, required: ["path"] } };
@@ -413,6 +414,44 @@ test("Claude Code carrying on after the output cap is the rest of the same answe
   const fake = fakeQuery([...complete, ...events()]);
   expect((await streamClaudeSubscription(model, context, undefined, { ...fake, executable: "fixture" }).result()).errorMessage)
     .toBe("Claude returned multiple model turns to a single-turn transport.");
+});
+
+/** An attempt Claude Code abandoned and started over (a stalled request it retried): `streamed` is what it sent first. */
+function startedOver(streamed: "nothing" | "reasoning" | "text", toolCall = false): SDKMessage[] {
+  const abandoned = [raw({ type: "message_start", message: { id: "msg_abandoned", model: model.id, usage: { input_tokens: 20, output_tokens: 8, cache_read_input_tokens: 10, cache_creation_input_tokens: 5 } } })];
+  if (streamed === "reasoning") abandoned.push(raw({ type: "content_block_start", index: 0, content_block: { type: "thinking", thinking: "" } }),
+    raw({ type: "content_block_delta", index: 0, delta: { type: "thinking_delta", thinking: "Planning every file" } }));
+  if (streamed === "text") abandoned.push(raw({ type: "content_block_start", index: 0, content_block: { type: "text", text: "" } }),
+    raw({ type: "content_block_delta", index: 0, delta: { type: "text_delta", text: "Half an ans" } }));
+  const next = events(toolCall);
+  next[0] = raw({ type: "message_start", message: { id: "msg_again", model: model.id, usage: { input_tokens: 7, output_tokens: 0, cache_read_input_tokens: 100, cache_creation_input_tokens: 2 } } });
+  return [...abandoned, ...next];
+}
+
+test("a response Claude Code started over before it sent any of the answer is not a second turn: the new one is the answer", async () => {
+  // A Sonnet build's first turn sent 8 tokens, nothing for minutes, then a new response, and the run failed with
+  // "Claude returned multiple model turns": the first attempt had stalled and Claude Code asked again.
+  for (const streamed of ["nothing", "reasoning"] as const) {
+    for (const toolCall of [false, true]) {
+      const fake = fakeQuery(startedOver(streamed, toolCall));
+      const response = await streamClaudeSubscription(model, context, undefined, { ...fake, executable: "fixture" }).result();
+      expect([streamed, toolCall, response.errorMessage]).toEqual([streamed, toolCall, undefined]);
+      expect(response.stopReason).toBe(toolCall ? "toolUse" : "stop");
+      expect(response.content.filter(block => block.type !== "thinking")).toEqual(toolCall
+        ? [{ type: "toolCall", name: "read", id: "call_fixture", arguments: { path: "fixture.txt" } }] : [{ type: "text", text: "Hello" }]);
+      // Both attempts are counted: the abandoned one was spent too.
+      expect(response.usage).toMatchObject({ input: 27, output: 11, cacheRead: 110, cacheWrite: 7 });
+      fake.sessions.closeAll();
+    }
+  }
+});
+
+test("a response started over after part of the answer streamed fails as an interrupted stream, which Pi asks again for", async () => {
+  const fake = fakeQuery(startedOver("text"));
+  const response = await streamClaudeSubscription(model, context, undefined, { ...fake, executable: "fixture" }).result();
+  expect(response.stopReason).toBe("error");
+  expect(response.errorMessage).toContain("stream was interrupted");
+  expect(isRetryableAssistantError(response)).toBe(true);
 });
 
 /** The tool call a stream ends with, its streamed arguments replaced by `json` (and its starting input by `input`). */
