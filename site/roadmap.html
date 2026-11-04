@@ -78,6 +78,7 @@
           </li>
           <li><a href="#released">Released</a>
             <ul>
+              <li><a href="#v0413">v0.4.13: clean builds end clean</a></li>
               <li><a href="#v0412">v0.4.12: builds reviewed</a></li>
               <li><a href="#v0411">v0.4.11: remove, update servers</a></li>
               <li><a href="#v0410">v0.4.10: show checks are reads</a></li>
@@ -147,7 +148,7 @@
         <h2 id="next-h">Next release</h2>
         <aside class="callout soon">
           <strong class="callout-title">Built, not released</strong>
-          <p>Nothing on the main branch is waiting: everything built so far is in v0.4.12. New work shows here before the next preview.</p>
+          <p>Nothing on the main branch is waiting: everything built so far is in v0.4.13. New work shows here before the next preview.</p>
         </aside>
       </section>
 
@@ -389,10 +390,23 @@
         and on the <a href="https://github.com/Choaterboater/casper/releases">Releases page</a>.</p>
         <div class="stack">
 
+        <details class="card release" id="v0413" aria-labelledby="v0413-h" open>
+          <summary class="release-heading">
+            <h3 id="v0413-h">v0.4.13 · A clean build ends clean, its browser checks finished</h3>
+            <span class="badge ok">current preview</span>
+          </summary>
+          <ul>
+            <li><strong>Checks finish.</strong> Casper's end replay finishes a browser check the AI recorded that stopped part way, and one still unfinished gets one turn for the AI to replay or withdraw it.</li>
+            <li><strong>Sign-in pages.</strong> A check that went to a sign-in page says to sign in through its steps, isn't replayed again, and can be withdrawn.</li>
+            <li><strong>A fresh browser.</strong> A browser action that runs out of time starts a fresh browser and keeps the checks recorded so far.</li>
+            <li><strong>Its own tests.</strong> In a run that can't ask, the AI can edit a test file it wrote earlier in the same task. In three Sonnet tracker builds all ended with exit code 0.</li>
+          </ul>
+        </details>
+
         <details class="card release" id="v0412" aria-labelledby="v0412-h" open>
           <summary class="release-heading">
             <h3 id="v0412-h">v0.4.12 · A build is reviewed before it is done, and new folders are checked</h3>
-            <span class="badge ok">current preview</span>
+            <span class="badge">previous preview</span>
           </summary>
           <ul>
             <li><strong>Builds review themselves.</strong> When a build's checks pass, the AI checks every requirement, then looks once more at transactions, input types, ordering ties and the README. In Sonnet tracker builds the gap to omp fell from 17.7 points to 6.0, at about 15% more tokens. <code>verification.review: false</code> turns it off.</li>
@@ -405,7 +419,7 @@
         <details class="card release" id="v0411" aria-labelledby="v0411-h" open>
           <summary class="release-heading">
             <h3 id="v0411-h">v0.4.11 · Remove and update MCP servers, and long Claude subscription turns that finish</h3>
-            <span class="badge">previous preview</span>
+            <span class="badge">released</span>
           </summary>
           <ul>
             <li><strong>Remove and update servers.</strong> <code>/mcp remove</code> takes a server out of the file that defines it and stops it; <code>/mcp update</code> changes what it runs and keeps its settings. <code>/mcp forget</code> only forgets a consent, and <code>/mcp detail</code> names a newer npm version.</li>
@@ -415,7 +429,7 @@
           </ul>
         </details>
 
-        <details class="card release" id="v0410" aria-labelledby="v0410-h" open>
+        <details class="card release" id="v0410" aria-labelledby="v0410-h">
           <summary class="release-heading">
             <h3 id="v0410-h">v0.4.10 · A show-only network check is a read, and a check is never a change</h3>
             <span class="badge">released</span>
@@ -1640,7 +1654,7 @@
   <footer class="site-footer">
     <div class="container footer-inner">
       <div>
-        <p><strong>Casper 0.4.12</strong> · early preview, unsigned</p>
+        <p><strong>Casper 0.4.13</strong> · early preview, unsigned</p>
         <p><a href="https://github.com/Choaterboater/casper/blob/main/LICENSE">MIT licence</a> · © 2026 Choaterboater</p>
         <p>Built on the <a href="https://github.com/earendil-works/pi">Pi SDK</a>. Other parts keep their own licences (<a href="https://github.com/Choaterboater/casper/blob/main/THIRD_PARTY_NOTICES.txt">notices</a>).</p>
       </div>
