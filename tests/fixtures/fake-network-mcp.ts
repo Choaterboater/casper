@@ -15,7 +15,7 @@ import { CallToolRequestSchema, ListToolsRequestSchema, type Tool } from "@model
  *   the real server's SDK sends a list: one text block per hit, and structuredContent {result: hits}.
  * Like the real server's gate, --read-only refuses changes but lets the listed troubleshooting tools through
  *   (FAKE_TROUBLESHOOT: comma-separated names; default cx_show, cx_ping).
- * FAKE_EXPIRED, FAKE_401: see below. FAKE_RESULTS: JSON by tool name, the result a routed call to that tool answers
+ * FAKE_SLOW_MS, a call's login: see below. FAKE_EXPIRED, FAKE_401: see below. FAKE_RESULTS: JSON by tool name, the result a routed call to that tool answers
  *   (one text block of its JSON, or the text itself when it is a string).
  */
 const readOnly = process.argv.includes("--read-only");
@@ -40,12 +40,17 @@ const tools: Tool[] = [
 
 const text = (value: unknown) => ({ content: [{ type: "text" as const, text: JSON.stringify(value) }] });
 
+/** Each named Central login it started with (CENTRAL_<NAME>_CLIENT_ID), reported the way casper-network-mcp 0.1.6+ does. */
+const named = Object.keys(process.env).map((key) => /^CENTRAL_([A-Z0-9]{1,32})_CLIENT_ID$/.exec(key)?.[1]).filter((name): name is string => !!name)
+  .map((name) => ({ name: name.toLowerCase(), login: "set" }));
+
 function accessCheck() {
   return text({
     contract: "casper/access-check v2",
     products: ["central", "mist", "clearpass"].map((product) => ({
       ...(hasLogin(product) ? { product, access: "unknown", ...reach[product] } : { product, access: "unknown", login: "missing" }),
       server_gate: { flag: "--read-only", state: readOnly ? "off" : "on" },
+      ...(product === "central" && named.length ? { named_logins: named } : {}),
     })),
   });
 }
@@ -65,6 +70,13 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
   }
   const name = typeof args.name === "string" ? args.name : "";
   const product = name.split("_")[0]!;
+  // FAKE_SLOW_MS: a routed call answers after this long (a call still running when something else happens).
+  if (process.env.FAKE_SLOW_MS) await new Promise((resolve) => setTimeout(resolve, Number(process.env.FAKE_SLOW_MS)));
+  // A call with login: <name> answers with that named Central login's client id, as the server was started with it.
+  if (typeof args.login === "string") {
+    const id = process.env[`CENTRAL_${args.login.toUpperCase()}_CLIENT_ID`];
+    return text(id ? { ok: true, tool: name, login: args.login, client: id } : { error: `No Central login named '${args.login}'.`, status: "unknown_login" });
+  }
   if (process.env.FAKE_INVENT_PRODUCT) return text({ error: "login_missing", product: process.env.FAKE_INVENT_PRODUCT });
   if (LOGIN[product] && !hasLogin(product)) return text({ error: "login_missing", product });
   // FAKE_EXPIRED / FAKE_401: comma-separated products whose saved login the product no longer takes, answered the

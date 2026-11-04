@@ -1,6 +1,7 @@
 import { ADD_LOGIN_CHOICES, forgetLoginChoices, numberedLines, REPLACE_LOGIN_CHOICES } from "../../app/safe-choices";
 import type { AccessCheck, AccessProduct } from "../access";
 import { forgetLogin, forgetNamedLogin, isLoginName, isNetworkProduct, LOGIN_FIELDS, NETWORK_PRODUCTS, PRODUCT_LABELS, readLogins, readNamedLogins, saveLogin, saveNamedLogin, type LoginField, type NetworkProduct } from "./logins";
+import { terminalText } from "../../tui/format";
 
 /**
  * Asking for a product's login the first time it is used (or with /mcp login <product>). Only the person
@@ -22,6 +23,8 @@ export interface LoginHost {
   write(text: string): void;
   /** Restarts the server once its running calls finish, so it starts with the new login. */
   restart(server: string): Promise<void>;
+  /** Where the server's own start settings come from, and the environment variables they set (names → values). */
+  startSettings?(server: string): { source: string; env: Record<string, string> } | undefined;
   /** The server's access_check answer on its current connection. */
   access(server: string): AccessCheck | undefined;
   /** Products the person said Not now to in this session: not asked again until /mcp login. */
@@ -310,8 +313,19 @@ export async function askForNamedLogin(host: LoginHost, server: string | undefin
   return "added";
 }
 
-/** /mcp login central <name> forget: 1 Keep it · 2 Forget it, then the server restarts without it. */
-export async function askToForgetNamedLogin(host: LoginHost, server: string | undefined, name: string): Promise<"forgot" | "kept" | "none" | "cant-ask"> {
+/** The named Central logins the running server reports (access_check v2), or undefined when it doesn't say. */
+function heldNamedLogins(host: LoginHost, server: string): string[] | undefined {
+  const central = host.access(server)?.products.find((product) => product.product === "central");
+  return central ? central.namedLogins ?? [] : undefined;
+}
+
+function listed(items: string[]): string {
+  return items.length <= 1 ? items.join("") : `${items.slice(0, -1).join(", ")} and ${items.at(-1)}`;
+}
+
+/** /mcp login central <name> forget: 1 Keep it · 2 Forget it, then the server restarts without it. "Forgot" is said only
+ * once the restarted server no longer reports the login; one that still does is "held", with what still sets it. */
+export async function askToForgetNamedLogin(host: LoginHost, server: string | undefined, name: string): Promise<"forgot" | "held" | "kept" | "none" | "cant-ask"> {
   const label = `Central "${name}"`;
   if (!(await readNamedLogins(host.homeDir))[name]) { host.write(`There is no Central login named "${name}".\n`); return "none"; }
   if (!host.interactive) { host.write(`Type /mcp login central ${name} forget in the terminal.\n`); return "cant-ask"; }
@@ -319,7 +333,18 @@ export async function askToForgetNamedLogin(host: LoginHost, server: string | un
   const answer = await host.chooseAnswer(`Forget the ${label} login?\n${numberedLines(choices)}`, "Type 1 or 2: ", ["1", "2"]);
   if (answer !== "2") { if (answer !== undefined) host.write(`Kept the ${label} login.\n`); return "kept"; }
   await forgetNamedLogin(host.homeDir, name);
-  if (server) await host.restart(server);
+  if (server) {
+    await host.restart(server);
+    if (heldNamedLogins(host, server)?.includes(name)) {
+      const settings = host.startSettings?.(server);
+      const prefix = `CENTRAL_${name.toUpperCase()}_`;
+      const names = Object.keys(settings?.env ?? {}).filter((key) => key.startsWith(prefix)).sort();
+      const why = settings && names.length ? `its settings in ${terminalText(settings.source)} set ${listed(names)}. Remove them there and type /mcp reload.`
+        : "Casper didn't give it that login, so something in the server's own setup does. Check how it is started.";
+      host.write(`Removed the ${label} login from Casper's saved logins, but the running network server still has it: ${why}\n`);
+      return "held";
+    }
+  }
   host.write(`Forgot the ${label} login.\n`);
   return "forgot";
 }

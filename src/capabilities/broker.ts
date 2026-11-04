@@ -202,6 +202,9 @@ export function withoutTitles(schema: unknown): unknown {
 const OWN_NETWORK = "casper-network-mcp";
 export const SEVERAL_ROUTERS_LINE = "Network servers may be signed in to different orgs. If one finds nothing or gets 403, ask the others before answering; say which server and org each answer is from, and if still not found, where you looked.";
 /** Plain code-point order, the same on every machine. */
+/** Said with an answer the server gave while its saved logins changed (/mcp login … forget, or a login replaced). */
+export const LOGINS_CHANGED = "The network server's logins changed while this call ran (one was forgotten or replaced). This answer came from the logins before; call again for the current state.";
+
 function order(a: string, b: string): number { return a < b ? -1 : a > b ? 1 : 0; }
 const LIST_PAGE_ITEMS = 50;
 const LIST_PAGE_BYTES = 12_000;
@@ -451,6 +454,7 @@ export class CapabilityBroker {
       && planKinds(plan, capability.tool).every((kind) => kind === "troubleshoot");
     const turnedOn = Boolean(answer) && label !== "read" && !pinnedCheck && this.writesGate && this.writes(this.manager.policy(plan.server)) === "off";
     let raw: unknown;
+    let loginEpoch = 0;
     let settle: ((outcome: ChangeOutcome) => void) | undefined;
     try {
       if (turnedOn) await this.manager.setWrites(plan.server, true);
@@ -476,6 +480,7 @@ export class CapabilityBroker {
         if (typeof ended === "function") settle = ended as (outcome: ChangeOutcome) => void;
       }
       // 6. Call, under the per-server call clock. Only an approved call may carry server questions to the user.
+      loginEpoch = this.manager.loginEpoch(capability.descriptor.source);
       raw = await this.manager.call(capability.descriptor.source, capability.tool.name, frozenArgs, combined,
         approved ? { approved: { capabilityId: id, realTool: approved, label } } : {});
       settle?.(isRecord(raw) && raw.isError === true ? "failed" : "ran");
@@ -522,6 +527,8 @@ export class CapabilityBroker {
     if (missingNote) result.summary = `${result.summary} ${missingNote}`;
     if (withheld) result.summary = `${result.summary}\n${withheld}`;
     if (offline) result.summary = `${result.summary}\n${OTHER_WAY_IN}`;
+    // A login was forgotten or replaced while this call ran: the server answered from the old ones, and restarts after.
+    if (this.manager.loginEpoch(capability.descriptor.source) !== loginEpoch) result.summary = `${result.summary}\n${LOGINS_CHANGED}`;
     return result;
   }
 

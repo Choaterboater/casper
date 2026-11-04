@@ -41,6 +41,8 @@ export interface AccessProduct {
   /** v2: where this login can change things, and where it can only read (plain names only). */
   canChange?: AccessScope[];
   readOnly?: AccessScope[];
+  /** v2: the named logins the server started with and can use (casper-network-mcp's named Central logins). */
+  namedLogins?: string[];
 }
 export interface AccessScope { kind: "org" | "site" | "sitegroup"; id: string; name: string }
 export interface AccessCheck { state: AccessState; products: AccessProduct[] }
@@ -50,6 +52,7 @@ const PRODUCT = /^[a-z0-9][a-z0-9_.-]{0,31}$/i;
 const PLAIN = /^[A-Za-z0-9 _.@:/+-]{1,64}$/;
 const ENV_NAME = /^[A-Z][A-Z0-9_]{0,63}$/;
 const FLAG_NAME = /^--[a-z][a-z0-9-]{0,31}$/;
+const LOGIN_NAME = /^[a-z0-9]{1,32}$/i;
 const GATE_OFF = new Set(["disabled", "off"]);
 
 function record(value: unknown): value is Record<string, unknown> {
@@ -134,6 +137,10 @@ export function parseAccessCheck(result: unknown): AccessCheck {
       const readOnly = scopes(item.read_only);
       if (canChange) product.canChange = canChange;
       if (readOnly) product.readOnly = readOnly;
+      const named = Array.isArray(item.named_logins) ? item.named_logins.slice(0, 64)
+        .filter((login): login is Record<string, unknown> => record(login) && login.login === "set" && typeof login.name === "string" && LOGIN_NAME.test(login.name))
+        .map((login) => (login.name as string).toLowerCase()) : [];
+      if (named.length) product.namedLogins = [...new Set(named)];
     }
     products.push(product);
   }

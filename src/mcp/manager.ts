@@ -200,6 +200,8 @@ interface Entry {
   notFound?: Error;
   /** Calls sent on this connection that have not finished yet. */
   inFlight: number;
+  /** Counts restarts asked for because the saved logins changed: a call that saw it change answered from the old ones. */
+  loginEpoch: number;
   /** The one call the user approved that is running now, if any. */
   approvedCall?: RunningApprovedCall;
   /** "off" at start and after a changed definition, unless it is your own server that starts with writes on. */
@@ -296,7 +298,7 @@ function newEntry(definition: MCPServerDefinition, consent?: ConsentStore, autoc
   const own = ownStart(definition, autoconnect);
   return {
     definition, state: definition.disabled ? "disabled" : "disconnected",
-    tools: [], abort: new AbortController(), dirty: false, attempts: [], generation: 0, secrets: [], loginSecrets: [], inFlight: 0,
+    tools: [], abort: new AbortController(), dirty: false, attempts: [], generation: 0, secrets: [], loginSecrets: [], inFlight: 0, loginEpoch: 0,
     // Remembered approval only ever means "connect with writes off"; project servers always ask.
     approved: own.approved || (personal && !definition.disabled && (consent?.has(definition) ?? false)),
     consent: personal ? consent?.state(definition) ?? "none" : "none",
@@ -558,8 +560,10 @@ export class MCPManager {
     return this.sandboxStatus(entry);
   }
 
-  async restartAfterCalls(name: string, options: { whileStopped?: () => Promise<void> } = {}): Promise<void> {
+  async restartAfterCalls(name: string, options: { whileStopped?: () => Promise<void>; loginsChanged?: true } = {}): Promise<void> {
     const entry = this.entry(name);
+    // Calls still running (and any that start before the restart) answer from the old logins.
+    if (options.loginsChanged) entry.loginEpoch++;
     if (entry.state !== "ready" && entry.state !== "connecting") { await options.whileStopped?.(); return; }
     await this.idle(entry);
     if (this.closed) { await options.whileStopped?.(); return; }
@@ -603,6 +607,11 @@ export class MCPManager {
     // A start that fails after the work is kept in the server's status (/mcp shows it); the work's own error wins.
     if (entry.approved) await this.ensureConnected(entry).catch(() => {});
     if (failed) throw failed.error;
+  }
+
+  /** Moves when a server is asked to restart because its saved logins changed (see restartAfterCalls). */
+  loginEpoch(name: string): number {
+    return this.entries.get(name)?.loginEpoch ?? 0;
   }
 
   /** Changes whenever routable metadata or connection identity changes. */
