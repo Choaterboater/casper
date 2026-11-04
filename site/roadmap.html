@@ -78,6 +78,7 @@
           </li>
           <li><a href="#released">Released</a>
             <ul>
+              <li><a href="#v0411">v0.4.11: remove, update servers</a></li>
               <li><a href="#v0410">v0.4.10: show checks are reads</a></li>
               <li><a href="#v0409">v0.4.9: checks keep the data</a></li>
               <li><a href="#v0408">v0.4.8: test data named</a></li>
@@ -145,7 +146,7 @@
         <h2 id="next-h">Next release</h2>
         <aside class="callout soon">
           <strong class="callout-title">Built, not released</strong>
-          <p>Nothing on the main branch is waiting: everything built so far is in v0.4.10. New work shows here before the next preview.</p>
+          <p>Nothing on the main branch is waiting: everything built so far is in v0.4.11. New work shows here before the next preview.</p>
         </aside>
       </section>
 
@@ -387,10 +388,23 @@
         and on the <a href="https://github.com/Choaterboater/casper/releases">Releases page</a>.</p>
         <div class="stack">
 
+        <details class="card release" id="v0411" aria-labelledby="v0411-h" open>
+          <summary class="release-heading">
+            <h3 id="v0411-h">v0.4.11 · Remove and update MCP servers, and long Claude subscription turns that finish</h3>
+            <span class="badge ok">current preview</span>
+          </summary>
+          <ul>
+            <li><strong>Remove and update servers.</strong> <code>/mcp remove</code> takes a server out of the file that defines it and stops it; <code>/mcp update</code> changes what it runs and keeps its settings. <code>/mcp forget</code> only forgets a consent, and <code>/mcp detail</code> names a newer npm version.</li>
+            <li><strong>The AI, with your yes.</strong> Told it may, the AI removes or changes a server through Casper's box, which shows the old and new command with settings hidden; <code>Yes, for this session</code> covers later edits, never a new server.</li>
+            <li><strong>Forgot means gone.</strong> Forgetting a named Central login says Forgot only once the restarted server no longer has it, and an answer from the old logins says so.</li>
+            <li><strong>Long Claude turns finish.</strong> With a Claude plan, Claude Code gets the model's own output cap, carrying on past it counts as one answer, and the cache warmer no longer starts a second Claude Code.</li>
+          </ul>
+        </details>
+
         <details class="card release" id="v0410" aria-labelledby="v0410-h" open>
           <summary class="release-heading">
             <h3 id="v0410-h">v0.4.10 · A show-only network check is a read, and a check is never a change</h3>
-            <span class="badge ok">current preview</span>
+            <span class="badge">previous preview</span>
           </summary>
           <ul>
             <li><strong>Show checks are reads.</strong> A network check that only runs show commands (<code>get_lldp_neighbors</code>, which runs <code>show lldp neighbors</code>) runs like a read: no box, no change row, nothing on the receipt's Devices row.</li>
@@ -403,7 +417,7 @@
         <details class="card release" id="v0409" aria-labelledby="v0409-h" open>
           <summary class="release-heading">
             <h3 id="v0409-h">v0.4.9 · Casper's checks leave the app's data as the AI left it</h3>
-            <span class="badge">previous preview</span>
+            <span class="badge">released</span>
           </summary>
           <ul>
             <li><strong>Checks keep the data.</strong> Before Casper's checks, replays, repair rounds or app smoke use the app, its data files are copied, and afterwards they are put back byte for byte: the users a check signs up never ship.</li>
@@ -412,7 +426,7 @@
           </ul>
         </details>
 
-        <details class="card release" id="v0408" aria-labelledby="v0408-h" open>
+        <details class="card release" id="v0408" aria-labelledby="v0408-h">
           <summary class="release-heading">
             <h3 id="v0408-h">v0.4.8 · Test data your runs left is named, and an app that redirects to its sign-in page is up</h3>
             <span class="badge">released</span>
@@ -1612,7 +1626,7 @@
   <footer class="site-footer">
     <div class="container footer-inner">
       <div>
-        <p><strong>Casper 0.4.10</strong> · early preview, unsigned</p>
+        <p><strong>Casper 0.4.11</strong> · early preview, unsigned</p>
         <p><a href="https://github.com/Choaterboater/casper/blob/main/LICENSE">MIT licence</a> · © 2026 Choaterboater</p>
         <p>Built on the <a href="https://github.com/earendil-works/pi">Pi SDK</a>. Other parts keep their own licences (<a href="https://github.com/Choaterboater/casper/blob/main/THIRD_PARTY_NOTICES.txt">notices</a>).</p>
       </div>

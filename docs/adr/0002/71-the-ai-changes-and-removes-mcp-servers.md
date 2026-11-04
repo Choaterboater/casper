@@ -1,6 +1,6 @@
 # 71. The AI changes and removes MCP servers through Casper's box
 
-Date: 2026-11-03. Status: proposed. Extends 29 (the AI adds an MCP server after a yes nothing else gives).
+Date: 2026-11-03. Status: accepted (merged 2026-11-04 in #591). Extends 29 (the AI adds an MCP server after a yes nothing else gives).
 
 ## Decision
 
