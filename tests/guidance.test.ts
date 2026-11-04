@@ -130,3 +130,18 @@ test("lean system text keeps the essential response, tool, device, external look
     expect(LEAN_SYSTEM_PROMPT_APPEND).toContain(rule);
   }
 });
+
+test("a command for the user's own terminal is copyable from anywhere: absolute paths, or cd to the project first", () => {
+  // v0.4.12: `open "apps/desktop/.desktop-build/…/Casper.app"` run from ~ said "does not exist", twice.
+  expect(DEFAULT_SYSTEM_PROMPT_APPEND).toContain("commands for the user's own terminal use absolute paths or cd <project path> &&.");
+  expect(LEAN_SYSTEM_PROMPT_APPEND).toContain("User-run commands: absolute paths.");
+});
+
+test("a question gets an answer, not a build; a request, even phrased as a question, is still done", () => {
+  // v0.4.12: after "If the button isn't there, I can add one", "does it break stuff ?" got a whole sign-in feature.
+  for (const prompt of [DEFAULT_SYSTEM_PROMPT_APPEND, LEAN_SYSTEM_PROMPT_APPEND]) expect(prompt).toMatch(/does\/is\/will[^\n]*answer[^\n]*ask tool/i);
+  expect(DEFAULT_SYSTEM_PROMPT_APPEND).toContain("A does/is/will question gets an answer, not a change, even after your offer: offer it via the ask tool. \"Can you X?\"/\"enable X\" are instructions.");
+  // The "enable … do it" line and the autonomy line stay as they were.
+  expect(DEFAULT_SYSTEM_PROMPT_APPEND).toContain("When the user asks to enable, turn on, connect or switch something, do it.");
+  expect(LEAN_SYSTEM_PROMPT_APPEND).toContain("Enable/switch as asked");
+});
