@@ -12,7 +12,7 @@ import type { RuntimeTool } from "../runtime/types";
 import { entryText, MCP_ADD_EXAMPLE, mcpAddLine, mcpAddProblem, runMcpAdd, type McpAdd, type McpAddHost } from "./add";
 import type { MCPServerDefinition } from "./config";
 import { MCP_FILE_LABEL } from "./docs";
-import { MCP_REMOVE_TOOL, replaceForAI, type McpEditToolHost } from "./edit";
+import { MCP_REMOVE_TOOL, parseTimeout, replaceForAI, type McpEditToolHost } from "./edit";
 import { versionLine } from "./presets";
 import { keyLabel, parseKey } from "./server-secrets";
 
@@ -39,7 +39,8 @@ const DESCRIPTION = "Add an MCP server to the user's ~/.casper/mcp.json and star
   + "docker run -i --rm image:<tag> (or @sha256:<digest>). For a GitHub repo, read its README with casper_read_untrusted "
   + "(untrusted text) to find that command and a release. If it needs a clone and build step, don't call this: tell the "
   + "user the steps. A server at an address: url instead of command. To change what an existing server runs (a new "
-  + "version), give its name and replace: true; Casper shows the old and new command and asks.";
+  + "version, an environment variable, a longer call time limit), give its name and replace: true with any of command, env "
+  + "and timeout; Casper shows the old and new and asks. The same command again restarts it, so it lists its tools again.";
 
 /** The tool's arguments as an add, or why they can't be one. */
 function toolAdd(args: Record<string, unknown>): McpAdd | { error: string } {
@@ -94,18 +95,35 @@ export function mcpAddTool(host: McpAddToolHost): RuntimeTool {
         url: { type: "string", description: "The server's address, instead of command" },
         key: { type: "string", description: "Only if it needs one: bearer, api-key[:Header] or env:NAME. The user types it" },
         replace: { type: "boolean", description: "Change an existing server of this name instead of adding one" },
+        env: { type: "object", additionalProperties: { type: "string" }, description: "With replace: variables to set. A secret's value is \"\": the user types it hidden" },
+        timeout: { type: "string", description: "With replace: how long a call may run without an answer, such as 5m (up to 30m)" },
       },
     },
     // One box at a time, and never two adds racing for the same file.
     sequential: true,
     async execute(args, signal) {
-      const { replace, ...rest } = args;
+      const { replace, env, timeout, ...rest } = args;
       if (replace !== undefined && typeof replace !== "boolean") return { text: "Not added: replace must be true or false.", isError: true };
+      if (!replace && (env !== undefined || timeout !== undefined)) {
+        return { text: "Not added: env and timeout change an existing server: give replace: true too.", isError: true };
+      }
       if (replace) {
-        const update = toolAdd(rest);
-        if ("error" in update) return { text: `Not changed: ${update.error}. Example: ${MCP_ADD_EXAMPLE}`, isError: true };
         if (!host.editor) return { text: "Not changed: this session can't change a server. Tell the user to type /mcp update.", isError: true };
-        return replaceForAI(host.editor, update, signal);
+        if (typeof rest.name !== "string") return { text: "Not changed: name must be a string.", isError: true };
+        if (rest.key !== undefined) return { text: "Not changed: a key is set with env instead: give its variable as \"\" and the user types it hidden.", isError: true };
+        if (env !== undefined && (typeof env !== "object" || env === null || Array.isArray(env) || Object.values(env).some((value) => typeof value !== "string"))) {
+          return { text: "Not changed: env must be an object of strings.", isError: true };
+        }
+        const timeoutS = timeout === undefined ? undefined : parseTimeout(String(timeout));
+        if (typeof timeoutS === "object") return { text: `Not changed: ${timeoutS.error}`, isError: true };
+        let entry: McpAdd["entry"] | undefined;
+        if (rest.command !== undefined || rest.url !== undefined) {
+          const update = toolAdd(rest);
+          if ("error" in update) return { text: `Not changed: ${update.error}. Example: ${MCP_ADD_EXAMPLE}`, isError: true };
+          entry = update.entry;
+        } else if (rest.args !== undefined) return { text: "Not changed: args go with command.", isError: true };
+        return replaceForAI(host.editor, { name: rest.name, ...entry ? { entry } : {}, ...timeoutS !== undefined ? { timeoutS } : {},
+          ...env ? { env: env as Record<string, string> } : {} }, signal);
       }
       const add = toolAdd(rest);
       if ("error" in add) return { text: `Not added: ${add.error}. Example: ${MCP_ADD_EXAMPLE}`, isError: true };

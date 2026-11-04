@@ -1543,9 +1543,10 @@ Other frontmatter keys are kept. At startup Casper reads only the frontmatter, n
 
 **How skills are picked.** For each request, Casper ranks eligible skills by the request's words,
 the skill's tags, name and description, the kind of task, and the project's languages. A broad
-task-kind or language match alone does not load a skill. A tag or the skill's whole name counts on its own; one word
-of a longer name (`mcp` of `mcp-builder`) is only a word of its description, so "add another mcp central server to
-network mcp" picks no builder skill. Otherwise the description needs two of the request's words, and words of any
+task-kind or language match alone does not load a skill. A tag or the skill's whole name, as a phrase in the request
+("find skills", "mcp builder"), counts on its own; one word of a longer name (`mcp` of `mcp-builder`) is only a word of
+its description, so "add another mcp central server to network mcp" picks no builder skill. Otherwise the description
+needs two of the request's words, three for a request of more than six words, and words of any
 request (`my`, `check`, `see`, `why`, `changes`, `working`) never count. `disable-model-invocation: true` keeps a
 skill out of automatic selection, even after review.
 

@@ -236,6 +236,15 @@ posixOnly("an edit or write outside the project waits for the session's question
   expect(allowed.result.outsideWrote).toEqual(allowed.result.outsideAsked);
 }, 60_000);
 
+posixOnly("the AI's write inside an app bundle in the project waits for the bundle question; No writes nothing", async () => {
+  const bundle = async ({ project }: { project: string }) => { await mkdir(path.join(project, "Iris.app", "Contents"), { recursive: true }); };
+  const tools = [{ name: "write", args: { path: "Iris.app/rea-hopper-wrapper.sh", content: "#!/bin/sh\n" } }];
+  const no = await run(tools, { FIXTURE_OUTSIDE: "no" }, bundle);
+  expect(no.sent).toContain("Not done: it is inside an app bundle, and the user said no.");
+  expect(no.result.bundleAsked).toEqual([path.join(realpathSync(no.project), "Iris.app", "rea-hopper-wrapper.sh")]);
+  expect(await access(path.join(no.project, "Iris.app", "rea-hopper-wrapper.sh")).then(() => true, () => false)).toBe(false);
+}, 60_000);
+
 posixOnly("a write through a link out of the project asks about the place it leads to; No writes nothing", async () => {
   const tools = [{ name: "write", args: { path: "docs/new.md", content: "through the link" } }];
   const no = await run(tools, { FIXTURE_OUTSIDE: "no" }, linkedProject);

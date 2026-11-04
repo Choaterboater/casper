@@ -67,8 +67,21 @@ test("each progress message restarts the call clock; a silent call still times o
   const done = await mcp.call("generic", "progress_read", {});
   expect(JSON.stringify(done)).toContain('\\"job\\":\\"done\\"');
   const started = performance.now();
-  expect((await rejection(mcp.call("generic", "slow_read", {}))).message).toContain("No answer from generic in 0.5s. It may have run. Do not retry on your own; tell the user.");
+  const message = (await rejection(mcp.call("generic", "slow_read", {}))).message;
+  expect(message).toContain("No answer from generic in 0.5s. It may have run. Do not retry on your own; tell the user.");
   expect(performance.now() - started).toBeLessThan(1500);
+  // From a real session: the AI said four times to raise a timeout setting that didn't exist. The message names the fix.
+  expect(message).toEndWith("To give it longer, the user types /mcp update generic --timeout 5m (or casper_mcp_add with replace: true and timeout, after their yes).");
+});
+
+test("the longer limit a timeout names is twice the limit, at least 5 minutes, at most 30, and none for another tool's server", async () => {
+  const { longerLine } = await import("../src/mcp/manager");
+  const own = definition();
+  expect(longerLine(own, 90_000)).toStartWith("To give it longer, the user types /mcp update generic --timeout 5m ");
+  expect(longerLine(own, 600_000)).toStartWith("To give it longer, the user types /mcp update generic --timeout 20m ");
+  expect(longerLine(own, 1_200_000)).toStartWith("To give it longer, the user types /mcp update generic --timeout 30m ");
+  expect(longerLine(own, 1_800_000)).toBeUndefined();
+  expect(longerLine({ ...own, importedFrom: "claude" }, 90_000)).toBeUndefined();
 });
 
 test("the hard cap stops a call that reports progress forever", async () => {
@@ -447,7 +460,7 @@ test("a timeout after progress names the last progress message, with secrets hid
   await mcp.connect("generic");
   const failure = await mcp.call("generic", "progress_then_silent_read", {}).then(() => undefined, (error: Error) => error.message);
   expect(failure).toStartWith("No answer from generic in 0.4s. It may have run. Do not retry on your own; tell the user. Last progress: waiting for token=");
-  expect(failure).toEndWith(" on router1.");
+  expect(failure).toContain(" on router1. To give it longer");
   expect(failure).not.toContain("abc123");
 });
 

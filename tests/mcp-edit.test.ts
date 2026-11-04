@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import os from "node:os";
 import path from "node:path";
 import type { MCPServerDefinition } from "../src/mcp/config";
-import { newerNpmLine, npmLatest, npmPin, replaceForAI, type McpEditToolHost } from "../src/mcp/edit";
+import { newerNpmLine, npmLatest, npmPin, parseTimeout, replaceForAI, splitTimeoutFlag, type McpEditToolHost } from "../src/mcp/edit";
 import { privatePathCommand } from "../src/platform/project-paths";
 
 const home = path.join(os.tmpdir(), "casper-mcp-edit-home");
@@ -40,7 +40,7 @@ test("the AI's change box names the server, where it is, what it ran and runs no
   const current = definition(["-y", "rea-agents@6.7.0", "mcp", "--token=tok_EXAMPLE_abcdef0123456789"], { REA_TOKEN: "rea-EXAMPLE-secret-value" });
   const host: McpEditToolHost = {
     homeDir: home, write: () => {}, configured: async () => [current], connect: async () => ({ ok: true }),
-    reload: async () => {}, forgetConsent: async () => {}, canAsk: () => true, tell: () => {}, describe: () => undefined,
+    reload: async () => {}, restart: async () => {}, forgetConsent: async () => {}, canAsk: () => true, tell: () => {}, describe: () => undefined,
     approveEdit: async (preview) => { boxes.push(preview); return false; },
   };
   const result = await replaceForAI(host, { name: "rea", entry: { command: "npx", args: ["-y", "rea-agents@6.8.0", "mcp"] } });
@@ -58,4 +58,43 @@ test("the AI's change box names the server, where it is, what it ran and runs no
   const imported = { ...current, scope: "imported" as const, importedFrom: "claude" as const, source: path.join(home, ".claude.json") };
   expect(await replaceForAI({ ...host, configured: async () => [imported] }, { name: "rea", entry: { command: "npx", args: ["-y", "rea-agents@6.8.0"] } }))
     .toEqual({ text: "Not changed: rea is in ~/.claude.json (Claude Code), not one of Casper's files. Tell the user to change it there (claude mcp remove rea).", isError: true });
+});
+
+test("a secret variable is never set by the AI: its value is typed hidden by the person after the box, into Casper's key file", async () => {
+  const { mkdtemp, mkdir, readFile, writeFile } = await import("node:fs/promises");
+  const { removeTempDir } = await import("./support/temp-dir");
+  const root = await mkdtemp(path.join(os.tmpdir(), "casper-mcp-edit-secret-"));
+  try {
+    await mkdir(path.join(root, ".casper"), { recursive: true });
+    const file = path.join(root, ".casper/mcp.json");
+    await writeFile(file, JSON.stringify({ mcpServers: { rea: { command: "npx", args: ["-y", "rea-agents@6.8.0", "mcp"], env: {} } } }), { mode: 0o600 });
+    const current: MCPServerDefinition = { name: "rea", source: file, scope: "user", cwd: root, disabled: false, transport: { type: "stdio", command: "npx", args: ["-y", "rea-agents@6.8.0", "mcp"], env: {} } };
+    const boxes: string[] = [];
+    const asked: string[] = [];
+    const host: McpEditToolHost = {
+      homeDir: root, write: () => {}, configured: async () => [current], connect: async () => ({ ok: true }),
+      reload: async () => {}, restart: async () => {}, forgetConsent: async () => {}, canAsk: () => true, tell: () => {}, describe: () => "229 tools · writes on",
+      approveEdit: async (preview) => { boxes.push(preview); return true; },
+      privateInput: async (label) => { asked.push(label); return "rea-EXAMPLE-typed-0123456789"; },
+    };
+    expect(await replaceForAI(host, { name: "rea", env: { REA_API_TOKEN: "tok_EXAMPLE_from_ai_0123" } }))
+      .toEqual({ text: 'Not changed: REA_API_TOKEN looks like a secret, so the AI never sets its value. Give it as "" and the user types it hidden after their yes.', isError: true });
+    expect(boxes).toEqual([]);
+    const result = await replaceForAI(host, { name: "rea", env: { REA_API_TOKEN: "" } });
+    expect(boxes[0]).toContain("  env      REA_API_TOKEN: you type it next, hidden; the AI never sees it\n");
+    expect(asked).toEqual(["REA_API_TOKEN for rea"]);
+    expect(result).toEqual({ text: "Changed rea in ~/.casper/mcp.json and started it (229 tools · writes on)." });
+    expect(await readFile(file, "utf8")).not.toContain("rea-EXAMPLE-typed");
+    expect(await readFile(path.join(root, ".casper/mcp-secrets.json"), "utf8")).toContain("rea-EXAMPLE-typed-0123456789");
+    expect(JSON.stringify(result)).not.toContain("rea-EXAMPLE-typed");
+  } finally { await removeTempDir(root); }
+});
+
+test("a timeout is a length from 1s to 30m, written anywhere after the name", () => {
+  expect([parseTimeout("300"), parseTimeout("300s"), parseTimeout("5m"), parseTimeout("0.5h"), parseTimeout("30m")]).toEqual([300, 300, 300, 1800, 1800]);
+  for (const bad of ["0", "31m", "2h", "soon", ""]) expect(parseTimeout(bad)).toEqual({ error: "A timeout is a length from 1s to 30m, such as 300s or 5m." });
+  expect(splitTimeoutFlag("rea --timeout 5m")).toEqual({ rest: "rea", timeout: "5m" });
+  expect(splitTimeoutFlag("rea --timeout=300s npx -y rea-agents@6.8.0 mcp")).toEqual({ rest: "rea npx -y rea-agents@6.8.0 mcp", timeout: "300s" });
+  expect(splitTimeoutFlag("rea npx x")).toEqual({ rest: "rea npx x" });
+  expect(splitTimeoutFlag("rea --timeout")).toEqual({ error: "--timeout needs a length, such as --timeout 5m." });
 });

@@ -1,4 +1,4 @@
-import { appendFileSync } from "node:fs";
+import { appendFileSync, readFileSync } from "node:fs";
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { CallToolRequestSchema, ListToolsRequestSchema, type Tool } from "@modelcontextprotocol/sdk/types.js";
@@ -49,7 +49,7 @@ function catalog(mode: string): Tool[] {
     case "access-args": return [{ ...read("access_check"), inputSchema: { type: "object", properties: { who: { type: "string" } }, required: ["who"] } }];
     case "access-unannotated": return [plain("access_check")];
     // A server whose tools carry no labels at all (rea-agents): a read-named one and a write-named one.
-    case "unlabeled": return [plain("demangle_swift"), plain("set_breakpoint")];
+    case "unlabeled": return [plain("demangle_swift"), plain("set_breakpoint"), plain("open_binary"), plain("binary_overview")];
     default: return [read("access_check"), read("get_status"), { ...plain("set_config"), annotations: { readOnlyHint: false } }];
   }
 }
@@ -93,6 +93,9 @@ export function networkFixtureServer(mode = "access-ro") {
   const server = new Server({ name: "casper-network-fixture", version: "1" }, { capabilities: { tools: {} } });
   const tools = catalog(mode);
   if (process.env.FIXTURE_ENV_DUMP === "1") tools.push(read("get_env"));
+  // --tools-file=<path>: more read tools, named in that JSON file, read once at start (a server whose code changed).
+  const toolsFile = process.argv.find((arg) => arg.startsWith("--tools-file="))?.slice("--tools-file=".length);
+  if (toolsFile) for (const name of JSON.parse(readFileSync(toolsFile, "utf8")) as string[]) tools.push(read(name));
   server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools }));
   server.setRequestHandler(CallToolRequestSchema, async (request) => {
     // FIXTURE_CALLS_FILE: one line per call, so tests can count what reached the server.

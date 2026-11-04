@@ -120,3 +120,12 @@ test("the change mark is accent and bold, one column, and ASCII on the old Windo
   expect(glyphSet("darwin", {}).text("◆ x")).toBe("◆ x");
   expect(planFold([], "normal").changes ?? []).toEqual([]);
 });
+
+test("an MCP change row shows once at every level, also at /details detailed", () => {
+  for (const level of ["quiet", "normal", "detailed"] as const) {
+    const s = screen(true, level);
+    s.view.noteChange("Changed in rea-agents: close_binary");
+    s.send(done);
+    expect({ level, rows: s.folded().split("\n").filter((line) => line.includes("Changed in rea-agents")).length }).toEqual({ level, rows: 1 });
+  }
+});

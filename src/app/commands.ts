@@ -33,7 +33,7 @@ import { getsLogins, NETWORK_PRODUCTS, PRODUCT_LABELS, readLogins, type NetworkP
 import { networkSetupLine, runNetworkSetup, type SetupHost } from "../mcp/network/setup";
 import { parseSshSetup, runSshSetup } from "../mcp/ssh/setup";
 import { MCP_ADD_EXAMPLE, MCP_ADD_HINT, parseMcpAdd, runMcpAdd } from "../mcp/add";
-import { newerNpmLine, npmLatest, npmPin, runMcpRemove, runMcpUpdate, type McpEditHost } from "../mcp/edit";
+import { newerNpmLine, npmLatest, npmPin, parseTimeout, runMcpRemove, runMcpUpdate, splitTimeoutFlag, type McpEditHost } from "../mcp/edit";
 import type { Scrubber } from "../secrets/netconan";
 import { defaultRunGit, runReferenceAdd } from "../references/catalog";
 import { sandboxLines, sandboxSummary } from "../mcp/sandbox";
@@ -1008,7 +1008,7 @@ async function handleDelegateCommand(host: CommandHost, prompt: string): Promise
     if (result.status !== "completed") throw new Error(`Delegation ${result.status}; see the bounded report above`);
   }
 
-const MCP_USAGE = "Usage: /mcp (a picker on a normal terminal) | /mcp detail [name] | /mcp add <name> <command> [args…] | /mcp add <name> <url> | /mcp update <name> <command> [args…]|<url> | /mcp remove <name> | /mcp setup network | /mcp setup ssh [--name <name>] [host] [command] | /mcp login [mist|central|clearpass] [forget] | /mcp login central <name> [forget] | /mcp connect <name> | /mcp disconnect <name> | /mcp reload | /mcp writes <name> | /mcp writes off | /mcp allow <name> [off] | /mcp forget <name> | /mcp junos-show <name> on|off | /mcp sandbox <name> on|off | /mcp docs";
+const MCP_USAGE = "Usage: /mcp (a picker on a normal terminal) | /mcp detail [name] | /mcp add <name> <command> [args…] | /mcp add <name> <url> | /mcp update <name> [--timeout 5m] [<command> [args…]|<url>] | /mcp remove <name> | /mcp setup network | /mcp setup ssh [--name <name>] [host] [command] | /mcp login [mist|central|clearpass] [forget] | /mcp login central <name> [forget] | /mcp connect <name> | /mcp disconnect <name> | /mcp reload | /mcp writes <name> | /mcp writes off | /mcp allow <name> [off] | /mcp forget <name> | /mcp junos-show <name> on|off | /mcp sandbox <name> on|off | /mcp docs";
 /** What "writes off" means, said once under the list: the server runs pinned and every change asks. */
 const WRITES_OFF_TEXT = `${WRITES_OFF_MEANING} Answer 2 or 3 in the change box to allow it, or /mcp writes <name> to turn writes on now.`;
 
@@ -1035,10 +1035,17 @@ async function handleMCPCommand(host: CommandHost, prompt: string): Promise<void
     }
     if (action === "update") {
       // Read from the line, as /mcp add is. Only the person types this.
-      const parsed = parseMcpAdd(prompt.trim().replace(/^\S+\s+update(?=\s|$)/, "").trim());
+      // --timeout <length> anywhere after the name; the rest is what it runs, or nothing.
+      const split = splitTimeoutFlag(prompt.trim().replace(/^\S+\s+update(?=\s|$)/, "").trim());
+      if ("error" in split) { host.output.write(`[mcp] ${split.error} Nothing changed.\n`); return; }
+      const timeoutS = split.timeout === undefined ? undefined : parseTimeout(split.timeout);
+      if (typeof timeoutS === "object") { host.output.write(`[mcp] ${timeoutS.error} Nothing changed.\n`); return; }
+      const [updateName, ...runs] = split.rest.split(/\s+/).filter(Boolean);
+      if (!updateName || (!runs.length && timeoutS === undefined)) { host.output.write(mcpSubcommandHint("update")); return; }
+      const parsed = runs.length ? parseMcpAdd(split.rest) : { name: updateName };
       if ("error" in parsed) { host.output.write(parsed.error === "usage" ? mcpSubcommandHint("update") : `[mcp] ${parsed.error} Nothing changed.\n`); return; }
-      if (parsed.key) { host.output.write("[mcp] /mcp update keeps the server's key as it is; to change a key, /mcp remove it and /mcp add it again. Nothing changed.\n"); return; }
-      if (await runMcpUpdate(mcpEditHost(host), parsed) === "done") {
+      if ("key" in parsed && parsed.key) { host.output.write("[mcp] /mcp update keeps the server's key as it is; to change a key, /mcp remove it and /mcp add it again. Nothing changed.\n"); return; }
+      if (await runMcpUpdate(mcpEditHost(host), { ...parsed, ...timeoutS !== undefined ? { timeoutS } : {} }) === "done") {
         const status = mcp.status().find((entry) => entry.name === parsed.name);
         if (status) host.output.write(`${mcpResultLine(status)}\n`);
       }
@@ -1197,8 +1204,27 @@ async function writeMCPList(host: CommandHost, picker: boolean): Promise<void> {
   // With the picker the servers are its rows (with where each came from): no list before it, only the heads-up.
   const statuses = host.mcp!.status();
   host.output.write(picker ? statuses.length ? headsUpText(statuses, false) : mcpListText(statuses, false) : mcpListText(statuses, true));
+  for (const line of samePackageLines(host)) host.output.write(`[mcp] ${terminalText(line)}\n`);
   await writeNetworkSetupLine(host);
   if (picker) await mcpPicker(host);
+}
+
+/** Two servers that run the same npm package ("rea" on 6.7.0, "rea-agents" on 6.8.0): one line each, naming the
+ * /mcp remove for the older one, since both load the same tools. */
+function samePackageLines(host: CommandHost): string[] {
+  const byPackage = new Map<string, Array<{ name: string; version: string }>>();
+  for (const status of host.mcp!.status()) {
+    let definition: MCPServerDefinition;
+    try { definition = host.mcp!.definition(status.name); } catch { continue; }
+    const pin = npmPin(definition);
+    if (pin) byPackage.set(pin.name, [...byPackage.get(pin.name) ?? [], { name: status.name, version: pin.version }]);
+  }
+  const newer = (a: string, b: string) => a.localeCompare(b, undefined, { numeric: true });
+  return [...byPackage].filter(([, servers]) => servers.length > 1).map(([pkg, servers]) => {
+    const sorted = [...servers].sort((a, b) => newer(a.version, b.version) || a.name.localeCompare(b.name));
+    const names = sorted.map((server) => `${server.name} (${server.version})`);
+    return `${names.slice(0, -1).join(", ")} and ${names.at(-1)} ${sorted.length === 2 ? "both" : "all"} run ${pkg}, so their tools are loaded twice. To keep the newest: /mcp remove ${sorted[0]!.name}.`;
+  });
 }
 
 async function writeNetworkSetupLine(host: CommandHost): Promise<void> {
@@ -1312,6 +1338,7 @@ function mcpEditHost(host: CommandHost): McpEditHost {
   return {
     ...host.networkSetupHost(), privateInput: (label) => host.networkLoginHost().privateInput(label),
     reload: async () => { if (host.reloadMCPConfiguration) await host.mcp!.reload(await host.reloadMCPConfiguration()); },
+    restart: async (name) => { await host.mcp!.restartAfterCalls(name); },
     forgetConsent: async (name) => { await host.mcp!.forget(name); },
   };
 }

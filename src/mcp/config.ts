@@ -126,6 +126,9 @@ function personalFolder(value: unknown, projectRoot: string, home: string): stri
   return path.normalize(value);
 }
 
+/** The longest "callTimeout" a server's file may set, in seconds (30 minutes). */
+export const MAX_CALL_SECONDS = 1800;
+
 /** Optional whole-second limit keys: "connectTimeout" (1-120) and "callTimeout" (1-1800). */
 function limits(value: Record<string, unknown>): MCPServerLimits | undefined {
   const seconds = (key: string, max: number): number | undefined => {
@@ -135,7 +138,7 @@ function limits(value: Record<string, unknown>): MCPServerLimits | undefined {
     return raw * 1000;
   };
   const connectMs = seconds("connectTimeout", 120);
-  const callMs = seconds("callTimeout", 1800);
+  const callMs = seconds("callTimeout", MAX_CALL_SECONDS);
   if (connectMs === undefined && callMs === undefined) return undefined;
   return { ...(connectMs !== undefined ? { connectMs } : {}), ...(callMs !== undefined ? { callMs } : {}) };
 }

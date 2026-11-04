@@ -23,6 +23,7 @@ function editHost(app: CasperApp): McpEditToolHost {
     homeDir: host.homeDir, configured: host.configured, connect: host.connect,
     write: (text) => host.write(text),
     privateInput: (label) => networkLoginHost(app).privateInput(label),
+    restart: (name) => host.restart(name),
     reload: async () => { if (app.mcp && app.reloadMCPConfiguration) await app.mcp.reload(await app.reloadMCPConfiguration()); },
     forgetConsent: async (name) => { await app.mcp?.forget(name); },
     canAsk: () => app.interactive && !app.closing,

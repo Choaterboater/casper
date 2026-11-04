@@ -6,7 +6,7 @@ import type { OutputWriter } from "./commands";
 import { SPEND_STOP_REASON } from "../task/spend";
 import type { HelperActivity } from "../agents/manager";
 import { inlineDiff, type DisplayLevel } from "../tui/display";
-import { planFold, stepKind, type StepKind } from "./fold";
+import { CHANGE_STEP, planFold, stepKind, type StepKind } from "./fold";
 import { shellChanges, type StepChange } from "./changes";
 import os from "node:os";
 import path from "node:path";
@@ -121,7 +121,6 @@ const NOT_RUN = " — not run (spend limit)";
 /** After a tool call Casper refused before it ran (a private place, another machine, your No). */
 const REFUSED = " — not run";
 /** A change Casper sent for the AI outside a shell command (an MCP write): a step that is only its ◆ row. */
-const CHANGE_STEP = "casper_change";
 
 /**
  * Casper's own refusals start with "Not run:" and end with words for the model ("Ask the user instead").

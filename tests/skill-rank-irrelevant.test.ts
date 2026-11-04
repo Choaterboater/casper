@@ -22,6 +22,10 @@ const SKILLS: Record<string, string> = {
   "skill-creator": "Guide for creating effective skills. Use when users want to create a new skill (or update an existing skill) that extends the agent's capabilities.",
   "simrack": "SimRack runbook for vJunos sandboxes on Proxmox. Use for SimRack deploys, lab builds, rebuilds, teardowns and lab troubleshooting.",
   "xlsx": "Use for any spreadsheet file: open, read, edit, create or fix data in a workbook, with formulas and charts.",
+  "find-skills": "Helps users discover and install agent skills when they ask questions like \"how do I do X\", \"find a skill for X\", \"is there a skill that can...\", or express interest in extending capabilities. This skill should be used when the user is looking for functionality that might exist as an installable skill.",
+  "archify": "Create polished, validated architecture, workflow, sequence, data-flow, and lifecycle/state diagrams as explorable standalone HTML with inline SVG, dark/light themes, optional trace motion, and PNG/JPEG/WebP/SVG/WebM export. Accept plain-language requirements or pasted Mermaid flowchart, sequenceDiagram, and stateDiagram input; inspect repository evidence when the diagram must reflect real code. Use when the user asks to visualize system architecture, infrastructure, cloud/security/network topology, technical workflows, API call sequences, request lifecycles, data pipelines, ETL/ELT, data lineage, state machines, or to convert/beautify Mermaid.",
+  "hpe-customer-deck": "HPE customer decks (PowerPoint) in the HPE Networking house style or the official HPE Light and Dark templates. Use to build a new customer presentation from notes or customer documents, restyle an existing .pptx into the house style, or review a deck before it goes to a customer.",
+  "code-review": "Review the changes since a fixed point (commit, branch, tag, or merge-base) along two axes: Standards (does the code follow this repo's documented coding standards?) and Spec (does the code match what the originating issue/spec asked for?). Runs both reviews in parallel sub-agents and reports them side by side. Use when the user wants to review a branch, a PR, work-in-progress changes, or asks to \"review since X\".",
   "docx": "Comprehensive document creation, editing, and analysis with support for tracked changes, comments, formatting preservation, and text extraction. When Claude needs to work with professional documents (.docx files) for: (1) Creating new documents, (2) Modifying or editing content, (3) Working with tracked changes, (4) Adding comments, or any other document tasks",
 };
 
@@ -76,4 +80,21 @@ test("one word of a skill's name, or a word any request uses, doesn't pick it: a
   }
   // A request about documents still picks docx.
   expect(await picked(skills, "accept the tracked changes and comments in the report docx")).toContain("docx");
+});
+
+test("two generic words of a long description, or a name that is one word plus 'skills', pick nothing: a network quote session picks none of these", async () => {
+  // From a real v0.4.12 session (quoting HPE switches through MCP servers).
+  const skills = await registry();
+  for (const request of [
+    "you can also use the network mcp or other mcp and desksigns as well as hpe skills  until we get it better and accurate and faster for future use - rag is on the hpe networking mcp which can find some of the data as well",
+    "cx6200 s witches 48 port  list out two tables fixed and module",
+  ]) {
+    const unrelated = (await picked(skills, request)).filter((name) => ["find-skills", "archify", "hpe-customer-deck", "mcp-builder", "code-review"].includes(name));
+    expect({ request, unrelated }).toEqual({ request, unrelated: [] });
+  }
+  // Requests about them still pick them.
+  expect(await picked(skills, "find skills for terraform")).toContain("find-skills");
+  expect(await picked(skills, "draw an architecture diagram of the network topology as a data-flow")).toContain("archify");
+  expect(await picked(skills, "build an hpe customer deck from these notes")).toContain("hpe-customer-deck");
+  expect(await picked(skills, "review the changes on this branch against our coding standards")).toContain("code-review");
 });

@@ -60,6 +60,9 @@ const names = (list: readonly string[]) => list.length > 3 ? `${list.slice(0, 3)
  * diff (lockfiles one row), and what changed another machine, a device or this computer's setup as a ◆ row, with what was
  * sent elsewhere in its box. At quiet they are rows only.
  */
+/** The step a change Casper sent outside a shell command (an MCP write) is noted as: its row is the step, never also its line. */
+export const CHANGE_STEP = "casper_change";
+
 export function planFold(steps: readonly FinishedStep[], level: DisplayLevel, fit: ToolLineFit & { home?: string } = {}): FoldView {
   const ran = steps.filter(step => !step.notRun && !step.retried);
   const ok = ran.filter(step => !step.failed);
@@ -83,7 +86,7 @@ export function planFold(steps: readonly FinishedStep[], level: DisplayLevel, fi
   if (level === "quiet") return { parts: [], lines, edits: [], editLines: 0, failures };
   const edits = allEdits.filter(edit => !isConfigFile(edit.path));
   if (level === "detailed") {
-    return { parts: [], lines: [...lines, ...ok.filter(step => step.kind !== "edit").map(step => step.printed)], edits, editLines: Infinity, failures, ...changeBoxes };
+    return { parts: [], lines: [...lines, ...ok.filter(step => step.kind !== "edit" && step.toolName !== CHANGE_STEP).map(step => step.printed)], edits, editLines: Infinity, failures, ...changeBoxes };
   }
   // A box is for a diff: edits with none to show (a new file written whole) are named in the row instead.
   const boxed = edits.some(edit => edit.diff);

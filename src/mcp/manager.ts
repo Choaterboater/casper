@@ -3,7 +3,7 @@ import type { Readable } from "node:stream";
 import type { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import type { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
-import { IMPORT_LABELS, projectDefinitionReview, resolvedSecrets, resolveEnvironment, type MCPConfiguration, type MCPServerDefinition } from "./config";
+import { IMPORT_LABELS, MAX_CALL_SECONDS, projectDefinitionReview, resolvedSecrets, resolveEnvironment, type MCPConfiguration, type MCPServerDefinition } from "./config";
 import type { ConsentState, ConsentStore, RememberResult } from "./consent";
 import { definitionIdentity } from "./consent";
 import type { ChangeKind } from "../capabilities/kinds";
@@ -99,6 +99,17 @@ export interface ServerPolicy {
 
 /** Casper's defaults: 20 s to start, 90 s per call without progress, 10 min for any call. */
 export const MCP_LIMITS = { connectMs: 20_000, callMs: 90_000, hardCapMs: 600_000 } as const;
+/** The longest call limit a server's file may set ("callTimeout", seconds): 30 minutes. */
+export const MAX_CALL_TIMEOUT_S = MAX_CALL_SECONDS;
+
+/** After a call ran out of time: how to give the server longer, for a server in a file /mcp update changes. Twice the
+ * limit, at least 5 minutes, at most MAX_CALL_TIMEOUT_S; none when it already has the most. */
+export function longerLine(definition: MCPServerDefinition, callMs: number): string | undefined {
+  if (definition.importedFrom || callMs >= MAX_CALL_TIMEOUT_S * 1000) return undefined;
+  const seconds = Math.min(MAX_CALL_TIMEOUT_S, Math.max(300, Math.ceil((callMs * 2) / 60_000) * 60));
+  return `To give it longer, the user types /mcp update ${definition.name} --timeout ${seconds % 60 ? `${seconds}s` : `${seconds / 60}m`}`
+    + ` (or casper_mcp_add with replace: true and timeout, after their yes).`;
+}
 
 /** Whether a session starts your own MCP and language servers by itself (My MCP servers, My language servers in
  * /settings). The test suite turns it off, so a developer's own servers never start in it. */
@@ -775,7 +786,8 @@ export class MCPManager {
     const client = entry.client;
     const limits = this.limits(entry);
     const clock = new CallClock(limits.callMs, limits.hardMs);
-    const context = { phase: "call" as const, server, secrets: entry.secrets, idleMs: limits.callMs, hardMs: limits.hardMs, scrub: modelText };
+    const longer = longerLine(entry.definition, limits.callMs);
+    const context = { phase: "call" as const, server, secrets: entry.secrets, idleMs: limits.callMs, hardMs: limits.hardMs, scrub: modelText, ...(longer ? { longer } : {}) };
     try {
       options.onClock?.(clock);
     } catch {

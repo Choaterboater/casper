@@ -16,6 +16,7 @@ import { terminalText } from "../tui/format";
 import { JUDGE_REASON_PREFIX, MODEL_REASON_PREFIX } from "../tui/choices";
 import type { JudgeResult } from "../sandbox/judge";
 import { alwaysAsks } from "../sandbox/always-asks";
+import { signedBundle } from "../platform/bundles";
 import { modelReasonSummary } from "../tui/model-reason";
 import { blockedBySandbox } from "../verify/command";
 import { hideCommandSecrets } from "../secrets/files";
@@ -136,6 +137,10 @@ const withTty = (command: string) => command.replace(/^(\s*\S+)/, "$1 -t");
 /** A refusal note, with the name the ssh config gives the machine when the AI typed its address (with any user). */
 const withName = (line: string, targets: RemoteTarget[], home: string) => [line, sshNameLine(targets, home, true)].filter(Boolean).join("\n");
 
+/** Said to the AI when a write in an app bundle is refused: where such a file goes instead. */
+export const BUNDLE_ELSEWHERE = "Changing an app bundle breaks its code signature. Put the file outside the app, such as ~/.local/bin, "
+  + "or set what a server needs with casper_mcp_add replace: true and env.";
+
 export const hostQuestion = (host: string) => `A shell command wants to reach ${terminalText(host)}. Allow it?`;
 /** Keep the command's layout (including heredocs), with secrets hidden and a bounded preview. */
 export const shownCommand = (command: string) => {
@@ -229,6 +234,8 @@ export function runtimeShell(host: SandboxHost, sandbox: ShellSandbox, given: Sa
   const store = sandbox.store ?? given;
   let logs: Promise<string> | undefined;
   const show = (entry: string) => displayPath(entry, sandbox.root, sandbox.home);
+  /** App bundles the person let the AI write in for this session. */
+  const bundlesAllowed = new Set<string>();
   /** Hosts you said "Yes, for this session" to. */
   const sessionReach = new Set<string>();
   /** With no sandbox: exact commands and project test-run families you approved for this session. */
@@ -458,6 +465,19 @@ export function runtimeShell(host: SandboxHost, sandbox: ShellSandbox, given: Sa
       return `Not done: ${decision === "no" ? writeDeclined(show(offer.target)) : writeCantAsk(show(offer.target))}`;
     },
     wroteOutside(absolute) { sandbox.noteOutsideWrite(absolute); },
+    // Always the box, also with /permissions all on: a write in an app bundle can stop the app from opening.
+    async bundleWrite(absolute) {
+      const bundle = signedBundle(absolute);
+      if (!bundle || bundlesAllowed.has(bundle)) return undefined;
+      const name = path.basename(bundle);
+      const why = `${name} is an app bundle: adding or changing a file in it breaks the app's code signature, so macOS may refuse to open it`;
+      if (!host.canAsk()) return `Not done: ${show(absolute)} is inside ${name}. ${BUNDLE_ELSEWHERE}`;
+      const answer = await host.pick(`Write ${show(absolute)}? ${why}.`,
+        [{ label: NO }, { label: YES_ONCE }, { label: YES_SESSION, description: `any file in ${name}, until you quit` }]);
+      if (answer === YES_SESSION) bundlesAllowed.add(bundle);
+      if (answer === YES_ONCE || answer === YES_SESSION) return undefined;
+      return `Not done: ${show(absolute)} is inside ${name}, and the user said no. ${BUNDLE_ELSEWHERE}`;
+    },
     async approve(command, signal, options) {
       // Refused before any box: nobody is at a terminal to hand it to.
       if (terminalNeed(command) === "interactive" && !canHandOver()) return HAND_OVER_CANT;

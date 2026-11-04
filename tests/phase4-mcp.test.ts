@@ -359,7 +359,27 @@ test("an unknown id names the closest ids, so the AI can retry in one step", asy
   await mcp.connect("generic");
   const broker = new CapabilityBroker(mcp);
   const message = (await rejection(broker.invoke("mcp:generic:inspect_quantum", {}))).message;
-  expect(message).toStartWith('Not executed (unknown capability "mcp:generic:inspect_quantum"). Closest ids: mcp:generic:inspect_quantum_flux');
+  expect(message).toStartWith('Not executed (unknown capability "mcp:generic:inspect_quantum"). generic lists 340 tools now; the closest: mcp:generic:inspect_quantum_flux.');
+});
+
+test("an unknown tool on a server that isn't a router never points at another server's router; an unknown server lists the connected ones", async () => {
+  // From a real session: mcp:iris-catalog:list_model_options (a tool the server's old code didn't list yet) was told to
+  // go through mcp:network:invoke_read_tool.
+  const router: MCPServerDefinition = { name: "network", source: "fixture", cwd: process.cwd(), disabled: false, transport: {
+    type: "stdio", command: process.execPath, args: [path.join(import.meta.dir, "fixtures/mcp-network-server.ts")], env: { FIXTURE_MODE: "hpe-router" } } };
+  const mcp = manager([definition("catalog"), router]);
+  await mcp.connect("catalog");
+  await mcp.connect("network");
+  const broker = new CapabilityBroker(mcp);
+  const onCatalog = (await rejection(broker.invoke("mcp:catalog:list_model_options", {}))).message;
+  expect(onCatalog).not.toContain("network");
+  expect(onCatalog).toStartWith('Not executed (unknown capability "mcp:catalog:list_model_options"). catalog lists 340 tools now');
+  expect(onCatalog).toEndWith("A tool just added to its code shows once the server restarts (casper_mcp_add with replace: true restarts it).");
+  // The router itself still gets the router hint.
+  expect((await rejection(broker.invoke("mcp:network:central_get_device_config_v1", {}))).message)
+    .toContain('call id "mcp:network:invoke_read_tool" with {"name": "central_get_device_config_v1"');
+  expect((await rejection(broker.invoke("mcp:rea-agents:binary_session", {}))).message)
+    .toStartWith('Not executed (unknown capability "mcp:rea-agents:binary_session"). No connected server is named rea-agents; connected: catalog, network.');
 });
 
 test("cached descriptors, input validators, and safety decisions invalidate together after refresh", async () => {

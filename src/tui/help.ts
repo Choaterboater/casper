@@ -196,6 +196,7 @@ Local commands:
   /mcp disconnect <name>            Disconnect and revoke consent for this process
   /mcp reload                       Re-read MCP files; changed servers need consent again
   /mcp update <name> <command> [args…]  Change what a server runs in the file that defines it; its settings stay
+  /mcp update <name> --timeout 5m   How long a call may run with no answer (default 1m30s, up to 30m)
   /mcp remove <name>                Take a server out of the file that defines it and stop it
   /mcp writes <name>                Turn writes on for one server (you pick 2 in the box)
   /mcp writes off                   Writes off for every server (Ctrl+X does the same)

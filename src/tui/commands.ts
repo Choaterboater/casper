@@ -138,7 +138,7 @@ export const COMMAND_REGISTRY: readonly CommandSpec[] = [
     { name: "connect", args: "<name>", description: "Connect this server" },
     { name: "disconnect", args: "<name>", description: "Disconnect and revoke consent for this process", afterCleanupError: true },
     { name: "reload", description: "Re-read MCP files; changed servers need consent again" },
-    { name: "update", args: "<name> <command> [args…]|<url>", description: "Change what a server runs, in the file that defines it; its settings stay" },
+    { name: "update", args: "<name> [--timeout 5m] [<command> [args…]|<url>]", description: "Change what a server runs or how long a call may take, in the file that defines it" },
     { name: "remove", args: "<name>", description: "Take a server out of the file that defines it and stop it" },
     { name: "writes", args: "<name>|off", description: "Turn writes on for one server, or off for every server" },
     { name: "allow", args: "<name> [off]", description: "Risky change kinds a server may make" },
