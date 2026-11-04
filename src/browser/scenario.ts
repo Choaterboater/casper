@@ -37,6 +37,8 @@ export interface BrowserCheck {
   /** A selector that matches several elements ("assertion 1's selector matches 2 elements"): a check written wrong,
    * not a failure of the page. */
   writtenWrong?: string;
+  /** It went to a sign-in page instead of its own: it never saw its page (each check starts signed out). */
+  signedOut?: true;
   /** Why Casper's end replay of it could not finish: said on the receipt instead of keeping an earlier result. */
   notReplayed?: string;
   /** What its steps met: a click that changed nothing, a native dialog Casper dismissed. Notes, never a failure. */

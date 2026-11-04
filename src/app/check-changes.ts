@@ -1,3 +1,6 @@
+import path from "node:path";
+import { isOutside } from "../platform/inside";
+import { realpathLongest } from "../platform/project-paths";
 import type { CasperApp } from "../app";
 import type { ProjectModel } from "../project/model";
 import { CHECK_CHANGE_CHOICES, CHECK_CHANGE_QUESTION, type CheckChangeOptions } from "../runtime/check-changes";
@@ -24,6 +27,15 @@ export function checkChangeOptions(app: CasperApp): CheckChangeOptions {
   return {
     commands: () => app.projectContext ? checkCommands(app.projectContext.model) : {},
     taskKey: () => app.commandAbort?.signal,
+    // Not in the listing taken at the task's start: this task created it. No listing, nothing counts.
+    createdThisTask: (file) => {
+      const base = app.snapshotBase;
+      if (!base) return false;
+      // The same folder can be named two ways (macOS's /tmp is /private/tmp): compare where both really are.
+      let relative = path.relative(app.activeWorkspaceRoot(), file);
+      if (isOutside(relative)) relative = path.relative(realpathLongest(app.activeWorkspaceRoot()), realpathLongest(file));
+      return !isOutside(relative) && Boolean(relative) && !base.has(relative.split(path.sep).join("/"));
+    },
     ask: async (change) => {
       // No truncated approval: the person must see the whole change being approved. Secrets stay hidden.
       const preview = `${change.file}\nOld → new\n--- old\n${change.before}\n+++ new\n${change.after}\n`;

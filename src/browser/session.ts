@@ -1008,9 +1008,13 @@ const MAX_CHECKS = 24;
 /** How long a first Chrome start may take before one fresh start replaces it, and fresh starts after a crash per session. */
 const FIRST_START_MS = 8_000;
 const MAX_RESTARTS = 2;
+/** Actions that ran out of time and got a fresh Chrome in the same session; the next one closes the session. */
+const MAX_OVERRUNS = 3;
 
 export class BrowserSession {
   private readonly controller = new AbortController();
+  /** Actions that ran out of time and got a fresh Chrome (MAX_OVERRUNS). */
+  private overruns = 0;
   private browser?: Browser;
   private chromeOwner?: OwnedProcesses;
   private page?: Page;
@@ -1131,12 +1135,23 @@ export class BrowserSession {
     const soft = this.unattended ? new AbortController() : undefined;
     if (soft) combined = AbortSignal.any([combined, soft.signal]);
     const stop = soft ? () => { soft.abort(new Error("Browser replay ran out of time")); last ??= setTimeout(close, 5_000); } : close;
+    // An action of the AI's that runs out of time stops its Chrome and the next action starts a fresh one in this session,
+    // so the checks it recorded stay; only after MAX_OVERRUNS does the session close, as before.
+    const op = new AbortController();
+    let fresh: Promise<void> | undefined;
+    const overrun = () => {
+      if (soft || this.overruns >= MAX_OVERRUNS) { stop(); return; }
+      this.overruns++;
+      fresh = Promise.resolve().then(() => { this.invalidate(); return this.discardChrome(); }).catch(() => {});
+      op.abort(new Error("Browser action ran out of time"));
+    };
     combined.addEventListener("abort", stop, { once: true });
+    combined = AbortSignal.any([combined, op.signal]);
     const full = this.options.actionTimeoutMs ?? (input.action === "check" || input.action === "replay" ? 30_000 : 15_000);
     const limit = soft && this.replayUntil ? Math.max(1_000, Math.min(full, this.replayUntil - performance.now())) : full;
     // Ran out of its time: said in plain words below, not as the AbortError the closing session leaves.
     let ranOut = false;
-    const expire = () => { ranOut = true; stop(); };
+    const expire = () => { ranOut = true; overrun(); };
     let timer = setTimeout(expire, limit);
     // A held deadline (a cold Chrome start, a sign-in window) stays held through a renewal: only resume restarts it.
     let held = false;
@@ -1191,7 +1206,8 @@ export class BrowserSession {
       this.lastScreenshot = { digest, path: saved };
       return shot(saved, SCREENSHOT_LIMIT - this.screenshotCount);
     } catch (error) {
-      if (ranOut && !signal?.aborted) throw new Error(`The browser's ${String(input.action)} ran out of time (${Math.round(limit / 1000)} s) and Casper closed the browser; open the page again.`);
+      if (fresh) await fresh;
+      if (ranOut && !signal?.aborted) throw new Error(`The browser's ${String(input.action)} ran out of time (${Math.round(limit / 1000)} s) and Casper ${fresh && !this.controller.signal.aborted ? "started a fresh browser" : "closed the browser"}; open the page again.`);
       throw error;
     } finally { clearTimeout(timer); clearTimeout(last); this.deadline = undefined; this.metadataAllowed.clear(); combined.removeEventListener("abort", stop); }
   }
@@ -1289,7 +1305,7 @@ export class BrowserSession {
     const trim = (address: URL) => address.pathname.replace(/\/+$/, "") || "/";
     if (SIGN_IN_PATH.test(asked.pathname) || trim(here) === trim(asked)) return undefined;
     if (!SIGN_IN_PATH.test(here.pathname) && !await page.evaluate(SIGN_IN_FORM).catch(() => false)) return undefined;
-    return `The page went to a sign-in page (${here.origin}${here.pathname}) instead of ${asked.pathname}, so nothing was checked. Use the browser's signin action so the person can sign in, then replay this check.`;
+    return `The page went to a sign-in page (${here.origin}${here.pathname}) instead of ${asked.pathname}, so nothing was checked. Each check starts signed out: sign in through its steps (this app's sign-in form first), or use the browser's signin action so the person can sign in, then replay this check; or withdraw it, as it never saw its page.`;
   }
 
   /** Whether pictures are saved to files: only where Casper can do it safely (macOS and Linux). */
@@ -1567,9 +1583,15 @@ export class BrowserSession {
     this.replayStarted.clear(); this.unstartable.clear(); this.replayServices.clear();
     try {
       for (const [id, entry] of this.scenarios) {
-        if (this.controller.signal.aborted || signal?.aborted || this.work || !this.page || performance.now() > this.replayUntil - 1_000) return;
-        if (entry.carried || entry.ranAt < since || !localURL(entry.scenario.url) || entry.check.status === "incomplete" || entry.check.status === "withdrawn"
-          || ((await this.current(entry)).freshness !== "stale" && !(entry.check.status === "fail" && retryFailures?.has(id)))) continue;
+        // A replay starts its own Chrome: a session whose last page is gone (a fresh browser after an overrun) still replays.
+        if (this.controller.signal.aborted || signal?.aborted || this.work || performance.now() > this.replayUntil - 1_000) return;
+        // A check of this task's that stopped part way (its page wasn't ready yet) is finished here, on the final app; one
+        // written wrong, answered Cancel, whose server is gone or that couldn't be replayed keeps its reason.
+        const check = entry.check;
+        // One that went to a sign-in page would again: each check starts signed out.
+        const unfinished = check.status === "incomplete" && !check.writtenWrong && !check.cancelled && !check.gone && !check.notReplayed && !check.signedOut;
+        if (entry.carried || entry.ranAt < since || !localURL(entry.scenario.url) || (check.status === "incomplete" && !unfinished) || check.status === "withdrawn"
+          || (!unfinished && (await this.current(entry)).freshness !== "stale" && !(check.status === "fail" && retryFailures?.has(id)))) continue;
         const kept = { check: entry.check, fingerprint: entry.fingerprint, revision: entry.revision, ranAt: entry.ranAt };
         onReplay?.(entry.check.name, id);
         // The data and settings it was recorded with, read afresh by its own server too (an app may hold them in memory).
@@ -1683,7 +1705,7 @@ export class BrowserSession {
     // earlier stand-in run already made it stale).
     const lastStatus = entry.ownStatus ?? entry.check.status;
     const check: BrowserCheck = { ...entry.check, status: "incomplete", freshness: "unavailable", assertions: [], reason: undefined, notes: undefined };
-    delete check.gone; delete check.cancelled; delete check.writtenWrong; delete check.notReplayed;
+    delete check.gone; delete check.cancelled; delete check.writtenWrong; delete check.notReplayed; delete check.signedOut;
     entry.check = check; entry.fingerprint = undefined; entry.revision = this.revision; entry.ranAt = performance.now();
     const startedAt = performance.now();
     let opened: Page | undefined;
@@ -1789,6 +1811,7 @@ export class BrowserSession {
       // A sign-in page is not the page the check was for: neither a pass nor a failure.
       const signIn = await this.signInReason(page, scenario.url);
       check.status = signIn ? "incomplete" : check.assertions.every(a => a.status === "pass") ? "pass" : "fail";
+      if (signIn) check.signedOut = true;
       if (check.status === "fail" && !recording && check.baseline === "pass" && fixedIdentity(scenario.steps))
         for (const assertion of check.assertions) if (assertion.status === "fail") assertion.hint = RUN_HINT;
       const after = await inputState(this.options.projectRoot, scenario, signal);
@@ -1851,7 +1874,7 @@ export class BrowserSession {
       check.status = "incomplete"; check.reason = error instanceof ServerGone ? `Could not check. ${error.message}` : "Browser reproduction did not finish; no passing evidence.";
       // A step that found nothing on a sign-in page: that is the result, said plainly, and the id stays for a replay.
       const signIn = opened && !signal.aborted && !(error instanceof ServerGone) ? await this.signInReason(opened, scenario.url) : undefined;
-      if (signIn) { check.reason = signIn; if (recording) check.baseline = "incomplete"; return structuredClone(check) as unknown as Record<string, unknown>; }
+      if (signIn) { check.reason = signIn; check.signedOut = true; if (recording) check.baseline = "incomplete"; return structuredClone(check) as unknown as Record<string, unknown>; }
       // A step selector that matches several elements is a check written wrong, not a page that isn't ready: nothing is
       // kept, so it can't hold the result at incomplete. One that matches nothing may be a feature not built yet.
       if (input.action === "check" && error instanceof Error && /exactly one element; it matches ([2-9]|\d{2,})/.test(error.message)) {
@@ -2023,6 +2046,8 @@ export class BrowserSession {
           : "It no longer decides the result; the receipt names it with your reason. Record a corrected check for what it meant to test." };
     };
     if (replacement) return done();
+    // One that went to a sign-in page never saw its page: withdrawing it hides nothing, whatever changed since.
+    if (status === "incomplete" && entry.check.signedOut) return done();
     // One that never finished has no inputs recorded: nothing run since it was recorded is enough.
     if (status === "incomplete") {
       if (entry.recordedRevision !== this.revision || entry.revision !== entry.recordedRevision)
@@ -2043,7 +2068,7 @@ export class BrowserSession {
    * with at least as many steps and assertions of each kind, so a page-loads check can't stand in for a real one. */
   private replacement(id: string, entry: RecordedCheck, other: string): RecordedCheck {
     const by = this.scenarios.get(other);
-    if (!by || other === id) throw new Error("replacedBy must be the id of another check recorded in this session");
+    if (!by || other === id) throw new Error("replacedBy must be the id of another check recorded in this session: record the corrected check of the same page first, and once it passes, withdraw this one with replacedBy: its id");
     if (by.order < entry.order) throw new Error("replacedBy must name a check recorded after this one");
     if (by.carried) throw new Error("replacedBy must name a check run in this task; replay it first");
     const page = (url: string) => { try { return new URL(url).pathname; } catch { return url; } };

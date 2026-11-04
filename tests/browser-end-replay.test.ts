@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import { ROUND_MAX_TURNS } from "../src/task/review";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { BrowserSession } from "../src/browser/session";
@@ -34,11 +35,13 @@ const check = (freshness: "fresh" | "stale") => ({ id: "c1", name: "Save", scena
   status: "pass" as const, baseline: "pass" as const, freshness, assertions: [{ kind: "text", status: "pass" as const, actual: "Saved" }] });
 
 /** A replay failure gets one model turn, with the project checks and the same recorded check rerun. */
-async function replayFailure(options: { budget?: number; priorRepairs?: boolean; fixed?: boolean; incomplete?: boolean; stop?: boolean; repairFails?: boolean; regression?: boolean; noEdit?: boolean; unreplayed?: boolean; stale?: boolean; scoped?: boolean; browserOnly?: boolean; proving?: boolean; weakenTest?: boolean; child?: boolean; turnLimit?: boolean; baselineFail?: boolean; answer?: string } = {}) {
+async function replayFailure(options: { budget?: number; priorRepairs?: boolean; fixed?: boolean; incomplete?: boolean; stop?: boolean; repairFails?: boolean; regression?: boolean; noEdit?: boolean; unreplayed?: boolean; stale?: boolean; scoped?: boolean; browserOnly?: boolean; proving?: boolean; weakenTest?: boolean; child?: boolean; turnLimit?: boolean; baselineFail?: boolean; answer?: string; finishes?: boolean } = {}) {
   process.env.TERM = "xterm-256color";
   const calls: string[] = [];
   const prompts: string[] = [];
   let replayed = 0;
+  let finished = false;
+  const turns: Array<number | undefined> = [];
   let project = "";
   const app = await richApp(root => {
     project = root;
@@ -46,10 +49,12 @@ async function replayFailure(options: { budget?: number; priorRepairs?: boolean;
       async start() { return {
         setTools: () => {}, getStatus: () => ({ provider: "fixture", model: "demo", auth: "configured" as const }),
         getState: () => ({ cwd: root, isStreaming: false }), subscribe: () => () => {}, abort: async () => {},
-        prompt: async (text: string) => {
-          prompts.push(text);
+        prompt: async (text: string, _signal?: AbortSignal, round?: { maxTurns?: number }) => {
+          prompts.push(text); turns.push(round?.maxTurns);
           if (options.turnLimit) app.app.taskTurnLimit = 1;
-          calls.push(text.includes("Browser replay failure evidence") ? "browser repair" : "model");
+          const finish = text.startsWith("Casper: browser checks you recorded in this task never finished.");
+          if (finish && options.finishes) finished = true;
+          calls.push(text.includes("Browser replay failure evidence") ? "browser repair" : finish ? "finish" : "model");
           if (text.includes("Browser replay failure evidence") && options.repairFails) throw new Error("synthetic repair failure");
           if (options.child) {
             const child = path.join(root, "sample-app");
@@ -95,7 +100,7 @@ async function replayFailure(options: { budget?: number; priorRepairs?: boolean;
       replayed++; if (!options.unreplayed) onReplay("Save", "c1");
       if (options.stop) app.app.taskTurnLimit = 1;
     },
-    report: async (): Promise<BrowserReport> => ({ status: options.incomplete ? "incomplete" : replayed > 1 && options.fixed !== false ? "pass" : "fail",
+    report: async (): Promise<BrowserReport> => finished ? { status: "pass", guidance: "g", checks: [check("fresh")] } : ({ status: options.incomplete ? "incomplete" : replayed > 1 && options.fixed !== false ? "pass" : "fail",
       guidance: "g", checks: [{ ...check(options.stale ? "stale" : "fresh"), ...(options.baselineFail ? { baseline: "fail" as const } : {}), status: options.incomplete ? "incomplete" : replayed > 1 && options.fixed !== false ? "pass" : "fail",
         assertions: [{ kind: "text", status: replayed > 1 && options.fixed !== false ? "pass" : "fail", actual: "Not saved" }] }] }),
   } as unknown as BrowserSession;
@@ -113,7 +118,7 @@ async function replayFailure(options: { budget?: number; priorRepairs?: boolean;
     }
     // Several check runs and model rounds: on a loaded runner this needs more than the default 15 s, under the test's 30 s.
     await app.until(text => /Browser checks failed|browser checks passed|Browser checks incomplete/.test(text), 25_000);
-    return { calls, prompts, screen: app.screen(), task: app.app.lastTaskResult!, runs: (await readFile(path.join(project, "runs.txt"), "utf8").catch(() => "")).length };
+    return { calls, prompts, turns, screen: app.screen(), task: app.app.lastTaskResult!, runs: (await readFile(path.join(project, "runs.txt"), "utf8").catch(() => "")).length };
   } finally { await app.close(); }
 }
 
@@ -158,9 +163,26 @@ test("a replay that still fails after its one repair does not get another turn",
   expect(task.browser?.status).toBe("fail");
 }, 30_000);
 
-test("an incomplete end replay is not a repairable failure", async () => {
-  const { calls } = await replayFailure({ incomplete: true });
-  expect(calls).toEqual(["model", "replay"]);
+test("a check that never finished gets one turn to finish or withdraw it, then a second replay, never a repair turn", async () => {
+  const { calls, prompts, task, turns } = await replayFailure({ incomplete: true });
+  expect(calls).toEqual(["model", "replay", "finish", "replay"]);
+  // Recording a replacement and then withdrawing, for each check, took more than 6 turns in a tracker build.
+  expect(turns.at(-1)).toBe(ROUND_MAX_TURNS);
+  expect(prompts.at(-1)).toContain("- Save (id c1)");
+  // A run's AI withdrew first, got "replacedBy must be the id of another check", and the old check stayed: the order is said.
+  expect(prompts.at(-1)).toContain("first record a correct check of the same page; once it passes, withdraw this one with replacedBy: the new check's id");
+  expect(prompts.at(-1)).toContain("Every id above must end replayed or withdrawn");
+  expect(prompts.at(-1)).toContain("Don't change the app in this turn");
+  // Still unfinished: the receipt says so, as before.
+  expect(task.browser?.status).toBe("incomplete");
+  expect(task.verification?.repairAttempts ?? 0).toBe(0);
+}, 30_000);
+
+test("a check the AI finishes in that turn counts, and the task ends without Incomplete", async () => {
+  const { calls, task, screen } = await replayFailure({ incomplete: true, finishes: true });
+  expect(calls).toEqual(["model", "replay", "finish", "replay"]);
+  expect(screen).toContain("↻ finish: a browser check the AI recorded never finished");
+  expect(task.browser?.status).toBe("pass");
 }, 30_000);
 
 test("a task stopped during replay gets no repair turn", async () => {

@@ -223,8 +223,28 @@ browserTest("after two fresh starts a third crash closes the session for good", 
   const f = await fixture({ executablePath: wrapper, firstStartMs: 20_000, actionTimeoutMs: 1_500 });
   expect(await f.session.run({ action: "open", url: f.url })).toMatchObject({ title: "Browser fixture" });
   // A page that never finishes loading, with Chrome already up: the open's own time runs out.
-  await expect(f.session.run({ action: "open", url: new URL("/hang", f.url).href })).rejects.toThrow("The browser's open ran out of time (2 s) and Casper closed the browser; open the page again.");
+  await expect(f.session.run({ action: "open", url: new URL("/hang", f.url).href })).rejects.toThrow("The browser's open ran out of time (2 s) and Casper started a fresh browser; open the page again.");
 }, 30_000);
+
+// A tracker build's check ran out of its 30 s: Casper closed the browser, the AI's next nine calls all got "Browser session
+// is closed", and the check it had recorded never finished, so the task ended Incomplete.
+(process.platform === "win32" ? test.skip : browserTest)("a check that runs out of time starts a fresh browser in the same session: the next open works and the recorded checks stay", async () => {
+  const f = await fixture({ actionTimeoutMs: 1_500 });
+  // Chrome's cold start has its own limit on an open; the check then runs on the warm browser.
+  await f.session.run({ action: "open", url: f.url });
+  const heading = await f.session.run({ action: "check", scenario: { name: "Heading", url: f.url, steps: [], assertions: [{ kind: "text", selector: "h1", expected: "Hello Casper" }] } });
+  expect(heading).toMatchObject({ status: "pass" });
+  for (let overrun = 1; overrun <= 3; overrun++) {
+    await expect(f.session.run({ action: "open", url: new URL("/hang", f.url).href })).rejects.toThrow("Casper started a fresh browser; open the page again.");
+    expect(f.session.status().state).not.toBe("closed");
+    expect(await f.session.run({ action: "open", url: f.url })).toMatchObject({ title: "Browser fixture" });
+  }
+  expect((await f.session.report()).checks.map((check) => check.name)).toEqual(["Heading"]);
+  expect(await f.session.run({ action: "replay", id: heading.id })).toMatchObject({ status: "pass", freshness: "fresh" });
+  // A browser that keeps running out of time is closed, as before: no endless restarts.
+  await expect(f.session.run({ action: "open", url: new URL("/hang", f.url).href })).rejects.toThrow("Casper closed the browser");
+  expect(f.session.status().state).toBe("closed");
+}, 60_000);
 
 browserTest("known consequential labels cannot bypass approval by claiming local-test", async () => {
   let approved = false, approvals = 0, effects = 0;
