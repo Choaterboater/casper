@@ -259,6 +259,7 @@ export class CapabilityBroker {
   /** Every approved change call (a box's yes, a session answer, allow all), just before it is sent, with its arguments
    * masked as the box masks them (for the change row Casper shows). */
   private readonly onChangeCall?: ChangeCallHandler;
+  private readonly addedThisSession?: (server: string) => boolean;
   /** Objects with an id and a name each router server's results showed this session, so a write's words name them. */
   private readonly recent = new Map<string, RecentObjects>();
   private readonly onLoginMissing?: LoginMissingHandler;
@@ -271,7 +272,7 @@ export class CapabilityBroker {
   constructor(private readonly manager: MCPManager, private readonly confirm?: ConfirmCapability,
     options: { writesGate?: boolean; scrubber?: ResultScrubber; onSessionCovered?: (server: string, realTool: string) => void; confirmKind?: ConfirmKind;
       onAllowAll?: (server: string, realTool: string) => void; onAllowAllStart?: (server: string) => void; onLoginMissing?: LoginMissingHandler;
-      onChangeCall?: ChangeCallHandler; secretValues?: () => readonly string[]; planning?: () => boolean } = {}) {
+      onChangeCall?: ChangeCallHandler; addedThisSession?: (server: string) => boolean; secretValues?: () => readonly string[]; planning?: () => boolean } = {}) {
     if (options.planning) this.planning = options.planning;
     this.secretValues = options.secretValues ?? (() => secretEnvValues());
     if (options.onLoginMissing) this.onLoginMissing = options.onLoginMissing;
@@ -282,6 +283,7 @@ export class CapabilityBroker {
     this.scrubber = options.scrubber ?? BUILT_IN_SCRUBBER;
     if (options.onSessionCovered) this.onSessionCovered = options.onSessionCovered;
     if (options.onChangeCall) this.onChangeCall = options.onChangeCall;
+    if (options.addedThisSession) this.addedThisSession = options.addedThisSession;
   }
 
   /** Whether a runtime tool name is one of the broker's: find_capability, call_capability or a direct MCP tool. */
@@ -475,7 +477,11 @@ export class CapabilityBroker {
       if (allCovered) this.onAllowAll?.(plan.server, realToolOf(plan));
       else if (covered && !ownCovered) this.onSessionCovered?.(plan.server, realToolOf(plan));
       // A troubleshooting check (ping, traceroute) changes no settings: it isn't a change row or in the receipt's Devices.
-      if (answer && label !== "read" && label !== "diagnostic") {
+      // A server added this session whose tools carry no labels (rea-agents): a call named as a read (demangle_swift) is
+      // not shown as a change. Labelled tools, and names that read as a change, still are.
+      const unlabeledRead = !plan.routed.length && !plan.routerUnclear && plan.label === "external-action" && nameLabel(plan.tool) === "read"
+        && aiConfirm(plan.arguments).length === 0 && this.addedThisSession?.(plan.server) === true;
+      if (answer && label !== "read" && label !== "diagnostic" && !unlabeledRead) {
         const ended = this.onChangeCall?.(plan.server, realToolOf(plan), maskSecrets(frozenArgs, { scrubText: (value) => scrubText(redactPreview(value)).text }).value, words);
         if (typeof ended === "function") settle = ended as (outcome: ChangeOutcome) => void;
       }

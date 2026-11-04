@@ -526,6 +526,12 @@ export class CasperApp {
    * answered "Yes, for this session" without showing them. Memory only: never saved, off at start, set only by the
    * person's typed command and numbered answer (src/app/permissions.ts). */
   stopAsking = false;
+  /** "Yes, for this session" in the box for the AI's change to an MCP server's entry (casper_mcp_remove, casper_mcp_add
+   * with replace): later such changes this session need no box. Memory only; only the person's answer sets it. */
+  mcpEditsAllowed = false;
+  /** MCP servers added in this session (/mcp add or casper_mcp_add): a call to one of their tools with no label and a
+   * name that reads as a read is not shown as a change. */
+  readonly mcpAddedThisSession = new Set<string>();
   /** `/plan on`: every request this session gets a plan first, until `/plan off`. */
   planMode = false;
   readonly allow?: RunAllowances;

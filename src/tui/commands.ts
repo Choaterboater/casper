@@ -130,7 +130,7 @@ export const COMMAND_REGISTRY: readonly CommandSpec[] = [
     { name: "list", description: "The packs you added" },
     { name: "remove", args: "<name>", description: "Take a pack out", aliases: ["forget"] },
   ] },
-  { name: "mcp", description: "MCP status; add, connect, disconnect, writes on/off, forget, docs servers", afterCleanupError: NONE, subcommands: [
+  { name: "mcp", description: "MCP status; add, update, remove, connect, disconnect, writes on/off, forget, docs servers", afterCleanupError: NONE, subcommands: [
     { name: "detail", args: "[name]", description: "The full status of every server, or one (no connection)" },
     { name: "add", args: "<name> <command> [args…]|<url>", description: "Add a server to ~/.casper/mcp.json and start it" },
     { name: "setup", args: "network|ssh", description: "Set up Casper's network server, or a server over ssh" },
@@ -138,9 +138,11 @@ export const COMMAND_REGISTRY: readonly CommandSpec[] = [
     { name: "connect", args: "<name>", description: "Connect this server" },
     { name: "disconnect", args: "<name>", description: "Disconnect and revoke consent for this process", afterCleanupError: true },
     { name: "reload", description: "Re-read MCP files; changed servers need consent again" },
+    { name: "update", args: "<name> <command> [args…]|<url>", description: "Change what a server runs, in the file that defines it; its settings stay" },
+    { name: "remove", args: "<name>", description: "Take a server out of the file that defines it and stop it" },
     { name: "writes", args: "<name>|off", description: "Turn writes on for one server, or off for every server" },
     { name: "allow", args: "<name> [off]", description: "Risky change kinds a server may make" },
-    { name: "forget", args: "<name>", description: "Forget a remembered server", aliases: FORGET_ALIASES },
+    { name: "forget", args: "<name>", description: "Forget a server's remembered consent; it stays in its file" },
     { name: "junos-show", args: "<name> on|off", description: "Let plain Junos show commands run without asking" },
     { name: "sandbox", args: "<name> on|off", description: "Run a server Casper knows in the sandbox or not" },
     { name: "docs", description: "Docs servers; add a docs-only copy" },

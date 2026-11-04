@@ -474,6 +474,8 @@ your yes in the box of the AI's `casper_mcp_add`. Each adds one server to
 /mcp add <name> <url>          # the same for a server at an address
 /mcp add <name> --bearer <url> # …that needs a bearer token (--api-key[=<Header>]: an API key header)
 /mcp add <name> --key-env=<NAME> <command> [args…]  # …a program that takes a key in a variable
+/mcp update <name> <command> [args…]|<url>  # change what a server runs, in the file that defines it
+/mcp remove <name>             # take a server out of the file that defines it and stop it
 /mcp login [mist|central|clearpass] [forget]  # add, replace or forget a network login
 /mcp login central <name> [forget]  # add, replace or forget a named Central login
 /mcp connect local-docs        # allow and connect this server for this run of Casper
@@ -481,7 +483,7 @@ your yes in the box of the AI's `casper_mcp_add`. Each adds one server to
 /mcp reload                    # re-read the files without restarting
 /mcp writes <name>             # turn writes on for one server (you pick 2 in the box)
 /mcp writes off                # writes off for every server (Ctrl+X does the same)
-/mcp forget <name>             # forget a remembered server
+/mcp forget <name>             # forget a server's remembered consent (it stays in its file)
 /mcp junos-show <name> on|off  # let plain Junos show commands run without asking
 /mcp sandbox <name> on|off     # run Casper's network server in the sandbox (on by default) or not
 /mcp docs                      # docs servers; add a docs-only copy
@@ -496,7 +498,41 @@ command that starts the server instead (its README says it). A server started th
 package runner (npx, uvx, docker…) is remembered only when it is pinned to a version
 (`pkg@1.2.3`) or commit, so prefer a pinned one. Only you type it; the AI can't run a slash
 command. Asked for a server, it adds one through `casper_mcp_add`, which asks you first
-(see [A server from GitHub](#a-server-from-github)).
+(see [A server from GitHub](#a-server-from-github)). A name that is taken says how to change it:
+`[mcp] rea is already a server (~/.casper/mcp.json). To change what it runs: /mcp update rea <command> [args…].`
+
+**`/mcp update <name> <command> [args…]`** (or `<url>`) changes what a server runs in the file that defines it,
+keeps its other settings (env, cwd, headers), and starts it again:
+`[mcp] Changed rea in ~/.casper/mcp.json: it now runs npx -y rea-agents@6.8.0 mcp (it ran npx -y rea-agents@6.7.0 mcp). Its settings (REA_TOKEN) are kept. Starting it…`
+**`/mcp remove <name>`** takes it out of that file, stops it, and forgets its consent and key:
+`[mcp] Removed rea from ~/.casper/mcp.json and stopped it.` A server of the same name in a file read earlier is said
+as the one used now. Both change `~/.casper/mcp.json`, a profile's file or the project's own file; a server from
+another tool's file is left alone, and Casper says where it is and how to remove it there (`claude mcp remove rea` for
+`~/.claude.json`). `/mcp forget` only forgets a consent. `/mcp detail` says when a server pinned to an npm version has
+a newer one, with the `/mcp update` line (not with `CASPER_OFFLINE=1` or `tools: { downloads: off }`).
+
+The AI does the same through `casper_mcp_remove` and `casper_mcp_add` with `replace: true`, offered with
+`casper_mcp_add`. You telling it "you have permission to remove it" is what it needs to call them; the box is the gate:
+
+```text
+The AI wants to change what an MCP server runs:
+  name     rea
+  from     ~/.casper/mcp.json
+  settings REA_TOKEN (values hidden)
+  was      npx -y rea-agents@6.7.0 mcp
+  now      npx -y rea-agents@6.8.0 mcp
+  version  rea-agents@6.8.0 (pinned)
+It is changed in ~/.casper/mcp.json and starts again now, outside the sandbox, with your permissions.
+Change rea?
+  1 No
+  2 Yes, this once
+  3 Yes, for this session
+```
+
+`Yes, for this session` covers the AI's later removes and changes in this session (each logged as
+`[approval] allowed (this session): Change rea`); a new server still asks every time. Only Casper's own files and
+your profile's are the AI's to change: a project's or another tool's says what to type or where to change it. Reading
+`~/.casper/mcp.json` stays private; these tools are the way in ([decision 71](adr/0002/71-the-ai-changes-and-removes-mcp-servers.md)).
 
 #### Keys and tokens
 

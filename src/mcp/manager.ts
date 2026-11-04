@@ -41,6 +41,8 @@ export interface MCPStatus {
   /** The time limits in whole or decimal seconds, as /mcp shows them. */
   limits: { connectS: number; callS: number };
   error?: string;
+  /** Who stopped it, while it stays stopped ("you, in /mcp"). */
+  stoppedBy?: string;
   /** The server's last stderr lines, redacted, only while the state is "failed". Shown to the user, never to the model. */
   serverOutput?: string[];
   /** Where the definition was found when it came from another tool's file ("~/.claude.json", "VS Code"). */
@@ -202,6 +204,8 @@ interface Entry {
   inFlight: number;
   /** Counts restarts asked for because the saved logins changed: a call that saw it change answered from the old ones. */
   loginEpoch: number;
+  /** Who disconnected it, until it connects again. */
+  stoppedBy?: string;
   /** The one call the user approved that is running now, if any. */
   approvedCall?: RunningApprovedCall;
   /** "off" at start and after a changed definition, unless it is your own server that starts with writes on. */
@@ -373,6 +377,7 @@ export class MCPManager {
         name: entry.definition.name, source: entry.definition.source, transport: entry.definition.transport.type,
         state: entry.state, toolCount: entry.tools.length, limits: { connectS: limits.connectMs / 1000, callS: limits.callMs / 1000 },
         error: entry.error, ...(output?.length ? { serverOutput: output } : {}),
+        ...(entry.stoppedBy && entry.state !== "ready" && entry.state !== "connecting" ? { stoppedBy: entry.stoppedBy } : {}),
         ...(importedFrom ? { importedFrom: IMPORT_LABELS[importedFrom] } : {}),
         ...(entry.definition.scope ? { scope: entry.definition.scope } : {}),
         approved: entry.approved, consent: entry.consent, writes: entry.writes,
@@ -642,6 +647,7 @@ export class MCPManager {
     const entry = this.entry(name);
     if (entry.state === "disabled") throw new Error("MCP server is disabled; edit configuration and restart");
     entry.approved = true;
+    entry.stoppedBy = undefined;
     // The burst cap limits automatic reconnects; an explicit connect is fresh consent to try.
     entry.attempts = [];
     await this.ensureConnected(entry);
@@ -659,9 +665,11 @@ export class MCPManager {
     this.assertCleanup();
   }
 
-  async disconnect(name: string): Promise<void> {
+  /** `by`: who asked (the person in /mcp), said in the status until it connects again. */
+  async disconnect(name: string, options: { by?: string } = {}): Promise<void> {
     const entry = this.entry(name);
     entry.approved = false;
+    entry.stoppedBy = options.by;
     entry.writesOffCount++;
     entry.allowanceEnds++;
     entry.abort.abort();

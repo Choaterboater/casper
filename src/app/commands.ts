@@ -26,13 +26,14 @@ import type { CapabilityBroker } from "../capabilities/broker";
 import type { MCPManager, MCPStatus } from "../mcp/manager";
 import { READ_ONLY_LOGIN_ENABLE_TEXT } from "../mcp/access";
 import { ownSettingsNote, writesTitle, WRITES_OFF_MEANING } from "../mcp/presets";
-import type { MCPConfiguration } from "../mcp/config";
+import type { MCPConfiguration, MCPServerDefinition } from "../mcp/config";
 import { addUserServer, DOCS_TOOL_NAMES, docsOnlyDefinition, docsPinned, isDocsOnlyDefinition, MCP_FILE_LABEL } from "../mcp/docs";
 import { askForLogin, askForNamedLogin, askToForgetLogin, askToForgetNamedLogin, askWhichLogin, parseLoginCommand, type LoginHost } from "../mcp/network/ask-login";
 import { getsLogins, NETWORK_PRODUCTS, PRODUCT_LABELS, readLogins, type NetworkProduct } from "../mcp/network/logins";
 import { networkSetupLine, runNetworkSetup, type SetupHost } from "../mcp/network/setup";
 import { parseSshSetup, runSshSetup } from "../mcp/ssh/setup";
 import { MCP_ADD_EXAMPLE, MCP_ADD_HINT, parseMcpAdd, runMcpAdd } from "../mcp/add";
+import { newerNpmLine, npmLatest, npmPin, runMcpRemove, runMcpUpdate, type McpEditHost } from "../mcp/edit";
 import type { Scrubber } from "../secrets/netconan";
 import { defaultRunGit, runReferenceAdd } from "../references/catalog";
 import { sandboxLines, sandboxSummary } from "../mcp/sandbox";
@@ -140,6 +141,10 @@ export interface CommandHost {
   readonly allowances?: Pick<CapabilityBroker, "kindAllowed" | "sessionKinds" | "allowKind" | "allowAllOn" | "allowAllServers" | "startAllowAll" | "endAllowancesFor">;
   /** Re-reads MCP configuration from disk for /mcp reload; omitted when MCP is unavailable. */
   readonly reloadMCPConfiguration?: () => Promise<MCPConfiguration>;
+  /** Test seam: the newest version npm lists for a package (src/mcp/edit.ts npmLatest). */
+  readonly npmLatest?: (name: string) => Promise<string | undefined>;
+  /** Servers added in this session (src/app.ts). */
+  readonly mcpAddedThisSession?: Set<string>;
   readonly lsp?: LSPManager;
   readonly references?: ReferenceLibrary;
   /** Reads the reference files again after /references add, so the new source is searched with no restart. */
@@ -1003,7 +1008,7 @@ async function handleDelegateCommand(host: CommandHost, prompt: string): Promise
     if (result.status !== "completed") throw new Error(`Delegation ${result.status}; see the bounded report above`);
   }
 
-const MCP_USAGE = "Usage: /mcp (a picker on a normal terminal) | /mcp detail [name] | /mcp add <name> <command> [args…] | /mcp add <name> <url> | /mcp setup network | /mcp setup ssh [--name <name>] [host] [command] | /mcp login [mist|central|clearpass] [forget] | /mcp login central <name> [forget] | /mcp connect <name> | /mcp disconnect <name> | /mcp reload | /mcp writes <name> | /mcp writes off | /mcp allow <name> [off] | /mcp forget <name> | /mcp junos-show <name> on|off | /mcp sandbox <name> on|off | /mcp docs";
+const MCP_USAGE = "Usage: /mcp (a picker on a normal terminal) | /mcp detail [name] | /mcp add <name> <command> [args…] | /mcp add <name> <url> | /mcp update <name> <command> [args…]|<url> | /mcp remove <name> | /mcp setup network | /mcp setup ssh [--name <name>] [host] [command] | /mcp login [mist|central|clearpass] [forget] | /mcp login central <name> [forget] | /mcp connect <name> | /mcp disconnect <name> | /mcp reload | /mcp writes <name> | /mcp writes off | /mcp allow <name> [off] | /mcp forget <name> | /mcp junos-show <name> on|off | /mcp sandbox <name> on|off | /mcp docs";
 /** What "writes off" means, said once under the list: the server runs pinned and every change asks. */
 const WRITES_OFF_TEXT = `${WRITES_OFF_MEANING} Answer 2 or 3 in the change box to allow it, or /mcp writes <name> to turn writes on now.`;
 
@@ -1021,9 +1026,28 @@ async function handleMCPCommand(host: CommandHost, prompt: string): Promise<void
       const parsed = parseMcpAdd(prompt.trim().replace(/^\S+\s+add(?=\s|$)/, "").trim());
       if ("error" in parsed) { host.output.write(parsed.error === "usage" ? `${MCP_ADD_HINT}\n` : `[mcp] ${parsed.error} Nothing changed.\n`); return; }
       if (await runMcpAdd({ ...host.networkSetupHost(), privateInput: (label) => host.networkLoginHost().privateInput(label) }, parsed) === "added") {
+        host.mcpAddedThisSession?.add(parsed.name);
         const status = mcp.status().find((entry) => entry.name === parsed.name);
         if (status) host.output.write(`${mcpResultLine(status)}\n`);
       }
+      host.updateFooter();
+      return;
+    }
+    if (action === "update") {
+      // Read from the line, as /mcp add is. Only the person types this.
+      const parsed = parseMcpAdd(prompt.trim().replace(/^\S+\s+update(?=\s|$)/, "").trim());
+      if ("error" in parsed) { host.output.write(parsed.error === "usage" ? mcpSubcommandHint("update") : `[mcp] ${parsed.error} Nothing changed.\n`); return; }
+      if (parsed.key) { host.output.write("[mcp] /mcp update keeps the server's key as it is; to change a key, /mcp remove it and /mcp add it again. Nothing changed.\n"); return; }
+      if (await runMcpUpdate(mcpEditHost(host), parsed) === "done") {
+        const status = mcp.status().find((entry) => entry.name === parsed.name);
+        if (status) host.output.write(`${mcpResultLine(status)}\n`);
+      }
+      host.updateFooter();
+      return;
+    }
+    if (action === "remove") {
+      if (!name || extra.length) { host.output.write(mcpSubcommandHint(action)); return; }
+      await runMcpRemove(mcpEditHost(host), name);
       host.updateFooter();
       return;
     }
@@ -1101,6 +1125,15 @@ async function handleMCPCommand(host: CommandHost, prompt: string): Promise<void
       const shown = name ? all.filter((status) => status.name === name) : all;
       if (name && !shown.length) throw new Error("Unknown MCP server; use /mcp to list definitions");
       host.output.write(mcpDetailText(shown));
+      // A server pinned to an npm version older than the newest says so, with the line that moves it (not offline).
+      const offline = process.env.CASPER_OFFLINE === "1" || process.env.PI_OFFLINE === "1" || host.projectContext?.toolDownloads === false;
+      const latest = host.npmLatest ?? (offline ? undefined : npmLatest);
+      if (latest) {
+        const definitions = shown.map((status) => { try { return mcp.definition(status.name); } catch { return undefined; } })
+          .filter((definition): definition is MCPServerDefinition => !!definition && !!npmPin(definition));
+        const lines = await Promise.all(definitions.map(async (definition) => newerNpmLine(definition, await latest(npmPin(definition)!.name))));
+        for (const line of lines) if (line) host.output.write(`[mcp] ${terminalText(line)}\n`);
+      }
       if (!name) await writeNetworkSetupLine(host);
       return;
     } else if (action && extra.length && (action === "connect" || action === "disconnect")) {
@@ -1128,9 +1161,9 @@ export async function runPermissionsDuringWork(host: CommandHost, line: string):
 }
 
 /** The subcommands that need a server's name. Typed without one, each says its own line instead of the whole usage. */
-const MISSING_NAME = new Set(["connect", "disconnect", "writes", "allow", "forget", "junos-show", "sandbox"]);
+const MISSING_NAME = new Set(["connect", "disconnect", "writes", "allow", "forget", "remove", "junos-show", "sandbox"]);
 
-/** One subcommand's line from the command table: `Type /mcp forget <name> (forget a remembered server).` */
+/** One subcommand's line from the command table: `Type /mcp forget <name> (forget a server's remembered consent; it stays in its file).` */
 function mcpSubcommandHint(action: string): string {
   const sub = COMMAND_REGISTRY.find((command) => command.name === "mcp")?.subcommands?.find((entry) => entry.name === action);
   if (!sub) return `${MCP_USAGE}\n`;
@@ -1274,8 +1307,17 @@ async function runMCPConnect(host: CommandHost, name: string): Promise<void> {
   await offerRemember(host, name);
 }
 
+/** What /mcp remove and /mcp update change files and servers through. */
+function mcpEditHost(host: CommandHost): McpEditHost {
+  return {
+    ...host.networkSetupHost(), privateInput: (label) => host.networkLoginHost().privateInput(label),
+    reload: async () => { if (host.reloadMCPConfiguration) await host.mcp!.reload(await host.reloadMCPConfiguration()); },
+    forgetConsent: async (name) => { await host.mcp!.forget(name); },
+  };
+}
+
 async function runMCPDisconnect(host: CommandHost, name: string): Promise<void> {
-  await host.mcp!.disconnect(name);
+  await host.mcp!.disconnect(name, { by: "you, in /mcp" });
   host.output.write(`[mcp] ${terminalText(name)} disconnected.\n`);
 }
 

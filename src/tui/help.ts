@@ -195,10 +195,12 @@ Local commands:
   /mcp connect <name>               Connect this server; your own or imported ones can be remembered
   /mcp disconnect <name>            Disconnect and revoke consent for this process
   /mcp reload                       Re-read MCP files; changed servers need consent again
+  /mcp update <name> <command> [args…]  Change what a server runs in the file that defines it; its settings stay
+  /mcp remove <name>                Take a server out of the file that defines it and stop it
   /mcp writes <name>                Turn writes on for one server (you pick 2 in the box)
   /mcp writes off                   Writes off for every server (Ctrl+X does the same)
   /mcp allow <name> [off]           Pick which risky change kinds (firmware, delete, admin) a server may make; off goes back to the defaults
-  /mcp forget <name>                Forget a remembered server; Casper asks again next time (remove is the same)
+  /mcp forget <name>                Forget a server's remembered consent; Casper asks again next time (it stays in its file)
   /mcp junos-show <name> on|off     Let plain Junos show commands run without asking
   /mcp sandbox <name> on|off        Run a server Casper knows (its network server) in the sandbox or not; on by default, kept
   /mcp docs                         Docs servers; add a docs-only copy with no credentials

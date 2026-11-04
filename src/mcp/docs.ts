@@ -78,13 +78,12 @@ export class ServerExistsError extends Error {
 }
 
 /**
- * Add one server to ~/.casper/mcp.json. Create-only: it keeps every entry already there, refuses a
- * name that is already used, and writes a temporary file that then replaces the old one. The file
- * is created (0600) when missing.
+ * Changes the mcpServers map of one MCP file (`label` in messages) and writes it back through a temporary file that
+ * then replaces the old one, keeping the file's mode and everything else in it. `create`: a missing file starts empty
+ * (made 0600); otherwise a missing file is an error. `change` returns false to write nothing.
  */
-export async function addUserServer(home: string, name: string, entry: UserServerEntry): Promise<string> {
-  const file = path.join(home, ".casper", "mcp.json");
-  if (!/^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,63}$/.test(name)) throw new Error(`Cannot add ${name}: not a valid server name.`);
+export async function editServerFile(file: string, label: string, change: (servers: Record<string, unknown>) => boolean,
+  options: { create?: boolean } = {}): Promise<boolean> {
   let document: Record<string, unknown> = { mcpServers: {} };
   let mode = 0o600;
   try {
@@ -100,12 +99,9 @@ export async function addUserServer(home: string, name: string, entry: UserServe
     } finally { await handle.close(); }
     mode = (await stat(file)).mode & 0o777;
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw new Error(`Cannot read ${MCP_FILE_LABEL}. Nothing changed.`);
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT" || !options.create) throw new Error(`Cannot read ${label}. Nothing changed.`);
   }
-  const servers = document.mcpServers as Record<string, unknown>;
-  if (Object.hasOwn(servers, name)) throw new ServerExistsError(name);
-  servers[name] = "url" in entry ? { type: "http", url: entry.url }
-    : { command: entry.command, args: [...entry.args], ...(entry.cwd ? { cwd: entry.cwd } : {}), env: { ...entry.env } };
+  if (!change(document.mcpServers as Record<string, unknown>)) return false;
   const next = `${JSON.stringify(document, null, 2)}\n`;
   await mkdir(path.dirname(file), { recursive: true, mode: 0o700 });
   const temporary = `${file}.${process.pid}.${randomBytes(6).toString("hex")}.tmp`;
@@ -116,5 +112,22 @@ export async function addUserServer(home: string, name: string, entry: UserServe
     await rm(temporary, { force: true }).catch(() => {});
     throw error;
   }
+  return true;
+}
+
+/**
+ * Add one server to ~/.casper/mcp.json. Create-only: it keeps every entry already there, refuses a
+ * name that is already used, and writes a temporary file that then replaces the old one. The file
+ * is created (0600) when missing.
+ */
+export async function addUserServer(home: string, name: string, entry: UserServerEntry): Promise<string> {
+  const file = path.join(home, ".casper", "mcp.json");
+  if (!/^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,63}$/.test(name)) throw new Error(`Cannot add ${name}: not a valid server name.`);
+  await editServerFile(file, MCP_FILE_LABEL, (servers) => {
+    if (Object.hasOwn(servers, name)) throw new ServerExistsError(name);
+    servers[name] = "url" in entry ? { type: "http", url: entry.url }
+      : { command: entry.command, args: [...entry.args], ...(entry.cwd ? { cwd: entry.cwd } : {}), env: { ...entry.env } };
+    return true;
+  }, { create: true });
   return file;
 }

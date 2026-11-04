@@ -102,7 +102,17 @@ function tasksPart(source: SessionToolSource): Array<Record<string, unknown>> {
 }
 
 function mcpPart(source: SessionToolSource): Array<Record<string, unknown>> {
-  return (safely(() => source.mcp()) ?? []).map((server) => ({ name: clean(server.name, 80), connected: server.state === "ready", writes: server.writes }));
+  return (safely(() => source.mcp()) ?? []).map((server) => ({ name: clean(server.name, 80), connected: server.state === "ready", writes: server.writes,
+    ...(server.state === "ready" ? {} : { state: notConnected(server) }) }));
+}
+
+/** Why a server isn't connected, in a few words, so the AI doesn't go looking: never the server's own output. */
+function notConnected(server: MCPStatus): string {
+  if (server.stoppedBy) return `disconnected by ${clean(server.stoppedBy, 40)}`;
+  if (server.state === "failed") return "failed to start; the user sees why in /mcp";
+  if (server.state === "disabled") return "disabled in its file";
+  if (server.state === "connecting") return "starting";
+  return server.approved ? "not connected" : "not connected: needs the user's /mcp connect";
 }
 
 /** Said in the whole snapshot. Asked to continue an earlier conversation, the AI found it named here and went searching

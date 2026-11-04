@@ -12,6 +12,7 @@ import type { RuntimeTool } from "../runtime/types";
 import { entryText, MCP_ADD_EXAMPLE, mcpAddLine, mcpAddProblem, runMcpAdd, type McpAdd, type McpAddHost } from "./add";
 import type { MCPServerDefinition } from "./config";
 import { MCP_FILE_LABEL } from "./docs";
+import { MCP_REMOVE_TOOL, replaceForAI, type McpEditToolHost } from "./edit";
 import { versionLine } from "./presets";
 import { keyLabel, parseKey } from "./server-secrets";
 
@@ -28,6 +29,8 @@ export interface McpAddToolHost extends McpAddHost {
   tell(text: string): void;
   /** The started server, as the one-line /mcp list says it ("3 tools · writes off"). */
   describe(name: string): string | undefined;
+  /** With replace: true, the change to an existing server goes here (src/mcp/edit.ts), with its own box. */
+  editor?: McpEditToolHost;
 }
 
 const DESCRIPTION = "Add an MCP server to the user's ~/.casper/mcp.json and start it. Casper shows the user the exact command and "
@@ -35,7 +38,8 @@ const DESCRIPTION = "Add an MCP server to the user's ~/.casper/mcp.json and star
   + "npx -y github:owner/repo#<commit>; uvx pkg==1.2.3 or uvx --from git+https://github.com/owner/repo@<commit> <entry>; "
   + "docker run -i --rm image:<tag> (or @sha256:<digest>). For a GitHub repo, read its README with casper_read_untrusted "
   + "(untrusted text) to find that command and a release. If it needs a clone and build step, don't call this: tell the "
-  + "user the steps. A server at an address: url instead of command.";
+  + "user the steps. A server at an address: url instead of command. To change what an existing server runs (a new "
+  + "version), give its name and replace: true; Casper shows the old and new command and asks.";
 
 /** The tool's arguments as an add, or why they can't be one. */
 function toolAdd(args: Record<string, unknown>): McpAdd | { error: string } {
@@ -89,15 +93,24 @@ export function mcpAddTool(host: McpAddToolHost): RuntimeTool {
         args: { type: "array", items: { type: "string" } },
         url: { type: "string", description: "The server's address, instead of command" },
         key: { type: "string", description: "Only if it needs one: bearer, api-key[:Header] or env:NAME. The user types it" },
+        replace: { type: "boolean", description: "Change an existing server of this name instead of adding one" },
       },
     },
     // One box at a time, and never two adds racing for the same file.
     sequential: true,
     async execute(args, signal) {
-      const add = toolAdd(args);
+      const { replace, ...rest } = args;
+      if (replace !== undefined && typeof replace !== "boolean") return { text: "Not added: replace must be true or false.", isError: true };
+      if (replace) {
+        const update = toolAdd(rest);
+        if ("error" in update) return { text: `Not changed: ${update.error}. Example: ${MCP_ADD_EXAMPLE}`, isError: true };
+        if (!host.editor) return { text: "Not changed: this session can't change a server. Tell the user to type /mcp update.", isError: true };
+        return replaceForAI(host.editor, update, signal);
+      }
+      const add = toolAdd(rest);
       if ("error" in add) return { text: `Not added: ${add.error}. Example: ${MCP_ADD_EXAMPLE}`, isError: true };
       const taken = (await host.configured()).find((definition) => definition?.name === add.name);
-      if (taken) return { text: `Not added: ${add.name} is already a server. Pick another name.`, isError: true };
+      if (taken) return { text: `Not added: ${add.name} is already a server. To change what it runs, call this again with replace: true; to take it out, ${MCP_REMOVE_TOOL}.`, isError: true };
       const line = mcpAddLine(add);
       if (!host.canAsk()) {
         host.tell(`[mcp] The AI wanted to add ${add.name}, and this run can't ask you, so nothing was added. To add it, type this in a Casper session:\n  ${line}\n`);

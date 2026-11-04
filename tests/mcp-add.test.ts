@@ -111,7 +111,7 @@ test("a name a server already has, in ~/.casper/mcp.json or a file Casper import
   const mine = { mcpServers: { net: { command: "node", args: ["/srv/old.js"] } } };
   const host = await addHost({ casper: mine });
   expect(await runMcpAdd(host, { name: "net", entry: { command: "npx", args: ["-y", "other@1.0.0"] } })).toBe("exists");
-  expect(host.output).toBe(`[mcp] net is already a server (${path.join(host.homeDir, ".casper/mcp.json")}). Pick another name. Nothing changed.\n`);
+  expect(host.output).toBe("[mcp] net is already a server (~/.casper/mcp.json). To change what it runs: /mcp update net <command> [args…]. Nothing changed.\n");
   expect(await servers(host.homeDir)).toEqual(mine.mcpServers);
   const imported = await addHost({ claude: { mcpServers: { lab: { command: "node", args: ["/srv/lab.js"] } } } });
   expect(await runMcpAdd(imported, { name: "lab", entry: { command: "npx", args: ["-y", "lab@1.0.0"] } })).toBe("exists");
