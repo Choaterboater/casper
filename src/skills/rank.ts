@@ -37,6 +37,25 @@ function withoutLinks(text: string): string {
   return text.replace(/\b(?:https?:\/\/|www\.)\S+/gi, " ").replace(/\b[\w-]+(?:\.[\w-]+)+\/\S*/g, " ");
 }
 
+/** Every word of the text, in order, stop words kept: a skill's name is matched as a phrase in these. */
+function rawWords(text: string): string[] {
+  return text.toLowerCase().match(/[a-z0-9]+/g) ?? [];
+}
+
+/** True when the skill's whole name is in the request as a phrase ("find skills", "mcp builder"): its words next to each
+ * other, in order. "find-skills" is not named by "can find some … hpe skills". */
+function namesSkill(name: string, request: string): boolean {
+  const parts = rawWords(name);
+  const words = rawWords(request);
+  if (!parts.length) return false;
+  for (let at = 0; at + parts.length <= words.length; at++) if (parts.every((part, index) => words[at + index] === part)) return true;
+  return false;
+}
+
+/** A long request shares words with a long description by chance ("fixed" and "two" with "a fixed point … two axes"):
+ * past this many of the request's words, the description needs three of them, not two. */
+const SHORT_REQUEST_WORDS = 6;
+
 function overlap(left: Set<string>, right: Set<string>): number {
   return [...left].filter((word) => right.has(word)).length;
 }
@@ -57,14 +76,15 @@ export function scoreSkill(
   }
 
   const nameWords = words(skill.name);
-  const calledByName = nameWords.size > 0 && [...nameWords].every((word) => taskWords.has(word));
+  const calledByName = nameWords.size > 0 && namesSkill(skill.name, withoutLinks(request));
   // A tag, or the whole name, names the skill. One word of a longer name is like a word of the description: "add
   // another mcp central server to network mcp" and "what is pac mcp" are not about mcp-builder.
   const named = overlap(words([...(calledByName ? [skill.name] : []), ...skill.tags].join(" ")), taskWords);
   const described = overlap(words([skill.name, skill.description].join(" ")), taskWords);
   // One word of the request in a long description is chance ("test" is in a TDD skill, a test-migration skill and
   // "stress-test"): the description counts with two of the request's words, or with the skill's name or tags.
-  const topicScore = named * 4 + (named || described >= 2 ? described : 0);
+  const needed = taskWords.size > SHORT_REQUEST_WORDS ? 3 : 2;
+  const topicScore = named * 4 + (named || described >= needed ? described : 0);
   // A long request: the skill counts when the request names it, or when they share a fair part of its words.
   const shared = overlap(words([skill.name, ...skill.tags, skill.description].join(" ")), taskWords);
   if (!calledByName && shared < Math.max(1, Math.ceil(taskWords.size * TOPIC_SHARE))) return 0;

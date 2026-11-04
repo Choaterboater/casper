@@ -165,3 +165,82 @@ test("a server you disconnected in /mcp: casper_session tells the AI so", async 
   }]);
   expect(JSON.parse(seen)).toMatchObject({ mcp: [{ name: "rea", connected: false, writes: "off", state: "disconnected by you, in /mcp" }] });
 }, childTestLimit());
+
+test("a server from before this session whose tools have no labels: one named as a look (open, overview) is no change row and no Devices row", async () => {
+  // From a real v0.4.12 session: rea-agents' open_binary, binary_overview, inspect_macho and binary_session were each
+  // "◆ Changed in rea-agents" and a Devices row on the receipt.
+  const { home, project } = await folders({ rea: { command: process.execPath, args: [fixture, "--mode=unlabeled"], env: {} } });
+  const results: string[] = [];
+  const call = (tools: RuntimeTool[], id: string) => tools.find((item) => item.name === "call_capability")!.execute({ id, arguments: {} }).then((result) => { results.push(result.text); });
+  const run = await session(home, project, ["/mcp connect rea", "open the binary with the rea mcp server"], ["2", "2", "2", "2"], [async (tools) => {
+    await call(tools, "mcp:rea:open_binary");
+    await call(tools, "mcp:rea:binary_overview");
+    await call(tools, "mcp:rea:set_breakpoint");
+  }]);
+  expect(results.map((text) => text.includes("called "))).toEqual([true, true, true]);
+  expect(run.output()).not.toContain("Changed in rea: open_binary");
+  expect(run.output()).not.toContain("Changed in rea: binary_overview");
+  expect(run.output()).not.toContain("In rea: open_binary");
+  // A name that reads as a change is still one, as is the box for every unlabeled call.
+  expect(run.output()).toContain("◆ Changed in rea: set_breakpoint");
+}, childTestLimit());
+
+test("the same command again restarts the server, so a tool added to its code is listed; the old one wasn't", async () => {
+  // From a real v0.4.12 session: a replace with the same command left the server running its old code (5 tools, not 6).
+  const { home, project } = await folders({});
+  const list = path.join(home, "tools.json");
+  await writeFile(list, JSON.stringify(["get_quote"]));
+  const args = [fixture, "--mode=unlabeled", `--tools-file=${list}`];
+  await writeFile(path.join(home, ".casper/mcp.json"), JSON.stringify({ mcpServers: { catalog: { command: process.execPath, args, env: {} } } }));
+  const results: Array<{ text: string; isError?: boolean }> = [];
+  const run = await session(home, project, ["/mcp connect catalog", "restart the catalog mcp server so it lists list_model_options"], ["2", "2"], [async (tools) => {
+    await writeFile(list, JSON.stringify(["get_quote", "list_model_options"]));
+    results.push(await tools.find((item) => item.name === MCP_ADD_TOOL)!.execute({ name: "catalog", command: process.execPath, args, replace: true }));
+    results.push(await tools.find((item) => item.name === "call_capability")!.execute({ id: "mcp:catalog:list_model_options", arguments: {} }));
+  }]);
+  expect(run.output()).toContain(`  runs     ${process.execPath} ${args.join(" ")} (the same: it starts again and lists its tools again)\n`);
+  expect(run.output()).toContain("[mcp] catalog runs ");
+  expect(run.output()).toContain(", as before, in ~/.casper/mcp.json. Starting it again, so its tools are listed again…");
+  expect(results[0]).toEqual({ text: "Restarted catalog in ~/.casper/mcp.json and started it (6 tools · writes off)." });
+  expect(results[1]!.text).toContain("called list_model_options");
+}, childTestLimit());
+
+test("/mcp update --timeout gives a server longer for each call; /mcp detail says so, and the server keeps running", async () => {
+  const { home, project } = await folders({ rea: server("6.8.0", { REA_TOKEN: SECRET }) });
+  const run = await session(home, project, ["/mcp connect rea", "/mcp update rea --timeout 5m", "/mcp detail rea", "/mcp update rea --timeout 2h"], ["2"]);
+  expect(run.output()).toContain("[mcp] Changed rea in ~/.casper/mcp.json: it waits up to 5m for each call.\n");
+  expect(run.output()).toContain("  limits: start 20s · call 5m");
+  expect(run.output()).toContain("[mcp] A timeout is a length from 1s to 30m, such as 300s or 5m. Nothing changed.\n");
+  expect(await servers(home)).toEqual({ rea: { ...server("6.8.0", { REA_TOKEN: SECRET }), callTimeout: 300 } });
+  expect(run.casper.mcp!.status().find((item) => item.name === "rea")).toMatchObject({ state: "ready", limits: { callS: 300 } });
+}, childTestLimit());
+
+test("the AI sets a plain variable and a longer time limit through the box, which shows old and new; the file ends right", async () => {
+  // From a real v0.4.12 session: replace refused env, so the AI wrote a wrapper script inside an app bundle instead.
+  const { home, project } = await folders({ rea: server("6.8.0", { REA_TOKEN: SECRET }) });
+  const launcher = "/Users/example/Applications/Hopper Disassembler.app/Contents/MacOS/hopper";
+  const results: Array<{ text: string; isError?: boolean }> = [];
+  const run = await session(home, project, ["/mcp connect rea", "set HOPPER_LAUNCHER_PATH on the rea mcp server and give it 5 minutes"], ["2", "2"], [async (tools) => {
+    results.push(await tools.find((item) => item.name === MCP_ADD_TOOL)!.execute({ name: "rea", replace: true, env: { HOPPER_LAUNCHER_PATH: launcher }, timeout: "5m" }));
+  }]);
+  expect(run.output()).toContain([
+    "The AI wants to change an MCP server:",
+    "  name     rea",
+    "  from     ~/.casper/mcp.json",
+    "  settings REA_TOKEN (values hidden)",
+    `  runs     ${process.execPath} ${fixture} rea-agents@6.8.0`,
+    `  env      HOPPER_LAUNCHER_PATH: not set → ${launcher}`,
+    "  timeout  1m30s → 5m for each call",
+  ].join("\n"));
+  expect(run.output()).toContain("[mcp] Changed rea in ~/.casper/mcp.json: it now sets HOPPER_LAUNCHER_PATH. It waits up to 5m for each call. Starting it…");
+  expect(results[0]).toEqual({ text: "Changed rea in ~/.casper/mcp.json and started it (3 tools · writes off)." });
+  expect(await servers(home)).toEqual({ rea: { ...server("6.8.0", { REA_TOKEN: SECRET, HOPPER_LAUNCHER_PATH: launcher }), callTimeout: 300 } });
+  expect(run.output()).not.toContain(SECRET);
+}, childTestLimit());
+
+test("/mcp says when two servers run the same npm package, and which /mcp remove keeps the newest", async () => {
+  const { home, project } = await folders({ rea: { command: "npx", args: ["-y", "rea-agents@6.7.0", "mcp"], env: {}, disabled: true },
+    "rea-agents": { command: "npx", args: ["-y", "rea-agents@6.8.0", "mcp"], env: {}, disabled: true } });
+  const run = await session(home, project, ["/mcp list"], []);
+  expect(run.output()).toContain("[mcp] rea (6.7.0) and rea-agents (6.8.0) both run rea-agents, so their tools are loaded twice. To keep the newest: /mcp remove rea.\n");
+}, childTestLimit());

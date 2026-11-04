@@ -111,6 +111,9 @@ export interface RuntimeShell {
   /** Before the AI's edit or write lands outside the project: a reason refuses it; undefined lets it run. Works
    * with no sandbox too. */
   outsideWrite?(absolute: string): Promise<string | undefined>;
+  /** Before the AI's edit or write lands inside an app bundle (src/platform/bundles.ts), in the project or not: a reason
+   * refuses it; undefined lets it run. */
+  bundleWrite?(absolute: string): Promise<string | undefined>;
   /** That edit or write went through (the receipt says so). */
   wroteOutside?(absolute: string): void;
   /** Provider keys you keep in the shell's environment (shell.keepEnv). */

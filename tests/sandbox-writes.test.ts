@@ -2,7 +2,7 @@ import { afterEach, expect, test } from "bun:test";
 import { mkdir, mkdtemp, realpath, symlink } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { createSessionSandbox, outsideWritesReceipt, runtimeShell, SANDBOX_REFUSED, writeAllowedLine, writeCantAsk, writeDeclined, writeOnceLine, type SandboxHost } from "../src/app/sandbox";
+import { BUNDLE_ELSEWHERE, createSessionSandbox, outsideWritesReceipt, runtimeShell, SANDBOX_REFUSED, writeAllowedLine, writeCantAsk, writeDeclined, writeOnceLine, type SandboxHost } from "../src/app/sandbox";
 import { writeChoices } from "../src/app/safe-choices";
 import { loadProjectContext } from "../src/project/context";
 import { inspectProject } from "../src/project/inspect";
@@ -283,4 +283,44 @@ posixOnly("the shell route also asks from Linux's read-only-file-system line", a
   const run = await s.shell.wrap("touch config.json", s.project);
   expect(await s.shell.refused!(run.id!, `touch: cannot touch '${path.join(s.app, "config.json")}': Read-only file system`)).toBe(writeAllowedLine(FOLDER));
   await s.sandbox.close();
+});
+
+test("a write inside an app bundle asks first, also when Casper started in the bundle and it is the project, and says it breaks the signature", async () => {
+  // From a real v0.4.12 session: Casper started in /Applications/Iris.app, so the AI wrote a wrapper script into the
+  // app as "the project", which broke its code signature.
+  const s = await session(["No", "Yes, for this session"]);
+  const app = path.join(s.project, "Iris.app");
+  await mkdir(path.join(app, "Contents", "MacOS"), { recursive: true });
+  const script = path.join(app, "rea-hopper-wrapper.sh");
+  const refused = await s.shell.bundleWrite!(script);
+  expect(refused).toBe(`Not done: Iris.app/rea-hopper-wrapper.sh is inside Iris.app, and the user said no. ${BUNDLE_ELSEWHERE}`);
+  expect(s.terminal.asked).toEqual([{
+    question: "Write Iris.app/rea-hopper-wrapper.sh? Iris.app is an app bundle: adding or changing a file in it breaks the app's code signature, so macOS may refuse to open it.",
+    options: ["No", "Yes, this once", "Yes, for this session"],
+  }]);
+  // Yes, for this session covers that app until you quit; another app asks again.
+  expect(await s.shell.bundleWrite!(path.join(app, "Contents", "Info.plist"))).toBeUndefined();
+  expect(await s.shell.bundleWrite!(script)).toBeUndefined();
+  expect(s.terminal.asked).toHaveLength(2);
+  // A folder that is only named like one (no Contents inside) is no bundle; neither is the rest of the project.
+  await mkdir(path.join(s.project, "site.app"), { recursive: true });
+  expect(await s.shell.bundleWrite!(path.join(s.project, "site.app", "index.html"))).toBeUndefined();
+  expect(await s.shell.bundleWrite!(path.join(s.project, "notes.md"))).toBeUndefined();
+  expect(s.terminal.asked).toHaveLength(2);
+  await s.sandbox.close();
+});
+
+test("a run that can't ask never writes in an app bundle; /permissions all doesn't answer that box", async () => {
+  const s = await session([], { canAsk: false });
+  const app = path.join(s.home, "Applications", "Hopper Disassembler.app");
+  await mkdir(path.join(app, "Contents"), { recursive: true });
+  expect(await s.shell.bundleWrite!(path.join(app, "Contents", "x.sh"))).toBe(`Not done: ~/Applications/Hopper Disassembler.app/Contents/x.sh is inside Hopper Disassembler.app. ${BUNDLE_ELSEWHERE}`);
+  await s.sandbox.close();
+  const all = await session(["No"]);
+  all.terminal.value.stopAsking = () => true;
+  const own = path.join(all.project, "Tool.app");
+  await mkdir(path.join(own, "Contents"), { recursive: true });
+  expect(await all.shell.bundleWrite!(path.join(own, "x"))).toMatch(/^Not done: /);
+  expect(all.terminal.asked).toHaveLength(1);
+  await all.sandbox.close();
 });

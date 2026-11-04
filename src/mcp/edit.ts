@@ -10,18 +10,21 @@
 
 import type { RuntimeTool } from "../runtime/types";
 import { scrubText } from "../secrets/scrub";
-import { redactPreview, terminalText } from "../tui/format";
-import { entryText, homeShown, MCP_ADD_EXAMPLE, mcpAddProblem, type McpAdd, type McpAddEntry, type McpAddHost } from "./add";
-import { IMPORT_LABELS, isRecord, type MCPServerDefinition } from "./config";
+import { formatDuration, redactPreview, terminalText } from "../tui/format";
+import { entryText, homeShown, MCP_ADD_EXAMPLE, mcpAddProblem, type McpAddEntry, type McpAddHost } from "./add";
+import { IMPORT_LABELS, isRecord, MAX_CALL_SECONDS, type MCPServerDefinition } from "./config";
 import { editServerFile } from "./docs";
 import { runnerPin, versionLine } from "./presets";
-import { forgetServerKey } from "./server-secrets";
+import { forgetServerKey, saveServerKey } from "./server-secrets";
+import { isSecretKey as isSecretName } from "../secrets/scrub";
 
 export const MCP_REMOVE_TOOL = "casper_mcp_remove";
 
 export interface McpEditHost extends McpAddHost {
   /** Re-reads the files, so a removed server stops and a changed one is replaced (as /mcp reload does). */
   reload(): Promise<void>;
+  /** Starts a running server again once its calls finish, so it lists its tools again. */
+  restart(name: string): Promise<void>;
   /** Forgets the remembered consent to start `name`, so a server of that name added later asks again. */
   forgetConsent(name: string): Promise<void>;
 }
@@ -91,9 +94,46 @@ export async function runMcpRemove(host: McpEditHost, name: string): Promise<Mcp
   return "done";
 }
 
-/** Changes what `name` runs in the file that defines it, keeping its settings, and starts it again. */
-export async function runMcpUpdate(host: McpEditHost, update: McpAdd): Promise<McpEditResult> {
-  const { name, entry } = update;
+/** A change to one server: what it runs, its call time limit, and environment variables (values the AI may see). */
+export interface McpUpdate {
+  name: string;
+  /** What it runs now; unset keeps it. */
+  entry?: McpAddEntry;
+  /** The longest a call may go without an answer, in seconds ("callTimeout" in the file). */
+  timeoutS?: number;
+  /** Environment variables to set; other variables stay. Never a secret: those are the person's hidden key. */
+  env?: Record<string, string>;
+  /** A secret variable the person typed hidden after the box: the server starts again to read it. */
+  keySaved?: string;
+}
+
+/** "300", "300s", "5m", "1h": seconds, from 1 to MAX_CALL_SECONDS; or why it can't be used. */
+export function parseTimeout(text: string): number | { error: string } {
+  const match = /^(\d+(?:\.\d+)?)\s*(s|sec|secs|seconds?|m|min|mins|minutes?|h|hours?)?$/i.exec(text.trim());
+  const unit = match?.[2]?.[0]?.toLowerCase() ?? "s";
+  const seconds = match ? Math.round(Number(match[1]) * (unit === "h" ? 3600 : unit === "m" ? 60 : 1)) : NaN;
+  if (!Number.isFinite(seconds) || seconds < 1 || seconds > MAX_CALL_SECONDS) {
+    return { error: `A timeout is a length from 1s to ${formatDuration(MAX_CALL_SECONDS * 1000)}, such as 300s or 5m.` };
+  }
+  return seconds;
+}
+
+/** "/mcp update <name> --timeout 5m [<command> [args…]|<url>]": the timeout taken out of the words, wherever it is. */
+export function splitTimeoutFlag(text: string): { rest: string; timeout?: string } | { error: string } {
+  const match = /(?:^|\s)--timeout(?:=|\s+)(\S+)(?=\s|$)/.exec(text);
+  if (!match) return /(?:^|\s)--timeout(?:\s|$)/.test(text) ? { error: "--timeout needs a length, such as --timeout 5m." } : { rest: text };
+  return { rest: `${text.slice(0, match.index)} ${text.slice(match.index + match[0].length)}`.replace(/\s+/g, " ").trim(), timeout: match[1]! };
+}
+
+function sameRun(definition: MCPServerDefinition, entry: McpAddEntry): boolean {
+  return entryText(entry) === entryText(definitionEntry(definition));
+}
+
+/** Changes what `name` runs, its call time limit or its environment, in the file that defines it, keeping its other
+ * settings. A change to what it runs or its environment starts it again, also when what it runs is the same, so its
+ * tools are listed again; a new time limit applies to the next call. */
+export async function runMcpUpdate(host: McpEditHost, update: McpUpdate): Promise<McpEditResult> {
+  const { name, entry, timeoutS, env } = update;
   const say = (text: string) => host.write(`[mcp] ${text}\n`);
   const definition = await find(host, name);
   if (!definition) { say(`There is no server named ${terminalText(name)}. To add one: /mcp add ${name} <command> [args…].`); return "none"; }
@@ -102,28 +142,58 @@ export async function runMcpUpdate(host: McpEditHost, update: McpAdd): Promise<M
     say(`${name} is in ${place.label}, not one of Casper's files, so Casper didn't change it. Change it there (${place.how}).`);
     return "elsewhere";
   }
+  const atAddress = entry ? "url" in entry : definition.transport.type === "http";
+  if (atAddress && env && Object.keys(env).length) { say(`${name} is a server at an address: it has no environment. Nothing changed.`); return "failed"; }
   try {
     await editServerFile(place.file, place.label, (servers) => {
       const old = servers[name];
-      const kept = isRecord(old) ? old : {};
-      if ("url" in entry) {
-        const { command: _command, args: _args, env: _env, cwd: _cwd, ...rest } = kept;
-        servers[name] = { ...rest, type: "http", url: entry.url };
-      } else {
-        const { url: _url, headers: _headers, type: _type, ...rest } = kept;
-        servers[name] = { ...rest, command: entry.command, args: [...entry.args], env: isRecord(kept.env) ? kept.env : {} };
+      let next: Record<string, unknown> = isRecord(old) ? { ...old } : {};
+      if (entry && "url" in entry) {
+        const { command: _command, args: _args, env: _env, cwd: _cwd, ...rest } = next;
+        next = { ...rest, type: "http", url: entry.url };
+      } else if (entry) {
+        const { url: _url, headers: _headers, type: _type, ...rest } = next;
+        next = { ...rest, command: entry.command, args: [...entry.args], env: isRecord(next.env) ? next.env : {} };
       }
+      if (env && Object.keys(env).length) next.env = { ...isRecord(next.env) ? next.env : {}, ...env };
+      if (timeoutS !== undefined) next.callTimeout = timeoutS;
+      servers[name] = next;
       return true;
     });
   } catch (error) { say(terminalText(error instanceof Error ? error.message : String(error))); return "failed"; }
-  // The new program gets none of an address's settings, and the reverse: only settings of the same kind are kept.
-  const sameKind = ("url" in entry) === (definition.transport.type === "http");
-  const kept = sameKind ? settingNames(definition) : [];
-  say(`Changed ${name} in ${place.label}: it now runs ${terminalText(runsText(entry))} (it ran ${terminalText(runsText(definitionEntry(definition)))}).`
-    + `${kept.length ? ` Its settings (${kept.join(", ")}) are kept.` : ""} Starting it…`);
+  const parts: string[] = [];
+  if (entry && !sameRun(definition, entry)) {
+    // The new program gets none of an address's settings, and the reverse: only settings of the same kind are kept.
+    const sameKind = ("url" in entry) === (definition.transport.type === "http");
+    const kept = sameKind ? settingNames(definition).filter((key) => !env || !Object.hasOwn(env, key)) : [];
+    parts.push(`it now runs ${terminalText(runsText(entry))} (it ran ${terminalText(runsText(definitionEntry(definition)))}).${kept.length ? ` Its settings (${kept.join(", ")}) are kept.` : ""}`);
+  }
+  if (env && Object.keys(env).length) parts.push(`it now sets ${Object.keys(env).sort().join(", ")}.`);
+  if (update.keySaved) parts.push(`it now gets ${update.keySaved}, which you typed (kept in Casper's private key file).`);
+  if (timeoutS !== undefined) {
+    const was = definition.limits?.callMs;
+    parts.push(`it waits up to ${formatDuration(timeoutS * 1000)} for each call${was ? ` (it waited ${formatDuration(was)})` : ""}.`);
+  }
+  const restart = Boolean(entry || (env && Object.keys(env).length) || update.keySaved);
+  const sentences = parts.map((part, index) => index ? `${part[0]!.toUpperCase()}${part.slice(1)}` : part).join(" ");
+  if (!restart) {
+    say(`Changed ${name} in ${place.label}: ${sentences}`);
+    await host.reload();
+    return "done";
+  }
+  const unchanged = !parts.length;
+  say(unchanged ? `${name} runs ${terminalText(runsText(definitionEntry(definition)))}, as before, in ${place.label}. Starting it again, so its tools are listed again…`
+    : `Changed ${name} in ${place.label}: ${sentences} Starting it…`);
   let connected: { ok: boolean; message?: string };
-  try { connected = await host.connect(name); }
-  catch (error) { connected = { ok: false, message: error instanceof Error ? error.message : String(error) }; }
+  try {
+    connected = await host.connect(name);
+    // The same program and environment: re-reading the file keeps the running server, so it starts again here.
+    const now = await find(host, name);
+    if (connected.ok && now && JSON.stringify(now.transport) === JSON.stringify(definition.transport)) {
+      await host.restart(name);
+      connected = await host.connect(name);
+    }
+  } catch (error) { connected = { ok: false, message: error instanceof Error ? error.message : String(error) }; }
   if (!connected.ok) {
     say(`${name} didn't start${connected.message ? `: ${terminalText(connected.message)}` : ""}. Fix that, then type /mcp connect ${name}.`);
     return "failed";
@@ -162,33 +232,81 @@ async function editable(host: McpEditToolHost, name: string, verb: string): Prom
   return { definition, place };
 }
 
-/** casper_mcp_add with replace: the AI changes what a server in Casper's own file runs, after the box. */
-export async function replaceForAI(host: McpEditToolHost, update: McpAdd, signal?: AbortSignal): Promise<{ text: string; isError?: boolean }> {
-  const problem = mcpAddProblem(update);
-  if (problem) return { text: `Not changed: ${problem}. Example: ${MCP_ADD_EXAMPLE}`, isError: true };
-  if (update.key) return { text: "Not changed: a key can't be changed this way. Tell the user to type /mcp add with the key flag for a new server.", isError: true };
-  const found = await editable(host, update.name, "changed");
+/** What the AI asks to change with casper_mcp_add and replace: true. Every part is optional but the name. */
+export interface McpReplace {
+  name: string;
+  entry?: McpAddEntry;
+  timeoutS?: number;
+  /** Variables to set. A secret-looking name takes no value from the AI: the person types it hidden after the box. */
+  env?: Record<string, string>;
+}
+
+/** casper_mcp_add with replace: the AI changes a server in Casper's own file (what it runs, its environment, its call
+ * time limit), after the box. The same command again restarts it, so a server whose code changed lists its tools again. */
+export async function replaceForAI(host: McpEditToolHost, change: McpReplace, signal?: AbortSignal): Promise<{ text: string; isError?: boolean }> {
+  const { name } = change;
+  if (change.entry) {
+    const problem = mcpAddProblem({ name, entry: change.entry });
+    if (problem) return { text: `Not changed: ${problem}. Example: ${MCP_ADD_EXAMPLE}`, isError: true };
+  }
+  const env = change.env ?? {};
+  const badName = Object.keys(env).find((key) => !/^[A-Za-z_][A-Za-z0-9_]{0,127}$/.test(key));
+  if (badName !== undefined) return { text: `Not changed: ${badName.slice(0, 64)} is not an environment variable name.`, isError: true };
+  const secrets = Object.keys(env).filter((key) => isSecretName(key));
+  const given = secrets.filter((key) => env[key] !== "");
+  if (given.length) return { text: `Not changed: ${given.join(", ")} looks like a secret, so the AI never sets its value. Give it as "" and the user types it hidden after their yes.`, isError: true };
+  if (secrets.length > 1) return { text: "Not changed: one secret variable at a time (the user types it hidden).", isError: true };
+  const plain = Object.fromEntries(Object.entries(env).filter(([key]) => !secrets.includes(key)));
+  const badValue = Object.entries(plain).find(([, value]) => value.length > 1024 || /[\x00-\x1f\x7f]/.test(value));
+  if (badValue) return { text: `Not changed: ${badValue[0]}'s value must be one line, up to 1024 characters.`, isError: true };
+  const found = await editable(host, name, "changed");
   if ("text" in found) return { text: found.text, isError: true };
   const { definition, place } = found;
-  if (!host.canAsk()) {
-    host.tell(`[mcp] The AI wanted to change what ${update.name} runs, and this run can't ask you, so nothing changed. To change it, type this in a Casper session:\n  /mcp update ${update.name} ${entryText(update.entry)}\n`);
-    return { text: `Not changed: this run can't ask the user. Tell them to type this in a Casper session: /mcp update ${update.name} ${runsText(update.entry)}`, isError: true };
+  if (!change.entry && change.timeoutS === undefined && !Object.keys(env).length) {
+    return { text: `Not changed: say what to change: command (with args) or url, env, or timeout. The same command again restarts ${name}.`, isError: true };
   }
-  const next: MCPServerDefinition = { ...definition, transport: "url" in update.entry ? { type: "http", url: update.entry.url, headers: {} } : { type: "stdio", command: update.entry.command, args: update.entry.args, env: {} } };
+  const atAddress = change.entry ? "url" in change.entry : definition.transport.type === "http";
+  if (atAddress && Object.keys(env).length) return { text: `Not changed: ${name} is a server at an address, so it has no environment.`, isError: true };
+  const line = `/mcp update ${name}${change.timeoutS !== undefined ? ` --timeout ${change.timeoutS}s` : ""}${change.entry ? ` ${runsText(change.entry)}` : ""}`;
+  if (!host.canAsk()) {
+    host.tell(`[mcp] The AI wanted to change ${name}, and this run can't ask you, so nothing changed.${!Object.keys(env).length ? ` To change it, type this in a Casper session:\n  ${line}` : ""}\n`);
+    return { text: `Not changed: this run can't ask the user.${!Object.keys(env).length ? ` Tell them to type this in a Casper session: ${line}` : ""}`, isError: true };
+  }
+  const current = definition.transport.type === "stdio" ? definition.transport.env : {};
+  const shownValue = (key: string, value: string | undefined) => value === undefined ? "not set"
+    : isSecretName(key) || runsText({ url: value }) !== value ? "set (hidden)" : value;
+  const runsChanged = change.entry && !sameRun(definition, change.entry);
+  const next: MCPServerDefinition | undefined = change.entry ? { ...definition, transport: "url" in change.entry ? { type: "http", url: change.entry.url, headers: {} } : { type: "stdio", command: change.entry.command, args: change.entry.args, env: {} } } : undefined;
   const preview = [
-    "The AI wants to change what an MCP server runs:",
+    runsChanged ? "The AI wants to change what an MCP server runs:" : "The AI wants to change an MCP server:",
     ...currentLines(definition, place),
-    `  was      ${runsText(definitionEntry(definition))}`,
-    `  now      ${runsText(update.entry)}`,
-    `  version  ${versionLine(next)}`,
-    "url" in update.entry ? `It is changed in ${place.label} and connects again now.` : `It is changed in ${place.label} and starts again now, outside the sandbox, with your permissions.`,
+    ...runsChanged ? [`  was      ${runsText(definitionEntry(definition))}`, `  now      ${runsText(change.entry!)}`, `  version  ${versionLine(next!)}`]
+      : [`  runs     ${runsText(definitionEntry(definition))}${change.entry ? " (the same: it starts again and lists its tools again)" : ""}`],
+    ...Object.entries(plain).sort().map(([key, value]) => `  env      ${key}: ${shownValue(key, current[key])} → ${terminalText(scrubText(value).text)}`),
+    ...secrets.map((key) => `  env      ${key}: you type it next, hidden; the AI never sees it`),
+    ...change.timeoutS !== undefined ? [`  timeout  ${formatDuration(definition.limits?.callMs ?? 90_000)} → ${formatDuration(change.timeoutS * 1000)} for each call`] : [],
+    change.entry || Object.keys(env).length
+      ? atAddress ? `It is changed in ${place.label} and connects again now.` : `It is changed in ${place.label} and starts again now, outside the sandbox, with your permissions.`
+      : `It is changed in ${place.label}; the next call has the new limit.`,
     "",
   ].join("\n");
-  if (!await host.approveEdit(preview, `Change ${update.name}?`, signal)) return { text: "Not changed: the user said no. Nothing changed.", isError: true };
+  if (!await host.approveEdit(preview, `Change ${name}?`, signal)) return { text: "Not changed: the user said no. Nothing changed.", isError: true };
+  let keySaved: string | undefined;
+  if (secrets.length) {
+    const key = secrets[0]!;
+    const typed = (await host.privateInput?.(`${key} for ${name}`))?.trim();
+    if (!typed) return { text: `Not changed: the user typed no value for ${key}. Nothing changed.`, isError: true };
+    try { await saveServerKey(host.homeDir, name, { kind: "env", name: key }, typed); }
+    catch (error) { return { text: `Not changed: ${error instanceof Error ? error.message : String(error)}`, isError: true }; }
+    keySaved = key;
+  }
   const said: string[] = [];
-  const result = await runMcpUpdate({ ...host, write: (text) => { said.push(text); host.write(text); } }, update);
+  const result = await runMcpUpdate({ ...host, write: (text) => { said.push(text); host.write(text); } },
+    { name, ...change.entry ? { entry: change.entry } : {}, ...change.timeoutS !== undefined ? { timeoutS: change.timeoutS } : {},
+      ...Object.keys(plain).length ? { env: plain } : {}, ...keySaved ? { keySaved } : {} });
   if (result !== "done") return { text: `Not ready: ${said.join("").replace(/\[mcp\] /g, "").trim()}`, isError: true };
-  return { text: `Changed ${update.name} in ${place.label} and started it (${host.describe(update.name) ?? "connected"}).` };
+  if (!change.entry && !Object.keys(env).length) return { text: `Changed ${name} in ${place.label}: each call may take up to ${formatDuration(change.timeoutS! * 1000)}.` };
+  return { text: `${runsChanged || Object.keys(env).length ? "Changed" : "Restarted"} ${name} in ${place.label} and started it (${host.describe(name) ?? "connected"}).` };
 }
 
 export function mcpRemoveTool(host: McpEditToolHost): RuntimeTool {

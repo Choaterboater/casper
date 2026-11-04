@@ -132,6 +132,8 @@ export interface FailureContext {
   idleMs?: number;
   hardMs?: number;
   lastProgress?: string;
+  /** How to give this server longer, said after a call that ran out of time ("/mcp update rea-agents --timeout 5m"). */
+  longer?: string;
   /** The caller (user or task) cancelled the call. */
   cancelled?: boolean;
   /** Extra scrubbing of server text before it is shortened and put into a sentence (model-facing call text). */
@@ -252,7 +254,7 @@ export function describeFailure(error: unknown, context: FailureContext): string
     if (reason === "idle") {
       const limit = context.idleMs ?? clock?.limitMs ?? 0;
       const progress = context.lastProgress ? ` Last progress: ${serverText(context.lastProgress, 120)}.` : "";
-      return `No answer from ${server} in ${formatDuration(limit)}. ${DO_NOT_RETRY}${progress}`;
+      return `No answer from ${server} in ${formatDuration(limit)}. ${DO_NOT_RETRY}${progress}${context.longer ? ` ${context.longer}` : ""}`;
     }
     if (context.cancelled) return `The call to ${server} was cancelled. It may have run. Do not retry on your own; tell the user.`;
     if (context.exited) return `${server} stopped during the call${exitPart(context.exitCode)}. ${DO_NOT_RETRY}`;

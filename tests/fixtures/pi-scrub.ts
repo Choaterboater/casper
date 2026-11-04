@@ -1,3 +1,4 @@
+import { signedBundle } from "../../src/platform/bundles";
 import { PiRuntime } from "../../src/runtime/pi";
 import type { RuntimeEvent } from "../../src/runtime/types";
 import { Scrubber } from "../../src/secrets/netconan";
@@ -20,7 +21,11 @@ const outsideAsked: string[] = [];
 const outsideWrote: string[] = [];
 const shell = outside ? { wrap: async (command: string) => ({ command }), keepEnv: [],
   outsideWrite: async (absolute: string) => { outsideAsked.push(absolute); return outside === "no" ? "Not done: the user said no to writing it. Don't retry it or work around it." : undefined; },
-  wroteOutside: (absolute: string) => { outsideWrote.push(absolute); } } : undefined;
+  wroteOutside: (absolute: string) => { outsideWrote.push(absolute); },
+  // The same answer for a write inside an app bundle (src/platform/bundles.ts).
+  bundleWrite: async (absolute: string) => { const bundle = signedBundle(absolute); if (!bundle) return undefined; bundleAsked.push(absolute);
+    return outside === "no" ? "Not done: it is inside an app bundle, and the user said no." : undefined; } } : undefined;
+const bundleAsked: string[] = [];
 try {
   // FIXTURE_SCRUB_THROW=1 makes the check itself fail.
   const scrub = (toolName: string, input: Record<string, unknown>, texts: string[], signal?: AbortSignal) =>
@@ -54,7 +59,7 @@ try {
   try { await session.prompt("Read the files."); } catch (error) { promptError = String(error); }
   console.log("SCRUB_RESULT=" + JSON.stringify({
     toolEnds: events.filter(event => event.type === "tool_end"),
-    ...(outside ? { outsideAsked, outsideWrote } : {}),
+    ...(outside ? { outsideAsked, outsideWrote, bundleAsked } : {}),
     ...(promptError ? { promptError } : {}),
   }));
 } finally { await runtime.dispose(); }

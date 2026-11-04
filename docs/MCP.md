@@ -212,6 +212,11 @@ file and set no variable.
    Ctrl+T, never a box of JSON ([TERMINAL_UX.md](TERMINAL_UX.md)). The receipt lists every change that ran on its
    Devices row (`In Mist: …`, with the undo), whether or not the folder is a project Casper can compare and also when
    the request read as a question; one whose call was cut off says `Casper can't tell whether it finished`.
+   A tool with no label from its server is asked about as a change, but one whose name says it only looks
+   (`open_binary`, `binary_overview`, `inspect_macho`: open, inspect, overview, session, list, get, read, search,
+   decompile, show, describe, find, query, status, info, view, lookup, and no change word) gets no `◆ Changed` row
+   and no Devices row; on a server added this session, any name that reads as a read doesn't either. Each row shows
+   once at every `/details` level.
    The real tool's kind comes from the server's `find_tool` and can only make a
    call stricter. A tool `find_tool` never named asks every time, with no
    "Yes, for this session".
@@ -475,6 +480,7 @@ your yes in the box of the AI's `casper_mcp_add`. Each adds one server to
 /mcp add <name> --bearer <url> # …that needs a bearer token (--api-key[=<Header>]: an API key header)
 /mcp add <name> --key-env=<NAME> <command> [args…]  # …a program that takes a key in a variable
 /mcp update <name> <command> [args…]|<url>  # change what a server runs, in the file that defines it
+/mcp update <name> --timeout 5m  # how long a call may run with no answer (default 1m30s, up to 30m)
 /mcp remove <name>             # take a server out of the file that defines it and stop it
 /mcp login [mist|central|clearpass] [forget]  # add, replace or forget a network login
 /mcp login central <name> [forget]  # add, replace or forget a named Central login
@@ -510,6 +516,10 @@ as the one used now. Both change `~/.casper/mcp.json`, a profile's file or the p
 another tool's file is left alone, and Casper says where it is and how to remove it there (`claude mcp remove rea` for
 `~/.claude.json`). `/mcp forget` only forgets a consent. `/mcp detail` says when a server pinned to an npm version has
 a newer one, with the `/mcp update` line (not with `CASPER_OFFLINE=1` or `tools: { downloads: off }`).
+`/mcp update <name> --timeout 5m` (`300`, `300s`, `5m`; up to `30m`) writes the server's `callTimeout` and applies it
+to the next call, with no restart: `[mcp] Changed rea-agents in ~/.casper/mcp.json: it waits up to 5m for each call (it waited 1m30s).`
+It can go with a command too. `/mcp` says when two servers run the same npm package
+(`rea (6.7.0) and rea-agents (6.8.0) both run rea-agents, so their tools are loaded twice. To keep the newest: /mcp remove rea.`).
 
 The AI does the same through `casper_mcp_remove` and `casper_mcp_add` with `replace: true`, offered with
 `casper_mcp_add`. You telling it "you have permission to remove it" is what it needs to call them; the box is the gate:
@@ -528,6 +538,13 @@ Change rea?
   2 Yes, this once
   3 Yes, for this session
 ```
+
+With `replace: true` the AI may also give `env` (variables to set; the others stay) and `timeout` (`5m`), with or
+without a command; the box shows each as old → new (`env      HOPPER_LAUNCHER_PATH: not set → /Users/…/hopper`,
+`timeout  1m30s → 5m for each call`). A variable whose name looks like a secret takes no value from the AI: it gives
+`""`, the box says `you type it next, hidden; the AI never sees it`, and what you type goes to Casper's private key file
+(`~/.casper/mcp-secrets.json`), never `mcp.json`. The same command again starts the server again, so a server whose
+code changed lists its tools again (`(the same: it starts again and lists its tools again)`).
 
 `Yes, for this session` covers the AI's later removes and changes in this session (each logged as
 `[approval] allowed (this session): Change rea`); a new server still asks every time. Only Casper's own files and
@@ -1206,7 +1223,8 @@ the background.
 - **Time limits.** A server gets 20 s to start (handshake and tool list) and 90 s
   per call. Change them per server in whole seconds: `"connectTimeout": 60` (1-120)
   and `"callTimeout": 400` (1-1800). Any other value makes the entry invalid.
-  `/mcp detail` shows them as `limits: start 20s · call 90s`. Changing only a limit and
+  `/mcp detail` shows them as `limits: start 20s · call 90s`. `/mcp update <name> --timeout 5m` sets `callTimeout`
+  for you. MCP has no tool annotation that says a call is long, so the default is the same for every tool. Changing only a limit and
   running `/mcp reload` keeps the connection and your approval.
 - **Progress restarts the call clock.** Each progress message from the server
   starts the 90 s again, so a long job that reports progress keeps going. No call
@@ -1214,7 +1232,8 @@ the background.
   not. The clock pauses while you answer a question about the call.
 - **When a call fails**, the AI reads plain text and is told not to retry on its
   own: `No answer from <server> in 90s. It may have run. …` (plus the last
-  progress message, if any), `<server> was still working after 10m and was
+  progress message, if any, and for a server in a file `/mcp update` changes, how to give it longer:
+  `To give it longer, the user types /mcp update <server> --timeout 5m`, twice the limit, at least 5m, at most 30m), `<server> was still working after 10m and was
   stopped. …`, or `<server> returned an error: <message>. It may or may not have
   run.` Server text in these lines is shortened and has secrets hidden.
   - A timeout, a cancel or a lost connection closes that server's connection. This
@@ -1287,8 +1306,10 @@ the background.
   `this change still has <secret hidden> in it`, `bad arguments`,
   `tool changed; search again`, `server not connected`, `arguments over 16 KB`,
   `schema not supported`, or `unknown capability "<id>"`. An unknown id says what to call instead, so the AI can
-  retry in one step: for a tool behind a server's router, `call id "mcp:network:invoke_read_tool" with {"name":
-  "<tool>", "arguments": {…}}`; otherwise `Closest ids: …`.
+  retry in one step: for a tool behind that server's own router, `call id "mcp:network:invoke_read_tool" with {"name":
+  "<tool>", "arguments": {…}}`; for a server with no router, its tools (`catalog lists 5 tools now; the closest: …`)
+  and that a tool just added to its code shows once the server restarts; for a server that isn't connected, the ones
+  that are. Another server's router is never suggested.
 - `executed` is `true` when the server answered, `false` when nothing was sent, and
   `"unknown"` when the call may have run. Never repeat a change just to get more
   output.

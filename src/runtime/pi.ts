@@ -1174,6 +1174,11 @@ export class PiRuntime implements AgentRuntime {
           }
           // An edit or write outside the project asks first (temp, caches and your allowWrite don't), after the
           // refusals above so a call refused anyway never asks.
+          // Inside an app bundle (Iris.app), also when the bundle is the project: a write breaks the app's code signature.
+          if ((event.toolName === "edit" || event.toolName === "write") && typeof event.input.path === "string" && options.shell?.bundleWrite) {
+            const reason = await options.shell.bundleWrite(realpathLongest(resolveToolPath(event.input.path, cwd, pathContext.home)));
+            if (reason) return { block: true, reason };
+          }
           if ((event.toolName === "edit" || event.toolName === "write") && typeof event.input.path === "string" && options.shell?.outsideWrite) {
             const named = resolveToolPath(event.input.path, cwd, pathContext.home);
             const kind = classifyPath(named, pathContext, true);
