@@ -108,7 +108,14 @@ export function networkLoginHost(app: CasperApp): LoginHost {
       return picker.run((io) => withLoginDisplay(io, signal, (display) => display.privateInput(label))).catch(() => undefined);
     },
     write: (text) => { if (!app.closing) app.output.write(text); },
-    restart: async (name) => { await app.mcp?.restartAfterCalls(name); },
+    // Only a saved login that changed restarts the server here: a call still running answers from the old ones.
+    restart: async (name) => { await app.mcp?.restartAfterCalls(name, { loginsChanged: true }); },
+    startSettings: (name) => {
+      try {
+        const definition = app.mcp?.definition(name);
+        return definition?.transport.type === "stdio" ? { source: definition.source, env: definition.transport.env } : undefined;
+      } catch { return undefined; }
+    },
     access: (name) => { try { return app.mcp?.policy(name).access; } catch { return undefined; } },
     exclusive: (work) => oneAtATime(app, work),
   };

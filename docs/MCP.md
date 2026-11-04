@@ -185,6 +185,11 @@ file and set no variable.
    says `login="acme"`, and `access_check` lists the named logins. Its client ID and
    secret are hidden like the main login's.
 
+   Forgetting one restarts the server once its running calls finish. `Forgot the Central "acme" login.` is said only
+   when the restarted server no longer lists it; if it still does, Casper says what still sets it (such as
+   `CENTRAL_ACME_…` in the server's own settings in `~/.casper/mcp.json`). A call that was still running answered
+   from the old logins, and its result tells the AI so.
+
    When the product turns a saved login down (an expired ClearPass token, a revoked Mist
    token: the server answers `login_expired`, or, in casper-network-mcp 0.1.0, passes the
    product's own answer through with `"status": 401`),
