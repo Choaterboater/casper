@@ -1,6 +1,9 @@
 # 44. A folder's own commands run only once you trust it
 
 Date: 2026-10-29. Status: accepted (merged 2026-10-29 in #540). Narrows decision 2 in a folder you haven't trusted.
+Amended 2026-11-04 by [decision 72](72-restore-full-checking.md) (#594): an empty folder is trusted and saved without
+the question, a folder with no code, tests or build files and nothing to run is trusted for that session, and with the
+sandbox on `Trust this folder` is the first answer.
 Replaces "Trust first" in VERIFICATION.md, which said Casper runs a repository's commands without asking and to use
 `--no-verify` for code you don't trust.
 
@@ -40,9 +43,9 @@ untrusted folder they don't run the folder's own configuration or tools.
 
 **Guard rails:**
 
-- Only you can trust a folder. The AI has no tool for it, a project file can't set it, and the plain words count only
+- Only you can trust a folder that holds code, tests or build files (decision 72 trusts one that holds none). The AI has no tool for it, a project file can't set it, and the plain words count only
   when typed as a whole short line, not when pasted.
-- Not now, Enter and Esc save nothing.
+- Not now, Enter and Esc save nothing. With the sandbox on, Enter is Trust (decision 72).
 - Home and the top of a drive are refused even by `/trust`, and even with a record in them.
 - The ancestor rule stops at a repository of its own, so trusting `~/Projects` doesn't trust what you later clone into
   it.

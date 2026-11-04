@@ -14,11 +14,28 @@ when releasing. Existing historical notes below stay as written; feature tests c
 reference docs, not a per-PR release-note or roadmap entry. Release-prep checks verify the version and
 installer targets (`tests/release-install.test.ts`, `tests/release-targets.test.ts`).
 
-Casper distributes an unsigned **v0.4.11 preview**, not a stable release. The installers
-download from `https://github.com/Choaterboater/casper/releases/download/v0.4.11`,
+Casper distributes an unsigned **v0.4.12 preview**, not a stable release. The installers
+download from `https://github.com/Choaterboater/casper/releases/download/v0.4.12`,
 because GitHub's `latest/download` link skips preview releases. The first published
 preview was **v0.1.0**. A published release is never changed; every fix ships under a
 new version.
+
+## v0.4.12: a build is reviewed before it is done, and new folders are checked
+
+### Changed
+
+- A build whose checks pass gets a requirements review and one self-review turn before it is done.
+- In Sonnet tracker builds the gap to omp fell from 17.7 points to 6.0, at about 15% more tokens.
+- An empty folder is trusted with no question, and so is one with no code for the session.
+- With the sandbox on, Trust is the first answer to the folder question.
+- A new project's tests are proven against the folder from before the task.
+- Checklist tests are asked to assert exactly their case again.
+- Server code that nothing starts leaves the task Incomplete instead of verified.
+- A browser check recorded failing in this task is repaired with no question first.
+- A project's own reports or out folder keeps its proof.
+- Changes to requirements.txt or CMakeLists.txt run the checks.
+- A build's task prompt says to sort ties on a time by the id.
+- A Claude reply that Claude Code starts over no longer ends the task.
 
 ## v0.4.11: remove and update MCP servers, and long Claude subscription turns that finish
 
