@@ -390,7 +390,7 @@ test("/mcp connect or /mcp setup alone, and a subcommand missing its name, say w
     + "Any other server: /mcp add <name> <command> [args…], such as /mcp add docs npx -y @example/docs-mcp@1.2.0, or /mcp add <name> <url>.\n");
   expect(output).toContain("There's no setup for example. Casper can set up:");
   expect(output).toContain("Type /mcp writes <name>|off (turn writes on for one server, or off for every server).\n");
-  expect(output).toContain("Type /mcp forget <name> (forget a remembered server).\n");
+  expect(output).toContain("Type /mcp forget <name> (forget a server's remembered consent; it stays in its file).\n");
   expect(output).toContain(`${MCP_ADD_HINT}\n`);
   expect(output).toContain("[mcp] A server name is letters, digits, dot, dash or underscore, up to 64, and starts with a letter or digit. Nothing changed.\n");
   const empty = await fixture({});

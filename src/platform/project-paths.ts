@@ -26,6 +26,13 @@ export const PRIVATE_PATHS: readonly string[] = [
   ".casper/agent/models.json", ".pi/agent/models.json",
 ];
 
+/** Places in that list that hold no keys or logins of their own: a refusal says why they are private in these words. */
+const OWN_RECORDS: ReadonlySet<string> = new Set([".casper/run", ".casper/agent/sessions"]);
+/** Why a place in PRIVATE_PATHS is private, as a refusal says it. */
+export function privateReason(entry: string): string {
+  return OWN_RECORDS.has(entry) ? "Casper's own records" : "keys and logins";
+}
+
 /** Where Claude Code, Codex CLI and GitHub CLI keep a sign-in, each tool's own folder setting first. /login offers
  * them (src/runtime/other-logins.ts); the AI's tools may not read them. */
 export function otherLoginPaths(env: Record<string, string | undefined> = process.env, platform: NodeJS.Platform = process.platform,
@@ -169,7 +176,7 @@ function browserPictures(inside: string): boolean {
 export function privatePlaces(context: PathContext): PrivatePlace[] {
   const home = context.home ?? os.homedir();
   const why = "keys and logins";
-  const places: PrivatePlace[] = PRIVATE_PATHS.map((entry) => ({ shown: `~/${entry}`, paths: variants(path.join(home, entry)), why, below: true }));
+  const places: PrivatePlace[] = PRIVATE_PATHS.map((entry) => ({ shown: `~/${entry}`, paths: variants(path.join(home, entry)), why: privateReason(entry), below: true }));
   for (const entry of CASPER_PRIVATE_PATHS) {
     const absolute = path.join(home, entry);
     places.push({ shown: `~/${entry}`, paths: variants(absolute), why: "Casper's own records", below: true,
@@ -485,7 +492,7 @@ export function privatePathCommand(command: string, context: PathContext): strin
   // `cd ~/.ssh`, `cd $HOME` then a relative name: a command that goes home and names a private place by itself.
   if (/(?:^|[\s;&|(])cd\s+(?:~|\$HOME|\$\{HOME\}|"\$HOME")\/?(?=$|[\s;&|)])/.test(text)) {
     const bare = PRIVATE_PATHS.find((entry) => new RegExp(`(?:^|[\\s'"=:(<>|;&])(?:\\./)?${entry.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?=$|[\\\\/\\s'";&|)])`).test(text));
-    if (bare) return privateRefusal(`~/${bare}`, "keys and logins", home);
+    if (bare) return privateRefusal(`~/${bare}`, privateReason(bare), home);
   }
   // PowerShell and cmd separate folders with \, which the shell reading below takes as an escape: read those once more with /.
   const shown = privateWord(text, context, home) ?? (process.platform === "win32" && text.includes("\\") ? privateWord(text.replaceAll("\\", "/"), context, home) : undefined);

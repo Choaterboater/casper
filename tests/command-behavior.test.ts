@@ -62,7 +62,8 @@ test("one verb takes things back: forget, with remove as the same word; list is 
   expect(canonicalLine("/allowed remove 2")).toBe("/allowed forget 2");
   expect(canonicalLine("/sandbox remove example.com")).toBe("/sandbox forget example.com");
   expect(canonicalLine("/permissions remove ../shared")).toBe("/permissions forget ../shared");
-  expect(canonicalLine("/mcp remove nope")).toBe("/mcp forget nope");
+  // /mcp remove takes a server out of its file: its own subcommand, not forget (which only forgets a consent).
+  expect(canonicalLine("/mcp remove nope")).toBe("/mcp remove nope");
   expect(canonicalLine("/pack forget tools")).toBe("/pack remove tools");
   for (const name of ["memory", "allowed", "sandbox", "mcp"]) {
     expect(canonicalLine(`/${name} list`)).toBe(`/${name}`);
@@ -178,8 +179,8 @@ test("idle: remove and list work as forget and the bare command", async () => {
     await typed(app, "/memory list", "[memory] 1 remembered fact");
     await typed(app, `/memory remove ${id}`, `[memory] Forgot ${id}.`);
     await typed(app, "/memory list", "[memory] No remembered facts");
-    // Forget ran (no such server here), not the usage line.
-    expect(await typed(app, "/mcp remove nope", "[error] Unknown MCP server")).not.toContain("Usage:");
+    // Remove ran (no such server here), not the usage line.
+    expect(await typed(app, "/mcp remove nope", "[mcp] There is no server named nope.")).not.toContain("Usage:");
     await typed(app, "/allowed list", "Nothing is allowed yet.");
   } finally { gate.resolve(); await app.close(); }
 }, 60_000);

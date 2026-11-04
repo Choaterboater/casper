@@ -8,12 +8,20 @@
  * kept as typed, so a Windows path needs no doubling.
  */
 
+import path from "node:path";
+import { isOutside } from "../platform/inside";
 import { terminalText } from "../tui/format";
 import { plainHttpHost, serverEntryProblem, type MCPServerDefinition } from "./config";
 import { addUserServer, MCP_FILE_LABEL, ServerExistsError, type UserServerEntry } from "./docs";
 import { forgetServerKey, keyFlag, keyLabel, keyProblem, parseKey, saveServerKey, type ServerKey } from "./server-secrets";
 
 const NAME = /^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,63}$/;
+
+/** A file as people say it: ~/… under the home folder, else as it is. */
+export function homeShown(file: string, home: string): string {
+  const relative = path.relative(home, file);
+  return relative && !isOutside(relative) ? `~/${relative.split(path.sep).join("/")}` : file;
+}
 const MAX_LINE = 4096;
 
 export const MCP_ADD_EXAMPLE = "/mcp add docs npx -y @example/docs-mcp@1.2.0";
@@ -167,7 +175,8 @@ export async function runMcpAdd(host: McpAddHost, add: McpAdd): Promise<McpAddRe
   const { name, entry } = add;
   const taken = (await host.configured()).find((definition) => definition?.name === name);
   if (taken) {
-    host.write(`[mcp] ${name} is already a server (${terminalText(taken.source)}). Pick another name. Nothing changed.\n`);
+    host.write(`[mcp] ${name} is already a server (${terminalText(homeShown(taken.source, host.homeDir))}). `
+      + `${"url" in entry ? `To change its address: /mcp update ${name} <url>` : `To change what it runs: /mcp update ${name} <command> [args…]`}. Nothing changed.\n`);
     return "exists";
   }
   const written = fileEntry(entry);

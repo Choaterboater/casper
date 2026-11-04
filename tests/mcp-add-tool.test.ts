@@ -90,7 +90,7 @@ test("a run that can't ask writes nothing and says the /mcp add line for the per
 test("a name a server already has, or arguments that can't be a server, are refused before any box", async () => {
   const taken = await toolHost({ answer: true, casper: { mcpServers: { net: { command: "node", args: ["/srv/old.js"] } } } });
   expect(await mcpAddTool(taken).execute({ name: "net", command: "npx", args: ["-y", "other@1.0.0"] }))
-    .toEqual({ text: "Not added: net is already a server. Pick another name.", isError: true });
+    .toEqual({ text: "Not added: net is already a server. To change what it runs, call this again with replace: true; to take it out, casper_mcp_remove.", isError: true });
   const host = await toolHost({ answer: true });
   const tool = mcpAddTool(host);
   for (const [args, error] of [

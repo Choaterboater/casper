@@ -48,6 +48,8 @@ function catalog(mode: string): Tool[] {
     ];
     case "access-args": return [{ ...read("access_check"), inputSchema: { type: "object", properties: { who: { type: "string" } }, required: ["who"] } }];
     case "access-unannotated": return [plain("access_check")];
+    // A server whose tools carry no labels at all (rea-agents): a read-named one and a write-named one.
+    case "unlabeled": return [plain("demangle_swift"), plain("set_breakpoint")];
     default: return [read("access_check"), read("get_status"), { ...plain("set_config"), annotations: { readOnlyHint: false } }];
   }
 }
@@ -108,4 +110,6 @@ export function networkFixtureServer(mode = "access-ro") {
   return server;
 }
 
-if (import.meta.main) await networkFixtureServer(process.env.FIXTURE_MODE).connect(new StdioServerTransport());
+// The mode from FIXTURE_MODE, or a --mode=<mode> word (a server added with /mcp add has no env of its own).
+const argMode = process.argv.find((arg) => arg.startsWith("--mode="))?.slice("--mode=".length);
+if (import.meta.main) await networkFixtureServer(process.env.FIXTURE_MODE ?? argMode).connect(new StdioServerTransport());

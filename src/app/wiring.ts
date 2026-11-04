@@ -204,6 +204,7 @@ export async function loadWorkspace(app: CasperApp, cwd: string) {
       if (!app.closing) app.events.noteChange(mcpChangeRow(server, tool, sent, words), JSON.stringify(sent ?? {}, null, 2).split("\n"));
       return app.observations.recordChangeCall(mcpChange(server, tool, sent, words));
     },
+    addedThisSession: (server) => app.mcpAddedThisSession.has(server),
     confirmKind: (ask, signal) => confirmKind(app, ask, signal),
     onAllowAll: (server, tool) => {
       app.taskChangeServers.add(server);

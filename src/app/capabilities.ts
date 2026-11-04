@@ -64,6 +64,8 @@ export interface TaskCapabilitySource {
   serviceTool: () => RuntimeTool;
   /** casper_mcp_add: the AI adds an MCP server after the person's yes. Offered from the first task that names MCP. */
   mcpAdd?: RuntimeTool;
+  /** casper_mcp_remove: offered with casper_mcp_add. */
+  mcpRemove?: RuntimeTool;
   /** casper_skill_add: the AI adds a skill after the person has seen it and said yes. Offered from the first task that
    * names a skill. */
   skillAdd?: RuntimeTool;
@@ -130,6 +132,7 @@ export async function assembleTaskTools(task: string, source: TaskCapabilitySour
     ...(github ? [source.githubTool!()] : []),
     ...(diagram ? visualizationTools({ router: source.visualization, projectRoot: source.projectRoot, privatePaths: source.privatePaths ?? [], ...(source.showDiagram ? { show: source.showDiagram } : {}) }) : []),
     ...(mcpAdd ? [source.mcpAdd!] : []),
+    ...(mcpAdd && source.mcpRemove ? [source.mcpRemove] : []),
     ...(skillAdd ? [source.skillAdd!] : []),
     ...(secret ? [source.secret!] : []),
   ];

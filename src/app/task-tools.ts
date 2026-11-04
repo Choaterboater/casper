@@ -32,7 +32,7 @@ import { crewShell } from "../crew/shell";
 import { PartRecord } from "../crew/parts";
 import { spendGate } from "./spend-gate";
 import { pageToolFor, showDiagramPage } from "./pages";
-import { mcpAddToolFor } from "./mcp-add";
+import { mcpAddToolFor, mcpRemoveToolFor } from "./mcp-add";
 import { skillAddToolFor } from "./skill-add";
 import { pictureToolFor } from "./pictures";
 import { secretToolFor } from "./secret-tool";
@@ -59,6 +59,7 @@ export async function prepareCapabilities(app: CasperApp, task: string, options:
       root: () => app.activeWorkspaceRoot(), reruns: app.githubReruns, secrets: () => ownSecretValues(app),
     }),
     mcpAdd: mcpAddToolFor(app),
+    mcpRemove: mcpRemoveToolFor(app),
     skillAdd: skillAddToolFor(app),
     secret: secretToolFor(app),
     offered: app.offeredTools,
