@@ -168,7 +168,9 @@ export function streamClaudeSubscription(model: Model<Api>, context: TranscriptC
         try {
           const factory = dependencies.query ?? (await import("@anthropic-ai/claude-agent-sdk")).query;
           const env = subscriptionEnvironment(inheritedEnv);
-          if (options?.maxTokens) env.CLAUDE_CODE_MAX_OUTPUT_TOKENS = String(options.maxTokens);
+          // The model's own cap, as Pi's Anthropic provider sends it; Claude Code's default is lower and it clamps to the model's limit.
+          const maxTokens = options?.maxTokens || model.maxTokens;
+          if (maxTokens) env.CLAUDE_CODE_MAX_OUTPUT_TOKENS = String(maxTokens);
           if (options?.cacheRetention === "none") env.DISABLE_PROMPT_CACHING = "1";
           const server = proposalServer(tools, (name, args, id) => fresh.answer(name, args, id));
           fresh.start(factory({ prompt: fresh.input, options: {
@@ -256,6 +258,8 @@ async function readTurn(session: ClaudeSession, message: AssistantMessage, strea
   const json = new Map<number, string>();
   /** Blocks whose arguments are streaming: the streamed pieces are the whole arguments, never added to a starting input. */
   const streamed = new Set<number>();
+  /** Output of earlier responses in this answer (Claude Code carrying on after the output cap). */
+  let outputBefore = 0;
   for (;;) {
     const next = await session.events.next();
     signal?.throwIfAborted();
@@ -282,12 +286,15 @@ async function readTurn(session: ClaudeSession, message: AssistantMessage, strea
     if (event.type !== "stream_event" || event.parent_tool_use_id) continue;
     const raw = event.event;
     if (raw.type === "message_start") {
-      if (message.responseId) throw new Error("Claude returned multiple model turns to a single-turn transport.");
+      // After a response cut off at the output cap, Claude Code carries on with its own next one: the rest of this answer.
+      const carriesOn = message.responseId !== undefined && message.stopReason === "length" && !message.content.some(block => block.type === "toolCall");
+      if (message.responseId && !carriesOn) throw new Error("Claude returned multiple model turns to a single-turn transport.");
+      if (carriesOn) { message.stopReason = "stop"; outputBefore = message.usage.output; }
       message.responseId = raw.message.id; message.responseModel = raw.message.model;
-      message.usage.input = raw.message.usage.input_tokens;
-      message.usage.output = raw.message.usage.output_tokens;
-      message.usage.cacheRead = raw.message.usage.cache_read_input_tokens ?? 0;
-      message.usage.cacheWrite = raw.message.usage.cache_creation_input_tokens ?? 0;
+      message.usage.input += raw.message.usage.input_tokens;
+      message.usage.output = outputBefore + raw.message.usage.output_tokens;
+      message.usage.cacheRead += raw.message.usage.cache_read_input_tokens ?? 0;
+      message.usage.cacheWrite += raw.message.usage.cache_creation_input_tokens ?? 0;
     } else if (raw.type === "content_block_start") {
       const block = raw.content_block; const index = message.content.length;
       if (block.type === "text") {
@@ -330,7 +337,7 @@ async function readTurn(session: ClaudeSession, message: AssistantMessage, strea
       }
       blocks.delete(raw.index);
     } else if (raw.type === "message_delta") {
-      message.usage.output = raw.usage.output_tokens;
+      message.usage.output = outputBefore + raw.usage.output_tokens;
       if (raw.delta.stop_reason === "max_tokens") message.stopReason = "length";
     } else if (raw.type === "message_stop") {
       if (!message.responseId || blocks.size) throw new Error("Claude subscription stream ended before a complete response.");
@@ -363,6 +370,9 @@ export async function registerClaudeSubscription(catalog: ModelRuntime, cwd: str
   const models = catalog.getModels().filter(model => model.provider === "anthropic").map(model => ({
     ...model, provider: CLAUDE_SUBSCRIPTION, baseUrl: "claude-code://local", headers: undefined,
     name: `${model.name} (Claude subscription)`,
+    // No cache lifetime, so Pi never warms it: a warm request would be another Claude Code process replaying the whole
+    // conversation, and Claude Code keeps the live session's own cache.
+    promptCache: undefined,
   }));
   const directory = () => typeof cwd === "function" ? cwd() : cwd;
   // Availability reads only Claude Code's public status, never its credential files. Share
