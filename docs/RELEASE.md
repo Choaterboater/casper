@@ -14,11 +14,22 @@ when releasing. Existing historical notes below stay as written; feature tests c
 reference docs, not a per-PR release-note or roadmap entry. Release-prep checks verify the version and
 installer targets (`tests/release-install.test.ts`, `tests/release-targets.test.ts`).
 
-Casper distributes an unsigned **v0.4.12 preview**, not a stable release. The installers
-download from `https://github.com/Choaterboater/casper/releases/download/v0.4.12`,
+Casper distributes an unsigned **v0.4.13 preview**, not a stable release. The installers
+download from `https://github.com/Choaterboater/casper/releases/download/v0.4.13`,
 because GitHub's `latest/download` link skips preview releases. The first published
 preview was **v0.1.0**. A published release is never changed; every fix ships under a
 new version.
+
+## v0.4.13: a clean build ends clean, its browser checks finished
+
+### Changed
+
+- Casper's end replay finishes a browser check the AI recorded that stopped part way.
+- A browser check still unfinished gets one turn for the AI to replay or withdraw it.
+- A check that went to a sign-in page says to sign in through its steps and can be withdrawn.
+- A browser action that runs out of time starts a fresh browser and keeps the recorded checks.
+- In a run that can't ask, the AI can edit a test file it wrote earlier in the same task.
+- In three Sonnet tracker builds all ended with exit code 0, with no failed shared check.
 
 ## v0.4.12: a build is reviewed before it is done, and new folders are checked
 
