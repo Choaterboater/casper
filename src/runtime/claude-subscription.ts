@@ -258,8 +258,10 @@ async function readTurn(session: ClaudeSession, message: AssistantMessage, strea
   const json = new Map<number, string>();
   /** Blocks whose arguments are streaming: the streamed pieces are the whole arguments, never added to a starting input. */
   const streamed = new Set<number>();
-  /** Output of earlier responses in this answer (Claude Code carrying on after the output cap). */
+  /** Output of earlier responses in this answer (Claude Code carrying on after the output cap, or starting over). */
   let outputBefore = 0;
+  /** The current response reached its message_stop. */
+  let ended = false;
   for (;;) {
     const next = await session.events.next();
     signal?.throwIfAborted();
@@ -288,8 +290,23 @@ async function readTurn(session: ClaudeSession, message: AssistantMessage, strea
     if (raw.type === "message_start") {
       // After a response cut off at the output cap, Claude Code carries on with its own next one: the rest of this answer.
       const carriesOn = message.responseId !== undefined && message.stopReason === "length" && !message.content.some(block => block.type === "toolCall");
-      if (message.responseId && !carriesOn) throw new Error("Claude returned multiple model turns to a single-turn transport.");
+      // A response that never ended was abandoned: Claude Code asked again (a stalled request it retried). Before any of
+      // the answer streamed, the new response is the answer; after part of it, Pi asks again for the whole turn.
+      const startedOver = message.responseId !== undefined && !ended && !carriesOn;
+      if (startedOver && message.content.some(block => block.type !== "thinking")) {
+        throw new Error("Claude subscription stream was interrupted: Claude Code started the response over after part of it had streamed.");
+      }
+      if (message.responseId && !carriesOn && !startedOver) throw new Error("Claude returned multiple model turns to a single-turn transport.");
+      if (startedOver) {
+        for (const [, index] of blocks) {
+          const block = message.content[index];
+          if (block?.type === "thinking") stream.push({ type: "thinking_end", contentIndex: index, content: block.thinking, partial: message });
+        }
+        blocks.clear(); json.clear(); streamed.clear();
+        outputBefore = message.usage.output;
+      }
       if (carriesOn) { message.stopReason = "stop"; outputBefore = message.usage.output; }
+      ended = false;
       message.responseId = raw.message.id; message.responseModel = raw.message.model;
       message.usage.input += raw.message.usage.input_tokens;
       message.usage.output = outputBefore + raw.message.usage.output_tokens;
@@ -341,6 +358,7 @@ async function readTurn(session: ClaudeSession, message: AssistantMessage, strea
       if (raw.delta.stop_reason === "max_tokens") message.stopReason = "length";
     } else if (raw.type === "message_stop") {
       if (!message.responseId || blocks.size) throw new Error("Claude subscription stream ended before a complete response.");
+      ended = true;
       // A turn that proposes tools ends here: Claude Code now calls them through the proposal server.
       if (message.content.some(block => block.type === "toolCall")) return;
     }

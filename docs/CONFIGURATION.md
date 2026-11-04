@@ -863,7 +863,9 @@ boundary, not inside an already-running turn.
 Claude Code gets the model's own output cap (`CLAUDE_CODE_MAX_OUTPUT_TOKENS`, which it clamps to the
 model's limit), as Pi's `anthropic` provider sends it; its own default is 32,000. When a response still
 reaches the cap, Claude Code carries on with its next response, and Casper reads that as the rest of the
-same answer rather than failing the task. Pi's prompt-cache warming is not used with this provider: Claude Code
+same answer rather than failing the task. A response that never ended and that Claude Code starts over (a stalled
+request it asks again) is replaced by the new one when none of the answer had streamed yet; after part of it had,
+the turn fails as an interrupted stream, which Casper asks again for as it does for other providers. Pi's prompt-cache warming is not used with this provider: Claude Code
 keeps the live session's cache itself, and a warm request would start another Claude Code process.
 
 API keys, endpoint overrides and cloud-provider switches are cleared from the Claude Code child's
