@@ -15,6 +15,7 @@ import { trustRequest } from "../src/app/trust-words";
 import { folderTrustText } from "../src/app/commands";
 import { richApp, type RichAppSetup } from "./support/app";
 import { removeTempDir } from "./support/temp-dir";
+import { fakeEngine } from "./support/sandbox-fakes";
 
 const ambientTerm = process.env.TERM;
 process.env.TERM = "xterm-256color";
@@ -88,6 +89,53 @@ test("Trust this folder saves it; the plain words take it back and trust it agai
     expect(await trustSaved(app.project, app.home)).toBe(true);
     expect(fake.prompts).toEqual([]);
   } finally { await app.close(); }
+}, 30_000);
+
+test("an empty folder is trusted with no question and saved: everything Casper checks there is the AI's", async () => {
+  const { app } = await opened({ trusted: false, empty: true });
+  try {
+    await app.until((text) => text.includes("idle"));
+    expect(app.screen()).not.toContain("Trust ");
+    expect(app.screen()).toContain("[trust] Trusted: the folder is empty, so everything Casper checks here is the AI's work.");
+    expect(app.app.folderTrust?.trusted).toBe(true);
+    expect(await trustSaved(app.project, app.home)).toBe(true);
+  } finally { await app.close(); }
+}, 30_000);
+
+test("a folder with nothing to run is trusted for this session only, so scripts added later are asked about next time", async () => {
+  const { app } = await opened({ trusted: false });
+  try {
+    await app.until((text) => text.includes("idle"));
+    expect(app.screen()).not.toContain("Trust ");
+    expect(app.screen()).toContain("[trust] Trusted for this session: there's no code here yet, so everything Casper checks is the AI's work.");
+    expect(app.app.folderTrust?.trusted).toBe(true);
+    expect(await trustSaved(app.project, app.home)).toBe(false);
+  } finally { await app.close(); }
+}, 30_000);
+
+test("a folder with code Casper finds nothing to run in still asks: a cloned script is not the AI's", async () => {
+  const { app } = await opened({ trusted: false, files: { "install.sh": "#!/bin/sh\necho hi\n" } });
+  try {
+    await app.until((text) => text.includes("Trust "));
+    expect(app.screen()).not.toContain("[trust] Trusted for this session");
+    app.input.write("1");
+    await app.until((text) => text.includes("[trust] Not trusted:"));
+  } finally { await app.close(); }
+}, 30_000);
+
+test("with the sandbox on, Trust is the first answer; with it off, Not now stays first", async () => {
+  const sandboxSeams = { engine: fakeEngine(), problem: () => undefined, platform: "linux" as const };
+  for (const on of [true, false]) {
+    const fake = fakeRuntime();
+    const app = await richApp(() => fake.runtime, { sandboxSeams }, { trusted: false, files: { "package.json": PACKAGE },
+      ...(on ? { homeFiles: { ".casper/config.yaml": "sandbox: on\n" } } : {}) });
+    try {
+      await app.until((text) => text.includes("It would run:"));
+      app.input.write("\r");
+      await app.until((text) => text.includes("[trust] "));
+      expect(app.app.folderTrust?.trusted).toBe(on);
+    } finally { await app.close(); }
+  }
 }, 30_000);
 
 test("a folder you trusted opens with no question", async () => {

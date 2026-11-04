@@ -330,24 +330,19 @@ test("a check the AI withdrew shows on the receipt with its reason, and the pass
   } finally { await app.close(); }
 }, 30_000);
 
-test("a re-checked browser check that was already failing when recorded asks first, as a command check does: Leave it repairs nothing", async () => {
-  const { calls, task, screen } = await replayFailure({ baselineFail: true, answer: "1" });
-  expect(calls).toEqual(["model", "replay"]);
+test("a browser check recorded failing in this task (a new feature, checked before the edits) is repaired, with no question first", async () => {
+  // Every check that fails at the end replay was recorded in this task (an earlier task's starts over here), and the
+  // browser tool tells the AI to check before it edits: a new feature's check is recorded failing.
+  const { calls, task, screen } = await replayFailure({ baselineFail: true });
   expect(screen).toContain("– Save was already failing when it was recorded");
-  expect(screen).toContain("Save was already failing when it was recorded. Fix it anyway? → Leave it");
-  expect(task.verification?.repairAttempts ?? 0).toBe(0);
-  expect(task.browser?.status).toBe("fail");
-}, 30_000);
-
-test("Fix it anyway on a browser check already failing when recorded gets the usual one repair", async () => {
-  const { calls, task } = await replayFailure({ baselineFail: true, answer: "2" });
+  expect(screen).not.toContain("Fix it anyway?");
   expect(calls).toEqual(["model", "replay", "browser repair", "replay"]);
   expect(task.verification?.repairAttempts).toBe(1);
   expect(task.browser?.status).toBe("pass");
 }, 30_000);
 
-test("the browser guide says a check already failing when recorded asks before its repair", async () => {
+test("the browser guide says a check already failing when recorded is repaired as any other", async () => {
   const doc = (await readFile(new URL("../docs/BROWSER.md", import.meta.url), "utf8")).replace(/\s+/g, " ");
-  expect(doc).toContain("A failing check that was already failing when it was recorded (its baseline was a failure) first gets the question a command check gets when it failed before the change");
-  expect(doc).toContain("with `Leave it` first, so Enter repairs nothing and the receipt says the check fails. A run that can't ask repairs it, as it does a command check.");
+  expect(doc).toContain("A failing check that was already failing when it was recorded (its baseline was a failure) gets a line, `– Save was already failing when it was recorded`, and the same repair turn, with no question first");
 });
+

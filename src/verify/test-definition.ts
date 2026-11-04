@@ -5,6 +5,12 @@ import { isTestPath } from "./proof";
 import { splitShell } from "../sandbox/remote";
 import { isOutside } from "../platform/inside";
 
+/** The file a definition label names: `package.json scripts.test` → package.json, `pyproject.toml [tool.pytest]` →
+ * pyproject.toml. A script's own path may contain spaces, so only the known suffixes are taken off. */
+export function definitionFile(label: string): string {
+  return label.startsWith("package.json ") ? "package.json" : label.replace(/ \[(?:test|tool\.pytest|tool:pytest|pytest)\]$/, "");
+}
+
 /**
  * What the test command means, as far as the project's files define it: the package.json scripts it runs, the
  * test runner's settings (bunfig.toml [test], jest/vitest config, pytest settings, every conftest.py outside the tests),

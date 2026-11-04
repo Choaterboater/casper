@@ -61,7 +61,7 @@ async function fixture(config: Record<string, unknown> = {}, options: { verifica
   await mkdir(home); await mkdir(path.join(project, ".casper"), { recursive: true });
   await writeFile(path.join(project, "server.ts"), SERVER);
   await writeFile(path.join(project, "package.json"), JSON.stringify(options.manifest ?? { name: "web", dependencies: { next: "15.0.0", react: "19.0.0" } }));
-  await writeFile(path.join(project, ".casper", "project.yaml"), stringify({ verification: { mode: "auto" }, repair: { maxAttempts: 1 },
+  await writeFile(path.join(project, ".casper", "project.yaml"), stringify({ verification: { mode: "auto", review: false }, repair: { maxAttempts: 1 },
     ...(options.declare === false ? {} : { services: { web: { command: `"${process.execPath}" server.ts`, port: "auto", ready: { http: "/" }, timeoutMs: 10_000 } } }),
     ...config }));
   await writeFile(path.join(root, "session.jsonl"), "");
@@ -193,7 +193,7 @@ Bun.serve({ hostname: process.env.HOST, port: Number(process.env.PORT), fetch() 
   if (readFileSync("app.py", "utf8").includes("row['site']")) console.error("Traceback (most recent call last):\\n  File \\"app.py\\", line 3, in <module>\\n    site = row['site']\\nKeyError: 'site'");
   return new Response("<html>streamlit</html>", { headers: { "content-type": "text/html" } });
 } });\n`);
-  await writeFile(path.join(project, ".casper", "project.yaml"), stringify({ verification: { mode: "auto" }, repair: { maxAttempts: 1 },
+  await writeFile(path.join(project, ".casper", "project.yaml"), stringify({ verification: { mode: "auto", review: false }, repair: { maxAttempts: 1 },
     services: { web: { command: `"${process.execPath}" server.ts`, port: "auto", ready: { http: "/" }, timeoutMs: 10_000 } } }));
   const runtime = new ScriptedRuntime();
   const output: string[] = [];

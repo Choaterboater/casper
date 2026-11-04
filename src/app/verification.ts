@@ -334,18 +334,12 @@ export async function repairPreexisting(app: CasperApp, failures: VerificationRe
   return answer?.[0] === "Fix it anyway";
 }
 
-/** Browser checks a replay found failing whose baseline, when the model recorded them, was already a failure: the
- * question command checks get when they failed before the change, with Leave it first. A run that can't ask repairs
- * them, as it does a command check. A browser check has no copy of the code from before, so its recorded result is
- * what it was "already" (and a check the model recorded failing to drive its fix looks the same: you choose). */
-export async function repairFailingWhenRecorded(app: CasperApp, names: readonly string[], signal?: AbortSignal): Promise<boolean> {
-  const which = names.join(", ");
+/** Browser checks a replay found failing whose baseline, when the model recorded them, was already a failure. Every one
+ * was recorded in this task (an earlier task's check starts over when it runs here), and the AI is told to check before
+ * it edits, so a new feature's check is recorded failing: it is said, then repaired as any other, with no question. */
+export function noteFailingWhenRecorded(app: CasperApp, names: readonly string[]): void {
   app.events.ensureLineBreak();
-  app.output.write(`– ${which} was already failing when it was recorded\n`);
-  if (!app.interactive || !app.terminal.rich) return true;
-  const answer = await app.terminal.ask(`${which} was already failing when it was recorded. Fix it anyway?`,
-    ALREADY_FAILING_CHOICES.map((choice) => ({ ...choice })), false, signal);
-  return answer?.[0] === "Fix it anyway";
+  app.output.write(`– ${names.join(", ")} was already failing when it was recorded\n`);
 }
 
 /** "test timed out after 10m. 1 Stop · 2 Retry · 3 Fix it anyway · 4 Allow more time". Stop comes first, so Enter

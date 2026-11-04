@@ -726,7 +726,9 @@ live rows, popups or pickers, or a duplicated prompt box (`bun test tests/termin
   there is never written over. Anything else (`export the CSV function`, `how do I export a model`,
   `save the session token`) goes to the AI as before.
 - The first time a session opens a folder, Casper asks `Trust <folder>? It would run: …` with
-  `1 Not now · 2 Trust this folder`; Enter is Not now and asks again next time. A typed line that
+  `1 Not now · 2 Trust this folder`; Enter is Not now and asks again next time. With the sandbox on the order is
+  `1 Trust this folder · 2 Not now`. An empty folder, or one with no code and nothing to run, is not asked about: it is trusted
+  (saved when empty, this session only otherwise) with one `[trust]` line. A typed line that
   only says to trust it or stop (`trust this folder`, `I trust this repo`, `stop trusting this folder`)
   runs `/trust` or `/trust off` the same way, with no model call, idle or during a task:
   `[trust] Handled here, no model call: /trust does the same.` A question (`do you trust this

@@ -191,11 +191,13 @@ export function formatTaskPrompt(
     // Which checks to pick and when is in casper_check's description; this is what it does not say.
     "If you ran tests yourself, say in one line what ran and the result. Don't claim a check passed that didn't run.",
     // Auto mode only: Casper owns the final run, so the model need not select checks to record them.
-    ...(options.verificationMode === "auto" ? ["Casper runs the final checks itself after your last edit and records them; you do not need to. Use casper_check while iterating if it helps. Bash runs of checks are diagnostics only."] : []),
+    ...(options.verificationMode === "auto" ? ["Casper runs and records the final checks after your last edit. casper_check while iterating is optional; bash runs of checks are diagnostics only."] : []),
     // Proving: Casper reruns the test check on the code without the change; only a test of the new behavior fails there.
     // Not for a plain question ("hey", "connect to the nas"): those lines read as "you are changing a project". Casper
     // still proves a change the work turns out to make.
-    ...(options.proveChange && classification.intent !== "general" ? ["If you change code, Casper then checks that the tests fail without your change and pass with it. Add or update a test that exercises the requested behavior so it would fail without your change.", "Before finishing, review every requirement in the request and project docs. Count a requirement as done only when a test you can name asserts it; otherwise add the test or leave it open. A rule that covers several inputs, options or errors is several requirements. Do not list the covered ones. Do the rest yourself; end with only those still not done because they need the person or are blocked, one line each; with none left, no list:", OPEN_ITEM_FORMAT] : []),
+    // A build's most repeated miss (runs 7, 10 and 11): rows sorted on a whole-second time come out in any order.
+    ...(classification.intent === "implement" ? ["Sorting by a time? Also sort by the id: rows made in one second share a time."] : []),
+    ...(options.proveChange && classification.intent !== "general" ? ["If you change code, Casper checks that the tests fail without your change and pass with it: add or update a test of the requested behavior that fails without it.", "Before finishing, review every requirement in the request and project docs. Count a requirement as done only when a test you can name asserts it; otherwise add the test or leave it open. A rule that covers several inputs, options or errors is several requirements. Do not list the covered ones. Do the rest yourself; end with only those still not done because they need the person or are blocked, one line each; with none left, no list:", OPEN_ITEM_FORMAT] : []),
     "",
     "User request:",
     request,

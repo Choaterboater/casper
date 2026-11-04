@@ -29,9 +29,13 @@ or let it find them (see [Where the checks come from](#where-the-checks-come-fro
 
 **Trust first.** Checks run the repository's own commands, so they run only in a folder you trusted.
 The first time a session opens a folder, Casper asks `Trust <folder>? It would run: npm test, npm run
-lint.` with `1 Not now · 2 Trust this folder` (Enter is Not now). Trust is saved for that folder; Not now
+lint.` with `1 Not now · 2 Trust this folder` (Enter is Not now). With the sandbox on, `Trust this folder` comes first,
+so Enter trusts it. Trust is saved for that folder; Not now
 lasts this session and Casper asks again next time. Saying "trust this folder" (or `/trust`) trusts it
-later, and "stop trusting this folder" (`/trust off`) takes it back.
+later, and "stop trusting this folder" (`/trust off`) takes it back. A folder with nothing of anyone else's to run is
+trusted with no question, since everything Casper checks there is the AI's work: an empty folder is trusted and saved
+(`[trust] Trusted: the folder is empty, …`), and one with no code, tests or build files and nothing to run is
+trusted for that session only, so it is asked about once it has some ([decision 72](adr/0002/72-restore-full-checking.md)).
 
 In a folder you haven't trusted:
 - Casper runs no checks, page checks, services or smoke checks, whatever its `.casper/project.yaml`
@@ -75,7 +79,9 @@ permissions, so say yes only for a project you trust.
 **Only prose changed.** An edit that touches only Markdown or text files (`.md`, `.mdx`, `.txt`, `.rst`,
 `.adoc`) runs no check that has no declared `scope`, and the receipt says
 `Checks skipped — only documentation changed (...)`; `/verify` runs them anyway. A check with a declared
-scope that covers those files (a docs test) still runs. YAML and JSON are not skipped: a check may read them.
+scope that covers those files (a docs test) still runs. YAML and JSON are not skipped: a check may read them, and
+neither are the text files a build reads: `requirements*.txt`, `constraints*.txt`, a `requirements/` folder's files,
+`CMakeLists.txt` and `runtime.txt`.
 
 **Only a running app's database changed.** A SQLite database and its journal (`.db`, `.db-wal`, `.db-shm`, `.db-journal`, and the same
 for `.sqlite`) is what an app running next to its code writes all the time; when only those changed, the receipt
@@ -102,7 +108,9 @@ Checks the AI recorded itself (`casper_check`) still run. `tests/background-rece
 run-1/runs`) is one receipt line, `✓ Moved 150 files into run-1/`, and is left out of the checks, the proof, the app
 smoke and the Config row. Code a program wrote into a top-level output folder (a comparison's builds under `builds/` or
 `runs/`) asks for no proof and starts no app smoke; checks that changed files there are not flagged as test data left in
-the app. Undo's files with one reason are said once (`… and 2 more (a nested repository, each)`).
+the app. Only `builds/`, `runs/` and `results/` count for the proof, and only what the AI's own `edit` and `write` didn't
+write: a project's own `reports/` or `out/` package, and code the AI wrote anywhere, is proven as usual
+([decision 72](adr/0002/72-restore-full-checking.md)). Undo's files with one reason are said once (`… and 2 more (a nested repository, each)`).
 A file put into the same folder as moved files with the bytes of one from before counts as moved too, also when a
 relaunched run wrote its old path again with the same bytes. Changing only what a program built or ran into a top-level
 `builds/`, `runs/` or `results/` folder (code and tests there included, unless the AI's own `edit` or `write` wrote them) runs no check: `Checks skipped — only
@@ -736,7 +744,7 @@ How it works:
 - It reads a JSON array. If the answer was cut off mid-array it keeps the complete cases; if the
   model wrote a bullet or numbered list instead, it reads that.
 - It keeps up to 80 cases of at most 200 characters (one line says how many more were left out)
-  and adds them to the task prompt, asking for one test per case that checks what it states, named for that behavior,
+  and adds them to the task prompt, asking for one test per case that asserts exactly that case, named for that behavior,
   not after the case's words.
 - A list of topics or a wish is no case: "next test make it harder front end backend database" lists none. A case
   that only restates the request's quoted words with filler around it (`Test includes a "front end"`) is dropped.
@@ -790,7 +798,16 @@ cases) or `null`.
 
 ## Requirements review
 
-The requirements review is **off by default**. In pinned benchmarks it added no first-time-right
+**A build gets it by default.** When the checks pass on an implement request that changed code, Casper gives the model
+the requirements review round below, then one self-review turn (`↻ self-review: re-reading the request and the code
+once more`, at most 6 turns) on what builds keep missing: writes that belong together in one transaction, state that
+must survive a restart, input types (a number, object or repeated parameter answers 400, not 500), ordering ties and a
+README that matches the code. When either changed a file, the checks run again with the repairs left. In three Sonnet
+4.6 tracker builds each, scored blind against the same omp build, the two rounds narrowed the gap from 18.9 points to
+9.3, no build failed a shared check (without them all three failed `list`), and they used no more tokens (decision 72).
+`verification.review: false` turns them off.
+
+For other code changes the review is **off by default**. In pinned benchmarks it added no first-time-right
 runs (the same runs were right first time with it off) while taking about 40% of Casper's wall
 time. The checks and the proof, not the review, keep Casper at zero false "done".
 
@@ -805,14 +822,15 @@ To turn the round on:
 
 ```yaml
 verification:
-  review: true   # default false
+  review: true   # default: builds only; false turns builds' rounds off too
 ```
 
 **With it on**, when the checks pass on such a change, Casper gives the model one review round
 before proving the change: check every requirement the request and the project docs (for example
 `CONTEXT.md`) state, one case at a time, confirm each is implemented and tested, and fix any gap. It also checks that
-an order on a timestamp breaks ties with a unique key such as the id (rows made in the same second). That line is in the
-review round only, never in every task's prompt.
+an order on a timestamp breaks ties with a unique key such as the id (rows made in the same second). A build's own task
+prompt says it too (`Sorting by a time? Also sort by the id: rows made in one second share a time.`), with the review
+on or off ([decision 72](adr/0002/72-restore-full-checking.md)).
 The answer reports only the gaps and a count, not the requirements that were already covered:
 
 ```
@@ -906,6 +924,14 @@ you may add test files" is still a code change.
    round (within `repair.maxAttempts`) asking the model to add a test that fails without the
    change, then reruns the checks and the comparison.
 
+**A new project.** A task that starts in a small folder (at most 500 files) with no test command still keeps the copy
+from before. When the AI sets up a test command during the task (a `package.json` with a `test` script, a first
+`bun test` file), the change is proven against that copy: without the change is the tests, the files the test command
+needs (`package.json`, the runner's settings) and the installed dependencies as they are now, and none of the code. So a
+new project's tests are proven only when they fail without its code, not because the runner is missing. That copy is
+never the "failed before this change too" copy: there, every new check would read as already broken
+([decision 72](adr/0002/72-restore-full-checking.md)).
+
 When the change rewrote what the `test` command runs (the package.json script it runs, with its
 pre and post scripts, `bunfig.toml` `[test]`, jest or vitest config (or `vite.config` when vitest
 has none), pytest settings, any `conftest.py` outside the test folders, the Makefile for `make`, or a
@@ -960,7 +986,10 @@ If the restart fails, app smoke says not run with the reason, and no GET is sent
 
 A change with nothing to start (no start or dev command and no declared service) says `App smoke: not run — no
 start/dev command or declared service found for this app` as a grey note; it never makes the task Incomplete
-([decision 66](adr/0002/66-nothing-to-start-is-a-note.md)). Only changed app files count: tests and their fixtures
+([decision 66](adr/0002/66-nothing-to-start-is-a-note.md)). Server code is the exception: when a changed file opens a
+server and nothing starts it, the app was never tried, so the task ends `⚠ Incomplete` with `the app was never started:
+no start/dev command or declared service found for its server` ([decision 72](adr/0002/72-restore-full-checking.md)).
+Only changed app files count: tests and their fixtures
 (`tests/fixtures/app/server.mjs`) never do, and a script under `scripts/` or `tools/` that opens a socket (a harness
 probing for a free port) is tooling, not the app, unless the start command runs it.
 
@@ -1376,7 +1405,7 @@ verification:
     test:
       inputs: [src, tests, package.json, bun.lock, tsconfig.json]
       exclude: [tests/coverage] # only if this is generated output, not test input
-  # review: false    # requirements review round, see above
+  # review: false    # requirements review round and a build's self-review, see above
   # checklist:       # request checklist, see above (unset = interactive code changes only)
   # acceptance: false # independent acceptance check: true, warn or false
 repair:
@@ -1390,7 +1419,7 @@ repair:
 | `verification.checks` | any config file | every check with a command |
 | `verification.timeoutMs` | any config file | `600000` (10 minutes), 1 to `3600000` |
 | `verification.scopes` | project file only | none (no reuse) |
-| `verification.review` | any config file | `false` |
+| `verification.review` | any config file | unset: a build's review and self-review only; `true` also reviews other proven changes |
 | `verification.checklist` | any config file | unset (interactive code changes only) |
 | `verification.acceptance` | any config file | `false` |
 | `verification.e2e` | any config file | `true` (the found Playwright check runs) |

@@ -9,7 +9,7 @@ import { realpathLongest } from "../platform/project-paths";
 import { isOutside } from "../platform/inside";
 import { readOnlyCommand } from "../sandbox/read-only";
 import { commandSegments, commandStart, splitShell } from "../sandbox/remote";
-import { testDefinition } from "../verify/test-definition";
+import { definitionFile, testDefinition } from "../verify/test-definition";
 
 export const CHECK_CHANGE_QUESTION = "Change the test check for this project?";
 export const CHECK_CHANGE_CHOICES = ["No", "Yes, save this change", "Use this command for this session only"] as const;
@@ -61,9 +61,7 @@ export class CheckChangeGuard {
     const commands = [...Object.values(await this.configured()), ...Object.values(this.options?.commands() ?? {})];
     for (const command of new Set(commands)) {
       for (const label of (await testDefinition(this.root, command, true)).keys()) {
-        // Section labels carry a suffix, but a script's own path may contain spaces.
-        const file = label.startsWith("package.json ") ? "package.json" : label.replace(/ \[(?:test|tool\.pytest|tool:pytest|pytest)\]$/, "");
-        files.add(realpathLongest(path.join(this.root, file)));
+        files.add(realpathLongest(path.join(this.root, definitionFile(label))));
       }
     }
     return files;

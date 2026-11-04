@@ -18,6 +18,23 @@ export type RequirementsReview =
  * working after 12 turns is exploring, not checking. A smaller --max-turns wins and stays the task's
  * own stop. */
 export const ROUND_MAX_TURNS = 12;
+/** The self-review is one short look: the turns it had when it was measured (decision 72). */
+export const SELF_REVIEW_TURNS = 6;
+
+/** A build's one self-review turn, after the requirements review: what tracker builds kept getting wrong (runs 7, 10, 11). */
+export function selfReviewPrompt(request: string): string {
+  return [
+    "Casper self-review. The checks pass. Before you finish, review your own work once, as a careful reviewer would, working from what you have already read; reopen a file only to check a detail.",
+    "- Requirements: re-read the request below and check each requirement against the code.",
+    "- Data integrity: writes that belong together are in one transaction; state that must survive a restart is stored durably, not in memory.",
+    "- Input types: every request field is checked for its type before use, so a number, object or repeated parameter where a string is expected answers 400, not 500.",
+    "- Ordering: an order on a timestamp breaks ties with a unique key, such as the id.",
+    "- README: every claim matches the code (libraries, commands, settings, defaults).",
+    "Fix what is wrong with the smallest change, with a test where one is cheap, and run the tests once. Then answer in at most 5 lines: what you fixed, or \"Self-review: nothing to fix.\"",
+    "Original request:",
+    request,
+  ].join("\n");
+}
 
 const ITEM = /^\s*[-*]\s*\[([ xX])\]\s+(.+?)\s*$/;
 /** The plain lines the model is asked for, which never look like boxes to tick: "Still not done: …", "Covered now: …". */

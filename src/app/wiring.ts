@@ -132,9 +132,6 @@ export async function loadWorkspace(app: CasperApp, cwd: string) {
   app.references = new ReferenceLibrary(referenceConfiguration, { secretValues: () => ownSecretValues(app) });
   app.projectContext = context;
   trustProjectFile(app, context);
-  // Before anything of the folder's runs: whether you trust it (asked once per folder, src/app/folder-trust.ts).
-  await decideFolderTrust(app, context);
-  if (app.closing) throw new Error("Casper is closing");
   // The shell sandbox for this session: the AI's bash, checks, services, dev servers and Casper's tool runs.
   // A workspace switch replaces it: the old one stops first (the sandbox runtime is one per process).
   await app.lifecycle.close("sandbox").catch(() => {});
@@ -161,6 +158,10 @@ export async function loadWorkspace(app: CasperApp, cwd: string) {
     if (currentSandbox() === sandbox) useSandbox(undefined);
     await app.shell?.close(); await sandbox.close();
   } });
+  // Before anything of the folder's runs, and once the sandbox is known (with it on, Trust is the first answer):
+  // whether you trust it (asked once per folder, src/app/folder-trust.ts).
+  await decideFolderTrust(app, context);
+  if (app.closing) throw new Error("Casper is closing");
   app.skillRegistry = registry;
   // The folder's own skills (.casper, .agents, .claude, .github …) are used only while you trust it.
   registry.setFolderTrusted(app.folderTrust?.trusted === true);
