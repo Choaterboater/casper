@@ -14,11 +14,22 @@ when releasing. Existing historical notes below stay as written; feature tests c
 reference docs, not a per-PR release-note or roadmap entry. Release-prep checks verify the version and
 installer targets (`tests/release-install.test.ts`, `tests/release-targets.test.ts`).
 
-Casper distributes an unsigned **v0.4.9 preview**, not a stable release. The installers
-download from `https://github.com/Choaterboater/casper/releases/download/v0.4.9`,
+Casper distributes an unsigned **v0.4.10 preview**, not a stable release. The installers
+download from `https://github.com/Choaterboater/casper/releases/download/v0.4.10`,
 because GitHub's `latest/download` link skips preview releases. The first published
 preview was **v0.1.0**. A published release is never changed; every fix ships under a
 new version.
+
+## v0.4.10: a show-only network check is a read, and a check is never a change
+
+### Changed
+
+- A network check that only runs show commands, such as LLDP neighbors, runs like a read with no box.
+- A ping or traceroute still asks, as a check that changes no settings, never as a change.
+- The Central skill checks what manages a device's config before saying it is set up in new Central.
+- One word of a longer skill name no longer picks that skill, so "mcp" alone doesn't load mcp-builder.
+- An unknown tool id says which id to call instead, so the AI can retry at once.
+- Casper's network server is casper-network-mcp 0.1.7, which also says a GreenLake login can't reach Classic Central.
 
 ## v0.4.9: Casper's checks leave the app's data as the AI left it
 
