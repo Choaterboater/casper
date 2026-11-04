@@ -300,7 +300,8 @@ test("Claude Code receives no Casper-managed credentials, refresh, identity or b
   const fake = fakeQuery();
   await streamClaudeSubscription(model, context, { apiKey: "synthetic", headers: { "x-app": "synthetic" }, metadata: { user_id: "synthetic" } },
     { ...fake, executable: "fixture", env: {} }).result();
-  expect(fake.options().env).toEqual({ ENABLE_CLAUDEAI_MCP_SERVERS: "0", DISABLE_AUTO_COMPACT: "1", CLAUDE_CODE_DISABLE_AUTO_MEMORY: "1" });
+  expect(fake.options().env).toEqual({ ENABLE_CLAUDEAI_MCP_SERVERS: "0", DISABLE_AUTO_COMPACT: "1", CLAUDE_CODE_DISABLE_AUTO_MEMORY: "1",
+    CLAUDE_CODE_MAX_OUTPUT_TOKENS: String(model.maxTokens) });
   expect(fake.options().pathToClaudeCodeExecutable).toBe("fixture");
   expect(fake.options().settingSources).toEqual([]);
 });
@@ -360,6 +361,58 @@ test("undeclared tools, server errors and truncated streams fail closed", async 
     expect((await streamClaudeSubscription(model, context, undefined, { ...fake, executable: "fixture" }).result()).stopReason).toBe("error");
     expect(fake.closed()).toBe(true);
   }
+});
+
+test("Claude Code gets the model's own output cap, as Pi's Anthropic provider sends it, unless the request names one", async () => {
+  // Without it Claude Code used its own 32,000, half of what the same model gets elsewhere: a long first turn of
+  // reasoning hit that cap before writing anything.
+  const fake = fakeQuery();
+  await streamClaudeSubscription(model, context, undefined, { ...fake, executable: "fixture" }).result();
+  expect(fake.options().env!.CLAUDE_CODE_MAX_OUTPUT_TOKENS).toBe(String(model.maxTokens));
+  fake.sessions.closeAll();
+});
+
+test("Pi's cache warming never sends its one-token requests through Claude Code, which keeps its own session's cache", () => {
+  // A warm request is a separate call with a one-token cap: here it started another Claude Code process that replayed the
+  // whole conversation as text (no shared cache with the live session) and failed on the cap.
+  expect(catalog.getModel("anthropic", "claude-opus-4-8")?.promptCache).toBeDefined();
+  expect(model.promptCache).toBeUndefined();
+});
+
+/** A response that reached the output cap while reasoning, then Claude Code's own next response that carries on. */
+function cappedThenContinued(toolCall: boolean): SDKMessage[] {
+  const next = events(toolCall);
+  next[0] = raw({ type: "message_start", message: { id: "msg_continued", model: model.id, usage: { input_tokens: 7, output_tokens: 0, cache_read_input_tokens: 100, cache_creation_input_tokens: 2 } } });
+  return [
+    raw({ type: "message_start", message: { id: "msg_capped", model: model.id, usage: { input_tokens: 20, output_tokens: 0, cache_read_input_tokens: 10, cache_creation_input_tokens: 5 } } }),
+    raw({ type: "content_block_start", index: 0, content_block: { type: "thinking", thinking: "" } }),
+    raw({ type: "content_block_delta", index: 0, delta: { type: "thinking_delta", thinking: "Planning every file" } }),
+    raw({ type: "content_block_stop", index: 0 }),
+    raw({ type: "message_delta", delta: { stop_reason: "max_tokens" }, usage: { output_tokens: 32000 } }),
+    raw({ type: "message_stop" }),
+    ...next,
+  ];
+}
+
+test("Claude Code carrying on after the output cap is the rest of the same answer, not a failed run", async () => {
+  // Two tracker builds ended in their first turn with "Claude returned multiple model turns": the model reasoned up to
+  // the cap, and Claude Code started its own next response, as it does for a person.
+  for (const toolCall of [false, true]) {
+    const fake = fakeQuery(cappedThenContinued(toolCall));
+    const response = await streamClaudeSubscription(model, context, undefined, { ...fake, executable: "fixture" }).result();
+    expect(response.errorMessage).toBeUndefined();
+    expect(response.stopReason).toBe(toolCall ? "toolUse" : "stop");
+    expect(response.content.filter(block => block.type !== "thinking")).toEqual(toolCall
+      ? [{ type: "toolCall", name: "read", id: "call_fixture", arguments: { path: "fixture.txt" } }] : [{ type: "text", text: "Hello" }]);
+    // Both responses are counted: the capped reasoning was spent too.
+    expect(response.usage).toMatchObject({ input: 27, output: 32003, cacheRead: 110, cacheWrite: 7 });
+    fake.sessions.closeAll();
+  }
+  // A second response after one that ended on its own is still not this transport's.
+  const complete = events().slice(0, -1);
+  const fake = fakeQuery([...complete, ...events()]);
+  expect((await streamClaudeSubscription(model, context, undefined, { ...fake, executable: "fixture" }).result()).errorMessage)
+    .toBe("Claude returned multiple model turns to a single-turn transport.");
 });
 
 /** The tool call a stream ends with, its streamed arguments replaced by `json` (and its starting input by `input`). */

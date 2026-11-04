@@ -860,6 +860,12 @@ repeat a call whose result is already present. Sessions are not saved by Claude 
 closes after 15 idle minutes, and all close when Casper ends. Steering applies at Casper's next tool
 boundary, not inside an already-running turn.
 
+Claude Code gets the model's own output cap (`CLAUDE_CODE_MAX_OUTPUT_TOKENS`, which it clamps to the
+model's limit), as Pi's `anthropic` provider sends it; its own default is 32,000. When a response still
+reaches the cap, Claude Code carries on with its next response, and Casper reads that as the rest of the
+same answer rather than failing the task. Pi's prompt-cache warming is not used with this provider: Claude Code
+keeps the live session's cache itself, and a warm request would start another Claude Code process.
+
 API keys, endpoint overrides and cloud-provider switches are cleared from the Claude Code child's
 environment; user/project Claude settings and inherited MCP servers are not loaded. The provider
 checks the SDK-reported account before releasing the user prompt and rejects API-key or gateway
