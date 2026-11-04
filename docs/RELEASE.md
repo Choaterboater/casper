@@ -14,11 +14,25 @@ when releasing. Existing historical notes below stay as written; feature tests c
 reference docs, not a per-PR release-note or roadmap entry. Release-prep checks verify the version and
 installer targets (`tests/release-install.test.ts`, `tests/release-targets.test.ts`).
 
-Casper distributes an unsigned **v0.4.10 preview**, not a stable release. The installers
-download from `https://github.com/Choaterboater/casper/releases/download/v0.4.10`,
+Casper distributes an unsigned **v0.4.11 preview**, not a stable release. The installers
+download from `https://github.com/Choaterboater/casper/releases/download/v0.4.11`,
 because GitHub's `latest/download` link skips preview releases. The first published
 preview was **v0.1.0**. A published release is never changed; every fix ships under a
 new version.
+
+## v0.4.11: remove and update MCP servers, and long Claude subscription turns that finish
+
+### Changed
+
+- `/mcp remove` takes a server out of the file that defines it and stops it; `/mcp forget` only forgets consent.
+- `/mcp update` changes what a server runs and keeps its settings, and `/mcp detail` names a newer npm version.
+- Told it may, the AI removes or changes a server through Casper's box, which can cover the session.
+- Forgetting a named login says Forgot only once the running server no longer has it.
+- An answer that ran while a login was forgotten tells the AI it came from the old logins.
+- A test call to an unlabeled read on a server added this session is no change row.
+- A refused read of Casper's own records says so, not keys and logins.
+- With a Claude plan, Claude Code gets the model's own output cap, so a long first turn finishes.
+- Claude Code carrying on past the output cap counts as one answer, and Casper no longer warms its cache.
 
 ## v0.4.10: a show-only network check is a read, and a check is never a change
 

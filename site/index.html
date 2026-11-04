@@ -40,7 +40,7 @@
       <div class="container">
         <div class="hx-row">
           <div class="hx-copy">
-            <p class="hx-meta">Casper 0.4.10 · early preview, not signed · MIT licence</p>
+            <p class="hx-meta">Casper 0.4.11 · early preview, not signed · MIT licence</p>
             <h1 id="hero-title">The coding agent that proves it's done.</h1>
             <p class="lead">A coding helper for your terminal. Build web apps, APIs, command-line tools and scripts in the language your project uses, and Casper checks the AI's work before it tells you "done". Network engineers get extra care built in.</p>
             <div class="actions">
@@ -75,8 +75,8 @@
             <button type="button" role="tab" id="tab-unix" aria-controls="cmd-unix" aria-selected="true">macOS / Linux</button>
             <button type="button" role="tab" id="tab-windows" aria-controls="cmd-windows" aria-selected="false" tabindex="-1">Windows</button>
           </div>
-          <div class="cmd" id="cmd-unix"><span class="cmd-label visually-hidden">macOS / Linux</span><pre><code>curl -fsSL https://github.com/Choaterboater/casper/releases/download/v0.4.10/install.sh | sh</code></pre></div>
-          <div class="cmd" id="cmd-windows"><span class="cmd-label">Windows x64 or ARM64 · PowerShell</span><pre><code>[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; irm https://github.com/Choaterboater/casper/releases/download/v0.4.10/install.ps1 | iex</code></pre></div>
+          <div class="cmd" id="cmd-unix"><span class="cmd-label visually-hidden">macOS / Linux</span><pre><code>curl -fsSL https://github.com/Choaterboater/casper/releases/download/v0.4.11/install.sh | sh</code></pre></div>
+          <div class="cmd" id="cmd-windows"><span class="cmd-label">Windows x64 or ARM64 · PowerShell</span><pre><code>[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; irm https://github.com/Choaterboater/casper/releases/download/v0.4.11/install.ps1 | iex</code></pre></div>
         </div>
         <p class="small muted">No Bun or source checkout needed. The installer checks the file's SHA-256 and runs the new program's <code>--version</code> before it replaces an older install. Then run <code>casper</code> in your project folder.</p>
       </div>
@@ -308,9 +308,10 @@ Exit codes: 0 no problems, 1 problems (or warnings with --strict), 64 usage mist
           </ul>
         </div>
         <div>
-          <h2 id="next">New in 0.4.10</h2>
+          <h2 id="next">New in 0.4.11</h2>
           <ul>
-            <li>A network check that only runs show commands, such as LLDP neighbors, runs like a read with no box. A ping or traceroute still asks, as a check that changes no settings, never as a change. The Central skill checks what manages a device's config before it calls the device set up in new Central.</li>
+            <li><code>/mcp remove</code> takes a server out of the file that defines it, and <code>/mcp update</code> changes what it runs and keeps its settings. Told it may, the AI does the same through Casper's box. Forgetting a named login says Forgot only once the running server no longer has it, and with a Claude plan a long first turn finishes.</li>
+            <li>From 0.4.10: a network check that only runs show commands, such as LLDP neighbors, runs like a read with no box. A ping or traceroute still asks, as a check that changes no settings, never as a change. The Central skill checks what manages a device's config before it calls the device set up in new Central.</li>
             <li>From 0.4.9: Casper's own checks, replays, repair rounds and app smoke put the app's data back afterwards, so the users a check signs up never ship. Output folders below the top and copied files count as a program's output, not new work.</li>
             <li>From 0.4.8: a database your own test runs left, such as the user a test signed up, is named on the receipt (<code>Left by your test runs</code>), and the AI is asked to delete it unless it is meant to ship. App smoke follows a redirect within the app, so an app that sends <code>/</code> to <code>/login</code> is up.</li>
             <li>From 0.4.7: a password on a line naming a test domain, such as <code>ada@example.test</code>, is made up and gets no secret warning. An app with nothing to start it is a grey note, never an Incomplete headline, and a request's topic words ("front end", "database") are no longer cases to test.</li>
@@ -334,7 +335,7 @@ Exit codes: 0 no problems, 1 problems (or warnings with --strict), 64 usage mist
   <footer class="site-footer">
     <div class="container footer-inner">
       <div>
-        <p><strong>Casper 0.4.10</strong> · early preview, unsigned</p>
+        <p><strong>Casper 0.4.11</strong> · early preview, unsigned</p>
         <p><a href="https://github.com/Choaterboater/casper/blob/main/LICENSE">MIT licence</a> · © 2026 Choaterboater</p>
         <p>Built on the <a href="https://github.com/earendil-works/pi">Pi SDK</a>. Other parts keep their own licences (<a href="https://github.com/Choaterboater/casper/blob/main/THIRD_PARTY_NOTICES.txt">notices</a>).</p>
       </div>
