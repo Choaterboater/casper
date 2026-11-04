@@ -117,8 +117,10 @@ export function planKinds(plan: ApprovalPlan, tool?: Pick<MCPTool, "_meta">, hit
   return [changeKind({ name: plan.tool, ...(tool?._meta ? { _meta: tool._meta } : {}) }, plan.label)];
 }
 
-/** What a router's find_tool said about one inner tool: its kind and, when it names one Casper knows, its product. */
-export interface RouterHit { kind: ChangeKind; product?: NetworkProduct }
+/** What a router's find_tool said about one inner tool: its kind and, when it names one Casper knows, its product.
+ * `read`: a troubleshooting check the server labels `read` (a show command through Central's troubleshooting API): it
+ * changes nothing, so it runs like a read. Only a `troubleshoot` kind keeps it, and only while every hit said so. */
+export interface RouterHit { kind: ChangeKind; product?: NetworkProduct; read?: true }
 /** At most this many find_tool names are kept per server. */
 export const MAX_HITS_PER_SERVER = 500;
 
@@ -144,18 +146,28 @@ export function hitKindsFrom(raw: unknown): Map<string, RouterHit> {
   for (const item of items) {
     if (!isRecord(item) || typeof item.name !== "string" || !item.name || item.name.length > 200 || !isChangeKind(item.kind)) continue;
     const prev = hits.get(item.name);
-    const kind = prev ? riskier(prev.kind, item.kind) : item.kind;
-    hits.set(item.name, { kind, ...(isNetworkProduct(item.product) ? { product: item.product } : prev?.product ? { product: prev.product } : {}) });
+    hits.set(item.name, mergeHit(prev, { kind: item.kind, ...(isNetworkProduct(item.product) ? { product: item.product } : {}),
+      ...(item.kind === "troubleshoot" && item.label === "read" ? { read: true as const } : {}) }));
     if (hits.size >= MAX_HITS_PER_SERVER) break;
   }
   return hits;
 }
 
-/** The plan with each routed call carrying the kind the server's find_tool gave it, so the box and planLabel see it. */
-export function withHitKinds(plan: ApprovalPlan, hitKinds: ReadonlyMap<string, ChangeKind>): ApprovalPlan {
+/** Two hits for the same tool as one: the riskier kind, and `read` only while both said it about a troubleshooting check. */
+export function mergeHit(prev: RouterHit | undefined, hit: RouterHit): RouterHit {
+  if (!prev) return hit;
+  const kind = riskier(prev.kind, hit.kind);
+  const product = hit.product ?? prev.product;
+  return { kind, ...(product ? { product } : {}), ...(kind === "troubleshoot" && prev.read && hit.read ? { read: true as const } : {}) };
+}
+
+/** The plan with each routed call carrying the kind the server's find_tool gave it, so the box and planLabel see it.
+ * `reads`: the tools the server labels as read-only checks (RouterHit.read). */
+export function withHitKinds(plan: ApprovalPlan, hitKinds: ReadonlyMap<string, ChangeKind>, reads: ReadonlySet<string> = new Set()): ApprovalPlan {
   if (!plan.routed.some((call) => hitKinds.has(call.name))) return plan;
   return { ...plan, routed: plan.routed.map((call) => {
     const kind = hitKinds.get(call.name);
-    return kind && isChangeKind(kind) ? { ...call, kind } : call;
+    if (!kind || !isChangeKind(kind)) return call;
+    return { ...call, kind, ...(kind === "troubleshoot" && reads.has(call.name) ? { read: true as const } : {}) };
   }) };
 }

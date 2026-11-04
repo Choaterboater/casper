@@ -276,3 +276,21 @@ describe("saved sample data", () => {
     expect(skill("network-junos-pyez")).toContain("get_lldp_neighbors_information()");
   });
 });
+
+describe("bundled network skills: what manages a device's config", () => {
+  // From a real session: the AI called two APs "provisioned … in new Central" from inventory labels and gave new Central
+  // fix steps. Neither AP was managed by new Central: no device group, and config health tracked 0 devices.
+  test("the new Central skill checks config management before it says anything about a device's new Central config", () => {
+    const central = bundledSkills().find((item) => item.metadata.name === "network-central-api")!.body;
+    // In "Read first", before any change: the skill's sections are fixed.
+    const section = central.slice(central.indexOf("What manages a device's config:"), central.indexOf("## Changing things"));
+    expect(section).toStartWith("What manages a device's config: check before you call a device set up in new Central or give a fix.");
+    expect(section).toContain("Provisioned, a device function and a site are inventory labels");
+    expect(section).toContain("device group");
+    expect(section).toContain("config health");
+    expect(section).toContain("not managed by new Central");
+    expect(section).toContain("give no new Central fix steps");
+    expect(section).toContain("Classic Central");
+    expect(section).toContain("say plainly that you can't see where the device is configured");
+  });
+});
