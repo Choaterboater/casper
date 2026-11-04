@@ -244,7 +244,10 @@ edit/write asks **Change the test check for this project?**, with the old → ne
 An approved saved command replacement takes effect for the current task too. For a replacement of an
 existing command, **Use this command for this session only** updates the active check registries without
 writing the file; it ends when this Casper session closes. The edit shows a quiet `– kept .casper/project.yaml as it is: session-only check in use`, not a red failure. Further check-file edit attempts in that task keep the files without asking again; Casper uses the session-only command instead. A later task can ask again. Script rewrites otherwise need an explicit save.
-No, Enter, cancellation or a run that cannot ask leaves the file unchanged. Unrelated project settings
+No, Enter, cancellation or a run that cannot ask leaves the file unchanged. A file the running task created (it
+wasn't in the task's starting file list and the task wrote it, such as a new project's `tests/api.test.js` that its own
+`package.json` names) stays an ordinary edit; `.casper/project.yaml`, a file that was there before, and a configured
+script that is still missing keep asking. Unrelated project settings
 remain ordinary edits. Shell commands targeting a possible check rewrite (including directory copies)
 are refused and directed to native edit/write so the exact change can be shown. Plain reads and copying
 checks to unrelated files are not rewrites; other shell permission rules still apply. Paths are read as the

@@ -399,3 +399,34 @@ test("the write tool leaves a folder that is there alone: a drive root (C:\\) re
   // A root that really isn't there still says why.
   await expect(ensureFolder("C:\\", fs([]))).rejects.toThrow("EPERM");
 });
+
+// A -p build wrote package.json ("test": "node --test tests/api.test.js") and that test file, then couldn't add a test to
+// it: "changing configured checks needs your OK", with no one to ask. It wrote a second test file instead.
+test("a test file this task created stays editable; one that was there before, a missing one and project.yaml still ask", async () => {
+  const commands = { test: "node --test tests/api.test.js", smoke: "bun tests/old.test.ts", missing: "bun tests/missing.test.ts" };
+  let asked = 0;
+  const created = new Set<string>();
+  const project = await setup({ commands: () => commands, ask: async () => { asked++; return undefined; }, createdThisTask: (file) => created.has(file) });
+  await mkdir(path.join(project.root, "tests"));
+  await writeFile(path.join(project.root, "tests/old.test.ts"), "test('old')\n");
+  await writeFile(path.join(project.root, "tests/api.test.js"), "test('one')\n");
+  for (const file of ["tests/api.test.js", "tests/missing.test.ts", ".casper/project.yaml"]) created.add(path.join(project.root, file));
+  await project.call("write", { path: "tests/api.test.js", content: "test('one')\ntest('two')\n" });
+  expect(await readFile(path.join(project.root, "tests/api.test.js"), "utf8")).toBe("test('one')\ntest('two')\n");
+  expect(asked).toBe(0);
+  await expect(project.call("write", { path: "tests/old.test.ts", content: "skip" })).rejects.toThrow("needs your OK");
+  await expect(project.call("write", { path: "tests/missing.test.ts", content: "skip" })).rejects.toThrow("needs your OK");
+  await expect(project.call("write", { path: ".casper/project.yaml", content: "commands: { test: 'true' }" })).rejects.toThrow("needs your OK");
+  expect(asked).toBe(3);
+});
+
+test("the app counts a file as this task's when its start listing didn't have it", () => {
+  const root = path.join(os.tmpdir(), "casper-created-fixture");
+  const app = { snapshotBase: new Map([["tests/old.test.ts", "x"]]), activeWorkspaceRoot: () => root, projectContext: { model: { commands: {} } } } as unknown as CasperApp;
+  const options = checkChangeOptions(app);
+  expect(options.createdThisTask?.(path.join(root, "tests/api.test.js"))).toBe(true);
+  expect(options.createdThisTask?.(path.join(root, "tests/old.test.ts"))).toBe(false);
+  expect(options.createdThisTask?.(path.join(path.dirname(root), "elsewhere.test.ts"))).toBe(false);
+  // No listing (a folder too big to list): nothing counts as the task's.
+  expect(checkChangeOptions({ ...app, snapshotBase: undefined } as unknown as CasperApp).createdThisTask?.(path.join(root, "tests/api.test.js"))).toBe(false);
+});

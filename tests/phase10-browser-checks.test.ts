@@ -195,6 +195,8 @@ browserTest("after a change a wrong check can be withdrawn by naming a later pas
   await expect(withdraw(failing.id)).rejects.toThrow("replacedBy must name a check whose latest run passed");
   await expect(withdraw(elsewhere.id)).rejects.toThrow("replacedBy must check the same page as this one (/), not /other");
   await expect(withdraw(wrong.id)).rejects.toThrow("replacedBy must be the id of another check");
+  // An id not recorded yet: the error says the order, record the corrected check first.
+  await expect(withdraw("not-recorded-yet")).rejects.toThrow("replacedBy must be the id of another check recorded in this session: record the corrected check of the same page first, and once it passes, withdraw this one with replacedBy: its id");
   // A check that only shows the page loads, or one at another viewport, can't stand in for it.
   const loads = await f.session.run({ action: "check", scenario: { name: "Loads", url: f.url, scope: { inputs: ["index.html"] }, steps: [], assertions: [{ kind: "visible", selector: "h2" }] } });
   const phone = await f.session.run({ action: "check", scenario: { ...scenario("Phone", f.url, "#done h2", "Booked"), viewport: { width: 390, height: 844 } } });
@@ -564,3 +566,36 @@ browserTest("an earlier task's failed check is withdrawn in the next task only a
   expect(await again.run({ action: "replay", id: typo.id })).toMatchObject({ status: "fail", baseline: "fail" });
   expect(await again.run({ action: "withdraw", id: typo.id, reason: "typo" })).toMatchObject({ status: "withdrawn" });
 }, 60_000);
+
+// Tracker builds ended Incomplete: a check stopped at a step (its button wasn't built yet), the AI recorded another
+// check instead of replaying that id, and Casper's end replay skipped every unfinished check.
+browserTest("the end replay finishes a check recorded in this task that stopped part way, even with no page open", async () => {
+  const f = await fixture();
+  await writeFile(f.sourceFile, "<!doctype html><h1>Hello Casper</h1>");
+  const scenario = { name: "Save", url: f.url, scope: { inputs: ["index.html"] }, steps: [{ action: "click", selector: "#save", impact: "local-test" }],
+    assertions: [{ kind: "text", selector: "#saved", expected: "Saved" }] };
+  await expect(f.session.run({ action: "check", scenario })).rejects.toThrow(/check id [0-9a-f-]+: replay it once the page is ready/);
+  const [unfinished] = (await f.session.report()).checks;
+  expect(unfinished).toMatchObject({ name: "Save", status: "incomplete" });
+  // The feature is built afterwards; the AI never replays the id.
+  await writeFile(f.sourceFile, `<!doctype html><h1>Hello Casper</h1><button id="save" onclick="document.getElementById('saved').textContent='Saved'">Save</button><p id="saved"></p>`);
+  f.session.invalidate();
+  const replayed: string[] = [];
+  await f.session.replayStale(0, undefined, name => replayed.push(name));
+  expect(replayed).toEqual(["Save"]);
+  expect(await f.session.report()).toMatchObject({ status: "pass", checks: [{ id: unfinished!.id, status: "pass", freshness: "fresh" }] });
+}, 30_000);
+
+browserTest("the end replay leaves a check written wrong, a cancelled one and a withdrawn one alone", async () => {
+  const f = await fixture();
+  await writeFile(f.sourceFile, "<!doctype html><h1>Hello Casper</h1><p>a</p><p>b</p>");
+  const scenario = (name: string, selector: string) => ({ name, url: f.url, scope: { inputs: ["index.html"] }, steps: [{ action: "click", selector, impact: "local-test" }],
+    assertions: [{ kind: "text", selector: "h1", expected: "Hello Casper" }] });
+  await expect(f.session.run({ action: "check", scenario: scenario("Missing", "#missing") })).rejects.toThrow(/check id/);
+  const [missing] = (await f.session.report()).checks;
+  await f.session.run({ action: "withdraw", id: missing!.id, reason: "the button is not part of this page" });
+  f.session.invalidate();
+  const replayed: string[] = [];
+  await f.session.replayStale(0, undefined, name => replayed.push(name));
+  expect(replayed).toEqual([]);
+}, 30_000);

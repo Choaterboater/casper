@@ -159,3 +159,19 @@ browserTest("press takes the keys that move round a page: End, Home, PageUp, Pag
   await expect(f.session.run({ action: "press", selector: "#field", value: "F13", impact: "local-test", reason: "Fixture key" }))
     .rejects.toThrow(/Unsupported browser key "F13"; press takes Enter, .*End, PageUp, PageDown/);
 }, 30_000);
+
+// A -p tracker build's checks opened /projects with no sign-in steps; each check starts signed out, so they landed on
+// /login. The end replay and the finish turn couldn't fix them: signin needs a person, a replacement must check the same
+// page, and after edits a check can't be withdrawn without one. The run ended Incomplete.
+browserTest("a check that went to a sign-in page says to sign in through its steps, isn't replayed at the end, and can be withdrawn after edits", async () => {
+  const f = await fixture();
+  const redirected = await f.session.run({ action: "check", scenario: { name: "Dashboard shows", url: `${f.url}/dashboard`, steps: [], assertions: [{ kind: "visible", selector: "h1" }] } });
+  expect(redirected).toMatchObject({ status: "incomplete", signedOut: true });
+  expect(String(redirected.reason)).toContain("Each check starts signed out: sign in through its steps");
+  f.session.invalidate();
+  const replayed: string[] = [];
+  await f.session.replayStale(0, undefined, name => replayed.push(name));
+  expect(replayed).toEqual([]);
+  // It never saw its page, so withdrawing it hides nothing, even after a change and with no replacement.
+  expect(await f.session.run({ action: "withdraw", id: redirected.id, reason: "it started signed out" })).toMatchObject({ status: "withdrawn" });
+}, 30_000);

@@ -44,6 +44,7 @@ import { ChangeBaseline, changesCode, isCodePath, isTestPath, proofRepairPrompt,
 import { independentAcceptance } from "../verify/acceptance";
 import { definitionChangedReason, definitionChanges, definitionFile, testDefinition } from "../verify/test-definition";
 import type { ProjectContext } from "../project/context";
+import type { BrowserCheck } from "../browser/scenario";
 import { parseChecklist, parseReview, requirementsReviewPrompt, ROUND_MAX_TURNS, selfReviewPrompt, SELF_REVIEW_TURNS, type RequirementsReview } from "../task/review";
 import { KEEP_GOING_ROUNDS, keepGoingNeed, keepGoingPrompt, openPlanNote } from "../task/keep-going";
 import { answerNextStep, answerNextStepItem, findNextStep, requestStepCount } from "../task/next-step";
@@ -568,6 +569,18 @@ export async function runModelTask(app: CasperApp, prompt: string, options: { fl
       return (await app.browser.report()).checks.filter(check => replayed.has(check.id) && check.status === "fail" && check.freshness === "fresh");
     };
     let browserFailures = await replay();
+    // Checks the AI recorded in this task that still never finished (a step stopped part way and it recorded another check
+    // instead): one turn to replay or withdraw each, then they replay again. Not a repair: it changes nothing in the app.
+    const unfinished = !stoppedNow() && app.browser ? (await app.browser.report()).checks.filter(unfinishedCheck) : [];
+    if (unfinished.length) {
+      app.events.ensureLineBreak();
+      app.output.write(`↻ finish: ${unfinished.length === 1 ? "a browser check" : `${unfinished.length} browser checks`} the AI recorded never finished\n`);
+      await prepareCapabilities(app, prompt);
+      phase(app, "repair", "start");
+      try { await promptRound(app, session, finishChecksPrompt(unfinished), prompt, undefined, FINISH_TURNS); }
+      finally { phase(app, "repair", "end"); }
+      if (!stoppedNow()) browserFailures = await replay(new Set(browserFailures.map(check => check.id)));
+    }
     const max = context.repair.maxAttempts;
     const used = verification?.repairAttempts ?? 0;
     // A check that already failed when it was recorded is said, then repaired with the rest.
@@ -1138,6 +1151,22 @@ export async function finishChange(app: CasperApp, input: {
   const result = await proveChange(app, { ...input, verification });
   phase(app, "proof", "end");
   return { ...result, review };
+}
+
+/** A browser check of this task's that never finished: not one written wrong, answered Cancel, whose server is gone or
+ * that Casper couldn't replay (each keeps its own reason on the receipt). */
+const unfinishedCheck = (check: BrowserCheck): boolean =>
+  check.status === "incomplete" && !check.gone && !check.cancelled && !check.writtenWrong && !check.notReplayed;
+/** Turns the AI has to finish or withdraw its unfinished browser checks: a round's, as recording a replacement and then
+ * withdrawing, for each check, took more than 6 in a tracker build. */
+const FINISH_TURNS = ROUND_MAX_TURNS;
+
+function finishChecksPrompt(checks: readonly BrowserCheck[]): string {
+  return [
+    "Casper: browser checks you recorded in this task never finished.",
+    ...checks.map((check) => `- ${check.name} (id ${check.id})${check.reason ? `: ${check.reason}` : ""}`),
+    "Replay each id with the browser tool now that the page is ready. If a check is wrong (it needs data or steps it doesn't set up), first record a correct check of the same page; once it passes, withdraw this one with replacedBy: the new check's id. One that went to a sign-in page never saw its page: withdraw it, no replacedBy needed, and if its page isn't checked yet, record a check that signs in through its steps. Every id above must end replayed or withdrawn. Don't change the app in this turn. Casper replays the checks again after it.",
+  ].join("\n");
 }
 
 /** A build's review once its checks pass: the requirements review round (unless one already ran), then one self-review

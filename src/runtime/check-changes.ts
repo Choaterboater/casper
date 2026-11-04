@@ -24,6 +24,9 @@ export interface CheckChangeOptions {
   commands(): Record<string, string>;
   taskKey?(): unknown;
   ask(change: CheckChange): Promise<"save" | "session" | undefined>;
+  /** Whether the running task created this file (it wasn't there when the task started): its own test files stay
+   * editable without the box. */
+  createdThisTask?(file: string): boolean;
   /** Apply approved replacements to the current registries, for both saved and session-only changes. */
   useSessionCommands?(commands: Record<string, string>): void;
 }
@@ -86,6 +89,9 @@ export class CheckChangeGuard {
     });
     if (before === after) return;
     const config = identity === realpathLongest(path.join(this.root, ".casper/project.yaml"));
+    // A file this task wrote earlier (a new project's test file its own script names) is the task's work, not a check
+    // someone set up: it stays editable. A missing one and the project's own check settings still ask.
+    if (!config && await exists(file) && this.options?.createdThisTask?.(file)) { await writeFile(file, after, "utf8"); return; }
     let change: CheckChange = { file: path.relative(this.root, file).split(path.sep).join("/"), before, after };
     if (config) {
       let oldCommands: Record<string, string>, newCommands: Record<string, string>;
@@ -361,4 +367,8 @@ export function guardedFileTools(cwd: string, guard: CheckChangeGuard) {
     };
     return { ...definition, execute };
   });
+}
+
+async function exists(file: string): Promise<boolean> {
+  return stat(file).then(() => true, () => false);
 }

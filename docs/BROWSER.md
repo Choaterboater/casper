@@ -409,7 +409,12 @@ stays open.
 If this replay produces a fresh failure and a try remains in `repair.maxAttempts`,
 Casper gives the model **one repair turn**, using the same budget as command,
 page-note and proof repairs. Incomplete or stale results, and failures from checks
-not replayed by this task, do not start that turn. A failing check that was already failing when it was recorded
+not replayed by this task, do not start that turn. A check recorded in this task that stopped part way (a step whose
+element wasn't built yet) is replayed at the end too, on the final app. One still unfinished after that gets one turn,
+not a repair: `↻ finish: a browser check the AI recorded never finished`, asking the AI to replay its id, or first record a
+correct check of the same page and, once it passes, withdraw the old one with `replacedBy` (every listed id must end
+replayed or withdrawn), without changing the app; then the checks replay again. A check
+written wrong, answered Cancel, whose server is gone, or that couldn't be replayed keeps its reason and gets no turn. A failing check that was already failing when it was recorded
 (its baseline was a failure) gets a line, `– Save was already failing when it was recorded`, and the same repair turn,
 with no question first ([decision 72](adr/0002/72-restore-full-checking.md)): every such check was recorded in this
 task, and the AI checks before it edits, so a new feature's check is recorded failing. After it, Casper replans and
@@ -468,8 +473,11 @@ The AI's browser is headless and starts with an empty profile, so a page behind 
 - A check or replay whose page went to a sign-in page instead of the page it asked for (a path such as
   `/auth/authorize`, `/login` or `/signin`, or a page whose main form asks for a user name and a password) is neither
   a pass nor a failure: it is incomplete with the reason `The page went to a sign-in page (<address>) instead of
-  <path>, so nothing was checked. Use the browser's signin action so the person can sign in, then replay this check.`
-  A check of the sign-in page itself is an ordinary check.
+  <path>, so nothing was checked. Each check starts signed out: sign in through its steps (this app's sign-in form
+  first), or use the browser's signin action so the person can sign in, then replay this check; or withdraw it, as it
+  never saw its page.` Such a check can be withdrawn without a replacement even after later edits, and Casper's end
+  replay doesn't rerun it (it would go to the sign-in page again). A check of the sign-in page itself is an ordinary
+  check.
 - Casper asks `Open a Chrome window so you can sign in to <site>? The AI won't see what you type.` (`1 No · 2 Yes`).
   It asks every time; there is no "for this session" yes.
 - On Yes, the headless Chrome stops, keeping its profile, and a normal Chrome window opens on that same profile at
@@ -572,6 +580,9 @@ After a forced SIGKILL of Casper or a power loss, cleanup may not happen.
   fresh Chrome with a new profile (the old page and anything typed into it are gone; the
   server the session started keeps running). Two fresh starts per session; a third crash,
   or a Chrome whose processes can't be confirmed stopped, closes the session as before.
+- An action of the AI's that runs out of its time stops that Chrome and says `… ran out of time (30 s) and Casper
+  started a fresh browser; open the page again.` The next action starts a fresh Chrome in the same session, so the
+  checks recorded so far stay. After three such overruns the next one closes the session as before.
 - A first Chrome start that has not answered after 8 seconds is stopped and replaced by one
   fresh start, and the running action's deadline starts again. For an `open`, the whole
   cold start, both tries, is outside its deadline, which starts once Chrome is up. A start
