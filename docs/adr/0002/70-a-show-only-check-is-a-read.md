@@ -1,6 +1,6 @@
 # 70. A show-only check the server labels read is a read; a check is never a change
 
-Date: 2026-11-03. Status: proposed. Extends the router rules in [MCP.md](../../MCP.md#safety) (a routed call is judged by
+Date: 2026-11-03. Status: accepted (merged 2026-11-03 in #587). Extends the router rules in [MCP.md](../../MCP.md#safety) (a routed call is judged by
 the real tool and the kind its server's `find_tool` gave it).
 
 ## Decision
