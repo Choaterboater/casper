@@ -31,7 +31,7 @@ import { diffSnapshots, findMoves, tooManyFiles, withoutMoves, type TreeChanges 
 import { attributeChanges, movedElsewhere, withoutFiles, WriteWindows } from "../task/attribution";
 import { describeTestData, testDataNote, testDataNotice } from "../task/test-data";
 import { type AppData, restoreAppData, sameAppData, snapshotAppData } from "../browser/app-data";
-import { checkDataFile } from "../services/app-data";
+import { checkDataFile, settingsFile } from "../services/app-data";
 import { OutsideWork } from "../task/outside-work";
 import { headMoved, taskHead } from "../task/git-movement";
 import type { CheckName, VerificationReport } from "../verify/evidence";
@@ -284,8 +284,8 @@ export async function runModelTask(app: CasperApp, prompt: string, options: { fl
   let changedUnsure: string[] | undefined;
   /** New data files the task's own runs made (a database its server wrote): told to the AI once, named on the receipt. */
   let testData: string[] = [];
-  /** The app's data as the AI left it, put back after Casper's checks (keptByChecks). */
-  let dataAsLeft: AppData | undefined;
+  /** The app's data and settings as the AI left them, put back after Casper's checks and rounds (keptByChecks, settingsKeptByChecks). */
+  let dataAsLeft: AppData | undefined, settingsAsLeft: AppData | undefined;
   // Another program's files stay out of every later comparison while they are as it left them.
   const masked = (snapshot: Map<string, string> | undefined) => snapshot && before && changedNotByModel
     ? withoutFiles(snapshot, before, changedNotByModel, othersAsFound) : snapshot;
@@ -430,8 +430,10 @@ export async function runModelTask(app: CasperApp, prompt: string, options: { fl
     }
     // The app's data as the AI left it, before any of Casper's checks, replays, repair rounds or app smoke use the app:
     // what they write (the users a check signs up) is put back afterwards, so the app ships as the AI left it.
-    dataAsLeft = before && afterModel && verificationMode !== "off" && !app.closing
-      ? await snapshotAppData(workspaceRoot, app.commandAbort?.signal, keptByChecks, CHECK_DATA_LIMITS).catch(() => undefined) : undefined;
+    // So are its settings (a test widget a review round installed through the app into config/widgets.yaml).
+    const keepAsLeft = before && afterModel && verificationMode !== "off" && !app.closing;
+    dataAsLeft = keepAsLeft ? await snapshotAppData(workspaceRoot, app.commandAbort?.signal, keptByChecks, CHECK_DATA_LIMITS).catch(() => undefined) : undefined;
+    settingsAsLeft = keepAsLeft ? await snapshotAppData(workspaceRoot, app.commandAbort?.signal, settingsKeptByChecks, CHECK_DATA_LIMITS).catch(() => undefined) : undefined;
     // A project the model just set up (package.json, pyproject.toml, Package.swift...) gets its checks now,
     // not on the next task: the checks known at the start were those of the folder before the change.
     if (verificationMode !== "off" && before && afterModel && !app.closing) {
@@ -668,8 +670,16 @@ export async function runModelTask(app: CasperApp, prompt: string, options: { fl
     verification = await finishConfiguredTest(app, verification);
     const appSmoke = await finishAppSmoke(app, { context, root: workspaceRoot, before, preserve: preservedServices,
       verification, mode: verificationMode, child: workFolder });
-    // Put back the data Casper's checks wrote; a file the AI's own edit or write tools changed in a repair round stays.
-    if (dataAsLeft && !app.closing) await putBackCheckData(workspaceRoot, dataAsLeft, new Set(toolFiles(workspaceRoot, app.observations.edited(), "inside"))).catch(() => {});
+    // Put back the data and settings Casper's checks and its review, proof and repair rounds' runs wrote, also after a
+    // round cut off at its turn budget; a file the AI's own edit or write tools changed stays.
+    const editedByAI = new Set(toolFiles(workspaceRoot, app.observations.edited(), "inside"));
+    if (dataAsLeft && !app.closing) await putBackCheckData(workspaceRoot, dataAsLeft, editedByAI).catch(() => {});
+    // Settings may hold a real fix a round made with a shell command: what is put back is said.
+    const settingsPutBack = settingsAsLeft && !app.closing ? await putBackCheckData(workspaceRoot, settingsAsLeft, editedByAI).catch(() => []) : [];
+    if (settingsPutBack.length) {
+      app.events.ensureLineBreak();
+      app.output.write(`↻ put back as the AI left them: ${terminalText(settingsPutBack.join(", "))} (changed while Casper checked the work)\n`);
+    }
     let execution: TaskResult["execution"] = app.closing || app.commandAbort?.signal.aborted || app.taskRuntimeCancelled || app.checkTask?.signal.aborted ? "cancelled" : app.taskRuntimeFailed ? "failed" : "completed";
     // Keep already-executed evidence on terminal error/cancellation, but never
     // launch another command or repair prompt after the task has stopped.
@@ -1541,18 +1551,24 @@ const NOT_COMPARED: Record<string, string> = { document: "this was a docs reques
 
 /** Data files Casper keeps as the AI left them through its checks: an app's data outside a program's output folders. */
 const keptByChecks = (file: string) => checkDataFile(file) && !inOutputFolder(file);
+/** Settings files (YAML, TOML, INI) kept the same way, in a snapshot of their own so a project with many still has its data one. */
+const settingsKeptByChecks = (file: string) => settingsFile(file) && !inOutputFolder(file);
 /** Larger than a replay's own snapshot: a database's -wal grows past a megabyte quickly. */
 /** A folder this small when a task starts is a new project: Casper keeps a copy of it for a proof even with no test command yet. */
 const NEW_PROJECT_FILES = 500;
 const CHECK_DATA_LIMITS = { files: 64, fileBytes: 64 * 1024 * 1024, totalBytes: 256 * 1024 * 1024 };
 
-/** The data files as `wanted` holds them, files made since removed; `keep` (the AI's own edits) stays as it is now. */
-async function putBackCheckData(root: string, wanted: AppData, keep: ReadonlySet<string>): Promise<void> {
-  const now = await snapshotAppData(root, undefined, keptByChecks, CHECK_DATA_LIMITS);
-  if (!now || sameAppData(wanted, now)) return;
+/** The files as `wanted` holds them, files made since removed; `keep` (the AI's own edits) stays as it is now. Returns the
+ * files put back or removed. */
+async function putBackCheckData(root: string, wanted: AppData, keep: ReadonlySet<string>): Promise<string[]> {
+  const now = await snapshotAppData(root, undefined, wanted.pick ?? keptByChecks, CHECK_DATA_LIMITS);
+  if (!now || sameAppData(wanted, now)) return [];
   const files = new Map(wanted.files);
   for (const file of keep) { const current = now.files.get(file); if (current) files.set(file, current); else files.delete(file); }
+  const differs = (file: string) => { const was = files.get(file), is = now.files.get(file); return !was || !is || !was.equals(is); };
+  const changed = [...new Set([...files.keys(), ...now.files.keys()])].filter(differs).sort();
   await restoreAppData(root, { files }, now);
+  return changed;
 }
 
 /** Tools that may start the task's own app or tests, whose data files are then the task's (src/task/test-data.ts). */
