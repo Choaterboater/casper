@@ -268,6 +268,9 @@ export class CasperApp {
   openPlan?: { file: string; steps: Array<{ step: number } & import("./flows/plan-build").PlanStepReport> };
   readonly terminal: InteractiveTerminal;
   interactive = false;
+  /** `casper acp`: an ACP client's person answers the approval boxes (session/request_permission), so the run keeps the
+   * terminal's checklist and screenshot-question defaults; it is otherwise one-shot. */
+  remoteApprovals = false;
   /** beforeChanges gate state for the current task; a recorded ask attempt satisfies it. */
   editGateActive = false;
   asksThisTask = 0;
@@ -761,13 +764,14 @@ export class CasperApp {
       : task;
   }
 
-  async runOnce(prompt: string, cwd = process.cwd()): Promise<VerificationReport | undefined> {
+  /** `asked`: the request without a transcript pasted into it, when the caller found one (casper acp). */
+  async runOnce(prompt: string, cwd = process.cwd(), asked?: string): Promise<VerificationReport | undefined> {
     if (!this.projectContext) {
       await this.start(cwd);
     }
 
     writePrompt(this, /^\s*\/login(?:\s|$)/.test(prompt) ? "/login" : prompt);
-    return handlePrompt(this, prompt.trim());
+    return handlePrompt(this, prompt.trim(), undefined, asked);
   }
 
   async runInteractive(cwd = process.cwd(), firstRequest?: string): Promise<void> { return runInteractive(this, cwd, firstRequest); }

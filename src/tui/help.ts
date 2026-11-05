@@ -69,6 +69,7 @@ Usage:
   casper security [repo] [--json] [--strict] [--install] [--mcp-tools <file>]  Run the security tools on a repo (no model); installs tools only with --install. Exit 0 no problems, 1 problems, 64 usage mistake
   casper update [--check]  ${UPDATE_HELP}
   casper doctor        ${DOCTOR_HELP}
+  casper acp           Let an app or editor drive Casper over the Agent Client Protocol on stdin/stdout: each prompt gets casper --json's checks, its receipt is the last message, and approval boxes go to the app (no answer is No). Run options go before or after acp
   casper --cd <path> ...  Work in that folder instead of the current directory
   casper --continue ...  Continue this folder's most recent conversation
   casper --resume <id-prefix> ...  Continue the saved conversation whose ID starts with this

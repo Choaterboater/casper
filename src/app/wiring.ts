@@ -31,7 +31,7 @@ import { NO, YES_ONCE, YES_SESSION } from "./safe-choices";
 import { useSandbox, currentSandbox } from "../sandbox/manager";
 import { SandboxStore } from "../sandbox/store";
 import { loginMissingAnswer } from "../mcp/network/ask-login";
-import { confirmCapability, confirmKind, answerServerQuestion, oneAtATime } from "./approvals";
+import { confirmCapability, confirmKind, answerServerQuestion, oneAtATime, someoneAnswers } from "./approvals";
 import { networkLoginHost, ownSecretValues } from "./network-host";
 import { updateFooter, updateNoteText } from "./footer";
 import { checksPlan } from "./verification";
@@ -46,7 +46,7 @@ import { judgeForApp, noteJudgeAllowed } from "./auto-mode";
 export function sandboxHost(app: CasperApp): SandboxHost {
   return {
     onCleanupFailure: app.blockOnCleanupFailure,
-    canAsk: () => app.interactive && app.terminal.canAsk && !app.closing,
+    canAsk: () => someoneAnswers(app) && app.terminal.canAsk && !app.closing,
     pick: (question, options, signal, settings) => {
       const stop = signal ?? app.commandAbort?.signal;
       return oneAtATime(app, async () => app.closing ? undefined : app.terminal.pick(question, options, stop, settings?.record ? { record: settings.record } : {}));

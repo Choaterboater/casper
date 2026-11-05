@@ -13,6 +13,7 @@ import { DOCTOR_HELP, DOCTOR_USAGE, looksLikePath, parseCliArgs, parseDoctorArgs
 import { runningFromBinary } from "./update/mode";
 import type { Install } from "./update/command";
 import type { VerificationMode } from "./verify/mode";
+import type { CasperAppOptions } from "./app";
 
 import { redactPreview, terminalText } from "./tui/format";
 import { formatJsonEvent, receiptEvent, type CasperEvent } from "./app/json-events";
@@ -243,7 +244,7 @@ export async function runCli(): Promise<void> {
   // `casper new` at a terminal asks what is missing and then opens Casper in the new project; scripts
   // (no terminal) and --list stay standalone, with no app and no model.
   const newProject = terminalNewProject(options, Boolean(process.stdin.isTTY));
-  const standalone = options.command === "prompt" || options.command === "interactive" || newProject ? undefined : STANDALONE[options.command];
+  const standalone = options.command === "prompt" || options.command === "interactive" || options.command === "acp" || newProject ? undefined : STANDALONE[options.command];
   if (standalone) {
     // No app, no model and no saved state: only the subcommand's own tools run, in the shell sandbox where it can run.
     await withStandaloneSandbox(options, () => standalone(options.rest));
@@ -287,6 +288,28 @@ export async function runCli(): Promise<void> {
       process.stderr.write(`[auth] Existing ${provider} sign-in is not shared; run /login ${provider} to sign in Casper. The original sign-in is unchanged.\n`);
     }
   }
+  // --allow-write folders: ~ is your home folder; others are named from where you typed the command.
+  const home = os.homedir();
+  const allow = { hosts: options.allowHosts ?? [], reach: options.allowReach ?? [],
+    writes: (options.allowWrites ?? []).map((folder) => folder === "~" ? home : folder.startsWith("~/") ? path.join(home, folder.slice(2)) : path.resolve(launchedFrom, folder)) };
+  const appOptions = (): CasperAppOptions => ({ verificationMode: verificationFlag(options), verbose: options.verbose, ...(options.noSandbox ? { noSandbox: true } : {}),
+    ...(allow.hosts.length || allow.reach.length || allow.writes.length ? { allow } : {}),
+    ripgrep: (ripgrepOptions) => import("./security/ripgrep").then((module) => module.ensureRipgrep(ripgrepOptions)),
+    model: options.model, effort: options.effort, maxTurns: options.maxTurns, startupWarnings });
+  if (options.command === "acp") {
+    const { runAcpServer, SESSION_ENV } = await import("./acp/server");
+    // The router passes the client's messages to one Casper process per session (src/acp/server.ts); this is one.
+    if (process.env[SESSION_ENV] === "1") {
+      delete process.env[SESSION_ENV];
+      const [{ runAcpSession }, { CasperApp }, { PassThrough }] = await Promise.all([import("./acp/session"), import("./app"), import("node:stream")]);
+      // stdin and stdout carry the protocol: the app reads nothing from stdin and writes for a person on stderr.
+      await runAcpSession({ cli: options, createApp: async ({ conversation, onEvent, output }) =>
+        new CasperApp({ ...appOptions(), ...(conversation ? { conversation } : {}), onEvent, output, input: new PassThrough() }) });
+      process.exit(0);
+    }
+    await runAcpServer(process.argv.slice(2), launchedFrom);
+    process.exit(0);
+  }
   if (learn) {
     // No app, so no app output: learning prints its own diagnostics on stderr.
     for (const warning of startupWarnings) process.stderr.write(`[config] ${warning}\n`);
@@ -315,14 +338,7 @@ export async function runCli(): Promise<void> {
   const emit = options.json ? (event: CasperEvent) => { process.stdout.write(formatJsonEvent(event)); } : undefined;
   // Loaded only now: --help, --version and usage errors never need the app.
   const { CasperApp } = await import("./app");
-  // --allow-write folders: ~ is your home folder; others are named from where you typed the command.
-  const home = os.homedir();
-  const allow = { hosts: options.allowHosts ?? [], reach: options.allowReach ?? [],
-    writes: (options.allowWrites ?? []).map((folder) => folder === "~" ? home : folder.startsWith("~/") ? path.join(home, folder.slice(2)) : path.resolve(launchedFrom, folder)) };
-  const app = new CasperApp({ verificationMode: verificationFlag(options), verbose: options.verbose, ...(options.noSandbox ? { noSandbox: true } : {}),
-    ...(allow.hosts.length || allow.reach.length || allow.writes.length ? { allow } : {}),
-    ripgrep: (ripgrepOptions) => import("./security/ripgrep").then((module) => module.ensureRipgrep(ripgrepOptions)),
-    model: options.model, effort: options.effort, maxTurns: options.maxTurns, startupWarnings,
+  const app = new CasperApp({ ...appOptions(),
     // A session says when a newer Casper is out; --json output is for scripts and never does.
     ...(options.json ? {} : { updateCheck: { install: currentInstall(), currentVersion: CASPER_VERSION } }),
     conversation: options.resume ? { resume: options.resume } : options.continueConversation ? { continue: true } : undefined,

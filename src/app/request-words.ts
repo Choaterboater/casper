@@ -47,6 +47,17 @@ export function isScreenTranscript(piece: string): boolean {
   return screen >= 3 && screen * 4 >= lines.length;
 }
 
+/** The terminal transcripts in text that says nothing about what was pasted (an ACP client's prompt): each piece's
+ * lines from its first screen line on, when they read as one. Words typed after such a paste go with it. */
+export function transcriptsIn(pieces: readonly string[]): string[] {
+  return pieces.flatMap((piece) => {
+    const lines = piece.split(/\r?\n/);
+    const first = lines.findIndex((line) => SCREEN_LINE.test(line));
+    const tail = first === -1 ? "" : lines.slice(first).join("\n");
+    return tail && isScreenTranscript(tail) ? [tail] : [];
+  });
+}
+
 /** The request without the terminal transcripts pasted into it, or undefined when none was. What such a paste says
  * ("fix", "add tests") is context, not what the person asked for. */
 export function withoutTranscripts(line: string, pasted: readonly string[]): string | undefined {

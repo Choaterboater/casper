@@ -730,7 +730,7 @@ the model's own tests cover each one. On the hard eval pack it cut wrong runs fr
 48 at 1.06× Pi's wall time (docs/evals/2026-09-27-request-checklist.md).
 
 **On by default in interactive sessions for code changes** (requests Casper classifies as
-implement, fix or test). A request for a report, review or audit, or one that says not to change anything ("look
+implement, fix or test), and in `casper acp` sessions, where a person answers in the app. A request for a report, review or audit, or one that says not to change anything ("look
 for issues and report back, don't change anything"), is read-only even when it names debugging or changes: the AI is told
 so, and it gets no checklist or proof step, unless it also asks for a change ("debug why it fails and fix it"). Off for questions, docs,
 refactors and configuration, and off in one-shot runs unless set. A terminal transcript pasted into
@@ -1187,8 +1187,9 @@ text). When the checks pass and the model in use can see pictures, Casper can sh
 of up to 2 pages once, so it can fix what looks wrong before it says done. That uses tokens, so the
 first time in a session Casper asks: `1 No · 2 Yes, show the AI the pages`. The answer holds for the
 session; `/settings` (Show the AI the pages) makes it always or never, written as `showPages: ask|on|off`
-in `~/.casper/config.yaml` (a project file can't set it). A one-shot run never asks, so by default it
-never looks. A fix made while looking goes through the checks again, with the repairs left. The
+in `~/.casper/config.yaml` (a project file can't set it). In `casper acp` the question is a permission
+card in the app with the same choices, `No` first; only a picked Yes shows the pages, and the answer holds
+for that session. A one-shot run never asks, so by default it never looks. A fix made while looking goes through the checks again, with the repairs left. The
 receipt says `– The AI looked at 2 screenshots of the pages (advice, not a check)`: what the model
 thinks of a picture is never evidence and never makes a change **Verified**. A model that can't see
 pictures is never sent them. The prompt names them `[screenshot 1]`, `[screenshot 2]`, apart from any
@@ -1427,7 +1428,7 @@ verification:
       inputs: [src, tests, package.json, bun.lock, tsconfig.json]
       exclude: [tests/coverage] # only if this is generated output, not test input
   # review: false    # requirements review round and a build's self-review, see above
-  # checklist:       # request checklist, see above (unset = interactive code changes only)
+  # checklist:       # request checklist, see above (unset = code changes in the terminal or casper acp)
   # acceptance: false # independent acceptance check: true, warn or false
 repair:
   maxAttempts: 3     # repair prompts after the first run of checks; 0 turns repair off, max 10
@@ -1441,7 +1442,7 @@ repair:
 | `verification.timeoutMs` | any config file | `600000` (10 minutes), 1 to `3600000` |
 | `verification.scopes` | project file only | none (no reuse) |
 | `verification.review` | any config file | unset: a build's review and self-review only; `true` also reviews other proven changes |
-| `verification.checklist` | any config file | unset (interactive code changes only) |
+| `verification.checklist` | any config file | unset (code changes in the terminal or `casper acp`) |
 | `verification.acceptance` | any config file | `false` |
 | `verification.e2e` | any config file | `true` (the found Playwright check runs) |
 | `verification.compose` | any config file | `true` (the found Compose check runs) |

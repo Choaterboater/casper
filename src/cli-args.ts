@@ -48,8 +48,8 @@ export interface CliOptions {
    * match Casper itself. */
   promptFromStdin?: boolean;
   /** Initial prompt (session or one-shot), a subcommand (`casper learn …`, `casper mcp check …`, `casper new …`,
-   * `casper security …`, `casper update`), or an interactive session. */
-  command: "prompt" | "interactive" | SubcommandName;
+   * `casper security …`, `casper update`), an interactive session, or `casper acp` (an ACP agent on stdin/stdout). */
+  command: "prompt" | "interactive" | "acp" | SubcommandName;
   /** Prompt words, or the subcommand's full argument list (starting with its own words). */
   rest: string[];
   /** A single word with no `--` before it: when it is a folder, `casper <folder>` opens it (cli.ts decides). */
@@ -162,6 +162,7 @@ export function parseCliArgs(argv: readonly string[]): CliOptions {
   }
 
   options.rest = args;
+  if (!literal && isAcp(args)) return acpOptions(options, args.slice(1));
   if (args.length === 1 && args[0] === "-") {
     options.promptFromStdin = true;
     options.rest = [];
@@ -183,6 +184,32 @@ export function parseCliArgs(argv: readonly string[]): CliOptions {
   if (options.json && options.command !== "prompt") throw new UsageError("--json needs a prompt: casper --json \"fix the failing test\"");
   if (options.requireVerification && options.command !== "prompt") throw new UsageError("--require-verification needs a prompt: casper --require-verification \"fix the failing test\"");
   return options;
+}
+
+/** `casper acp`, alone or with options after it: `casper acp is a protocol` stays a prompt. */
+const isAcp = (args: readonly string[]) => args[0] === "acp" && (args.length === 1 || args[1]!.startsWith("-"));
+
+export const ACP_USAGE = "Usage: casper [options] acp [options]";
+
+/** `casper acp`: the run options may come before or after `acp` and apply to every session. A prompt comes from the
+ * client, so options that shape a one-shot prompt are a usage mistake. */
+function acpOptions(before: CliOptions, rest: readonly string[]): CliOptions {
+  const after = parseCliArgs(rest);
+  if (after.info) return { ...before, info: after.info };
+  if (after.command !== "interactive") throw new UsageError(`casper acp takes options only; the prompts come from the ACP client. ${ACP_USAGE}`);
+  const merged: CliOptions = { ...before, command: "acp", rest: [] };
+  for (const [key, value] of Object.entries(after) as Array<[keyof CliOptions, unknown]>) {
+    if (key === "command" || key === "rest") continue;
+    const had = merged[key];
+    if (Array.isArray(value)) (merged as unknown as Record<string, unknown>)[key] = [...new Set([...(Array.isArray(had) ? had : []), ...value])];
+    else if (value !== undefined && value !== false) (merged as unknown as Record<string, unknown>)[key] = value;
+  }
+  const oneShot = merged.print ? "-p/--print" : merged.json ? "--json" : merged.requireVerification ? "--require-verification" : undefined;
+  if (oneShot) throw new UsageError(`casper acp can't take ${oneShot}: each prompt the client sends gets casper --json's checks, and its receipt is the last message. ${ACP_USAGE}`);
+  if (merged.servers.length || merged.languageServers.length) throw new UsageError(`casper acp can't take --mcp or --lsp: your own servers connect by themselves in each session. ${ACP_USAGE}`);
+  if (merged.verify && merged.noVerify) throw new UsageError("--verify and --no-verify cannot be combined");
+  if (merged.continueConversation && merged.resume) throw new UsageError("--continue and --resume cannot be combined");
+  return merged;
 }
 
 /** A known option at the end of the prompt (`casper fix the bug --verify`) is a mistake, found before anything

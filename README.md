@@ -104,6 +104,16 @@ The first time Casper opens a folder it asks whether you trust it. Only a truste
 when you have turned it on. Say "trust this folder" to change your answer later. Scripts and CI runs
 can't ask, so they treat the folder as trusted; use `--no-verify` for code you don't trust.
 
+### Apps and editors (ACP)
+
+`casper acp` lets an app or an editor that speaks the [Agent Client Protocol](https://agentclientprotocol.com)
+(Casper Desktop, Zed, JetBrains) drive the real Casper over stdin and stdout. Point the app at the `casper` command
+with the argument `acp`. Each prompt runs with the same checks as `casper --json`, and the receipt is the last
+message, as text and as data. Approval boxes appear in the app with the same choices, No first; if nobody answers,
+it is No. Because a person answers there, a session keeps the terminal's defaults: the checklist for code changes,
+and the screenshot question as a card. Run options such as `--model` go before or after `acp`.
+[Decision 76](docs/adr/0002/76-casper-speaks-acp.md).
+
 Type `/help` for the commands. Ctrl+C stops the current work but keeps changes already made;
 Ctrl+D on an empty prompt exits. [Keys and commands](docs/TERMINAL_UX.md#quick-reference).
 
