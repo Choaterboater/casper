@@ -260,7 +260,8 @@ export async function checksPlan(app: CasperApp, context: ProjectContext): Promi
     packageManager: context.model.packageManager, services: context.services ?? {} }).catch(() => undefined) : undefined;
   return { mode, checks, ...(mode === "offer" && measuredMs !== undefined ? { slow: true } : {}), ...(manual.length ? { manual } : {}),
     ...(lab.length ? { lab } : {}), ...(found.length ? { found } : {}), ...(context.model.testsWithoutCommand ? { testsWithoutCommand: true as const } : {}),
-    ...(isDetectedWebService(web) ? { pages: redactPreview(terminalText(web.label)).slice(0, 120) } : {}) };
+    // A server file that writes HTML may be an API with one page of its own: its pages are checked only if `/` has one.
+    ...(isDetectedWebService(web) ? { pages: `${redactPreview(terminalText(web.label)).slice(0, 120)}${web.pageSource && !(Array.isArray(context.pages) && context.pages.includes("/")) ? ", if / has a page" : ""}` } : {}) };
 }
 
 /** `/verify add <name>` or a picked suggestion: save a check Casper found in .casper/project.yaml, then use it. */

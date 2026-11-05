@@ -47,6 +47,8 @@ export interface PageReport {
   reason?: string;
   /** The dev server's last log lines when it failed to start (bounded, secrets hidden). */
   logTail?: string;
+  /** A guessed `/` (PagePlan.rootGuess) answered 401, 403, 404, 405 or 410 and nothing else opened: no page check is reported. */
+  noPage?: true;
 }
 /** Fail dominates incomplete; no pages is incomplete, never a pass. */
 export function pageStatus(pages: readonly PageResult[]): PageStatus {

@@ -1100,7 +1100,16 @@ request returned; it does not prove the requested behavior as a whole.
 New in v0.2.16. Since v0.2.21 each page is opened at phone width (390px) too, and a page that
 scrolls sideways or squashes a text field fails; a plain Bun or Node site (an `index.html` and a
 `dev` or `start` script that runs its own server file, `bun run server.ts` or `node server.js`,
-which reads `PORT`) gets the check as well.
+which reads `PORT`) gets the check as well. With no `index.html`, so does a server file the script runs
+that starts a server and itself holds a whole HTML page (`<!DOCTYPE html` or `<html`), as an Express app's
+`res.send(layout(…))` does. There `/` is a guess: while it answers 401, 403, 404, 405 or 410 (an API with one
+HTML page of its own, or behind a login), no page check is reported and the task is checked as an app
+without pages, never failed for it. Once a page check gets a page or a server error there, `/` is judged as
+any page for the rest of the task. A `/` listed under `pages:` is never a guess; otherwise the checks line
+says `pages (npm run start, if / has a page)`. HTML only in files the server imports is not found, and a
+server file with no HTML page stays an API
+([decision 75](adr/0002/75-a-server-that-writes-its-pages-is-a-site.md)). `tests/pages-trigger.test.ts` and
+`tests/pages-app.test.ts` cover this.
 
 In a web project, after a change Casper opens the changed pages itself and reports what each one
 showed. It costs no model tokens, and it is decided by project facts only, never by the words of
@@ -1116,7 +1125,8 @@ the request:
   `pages/` and Astro `src/pages/` too). Other front-end changes (components, styles, an SPA's router,
   a Streamlit app) open `/`. A route that needs a value (`/devices/[id]`) is listed, not opened. At
   most 5 pages are opened per check. Docs-only changes open nothing. With no front-end framework
-  (a declared `services.web` of an API), script edits are server code and open nothing; HTML, styles
+  (a declared `services.web` of an API), script edits are server code and open nothing, except, on a
+  plain site Casper found from `package.json`, the server file that writes its own pages, which opens `/`; HTML, styles
   and front-end files in `public/`, `static/` or `assets/` open `/` (a picture there does not: `make_picture`
   saves to `assets/` in any folder), and the `pages:` list is opened after any code change.
 

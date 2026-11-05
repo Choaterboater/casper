@@ -85,6 +85,8 @@ export interface VerificationReport {
   pages?: PageReport;
   /** The task had pages to check but the loop ended with command failures, so they never opened. */
   pagesSkipped?: "command checks failed";
+  /** The last round's only page was a guessed `/` with no page there (decision 75): no page check, not an unfinished one. */
+  noPage?: true;
   /** The model each repair used, in order, when the host said (for example the big model on the last try). */
   repairModels?: string[];
   /** Checks that failed on the files from before the change too, left as they are at the user's word: not the change's doing. */

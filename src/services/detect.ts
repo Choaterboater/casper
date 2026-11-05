@@ -21,6 +21,8 @@ export interface DetectedWebService {
   frameworks: string[];
   /** False when Casper could not add its port flags to the script and relies on the PORT variable alone. */
   portFlags: boolean;
+  /** A plain site with no page file: the server file that writes its pages itself, so a change to it opens `/`. */
+  pageSource?: string;
 }
 
 /** Why a web project has no startable dev server (a missing install). Plain words for the user. */
@@ -223,6 +225,14 @@ export async function detectWebService(root: string, input: DetectInput = {}): P
   if (!frameworks.size && !streamlit && scriptName) {
     const plain = await plainSite(root, manifest!, scripts[scriptName] as string, scriptName, input.packageManager ?? undefined);
     if (plain) return plain;
+    // `dev: "nodemon server.js"` is no server Casper runs; `start: "node server.js"` runs that same file. Only the same
+    // file: a `dev` of `tsx src/server.ts` beside `start: node dist/server.js` would check an old build, not the change.
+    const start = typeof scripts.start === "string" ? scripts.start : undefined;
+    const file = start && scriptName === "dev" ? ownServerFile(start) : undefined;
+    if (file && (lastCommand(scripts.dev as string)?.words ?? []).some(word => path.normalize(word) === path.normalize(file))) {
+      const started = await plainSite(root, manifest!, start!, "start", input.packageManager ?? undefined);
+      if (started) return started;
+    }
   }
   return frameworks.size ? detectStreamlit(root, platform) : streamlit;
 }
@@ -239,21 +249,45 @@ const SERVER_CALL = /\b(?:Bun|Deno)\.serve\s*\(|\bcreateServer\s*\(|\.listen\s*\
 /** `import { serve } from "bun"` then `serve({...})`: the same server as Bun.serve, written another way. */
 const BUN_SERVE_IMPORT = /\bimport\s*(?:type\s+)?\{[^}]*\bserve\b[^}]*\}\s*from\s*["']bun["']/;
 
+/** A whole HTML page written in a server file: the site's pages come from the server itself, not a page file. */
+const HTML_PAGE = /<!doctype\s+html|<html[\s>]/i;
+/** Servers started without a call SERVER_CALL knows: Bun's `export default { fetch }` (run by bun) and Hono's node `serve()`. */
+const BUN_DEFAULT_SERVER = /\bexport\s+default\s*\{(?:[\s\S]*?[,{\n])?\s*(?:async\s+)?fetch\s*[(:]/;
+const HONO_NODE_SERVE = /\bfrom\s*["']@hono\/node-server["']/;
+
 /**
- * A site with no framework (Bun.serve or node:http and an index.html): its dev script runs its own server file
- * and there is a page to open. Casper starts it with PORT set; a server that ignores PORT times out with the
- * usual hint to declare services.web. An API with no page is not one.
+ * A site with no framework (Bun.serve or node:http, and an index.html or a server file that writes its own HTML
+ * pages): its dev script runs its own server file and there is a page to open. Casper starts it with PORT set; a
+ * server that ignores PORT times out with the usual hint to declare services.web. An API with no page is not one.
  */
+/** The server file a script runs itself (`node server.js`, `bun run --watch server.ts`), or undefined. */
+function ownServerFile(body: string): string | undefined {
+  const [program, ...rest] = lastCommand(body)?.words ?? [];
+  if (!program || !OWN_SERVER.test(program)) return undefined;
+  // `bun run server.ts` runs the file as well; `run` naming a script (`bun run build`) is not a server file.
+  const args = (program === "bun" && rest[0] === "run" ? rest.slice(1) : rest).filter(word => !["--watch", "--hot"].includes(word));
+  return args.length === 1 && SERVER_FILE.test(args[0]!) ? args[0] : undefined;
+}
+
 async function plainSite(root: string, manifest: Mapping, body: string, scriptName: string, packageManager?: string): Promise<DetectedWebService | WebServiceUnavailable | undefined> {
   const parsed = lastCommand(body);
   const words = parsed?.words ?? [];
-  const [program, ...rest] = words;
-  if (!parsed || !program || !OWN_SERVER.test(program)) return undefined;
-  // `bun run server.ts` runs the file as well; `run` naming a script (`bun run build`) is not a server file and fails below.
-  const args = (program === "bun" && rest[0] === "run" ? rest.slice(1) : rest).filter(word => !["--watch", "--hot"].includes(word));
-  if (args.length !== 1 || !SERVER_FILE.test(args[0]!)) return undefined;
+  const program = words[0];
+  const file = parsed ? ownServerFile(body) : undefined;
+  if (!parsed || !program || !file) return undefined;
   const pages = await Promise.all(PAGE_FILES.map(async file => { try { return (await lstat(path.join(root, file))).isFile(); } catch { return false; } }));
-  if (!pages.some(Boolean)) return undefined;
+  // No page file: the server file the script runs may write its pages itself (an Express app's res.send(`<!DOCTYPE html>…`)).
+  // It must start a server and hold a whole HTML page. That is only a sign: `/` is then a guess, and a 404 there (an API
+  // with one HTML page of its own) means no page check at all, never a failure (PagePlan.rootGuess).
+  let pageSource: string | undefined;
+  if (!pages.some(Boolean)) {
+    const entry = path.normalize(file).replace(/\\/g, "/");
+    const source = !isOutside(entry) && !path.isAbsolute(entry) ? await readSmall(path.join(root, entry), MAX_ENTRY_BYTES) : undefined;
+    const serves = source !== undefined && (SERVER_CALL.test(source) || (program === "bun" && BUN_DEFAULT_SERVER.test(source))
+      || ((BUN_SERVE_IMPORT.test(source) || HONO_NODE_SERVE.test(source)) && /\bserve\s*\(/.test(source)));
+    if (!serves || !HTML_PAGE.test(source)) return undefined;
+    pageSource = entry;
+  }
   // A Bun script is a Bun project even before its first install writes bun.lock.
   const manager = packageManager ?? (program === "bun" && !await hasLockfile(root) ? "bun" : await lockfileManager(root));
   const needsInstall = ["dependencies", "devDependencies"].some(section => isMapping(manifest[section]) && Object.keys(manifest[section] as Mapping).length > 0);
@@ -261,7 +295,8 @@ async function plainSite(root: string, manifest: Mapping, body: string, scriptNa
     return { reason: `node_modules is missing. Run ${manager} install first (Casper doesn't install packages)`, frameworks: [] };
   }
   return { name: "web", source: "package.json", label: `${manager} run ${scriptName}`, frameworks: [], portFlags: false,
-    spec: { command: `${parsed.prefix}${words.join(" ")}`, port: "auto", ready: { http: "/" }, timeoutMs: READY_TIMEOUT_MS } };
+    spec: { command: `${parsed.prefix}${words.join(" ")}`, port: "auto", ready: { http: "/" }, timeoutMs: READY_TIMEOUT_MS },
+    ...(pageSource ? { pageSource } : {}) };
 }
 
 async function hasLockfile(root: string): Promise<boolean> {
@@ -297,11 +332,13 @@ export async function planAppSmoke(root: string, input: DetectInput, files: read
   const changed = runtimeChanges(files);
   if (!changed.length) return undefined;
   const web = await detectWebService(root, input);
-  const pagePlan = changedPages(web?.frameworks ?? input.frameworks ?? [], changed, pages);
+  const pagePlan = changedPages(web?.frameworks ?? input.frameworks ?? [], changed, pages, isDetectedWebService(web) ? web.pageSource : undefined);
   // A detected app's readiness path is Casper's own default "/", not the project's choice: still a guess.
   const target = (service: DetectedWebService): AppSmokeTarget => {
     const ready = "http" in service.spec.ready && !(service.source !== "declared" && service.spec.ready.http === "/") ? service.spec.ready.http : undefined;
     const path = pagePlan.open[0] ?? ready;
+    // A server that writes its own HTML may still be an API with one page of its own: its `/` stays a guess.
+    if (path === "/" && service.pageSource && !ready && !(Array.isArray(pages) && pages.includes("/"))) return { service, path, rootGuess: true };
     return path ? { service, path } : { service, path: "/", rootGuess: true };
   };
   const declared = Object.entries(input.services ?? {}).filter(([, spec]) => changed.some(file => editAffects(root, file)(spec.scope)));

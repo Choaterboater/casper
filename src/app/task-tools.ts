@@ -274,9 +274,16 @@ export function pageRun(app: CasperApp, task: NonNullable<CasperApp["pageTask"]>
       const manager = serviceManager(app);
       const existing = manager.status().find(service => service.name === plan.service.name);
       if (!existing || (existing.state !== "ready" && existing.state !== "starting")) app.automaticServices.add(plan.service.name);
-      const checks = new PageChecks(() => manager, plan.service, app.taskPageOpener, plan.pages,
+      const { rootGuess, ...settled } = plan.pages;
+      const pages = rootGuess && app.taskPageRoot !== "page" ? plan.pages : settled;
+      const checks = new PageChecks(() => manager, plan.service, app.taskPageOpener, pages,
         { announce: (line) => { if (!app.closing) app.output.write(`${terminalText(line)}\n`); }, notice: app.pageNotice });
       const report = await checks.run(signal);
+      // No page at the guessed `/`: the repair loop marks this run noPage and reports no page check (VerificationReport.noPage).
+      if (report.noPage) return report;
+      // A page or a server error there settles the guess: `/` is a page for the rest of the task, so a repair that turns
+      // its 500 into a 404 still fails. A load that never answered settles nothing.
+      if (plan.pages.rootGuess && report.pages.some(page => page.path === "/" && page.httpStatus !== null)) app.taskPageRoot = "page";
       const after = await app.snapshotWorkspace(task.root, signal);
       if (now && sameRuntimeInputs(now, after)) app.runtimeCheckInputs.set(report, now);
       return report;

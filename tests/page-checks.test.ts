@@ -322,3 +322,41 @@ test("each page's pictures are on its line and under it; the opener is asked for
   await new PageChecks(() => f.manager, f.service, opener, { open: ["/settings"], skipped: [] }, { screenshots: false }).run(signal());
   expect(asked).toEqual([true, false]);
 });
+
+// Decision 75: a server file that writes its own HTML makes `/` a guess. What the server answers there decides.
+test("a guessed / that answers 401, 403, 404, 405 or 410 is no page there, not a failure; a 400 or a 500 is judged", async () => {
+  const f = await fixture();
+  for (const status of [401, 403, 404, 405, 410]) {
+    const lines: string[] = [];
+    const report = await new PageChecks(() => f.manager, f.service, fakeOpener(() => ({ status })), { open: ["/"], skipped: [], rootGuess: true },
+      { announce: line => lines.push(line) }).run(signal());
+    expect(report).toMatchObject({ status: "incomplete", pages: [], noPage: true });
+    expect(lines).toContain(`– / answers ${status}: no page there, so this is checked as an app without pages`);
+  }
+  for (const status of [400, 500]) {
+    const report = await new PageChecks(() => f.manager, f.service, fakeOpener(() => ({ status })), { open: ["/"], skipped: [], rootGuess: true }).run(signal());
+    expect(report.noPage).toBeUndefined();
+    expect(report).toMatchObject({ status: "fail", pages: [expect.objectContaining({ path: "/", status: "fail", httpStatus: status })] });
+  }
+  // Not a guess: a 404 at / is a failed page, as before.
+  const plain = await new PageChecks(() => f.manager, f.service, fakeOpener(() => ({ status: 404 })), { open: ["/"], skipped: [] }).run(signal());
+  expect(plain).toMatchObject({ status: "fail", pages: [expect.objectContaining({ path: "/", httpStatus: 404 })] });
+}, 30_000);
+
+test("a guessed / with no page beside a page that opens is listed as skipped; a 404 behind an unconfirmed old server proves nothing", async () => {
+  const f = await fixture();
+  const opener = fakeOpener(url => url.pathname === "/" ? { status: 404 } : {});
+  const report = await new PageChecks(() => f.manager, f.service, opener, { open: ["/", "/docs"], skipped: [], rootGuess: true }).run(signal());
+  expect(report.noPage).toBeUndefined();
+  expect(report.pages.map(page => page.path)).toEqual(["/docs"]);
+  expect(report.skipped).toContainEqual({ path: "/", why: "it answers 404: no page there" });
+  // The old dev server's processes could not be confirmed stopped: the 404 may be its answer, so never "no page".
+  const unconfirmed = new Proxy(f.manager, { get(target, key) {
+    if (key === "assertCleanup") return () => { throw new Error("old tree still running"); };
+    const value = Reflect.get(target, key, target);
+    return typeof value === "function" ? value.bind(target) : value;
+  } });
+  const stale = await new PageChecks(() => unconfirmed, f.service, fakeOpener(() => ({ status: 404 })), { open: ["/"], skipped: [], rootGuess: true }).run(signal());
+  expect(stale).toMatchObject({ status: "incomplete", reason: "Casper could not confirm the old dev server's processes were stopped" });
+  expect(stale.noPage).toBeUndefined();
+}, 30_000);

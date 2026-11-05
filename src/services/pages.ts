@@ -7,7 +7,8 @@ export const MAX_PAGES = 5;
 export const MAX_CONFIGURED_PAGES = 8;
 
 export interface SkippedPage { path: string; why: string }
-export interface PagePlan { open: string[]; skipped: SkippedPage[] }
+/** `rootGuess`: `/` is opened only because a server file writes HTML; a 401, 403, 404, 405 or 410 there means no page there, not a failure. */
+export interface PagePlan { open: string[]; skipped: SkippedPage[]; rootGuess?: true }
 /** The project setting `pages:`: `off`, or paths that are always opened. */
 export type PagesSetting = "off" | string[];
 
@@ -116,9 +117,10 @@ function frontEndFile(file: string, streamlit: boolean, framework: boolean): boo
  * The pages to open for these changed files. File-routed frameworks (Next, SvelteKit, Nuxt, Astro) map a
  * changed page file to its address. Everything else that is front-end code (components, styles, an SPA's
  * router, a Streamlit app) opens `/`. Pages from the `pages:` setting are always opened. At most MAX_PAGES
- * are opened; dynamic routes and the rest are listed as skipped with the reason.
+ * are opened; dynamic routes and the rest are listed as skipped with the reason. `pageSource` is a plain site's
+ * server file that writes its own pages: a change to it opens `/`.
  */
-export function changedPages(frameworks: readonly string[], changedPaths: readonly string[], configured?: PagesSetting): PagePlan {
+export function changedPages(frameworks: readonly string[], changedPaths: readonly string[], configured?: PagesSetting, pageSource?: string): PagePlan {
   if (configured === "off") return { open: [], skipped: [] };
   const has = (name: string) => frameworks.includes(name);
   const streamlit = has("streamlit");
@@ -144,7 +146,8 @@ export function changedPages(frameworks: readonly string[], changedPaths: readon
       continue;
     }
     if (route) { if (!found.includes(route.path)) found.push(route.path); continue; }
-    if (frontEndFile(file, streamlit, frameworks.some(name => name !== "streamlit"))) fallback = true;
+    // A plain site's server file that writes its pages itself is page code, not only server code.
+    if (file === pageSource || frontEndFile(file, streamlit, frameworks.some(name => name !== "streamlit"))) fallback = true;
   }
   if (fallback && !found.includes("/")) found.push("/");
 
