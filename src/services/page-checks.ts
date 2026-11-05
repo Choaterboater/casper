@@ -66,6 +66,9 @@ export function serverTraceback(log: string): string | undefined {
   return found?.slice(0, ERROR_TEXT);
 }
 
+/** What a guessed `/` answers when the server has no page there (PagePlan.rootGuess). */
+const NO_PAGE = new Set([401, 403, 404, 405, 410]);
+
 /**
  * Casper's host-run page check (costs no model tokens): starts or reuses the dev server through the
  * ServiceManager (a detected server gets its own session-long slot), opens each planned page with the
@@ -111,6 +114,7 @@ export class PageChecks {
     const streamlit = this.service.frameworks.includes("streamlit");
     const pages: PageResult[] = [];
     const linked: Array<{ result: PageResult; links: string[]; choices: string[] }> = [];
+    let noPageAtRoot: number | undefined;
     for (const page of plan.open) {
       signal.throwIfAborted();
       const logBefore = manager.logs(name).text;
@@ -122,12 +126,23 @@ export class PageChecks {
           reason: `it did not finish loading: ${hide(message(error))}` });
         continue;
       }
+      // `/` was only a guess (a server file that writes HTML) and the server has no page there (404, 405, 410, or 401/403
+      // for an API behind a login): an API with one page of its own, not a site. Never failed for it; a 400, 429 or 5xx is judged.
+      if (plan.rootGuess && page === "/" && load.status !== null && NO_PAGE.has(load.status)) { noPageAtRoot = load.status; continue; }
       const logged = streamlit ? serverTraceback(appended(logBefore, manager.logs(name).text)) : undefined;
       const result = judge(page, origin, load, logged);
       pages.push(result);
       const links = followableLinks(load.links ?? [], new URL(page, origin).href), choices = choiceLinks(load.choiceLinks ?? [], new URL(page, origin).href);
       if (links.length || choices.length) linked.push({ result, links, choices });
     }
+    if (noPageAtRoot !== undefined && !pages.length) {
+      // A 404 from an old dev server Casper could not confirm stopped proves nothing: incomplete, as below.
+      try { manager.assertCleanup(); }
+      catch { return { status: "incomplete", ...base, pages, reason: "Casper could not confirm the old dev server's processes were stopped" }; }
+      this.options.announce?.(`– / answers ${noPageAtRoot}: no page there, so this is checked as an app without pages`);
+      return { status: "incomplete", ...base, pages, reason: `/ answers ${noPageAtRoot}`, noPage: true };
+    }
+    if (noPageAtRoot !== undefined) base.skipped = [...base.skipped, { path: "/", why: `it answers ${noPageAtRoot}: no page there` }];
     await this.sweep(origin, plan.open, linked, signal, streamlit);
     const report: PageReport = { status: pageStatus(pages), ...base, pages };
     // A dev server tree Casper could not confirm stopped may still answer beside the new one.
@@ -267,7 +282,11 @@ export async function planPageCheck(root: string, input: DetectInput, changedPat
   if (configured === "off" || !changedPaths.length) return undefined;
   const detected = await detectWebService(root, input);
   if (!detected) return undefined;
-  const pages = changedPages(detected.frameworks, changedPaths, configured);
+  const pageSource = isDetectedWebService(detected) ? detected.pageSource : undefined;
+  const planned = changedPages(detected.frameworks, changedPaths, configured, pageSource);
+  // `/` the user listed under `pages:` is theirs to have checked, never a guess.
+  const listed = Array.isArray(configured) && configured.includes("/");
+  const pages = pageSource && planned.open.includes("/") && !listed ? { ...planned, rootGuess: true as const } : planned;
   if (!pages.open.length && !pages.skipped.length) return undefined;
   return isDetectedWebService(detected) ? { service: detected, pages } : { reason: detected.reason };
 }

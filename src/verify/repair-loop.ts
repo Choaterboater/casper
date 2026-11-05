@@ -257,11 +257,13 @@ export async function verifyAndRepair(options: VerificationOptions): Promise<Ver
   const repairModels: string[] = [];
   let smoke: SmokeReport | undefined;
   let pages: PageReport | undefined;
+  /** This round's page run found no page at a guessed `/` (decision 75): no page check, said on the report. */
+  let noPage = false;
   // The last repair round's failure signature and changed files, to stop a repair that changes nothing.
   let lastSignature: string | undefined;
   let lastFiles: string | undefined;
   const report = (status: VerificationReport["status"], reason?: string): VerificationReport =>
-    ({ status, reason, results, rounds: task.rounds, repairAttempts, ...(smoke ? { smoke } : {}), ...(pages ? { pages } : {}),
+    ({ status, reason, results, rounds: task.rounds, repairAttempts, ...(smoke ? { smoke } : {}), ...(pages ? { pages } : {}), ...(noPage ? { noPage: true as const } : {}),
       ...(repairModels.length ? { repairModels: [...repairModels] } : {}) });
   const run = (names: readonly CheckName[], options: { timeoutMs?: number } = {}) => task.run(names, signal, options);
   let unfinishedAsks = 0;
@@ -291,6 +293,7 @@ export async function verifyAndRepair(options: VerificationOptions): Promise<Ver
     const codeFailed = failures.some((result) => repairClass(result) !== "never");
     smoke = undefined;
     pages = undefined;
+    noPage = false;
     if (!codeFailed && options.smoke) {
       smoke = await options.smoke(signal);
       if (signal.aborted) return report("blocked", "Verification cancelled.");
@@ -298,6 +301,7 @@ export async function verifyAndRepair(options: VerificationOptions): Promise<Ver
     if (!codeFailed && options.pages) {
       pages = await options.pages(signal);
       if (signal.aborted) return report("blocked", "Verification cancelled.");
+      if (pages?.noPage) { noPage = true; pages = undefined; }
     }
     const smokeFailures = smoke?.checks.filter((check) => check.status === "fail") ?? [];
     const pageFailures = pages?.status === "fail" ? pages.pages.filter((page) => page.status === "fail") : [];

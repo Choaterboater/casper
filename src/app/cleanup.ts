@@ -94,6 +94,7 @@ export async function finishTaskCleanup(app: CasperApp, closeBrowser: boolean): 
   let failure: unknown;
   const opener = app.taskPageOpener;
   app.taskPageOpener = undefined;
+  app.taskPageRoot = undefined;
   for (const close of [() => app.checkTask?.close(), ...(closeBrowser ? [() => app.browser?.close()] : []),
     () => opener?.close().catch(error => { if (error instanceof ProcessCleanupError) throw error; })]) {
     try { await close(); }

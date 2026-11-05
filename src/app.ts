@@ -377,6 +377,8 @@ export class CasperApp {
   pageTask?: { context: ProjectContext; root: string; before: Map<string, string> };
   /** The page opener of the current task (one disposable browser per task), closed when the task ends. */
   taskPageOpener?: PageOpener;
+  /** A guessed `/` (decision 75) that answered with a page or a server error in this task: judged as any page from then on. */
+  taskPageRoot?: "page";
   readonly pageOpenerFn: NonNullable<CasperAppOptions["pageOpener"]>;
   /** The pages the AI makes for this session's project (src/app/pages.ts), and its casper_page tool. */
   pages?: PageSession;

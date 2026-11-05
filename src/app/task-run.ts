@@ -537,6 +537,10 @@ export async function runModelTask(app: CasperApp, prompt: string, options: { fl
             : await acceptChange(app, { session, before: before!, root: workspaceRoot, command: testCommand, request: prompt,
               mode: acceptanceMode === "warn" ? "warn" : "verdict" });
         }
+        // Only the pages were due and the guessed `/` had no page (an API with one HTML page of its own, decision 75):
+        // nothing ran, so the receipt is the one with no check planned, never "not every check ran".
+        const onlyPages = pagesDue && !autoChecks.run.length && !app.checkTask.checks.length && !smokeDue;
+        if (onlyPages && nothingButNoPage(verification)) verification = undefined;
       }
     } else if (!stopped && app.checkTask && (app.checkTask.checks.length || app.smokeTask?.recordedCount)) {
       verification = await runVerification(app, app.checkTask.checks, true, prompt, app.checkTask);
@@ -631,7 +635,8 @@ export async function runModelTask(app: CasperApp, prompt: string, options: { fl
         const again = workFolder ? await runChildChecks(app, workFolder, finalPaths ?? landed!)
           : app.checkTask && (autoChecks?.run.length || verification.results.length || app.checkTask.checks.length || app.smokeTask?.size || app.pageTask)
             ? await runVerification(app, autoChecks?.run ?? app.checkTask.checks, false, prompt, app.checkTask, 0) : undefined;
-        if (again) verification = { ...again, repairAttempts: attempt, ...(verification.repairModels ? { repairModels: verification.repairModels } : {}) };
+        // A rerun whose only host check was a guessed `/` with no page there (decision 75) ran nothing: the evidence stays.
+        if (again && !nothingButNoPage(again)) verification = { ...again, repairAttempts: attempt, ...(verification.repairModels ? { repairModels: verification.repairModels } : {}) };
         if (verification.status === "pass" && !stoppedNow()) {
           const now = before && await app.snapshotWorkspace(workspaceRoot);
           if (stoppedNow()) return verification;
@@ -1548,6 +1553,13 @@ export const PAGES_ANSWER_ONLY_PROOF = "pages answer, but their console was not 
 /** What kind of request Casper does not prove, in the receipt's words. */
 const NOT_COMPARED: Record<string, string> = { document: "this was a docs request", configure: "this was a setup request",
   inspect: "this read as a question", visualize: "this asked for a diagram" };
+
+/** A verification that ran nothing because its only check was a guessed `/` with no page there (decision 75): never one
+ * that was stopped, blocked, repaired or ran any other check. */
+function nothingButNoPage(report: VerificationReport): boolean {
+  return report.noPage === true && report.status !== "blocked" && !report.repairAttempts && !report.results.length
+    && !report.pages && !report.smoke?.checks.length;
+}
 
 /** Data files Casper keeps as the AI left them through its checks: an app's data outside a program's output folders. */
 const keptByChecks = (file: string) => checkDataFile(file) && !inOutputFolder(file);

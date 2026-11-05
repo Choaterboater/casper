@@ -105,6 +105,67 @@ test("an edited page is opened on the dev server after the change; a load is nev
   expect(f.opener.closed).toBe(1);
 }, 30_000);
 
+// A homepage build (2026-11-05): the server wrote its pages itself and there was no index.html, so no page check ran,
+// the checks never passed, and the build skipped its requirements review ("Not checked — no tests yet").
+test("a build whose own server writes its pages gets its page check, then its requirements review", async () => {
+  const f = await fixture({ verification: { mode: "auto" } }, { declare: false, manifest: { name: "start-page", scripts: { start: "bun server.ts" } } });
+  f.runtime.turns.push(async runtime => {
+    await runtime.write(path.join(f.project, "server.ts"), `Bun.serve({ hostname: process.env.HOST, port: Number(process.env.PORT), fetch(req) {
+  if (new URL(req.url).pathname === "/") return new Response("<!DOCTYPE html><html><body><main>Dashboard</main></body></html>", { headers: { "content-type": "text/html" } });
+  return new Response("not found", { status: 404 });
+} });
+`);
+  });
+  await f.app.runOnce("Build a start page: a Dashboard of service tiles, served by the project's own server.");
+  const receipt = f.text();
+  expect(receipt).toContain("• Casper opening changed pages: /\n");
+  expect(receipt).toContain("✓ / loads · 0 console errors");
+  expect(receipt).toContain("↻ review: checking the work against every requirement");
+  expect(f.runtime.prompts.some(prompt => prompt.startsWith("Casper requirements review."))).toBe(true);
+}, 30_000);
+
+/** A server file that writes one HTML page of its own and answers / with `root` (a status and a JSON body). */
+const apiServer = (root: string) => `Bun.serve({ hostname: process.env.HOST, port: Number(process.env.PORT), fetch(req) {
+  const { pathname } = new URL(req.url);
+  if (pathname === "/oauth/callback") return new Response("<!DOCTYPE html><html><body>You can close this window</body></html>", { headers: { "content-type": "text/html" } });
+  if (pathname === "/api/items") return Response.json([]);
+  return ${root};
+} });
+`;
+
+for (const [status, root] of [[404, `Response.json({ error: "not_found" }, { status: 404 })`], [401, `Response.json({ error: "login first" }, { status: 401 })`]] as const) {
+  test(`an API whose server writes one HTML page of its own, with a JSON ${status} at /, gets no page check: never a failure or a repair`, async () => {
+    const f = await fixture({ verification: { mode: "auto" } }, { declare: false, manifest: { name: "items-api", scripts: { start: "bun server.ts" } } });
+    f.runtime.turns.push(async runtime => { await runtime.write(path.join(f.project, "server.ts"), apiServer(root)); });
+    await f.app.runOnce("Add an OAuth callback page to the items API.");
+    const receipt = f.text();
+    expect(receipt).toContain(`– / answers ${status}: no page there, so this is checked as an app without pages`);
+    // The verdict an API with no checks had before: nothing is said to be unfinished, and no repair is asked for.
+    expect(receipt).toContain("– Not checked — no tests yet.");
+    expect(receipt).not.toContain("Incomplete");
+    expect(receipt).not.toMatch(/✗ \/ /);
+    expect(f.runtime.prompts).toHaveLength(1);
+    expect(f.app.getLastTaskResult()?.verification?.pages).toBeUndefined();
+    // The app smoke judges / as it did before (decision 75 leaves it alone): a JSON 404 is the API answering; a 401
+    // was already a failed smoke.
+    expect(receipt).toContain(status === 404 ? "✓ App smoke: passed" : "✗ App smoke: failed");
+  }, 30_000);
+}
+
+test("a guessed / that answered with a server error stays a page: a repair that turns it into a 404 still fails", async () => {
+  const f = await fixture({ verification: { mode: "auto" } }, { declare: false, manifest: { name: "start-page", scripts: { start: "bun server.ts" } } });
+  // The build: the page template throws, so / answers 500. The repair removes the route, so / answers 404.
+  f.runtime.turns.push(async runtime => { await runtime.write(path.join(f.project, "server.ts"), apiServer(`new Response("<!DOCTYPE html><html><body>TypeError</body></html>", { status: 500 })`)); });
+  f.runtime.turns.push(async runtime => { await runtime.write(path.join(f.project, "server.ts"), apiServer(`new Response("Not Found", { status: 404 })`)); });
+  await f.app.runOnce("Build a start page served by the project's own server.");
+  const receipt = f.text();
+  expect(f.runtime.prompts.length).toBeGreaterThan(1);
+  expect(receipt).not.toContain("no page there");
+  const pages = f.app.getLastTaskResult()?.verification?.pages;
+  expect(pages?.status).toBe("fail");
+  expect(pages?.pages).toEqual([expect.objectContaining({ path: "/", status: "fail", httpStatus: 404 })]);
+}, 30_000);
+
 test("a page that logs an error goes to the repair with its evidence; still failing, it is the receipt's first line", async () => {
   const f = await fixture();
   f.runtime.turns.push(async runtime => { await runtime.write(f.page, "export default function Page() { throw new Error('x'); }\n"); });

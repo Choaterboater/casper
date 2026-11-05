@@ -81,6 +81,12 @@ test("/status names the dev server of a web project before it ever runs; pages: 
   };
   expect(await status("verify:\n  test: bun test\n")).toContain(" checks    test, pages (bun run dev) — run after each change");
   expect(await status("verify:\n  test: bun test\npages: off\n")).toContain(" checks    test — run after each change");
+  // A server file that writes its own HTML may be an API with one page of its own: its pages run only if / has one.
+  await writeFile(path.join(project, "package.json"), JSON.stringify({ name: "start-page", scripts: { start: "node server.js" } }));
+  await writeFile(path.join(project, "server.js"), "require('node:http').createServer((_, res) => res.end('<!DOCTYPE html><html></html>')).listen(process.env.PORT);\n");
+  expect(await status("verify:\n  test: bun test\n")).toContain(" checks    test, pages (bun run start, if / has a page) — run after each change");
+  // A / listed under pages: is checked as a page, never a guess.
+  expect(await status("verify:\n  test: bun test\npages: [/]\n")).toContain(" checks    test, pages (bun run start) — run after each change");
 });
 
 test("the banner leaves out the checks line when there are none", async () => {
