@@ -135,7 +135,11 @@ folders. After the last check it puts them back byte for byte and removes data f
 own edit or write tools changed in a repair round stays as the AI left it. A tracker build once shipped six users that
 Casper's own replays and repair round signed up after the AI had deleted its test database. A project whose data is
 larger than 256 MB, or more than 64 files, is not copied ([decision 69](adr/0002/69-checks-leave-the-data-as-the-ai-left-it.md)).
-`tests/checks-keep-data.test.ts` covers this.
+`tests/checks-keep-data.test.ts` covers this. The app's settings files (YAML, TOML and INI, not lockfiles) get a copy of
+their own and are put back the same way, also when a review round stopped at its turn budget, and Casper names them:
+`↻ put back as the AI left them: config/widgets.yaml`. A homepage build once shipped a test weather widget its review
+round had installed through the app ([decision 74](adr/0002/74-checks-leave-the-settings-as-the-ai-left-them.md)).
+`tests/checks-new-project.test.ts` covers this.
 
 **Left by your test runs.** A data file that was not there before the task and that the task's own runs could have
 written (it ran a shell command, a service or the browser): a SQLite database with its `-wal` and `-shm`, or JSON, YAML

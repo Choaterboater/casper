@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { PassThrough } from "node:stream";
@@ -10,7 +10,8 @@ import { SkillRegistry } from "../src/skills/registry";
 import { removeTempDir } from "./support/temp-dir";
 
 /** A project the model sets up in its own turn (package.json with a test script) is checked on that turn. */
-async function run(files: Record<string, string> | ((turn: number) => Record<string, string>), options: { projectYaml?: string; checkFirst?: string; before?: Record<string, string>; viaWriteTool?: readonly string[]; request?: string } = {}) {
+async function run(files: Record<string, string> | ((turn: number) => Record<string, string>), options: { projectYaml?: string; checkFirst?: string; before?: Record<string, string>; viaWriteTool?: readonly string[]; request?: string;
+  /** The turn (0 is the request's) that ends at the round's turn budget. */ turnLimitOn?: number; /** Files read back after the task. */ read?: readonly string[] } = {}) {
   const root = await mkdtemp(path.join(os.tmpdir(), "casper-new-checks-"));
   const home = path.join(root, "home"); const project = path.join(root, "project");
   await Promise.all([mkdir(home), mkdir(project)]);
@@ -40,7 +41,8 @@ async function run(files: Record<string, string> | ((turn: number) => Record<str
             const check = tools.find((tool) => tool.name === "casper_check");
             checkRuns.push((await check!.execute({ check: options.checkFirst })).text);
           }
-          const written = typeof files === "function" ? files(turn++) : files;
+          const now = turn++;
+          const written = typeof files === "function" ? files(now) : files;
           for (const [name, text] of Object.entries(written)) {
             // The AI's own write tool, as a model writes; otherwise a program writing the file.
             await mkdir(path.dirname(path.join(project, name)), { recursive: true }); await writeFile(path.join(project, name), text);
@@ -50,6 +52,7 @@ async function run(files: Record<string, string> | ((turn: number) => Record<str
           emit({ type: "assistant_response_start", provider: "fixture", model: "demo" });
           emit({ type: "assistant_text_delta", delta: "Set up the project.\n" });
           emit({ type: "assistant_response_end", stopReason: "stop" });
+          if (now === options.turnLimitOn) emit({ type: "turn_limit", turns: 12 });
         },
       };
     },
@@ -67,7 +70,9 @@ async function run(files: Record<string, string> | ((turn: number) => Record<str
   } as ConstructorParameters<typeof CasperApp>[0]);
   try {
     await app.runOnce(options.request ?? "set up a small package with a test script", project);
-    return { output, result: app.getLastTaskResult(), checkRuns, prompts };
+    const read: Record<string, string | undefined> = {};
+    for (const name of options.read ?? []) read[name] = await readFile(path.join(project, name), "utf8").catch(() => undefined);
+    return { output, result: app.getLastTaskResult(), checkRuns, prompts, read };
   } finally {
     await app.close();
     await removeTempDir(root);
@@ -201,6 +206,36 @@ test("a build whose checks pass gets the requirements review, then one self-revi
   }
   // The self-review changed a file: the checks ran again.
   expect(output.split("• Casper checking").length).toBeGreaterThan(2);
+}, 60_000);
+
+// A homepage build (v0.4.13): the requirements review installed "a permanent test weather widget" through the
+// running app, which wrote it into config/widgets.yaml and config/secrets.yaml; the round hit its turn budget and the build
+// shipped a broken card. What a review round's runs write into the app's settings is put back as the AI left them.
+const WIDGETS = "- id: clock-1\n  type: clock\n";
+const TEST_WIDGET = `${WIDGETS}- id: weather-1\n  type: weather\n  options:\n    url: http://weather-mock.invalid\n`;
+const homepage = (turn: number) => ({ "package.json": PACKAGE, "src/add.ts": ADD, "tests/add.test.ts": ADD_TEST,
+  ...turn === 0 ? { "config/widgets.yaml": WIDGETS } : {},
+  // The review round: the app it started writes the test widget and its key.
+  ...turn === 1 ? { "config/widgets.yaml": TEST_WIDGET, "config/secrets.yaml": "weather-1:\n  apiKey: test-key\n" } : {} });
+
+for (const cutOff of [false, true]) {
+  test(`settings a build's review round wrote for testing are put back as the AI left them${cutOff ? ", also when the round stops at its turn budget" : ""}`, async () => {
+    const { output, result, prompts, read } = await run(homepage,
+      { request: BUILD, read: ["config/widgets.yaml", "config/secrets.yaml"], ...cutOff ? { turnLimitOn: 1 } : {} });
+    expect(prompts[1]).toStartWith("Casper requirements review.");
+    if (cutOff) expect(output).toContain("↻ review: stopped at its 12-turn budget");
+    expect(read["config/widgets.yaml"]).toBe(WIDGETS);
+    expect(read["config/secrets.yaml"]).toBeUndefined();
+    expect(output).toContain("↻ put back as the AI left them: config/secrets.yaml, config/widgets.yaml");
+    expect(result?.changedDuringChecks ?? []).not.toContain("config/widgets.yaml");
+    expect(result?.changedPaths).toContain("config/widgets.yaml");
+  }, 60_000);
+}
+
+test("a settings file the AI's own write tool changed in a review round keeps the AI's change", async () => {
+  const { output, read } = await run(homepage, { request: BUILD, read: ["config/widgets.yaml"], viaWriteTool: ["config/widgets.yaml"] });
+  expect(read["config/widgets.yaml"]).toBe(TEST_WIDGET);
+  expect(output).toContain("↻ put back as the AI left them: config/secrets.yaml (");
 }, 60_000);
 
 test("review: false turns a build's review rounds off; a request that isn't a build gets none", async () => {
