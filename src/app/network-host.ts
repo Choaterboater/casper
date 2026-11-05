@@ -13,7 +13,7 @@ import { loginFile } from "../mcp/network/logins";
 import { withLoginDisplay } from "../tui/login";
 import { isCaspersEntry, namesNetworkProduct, runNetworkSetup, runNetworkUpdate, shouldOfferNetworkSetup, shouldOfferNetworkUpdate, type SetupHost } from "../mcp/network/setup";
 import { networkReleasesOff, refreshNetworkReleases, type NetworkReleaseOptions } from "../mcp/network/releases";
-import { oneAtATime, chooseAnswer, chooseNumbered } from "./approvals";
+import { oneAtATime, chooseAnswer, chooseNumbered, someoneAnswers } from "./approvals";
 import { updateFooter } from "./footer";
 import { savedKeyValues } from "../mcp/server-secrets";
 
@@ -26,7 +26,7 @@ export function networkSetupHost(app: CasperApp): SetupHost {
   return {
     homeDir: home,
     // The approval box works wherever approvals do (it refuses a cooked terminal itself).
-    canAsk: () => app.interactive && !app.closing,
+    canAsk: () => someoneAnswers(app) && !app.closing,
     chooseAnswer: (preview, question, choices) => chooseAnswer(app, preview, question, choices, app.commandAbort?.signal),
     write: (text) => { if (!app.closing) app.output.write(text); },
     configured: async () => app.mcp ? app.mcp.status().map((status) => app.mcp!.definition(status.name)) : [],

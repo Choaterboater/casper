@@ -10,7 +10,7 @@ import { finished } from "./limits";
  * The scripted loopback provider and project helpers shared by the scripting.*.integration test files. They are
  * split so a parallel run can spread these slow, real-CLI tests over several workers.
  */
-const cli = path.resolve(import.meta.dir, "../../src/cli.ts");
+export const cli = path.resolve(import.meta.dir, "../../src/cli.ts");
 const cleanup: Array<() => Promise<unknown>> = [];
 /** Call once at the top of each test file: removes each test's homes and stops its provider afterwards. */
 export function cleanUpAfterEach(): void {
@@ -35,7 +35,7 @@ export function respond(step: Step): Response {
 }
 
 /** An isolated home whose Casper default is fixture/first, served by a scripted loopback provider. */
-export async function fixture(script: (request: number, payload: Payload) => Step = () => ({ text: "LOCAL_RESPONSE" })) {
+export async function fixture(script: (request: number, payload: Payload) => Step | Promise<Step> = () => ({ text: "LOCAL_RESPONSE" })) {
   const root = await mkdtemp(path.join(os.tmpdir(), "casper-scripting-"));
   cleanup.push(() => rm(root, { recursive: true, force: true }));
   const home = path.join(root, "home");
@@ -45,7 +45,7 @@ export async function fixture(script: (request: number, payload: Payload) => Ste
   const server = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request) {
     const payload = await request.json() as Payload;
     payloads.push(payload);
-    return respond(script(payloads.length - 1, payload));
+    return respond(await script(payloads.length - 1, payload));
   } });
   cleanup.push(async () => { server.stop(true); });
   const agent = path.join(home, ".casper/agent");
@@ -70,7 +70,7 @@ export async function fixture(script: (request: number, payload: Payload) => Ste
       stdin: input === undefined ? "ignore" : new Blob([input]), stdout: "pipe", stderr: "pipe" }));
     return { stdout, stderr, exit };
   }
-  return { root, home, project, settings, payloads, run };
+  return { root, home, project, settings, payloads, run, env };
 }
 
 

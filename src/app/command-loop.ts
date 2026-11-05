@@ -173,7 +173,9 @@ export async function runInteractive(app: CasperApp, cwd = process.cwd(), firstR
 }
 
 /** `typed`: the line came from the person at the prompt (with what was pasted into it), so its words are read. */
-export async function handlePrompt(app: CasperApp, prompt: string, typed?: { pasted: readonly string[] }): Promise<VerificationReport | undefined> {
+/** `asked`: the request without a transcript pasted into it, when the caller found one (an ACP prompt); a typed line
+ * finds its own from `typed.pasted`. */
+export async function handlePrompt(app: CasperApp, prompt: string, typed?: { pasted: readonly string[] }, given?: string): Promise<VerificationReport | undefined> {
   if (app.closing) return;
   // "/continue <request>": back to the last conversation, then the request in it (the start's row, a refer-back line).
   const back = /^\/continue\s+(\S[\s\S]*)$/.exec(prompt);
@@ -181,7 +183,7 @@ export async function handlePrompt(app: CasperApp, prompt: string, typed?: { pas
     app.continueQuietly ??= "";
     try { await handlePrompt(app, "/continue"); } finally { app.continueQuietly = undefined; }
     if (app.closing) return;
-    return handlePrompt(app, back[1]!.trim(), typed);
+    return handlePrompt(app, back[1]!.trim(), typed, given?.replace(/^\/continue\s+/, ""));
   }
   if (app.commandActive) throw new Error("Another command is active; wait for active subagents or workspace transition");
   // Bare /branch only lists them.
@@ -294,7 +296,7 @@ export async function handlePrompt(app: CasperApp, prompt: string, typed?: { pas
     const looked = look ? await lookTyped(app, look) : undefined;
     if (looked) return report = looked.report;
     const words = typed ? parseRequestWords(prompt, typed.pasted) : undefined;
-    const asked = typed ? withoutTranscripts(prompt, typed.pasted) : undefined;
+    const asked = typed ? withoutTranscripts(prompt, typed.pasted) : given;
     return report = await runModelTask(app, words?.text ?? prompt, { ...(words ? { words } : {}), ...(asked !== undefined ? { asked } : {}),
       ...(typed ? { pasted: typed.pasted } : {}),
       ...(app.planMode ? { planFirst: true } : {}) });

@@ -5,14 +5,14 @@ import type { CasperApp } from "../app";
 import type { RuntimeTool } from "../runtime/types";
 import { holdsSecret } from "../secrets/refuse";
 import { SKILL_ADD_YES, skillAddTool } from "../skills/add-tool";
-import { recordedApproval } from "./approvals";
+import { recordedApproval, someoneAnswers } from "./approvals";
 import { ownSecretValues } from "./network-host";
 import { NO } from "./safe-choices";
 
 export function skillAddToolFor(app: CasperApp): RuntimeTool {
   return skillAddTool({
     homeDir: app.homeDir(),
-    canAsk: () => app.interactive && !app.closing,
+    canAsk: () => someoneAnswers(app) && !app.closing,
     taken: () => (app.skillRegistry?.list() ?? []).map((skill) => skill.name),
     holdsSecret: (text) => holdsSecret(text, { values: ownSecretValues(app) }),
     show: (rows) => { if (!app.closing) app.terminal.writeRows(rows); },

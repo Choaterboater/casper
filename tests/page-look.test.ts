@@ -1,5 +1,7 @@
 import { afterAll, afterEach, expect, test } from "bun:test";
-import { lookPrompt } from "../src/services/page-look";
+import { lookPrompt, SHOW_PAGES_QUESTION } from "../src/services/page-look";
+import { AcpAsker } from "../src/acp/permission";
+import { answerThroughClient } from "../src/acp/session";
 import { EventEmitter } from "node:events";
 import { mkdir, mkdtemp, realpath, writeFile } from "node:fs/promises";
 import os from "node:os";
@@ -172,6 +174,39 @@ test("by default Casper asks once a session: 1 No · 2 Yes, show the AI the page
     f.input.write("/exit\r"); await interactive;
   }
 }, 60_000);
+
+test("over ACP the screenshot question is a permission card, asked once a session with No first; only a picked Yes shows the pages", async () => {
+  // How the client answers, and the user's showPages setting (unset: ask).
+  for (const [answer, showPages] of [["yes", undefined], ["no", undefined], ["cancelled", undefined], ["yes", "off"]] as const) {
+    const f = await fixture({ vision: true, ...(showPages ? { showPages } : {}) });
+    const shows = answer === "yes" && showPages === undefined;
+    // Each request edits the page; after a Yes each one also gets a look turn, which changes nothing.
+    f.turns.push(f.edit("export default function Page() { return <main>Dashboard</main>; }\n"));
+    if (shows) f.turns.push(async () => {});
+    f.turns.push(f.edit("export default function Page() { return <main>Dashboard 2</main>; }\n"));
+    if (shows) f.turns.push(async () => {});
+    const sent: Array<Record<string, any>> = [];
+    const asker = new AcpAsker("s1", { update: () => {}, request: async (params: Record<string, any>) => {
+      sent.push(params);
+      if (answer === "cancelled") return { outcome: { outcome: "cancelled" } };
+      const kind = answer === "yes" ? "allow_once" : "reject_once";
+      return { outcome: { outcome: "selected", optionId: params.options.find((option: { kind: string }) => option.kind === kind).optionId } };
+    } });
+    const log: string[] = [];
+    await f.app.start(f.project);
+    answerThroughClient(f.app, asker, (text) => { log.push(text); });
+    await f.app.runOnce("Add a dark mode toggle to the dashboard");
+    await f.app.runOnce("Make the dashboard title bigger");
+    const cards = sent.filter((params) => params.toolCall.title === SHOW_PAGES_QUESTION);
+    expect(cards).toHaveLength(showPages === "off" ? 0 : 1);
+    if (cards[0]) expect(cards[0].options.map((option: { name: string; kind: string }) => [option.name, option.kind])).toEqual([["No", "reject_once"], ["Yes, show the AI the pages", "allow_once"]]);
+    // The pictures are taken either way; only a Yes sends them to the AI, at each request.
+    expect(f.loads).toEqual([true, true]);
+    expect(f.prompts.filter((prompt) => prompt.images?.length).map((prompt) => prompt.images!.length)).toEqual(shows ? [2, 2] : []);
+    expect(log.join("").includes("The AI looked at 2 screenshots")).toBe(shows);
+    await f.app.close();
+  }
+}, 90_000);
 
 test("code the AI changes while looking at the pages counts for the proof: a CSS-only build turn is still compared", async () => {
   const f = await fixture({ vision: true, showPages: "on" });

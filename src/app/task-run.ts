@@ -77,7 +77,7 @@ import { withoutPasted, type RequestWords } from "./request-words";
 import { applyWords, hasWords } from "./task-words";
 import { ensureModel, retryModelFailure, bigModelReceipt, bigModelNotice, imagesForModel, switchForPictures, restoreModel } from "./big-model";
 import { attachImages } from "./images";
-import { confirmYes } from "./approvals";
+import { confirmYes, someoneAnswers } from "./approvals";
 import { lookPrompt, pageLook, SHOW_PAGES_CHOICES, SHOW_PAGES_QUESTION } from "../services/page-look";
 import { offerNamedProject, offerNewProject, childProjectOfTask, runChildChecks, offerWorkFolder } from "./workspace";
 import { settlePictures } from "./pictures";
@@ -251,12 +251,13 @@ export async function runModelTask(app: CasperApp, prompt: string, options: { fl
   const riskyBefore = before ? await riskyBaseline(workspaceRoot, [...before.keys()]).catch(() => undefined) : undefined;
   let thrownError: string | undefined;
   // verification.checklist: the cases the request states, listed before the model starts, so it tests each one.
-  // Unset, it is on for interactive code changes and off otherwise: questions, docs, refactors and one-shot runs.
+  // Unset, it is on for code changes in a session a person answers (the terminal, an ACP client) and off otherwise:
+  // questions, docs, refactors and one-shot runs.
   // After the new-project question no checklist is made and no plan-first line is shown.
   // A pasted transcript's words ("fix", "add tests") are context: what was asked is read without them.
   const asked = options.asked === undefined ? classification : classifyTask(options.asked);
   const checklistOn = !app.beforeWorkAsked && (context.verification.checklist
-    ?? (app.interactive && ["implement", "fix", "test"].includes(asked.intent)));
+    ?? (someoneAnswers(app) && ["implement", "fix", "test"].includes(asked.intent)));
   const complete = checklistOn ? session.complete?.bind(session) : undefined;
   // Plan first: a build request with several asks is built straight away; with suggestions on, one line says
   // /plan shows the steps first next time. /plan (or "plan first:") chooses the plan turn directly.
@@ -1294,12 +1295,13 @@ export async function lookAtPages(app: CasperApp, session: RuntimeSession, reque
   return { verification: { ...again, repairAttempts: verification.repairAttempts + again.repairAttempts }, shown: look.images.length, ...(after ? { after } : {}) };
 }
 
-/** showPages: on or off as set; ask (the default) asks once a session, and only a person answers it (1 No). */
+/** showPages: on or off as set; ask (the default) asks once a session, and only a person answers it (1 No): in the
+ * terminal, or an ACP client's as a permission card. */
 export async function showPagesAllowed(app: CasperApp): Promise<boolean> {
   const setting = app.projectContext?.showPages ?? "ask";
   if (setting !== "ask") return setting === "on";
   if (app.showPagesAnswer !== undefined) return app.showPagesAnswer;
-  if (!app.interactive || !app.terminal.canAsk) return false;
+  if (!someoneAnswers(app) || !app.terminal.canAsk) return false;
   app.events.ensureLineBreak();
   const picked = await app.terminal.pick(SHOW_PAGES_QUESTION, [...SHOW_PAGES_CHOICES], app.commandAbort?.signal);
   if (app.commandAbort?.signal.aborted) return false;
