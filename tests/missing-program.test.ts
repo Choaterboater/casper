@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { formatReceipt } from "../src/task/result";
 import type { VerificationResult } from "../src/verify/evidence";
-import { missingProgram } from "../src/verify/missing-program";
+import { missingProgram, programNotFound } from "../src/verify/missing-program";
 import { VerifierRegistry } from "../src/verify/registry";
 import { verifyAndRepair } from "../src/verify/repair-loop";
 import { removeTempDir } from "./support/temp-dir";
@@ -51,4 +51,15 @@ test("a missing program gets no Retry or Fix-it-anyway question, and the run say
   const receipt = formatReceipt({ execution: "completed", changedPaths: ["main.go"], verification: report }, { surface: "interactive" });
   expect(receipt).toContain("✗ test could not start — go isn't installed on this computer; install it, then /verify test");
   expect(receipt).not.toContain("project.yaml");
+});
+
+test("the program the shell could not find is named, even deeper in the check, only when the check could not start", () => {
+  const at = (stderr: string, ended: "no_start" | "timeout" = "no_start") => programNotFound({ ended, stderr });
+  expect(at("sh: eslint: command not found\n")).toBe("eslint");
+  expect(at("sh: 1: jest: not found\n")).toBe("jest");
+  expect(at("/bin/sh: tsc: command not found\n")).toBe("tsc");
+  expect(at("'eslint' is not recognized as an internal or external command,\r\noperable program or batch file.\r\n")).toBe("eslint");
+  expect(at("'vitest.cmd' is not recognized as an internal or external command,\r\n")).toBe("vitest");
+  expect(at("Error: Cannot find module 'x'\n")).toBeUndefined();
+  expect(at("sh: eslint: command not found\n", "timeout")).toBeUndefined();
 });

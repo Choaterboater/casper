@@ -454,6 +454,7 @@ The full form's line 1 is the verdict, one of:
 ✓ Checks passed — no files changed
 ✗ Failed — test failed
 ✗ Not checked — test timed out after 10m, so the change was not tested; /verify test runs it again
+– Incomplete — test and build passed; lint could not start (eslint not found)
 – Incomplete — test passed, but something it started was still running when it ended; /verify test runs it again
 – Incomplete — stopped after 3 turns (--max-turns); changes so far are kept; send another request to go on
 – Not verified — the tests pass without the change too
@@ -640,7 +641,10 @@ Enter or Esc stops (before v0.2.16 there was no Stop choice and `1` was Retry). 
 most eight times per round of checks (the review round, when on, is a
 second round). When the only failures are unfinished checks, the verdict is `✗ Not checked —
 test timed out, so the change was not tested`, not `✗ Failed`; the outcome and exit code stay
-`failed`/1. Scripts and one-shot runs report the check and repair only real test failures. A
+`failed`/1. When other checks passed on the final files, the change was tested, so the verdict says
+what passed and what did not run instead: `– Incomplete — test and build passed; lint could not start
+(eslint not found)`. A check that did not run is never a pass, so the outcome and exit code do not
+change. Scripts and one-shot runs report the check and repair only real test failures. A
 command that could not start is not saved as a check timing.
 
 **The model provider fails.** A provider that answers with nothing ("empty response", which Pi

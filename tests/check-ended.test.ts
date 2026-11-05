@@ -85,7 +85,7 @@ test("the JSON check event carries ended only when set, and the receipt does not
   expect(timedOut).not.toContain("repair");
   const noStart = formatReceipt({ execution: "completed", changedPaths: ["a.js"],
     verification: report({ ...base, exitCode: 127, reason: undefined, ended: "no_start", stderr: "sh: 1: jest: not found" }) });
-  expect(noStart).toContain("✗ test could not start (exit 127) — check verify.test in .casper/project.yaml");
+  expect(noStart).toContain("✗ test could not start (jest not found, exit 127) — check verify.test in .casper/project.yaml");
 });
 
 test("the verdict names how each failing check ended", () => {
@@ -131,4 +131,25 @@ test("a check that passed but left something running is incomplete, not failed: 
   const failedToo: VerificationResult = { ...left, name: "lint", exitCode: 1, reason: undefined, ended: undefined, repair: undefined };
   const both = formatReceipt({ ...task, verification: { status: "fail", repairAttempts: 0, rounds: [[left, failedToo]], results: [left, failedToo] } });
   expect(both.split("\n")[0]).toBe("✗ Failed — test passed but left something running, lint failed");
+});
+
+test("a check that could not start, beside checks that passed, says what passed and what did not run, never that it passed", () => {
+  const base = { cwd: "/p", signal: null, stdout: "", stderr: "", truncated: false, durationMs: 2000 };
+  const passed = (name: string): VerificationResult => ({ ...base, name, command: `npm run ${name}`, status: "pass", exitCode: 0 });
+  const lint: VerificationResult = { ...base, name: "lint", command: "npm run lint", status: "fail", exitCode: 127, ended: "no_start",
+    stdout: "> lint\n> eslint .\n", stderr: "sh: eslint: command not found\n" };
+  const results = [passed("test"), lint, passed("build")];
+  const task = { execution: "completed" as const, changedPaths: ["src/a.js"], verification: { status: "incomplete" as const, repairAttempts: 0, rounds: [results], results } };
+  const text = formatReceipt(task);
+  expect(text.split("\n")[0]).toBe("– Incomplete — test and build passed; lint could not start (eslint not found)");
+  expect(text).not.toContain("the change was not tested");
+  // A check that did not run is never a pass: the run stays incomplete (exit 2), and lint's own line stays a failure.
+  expect(taskOutcome(task.verification, task)).toBe("incomplete");
+  expect(text).toContain("✗ lint could not start (eslint not found, exit 127)");
+  // The same when the round ended as a failure (outcome failed): the passes are named, the unfinished check is not called failed.
+  const failedRound = formatReceipt({ ...task, verification: { ...task.verification, status: "fail" as const } });
+  expect(failedRound.split("\n")[0]).toBe("– Incomplete — test and build passed; lint could not start (eslint not found)");
+  // With nothing passed, the change really was not tested, and the line says so.
+  const alone = formatReceipt({ ...task, verification: { ...task.verification, rounds: [[lint]], results: [lint] } });
+  expect(alone.split("\n")[0]).toBe("✗ Not checked — lint could not start (eslint not found), so the change was not tested");
 });

@@ -174,7 +174,7 @@ A run ends with exactly one `receipt` event, or, when Casper stops before it can
   "created GitHub release v0.3.5"]`.
 - `verdict` is line 1 of `text`: `✓ Verified — …` only when the tests fail without the change;
   otherwise `– Checks passed — not proven: …`, `✓ Checks passed — no files changed`,
-  `✗ Failed — …`, `✗ Not checked — …` (only unfinished checks), `– Incomplete — …`,
+  `✗ Failed — …`, `✗ Not checked — …` (only unfinished checks, none passed), `– Incomplete — …`,
   `– Not verified — …` or `✗ Stopped — …`.
 - `text` is the plain receipt a person would read.
 
