@@ -34,6 +34,10 @@ which landed parts were not reviewed. See
 - No shell, no edits, no MCP or language-server tools, and it cannot start
   another helper.
 - It starts fresh. It does not see your conversation, only the goal and context.
+- A reviewer whose goal or context names files this request changed is also
+  given their diff against the folder as it was before the request (secrets
+  hidden, cut at 24 KiB), even outside a git repository. It judges the change
+  from the diff and reads only the code it needs, so it finishes sooner.
 - It reads the folder you are working in, including changes you have not
   committed. It does not make a worktree (a separate copy of the repo).
 - If you switch workspace, Casper waits for running helpers to finish first.

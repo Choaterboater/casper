@@ -112,10 +112,12 @@ export function delegateTool(app: CasperApp): RuntimeTool {
   // The child's usage joins the current task's totals (observations are replaced per task).
   // The part record lives with the delegate tool: the task's start clears both.
   if (!app.delegateToolForTask) app.crewParts = new PartRecord();
-  app.delegateToolForTask ??= app.subagents.createTool(() => ({
-    cwd: app.activeWorkspaceRoot(),
-    projectContext: formatProjectContext(app.projectContext!),
-  }), (usage, known, helper, automatic) => app.observations.recordDelegatedUsage(usage, known, helper, automatic), autoBuilders({
+  app.delegateToolForTask ??= app.subagents.createTool(() => {
+    const cwd = app.activeWorkspaceRoot();
+    const start = app.taskUndoStart;
+    return { cwd, projectContext: formatProjectContext(app.projectContext!),
+      ...(start?.root === cwd ? { changes: (signal?: AbortSignal) => app.taskUndo.changedSoFar(start, signal) } : {}) };
+  }, (usage, known, helper, automatic) => app.observations.recordDelegatedUsage(usage, known, helper, automatic), autoBuilders({
     root: app.activeWorkspaceRoot(), homeDir: app.homeDir(),
     projectContext: formatProjectContext(app.projectContext!),
     // The task's spend pause sees a builder's spend while it works, and holds its tool calls too. The question
