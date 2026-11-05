@@ -27,3 +27,13 @@ function firstProgram(command: string): string | undefined {
 
 /** "go isn't installed on this computer": said instead of offering a repair or a retry, which can't help. */
 export const missingProgramLine = (program: string) => `${program} isn't installed on this computer`;
+
+/** Any program the shell said it could not find when a check could not start: `eslint` for `npm run lint` printing
+ * `sh: eslint: command not found`. Unlike {@link missingProgram} it may be a tool deeper in the check (often its
+ * dependencies are not installed yet), so the receipt only names it ("eslint not found"); it does not say to install it. */
+export function programNotFound(result: Pick<VerificationResult, "ended" | "stderr">): string | undefined {
+  if (result.ended !== "no_start") return undefined;
+  const unix = /(?:^|[\s:/])([\w.+-]+): (?:command )?not found\b/m.exec(result.stderr);
+  const windows = /^\s*'([^'\s]+?)(?:\.(?:exe|cmd|bat))?' is not recognized as an internal or external command/im.exec(result.stderr);
+  return (unix ?? windows)?.[1];
+}

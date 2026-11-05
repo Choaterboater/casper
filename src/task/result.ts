@@ -3,7 +3,7 @@ import { untrustedReason } from "../project/trust";
 import { modelErrorNext, type ModelErrorCause } from "../runtime/model-errors";
 import type { RiskyLine } from "../network/risky-receipt";
 import { isBuiltinCheck } from "../verify/named";
-import { missingProgram, missingProgramLine } from "../verify/missing-program";
+import { missingProgram, missingProgramLine, programNotFound } from "../verify/missing-program";
 import { DRY_RUN_LABEL } from "../network/checks";
 import type { ProjectCommand } from "../project/model";
 import type { BrowserReport } from "../browser/scenario";
@@ -1043,7 +1043,7 @@ function withVerdict(task: TaskResult, body: string[], options: ReceiptOptions, 
     ? "passed" : taskOutcome(report, task);
   const changed = Boolean(task.changedPaths?.length || task.changedDuringChecks?.length || (!task.changedPaths && task.possibleMutations));
   const failedChecks = (report?.results ?? []).filter((result) => result.status === "fail" && result.kind !== "report")
-    .map((result) => `${result.name} ${result.ended === "timeout" ? "timed out" : result.ended === "no_start" ? "could not start" : result.ended === "blocked" ? "was blocked by the sandbox"
+    .map((result) => `${result.name} ${result.ended === "timeout" ? "timed out" : result.ended === "no_start" ? `could not start${notFoundNote(result)}` : result.ended === "blocked" ? "was blocked by the sandbox"
       : result.ended === "cleanup" ? "passed but left something running" : "failed"}`);
   // Only unfinished checks: the change was not tested, which is not the same as the code being wrong.
   const onlyUnfinished = failedChecks.length > 0 && report!.results.every((result) => result.status !== "fail" || result.kind === "report" || result.ended);
@@ -1064,9 +1064,17 @@ function withVerdict(task: TaskResult, body: string[], options: ReceiptOptions, 
       return limit ? `${result.name} timed out after ${duration(Number(limit[1]))}` : failedChecks[index]!;
     });
     const again = timedOut.map((result) => options.surface === "one-shot" ? `casper "/verify ${result.name}"` : `/verify ${result.name}`);
+    const rest = body.filter((line) => !timedOut.some((result) => line.startsWith(`✗ ${result.name} timed out`)));
+    const runAgain = again.length ? `; ${again.join(", ")} runs it again` : "";
+    // Other checks passed on the final files: the change was tested, just not by every check. Say what passed and what
+    // did not run; the outcome stays incomplete, since a check that did not run is never a pass.
+    const passed = report!.results.filter((result) => result.status === "pass" && result.kind !== "report" && result.freshness !== "stale").map((result) => result.name);
+    if (passed.length) {
+      const detail = `${passed.length === 1 ? passed[0] : `${passed.slice(0, -1).join(", ")} and ${passed.at(-1)}`} passed; ${what.join(", ")}`;
+      return [head(`– Incomplete — ${detail}${runAgain}`, "Incomplete", { detail, actions: again }), ...rest];
+    }
     const reason = `${what.join(", ")}, so the change was not tested`;
-    return [head(`✗ Not checked — ${reason}${again.length ? `; ${again.join(", ")} runs it again` : ""}`, "Not checked", { detail: reason, actions: again }),
-      ...body.filter((line) => !timedOut.some((result) => line.startsWith(`✗ ${result.name} timed out`)))];
+    return [head(`✗ Not checked — ${reason}${runAgain}`, "Not checked", { detail: reason, actions: again }), ...rest];
   };
   let lines: string[];
   let short: string | undefined;
@@ -1172,6 +1180,12 @@ function withVerdict(task: TaskResult, body: string[], options: ReceiptOptions, 
     lines = [...lines, line];
   }
   return { lines, ...(short ? { short } : {}) };
+}
+
+/** " (eslint not found)" when the shell said which program it could not find; empty otherwise. */
+function notFoundNote(result: VerificationResult): string {
+  const program = programNotFound(result);
+  return program ? ` (${lineText(program)} not found)` : "";
 }
 
 function notVerifiedReason(task: TaskResult): string {
@@ -1337,7 +1351,8 @@ function checkLine(result: VerificationResult, safe: (text: string) => string, s
   const missing = missingProgram(result);
   if (missing) return say(`✗ ${name} could not start — ${missingProgramLine(missing)}; install it, then ${slash(`/verify ${name}`)}`, "could not start", missingProgramLine(missing), slash(`/verify ${name}`));
   if (result.ended === "no_start") {
-    const why = typeof result.exitCode === "number" ? `exit ${result.exitCode}` : safe(result.reason ?? "no exit status").replace(/\.$/, "").toLowerCase();
+    const notFound = programNotFound(result);
+    const why = `${notFound ? `${safe(notFound)} not found, ` : ""}${typeof result.exitCode === "number" ? `exit ${result.exitCode}` : safe(result.reason ?? "no exit status").replace(/\.$/, "").toLowerCase()}`;
     return say(`✗ ${name} could not start (${why}) — check verify.${isBuiltinCheck(name) ? "" : "checks."}${name} in .casper/project.yaml`, "could not start", why);
   }
   const why = typeof result.exitCode === "number" ? `exit ${result.exitCode}`
