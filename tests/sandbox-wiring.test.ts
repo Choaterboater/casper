@@ -1,6 +1,6 @@
 import { afterEach, expect, test } from "bun:test";
 import { existsSync } from "node:fs";
-import { chmod, mkdir, mkdtemp, readFile, realpath, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readdir, readFile, realpath, rm, stat, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { receiptEvent } from "../src/app/json-events";
@@ -10,6 +10,7 @@ import { spawnTool } from "../src/new/scaffold";
 import { ManagedProcess } from "../src/platform/managed-process";
 import { casperBashOperations } from "../src/runtime/pi";
 import { ShellSandbox, useSandbox, type SandboxWrapOptions } from "../src/sandbox/manager";
+import { makeHoldingFolders } from "../src/sandbox/policy";
 import { runTool } from "../src/security/spawn";
 import { ServiceManager } from "../src/services/manager";
 import { serviceTool } from "../src/services/tool";
@@ -394,4 +395,50 @@ test("the runtime is told once per run it wrapped, never for Casper's own bubble
   expect(cleanups).toBe(1);
   engine.finished("b");
   expect(cleanups).toBe(2);
+});
+
+test("on Linux a missing home folder that holds denied paths (~/.pi) is made empty before a command is planned", async () => {
+  const root = await realpath(await mkdtemp(path.join(os.tmpdir(), "casper-holding-")));
+  roots.push(root);
+  const home = path.join(root, "home"), project = path.join(root, "project");
+  await mkdir(home); await mkdir(project);
+  // Your home is writable (a temp folder there): the runtime would put a stand-in at a missing ~/.pi while a command
+  // runs, and two commands planned at once could see it half made ("Can't mkdir ~/.pi/agent: Read-only file system").
+  const sandbox = (platform: NodeJS.Platform) => new ShellSandbox({ root: () => project, home, tempDirs: [home], engine: fakeEngine(), problem: () => undefined, platform });
+  const linux = sandbox("linux");
+  await linux.wrap("true", { cwd: project });
+  expect((await stat(path.join(home, ".pi"))).isDirectory()).toBe(true);
+  expect(await readdir(path.join(home, ".pi"))).toEqual([]);
+  // Only folders in your home that hold denied paths (this home has no ~/.casper either): nothing in the project (a
+  // .git made empty would be a broken repository), and no denied file.
+  expect(await readdir(project)).toEqual([]);
+  expect((await readdir(home)).sort()).toEqual([".casper", ".pi"]);
+  expect(await readdir(path.join(home, ".casper"))).toEqual([]);
+  // Each command finds it again.
+  await rm(path.join(home, ".pi"), { recursive: true });
+  await linux.wrap("true", { cwd: project, network: "none" });
+  expect((await stat(path.join(home, ".pi"))).isDirectory()).toBe(true);
+  await linux.close();
+
+  await rm(path.join(home, ".pi"), { recursive: true });
+  const darwin = sandbox("darwin");
+  await darwin.wrap("true", { cwd: project });
+  expect(existsSync(path.join(home, ".pi"))).toBe(false);
+  await darwin.close();
+});
+
+test("only Casper's and Pi's own folders are made: a project's denied paths never choose a folder in your home", async () => {
+  const root = await realpath(await mkdtemp(path.join(os.tmpdir(), "casper-holding-names-")));
+  roots.push(root);
+  const home = path.join(root, "home");
+  await mkdir(home);
+  // A project may only add denies; these would have made folders where your shell, npm and git expect files.
+  const denyWrite = [".pi", ".pi/agent/auth.json", ".bashrc", ".bashrc/x", ".npmrc", ".npmrc/x", ".gitconfig/x"].map((entry) => path.join(home, entry));
+  makeHoldingFolders({ allowWrite: [home], denyWrite }, home);
+  expect(await readdir(home)).toEqual([".pi"]);
+  // Not in a writable place, or holding nothing: nothing is made.
+  await rm(path.join(home, ".pi"), { recursive: true });
+  makeHoldingFolders({ allowWrite: [path.join(root, "elsewhere")], denyWrite }, home);
+  makeHoldingFolders({ allowWrite: [home], denyWrite: [path.join(home, ".pi")] }, home);
+  expect(await readdir(home)).toEqual([]);
 });

@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, statSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { CASPER_PRIVATE_PATHS, gitDirs, hooksPathTargets, otherLoginFiles, PRIVATE_PATHS, PROTECTED_WRITE_PATHS, realpathLongest, within } from "../platform/project-paths";
@@ -245,6 +245,27 @@ export function systemTempDirs(platform: NodeJS.Platform = process.platform): st
   const dirs = [os.tmpdir()];
   if (platform !== "win32") for (const dir of ["/tmp", "/var/tmp"]) if (existsSync(dir)) dirs.push(dir);
   return unique(dirs.flatMap(spellings));
+}
+
+/** Casper's and Pi's own state folders in your home: the only folders makeHoldingFolders makes. */
+const HOLDING_FOLDERS = [".casper", ".pi"] as const;
+
+/** Linux: Casper's or Pi's state folder (~/.pi when Pi was never installed), when it is denied, missing, in a writable
+ * place and holds other denied paths, is made empty before a command is planned, so it is bound read-only like a
+ * folder that is there. Missing, the runtime puts a stand-in there while a command runs; it looks at the disk twice
+ * while it plans one, and when another command's stand-in appeared between those looks it bound the folder read-only
+ * and then needed a stand-in made inside it, so the command failed ("Can't mkdir ~/.pi/agent: Read-only file
+ * system"). Only these two names are made: a project's own denied paths never choose a folder (a ~/.bashrc folder
+ * would break your shell). */
+export function makeHoldingFolders(policy: Pick<SandboxPolicy, "allowWrite" | "denyWrite">, home: string): void {
+  for (const name of HOLDING_FOLDERS) {
+    const outer = path.join(path.resolve(home), name);
+    if (!policy.denyWrite.includes(outer) || !policy.allowWrite.some((place) => within(place, outer))) continue;
+    const holds = policy.denyWrite.some((entry) => entry !== outer && within(outer, entry)
+      && !policy.allowWrite.some((place) => place !== outer && within(outer, place) && within(place, entry)));
+    if (!holds) continue;
+    try { mkdirSync(outer, { mode: 0o700 }); } catch { /* there already, or not ours to make */ }
+  }
 }
 
 export function sandboxPolicy(input: SandboxPolicyInput): SandboxPolicy {
