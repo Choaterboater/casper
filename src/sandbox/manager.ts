@@ -6,7 +6,7 @@ import path from "node:path";
 import { linuxSandboxProblem, quote, ripgrepPath } from "./linux";
 import { isOutside } from "../platform/inside";
 import { gitDirs, realpathLongest, within } from "../platform/project-paths";
-import { hostListed, hostName, sandboxPolicy, submoduleGitDirs, systemTempDirs, worktreeConfigFiles, writeFileToOffer, writeFolderToOffer, type SandboxPolicy, type SandboxProjectSettings, type SandboxUserSettings } from "./policy";
+import { hostListed, hostName, makeHoldingFolders, sandboxPolicy, submoduleGitDirs, systemTempDirs, worktreeConfigFiles, writeFileToOffer, writeFolderToOffer, type SandboxPolicy, type SandboxProjectSettings, type SandboxUserSettings } from "./policy";
 import { runtimeEngine, type SandboxEngine } from "./runtime";
 import type { SandboxStore } from "./store";
 
@@ -269,7 +269,9 @@ export class ShellSandbox {
       const seccompPath = await this.options.seccompPath?.().catch(() => undefined);
       // On Linux the runtime scans the project with ripgrep: the one on PATH, Pi's own copy, or the one Casper fetched.
       const ripgrep = this.platform === "linux" ? ripgrepPath(undefined, this.options.agentDir, this.home) : undefined;
-      await this.engine.initialize(this.policy(), (host, port) => this.decideHost(host, port),
+      const policy = this.policy();
+      if (this.platform === "linux") makeHoldingFolders(policy, this.home);
+      await this.engine.initialize(policy, (host, port) => this.decideHost(host, port),
         { ...(this.user.allowUnixSockets ? { allowUnixSockets: this.user.allowUnixSockets } : {}), ...(seccompPath ? { seccompPath } : {}), ...(ripgrep ? { ripgrep } : {}) });
     })();
     return this.started;
@@ -301,6 +303,7 @@ export class ShellSandbox {
     const prefix = [`TMPDIR=${quote(this.tempDir!)}; export TMPDIR`, "NODE_USE_ENV_PROXY=1; export NODE_USE_ENV_PROXY",
       ...(IPV6_MISSING ? ["SOCAT_DEFAULT_LISTEN_IP=4; export SOCAT_DEFAULT_LISTEN_IP"] : [])].join("; ");
     const network = options.network ?? "ask";
+    if (this.platform === "linux") makeHoldingFolders(policy, this.home);
     const wrapped = await this.engine.wrap(command, policy, { id, cwd: options.cwd, network, prefix });
     this.parent?.crewRuns.set(id, this);
     return { command: IPV6_MISSING && network === "ask" && wrapped !== command ? `SOCAT_DEFAULT_LISTEN_IP=4; export SOCAT_DEFAULT_LISTEN_IP; ${wrapped}` : wrapped, id, held: true };
