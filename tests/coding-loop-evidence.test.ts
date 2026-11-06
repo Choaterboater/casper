@@ -2,7 +2,7 @@ import { afterEach, expect, test } from "bun:test";
 import { chmod, mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { observationInput, observationOutput } from "../src/runtime/observation";
+import { observationInput, observationOutput, shellExitCode } from "../src/runtime/observation";
 import { formatTaskResult, taskExitCode } from "../src/task/result";
 import { runCommandCheck } from "../src/verify/command";
 import { VerifierRegistry } from "../src/verify/registry";
@@ -258,6 +258,20 @@ posixOnly("a missing after-observation never becomes reusable merely because the
   expect(report.results[0]).toMatchObject({ status: "pass", freshness: "unavailable" });
   expect(report.results[0]?.freshnessReason).toContain("symlink or special file");
   expect(report.results[0]?.reused).not.toBe(true);
+});
+
+test("casper acp's display keeps up to its own limit, head and tail; a shell step's exit code comes from its result", () => {
+  const long = `${"a".repeat(40_000)}MIDDLE${"b".repeat(40_000)}TAIL`;
+  const shown = observationOutput({ content: [{ type: "text", text: long }] }, 65_536);
+  expect(shown.truncated).toBe(true);
+  expect(Buffer.byteLength(shown.text)).toBeLessThanOrEqual(65_536);
+  expect(Buffer.byteLength(shown.text)).toBeGreaterThan(60_000);
+  expect(shown.text).toStartWith("aaa");
+  expect(shown.text).toEndWith("TAIL");
+  expect(shown.text).not.toContain("MIDDLE");
+  expect(shellExitCode({ content: [{ type: "text", text: "x" }], structuredContent: { exit_code: 3 } })).toBe(3);
+  expect(shellExitCode({ content: [{ type: "text", text: "5\n\nCommand exited with code 7" }] })).toBe(7);
+  expect(shellExitCode({ content: [{ type: "text", text: "Command aborted" }] })).toBeNull();
 });
 
 test("observation envelopes omit arbitrary arguments, bound Unicode output and disclose producer truncation", () => {

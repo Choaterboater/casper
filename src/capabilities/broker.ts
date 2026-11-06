@@ -300,6 +300,20 @@ export class CapabilityBroker {
     return name === "find_capability" || name === "call_capability" || [...this.capabilities.values()].some((capability) => capability.runtimeName === name);
   }
 
+  /** The MCP server and tool a runtime tool call reaches: a direct tool by its name, `call_capability` by its `id`
+   * argument (`mcp:<server>:<tool>`). Undefined for anything else, `find_capability` included. Display only. */
+  named(runtimeName: string, args?: Record<string, unknown>): { server: string; tool: string } | undefined {
+    const direct = [...this.capabilities.values()].find((capability) => capability.runtimeName === runtimeName);
+    if (direct) return { server: direct.descriptor.source, tool: direct.descriptor.name };
+    if (runtimeName !== "call_capability" || typeof args?.id !== "string") return undefined;
+    const known = this.capabilities.get(args.id);
+    if (known) return { server: known.descriptor.source, tool: known.descriptor.name };
+    const match = /^mcp:([^:]+):([^:]+)$/.exec(args.id);
+    if (!match) return undefined;
+    const decode = (part: string) => { try { return decodeURIComponent(part); } catch { return part; } };
+    return { server: decode(match[1]!), tool: decode(match[2]!) };
+  }
+
   async prepare(task: string): Promise<RuntimeTool[]> {
     if (this.closed.signal.aborted) return [];
     await this.manager.prepare();

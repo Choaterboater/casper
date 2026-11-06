@@ -83,11 +83,12 @@ test("the model's text goes out a line at a time, so a secret split across two d
 });
 
 test("a tool id the model uses again in a later turn is a new step for the client", () => {
-  const mapper = new UpdateMapper((text) => text);
-  const ids = [
-    ...mapper.map({ type: "tool_start", tool: "write", id: "call_0", target: "a.js" }), ...mapper.map({ type: "tool_end", tool: "write", id: "call_0", ok: true, ms: 1 }),
-    ...mapper.map({ type: "tool_start", tool: "write", id: "call_0", target: "b.js" }), ...mapper.map({ type: "tool_end", tool: "write", id: "call_0", ok: false, ms: 1 }),
-  ].map((update) => [update.sessionUpdate, update.toolCallId, update.status]);
+  const mapper = new UpdateMapper((text) => text, { holdsSecret: () => false });
+  const step = (file: string, ok: boolean) => [
+    ...mapper.runtime({ type: "tool_start", toolName: "write", toolCallId: "call_0", input: { path: file }, args: { path: file, content: "x\n" } }),
+    ...mapper.runtime({ type: "tool_end", toolName: "write", toolCallId: "call_0", input: { path: file }, isError: !ok, display: { text: "", truncated: false, before: null } }),
+  ];
+  const ids = [...step("a.js", true), ...step("b.js", false)].map((update) => [update.sessionUpdate, update.toolCallId, update.status]);
   expect(ids).toEqual([["tool_call", "casper-tool-1", "in_progress"], ["tool_call_update", "casper-tool-1", "completed"],
     ["tool_call", "casper-tool-2", "in_progress"], ["tool_call_update", "casper-tool-2", "failed"]]);
 });

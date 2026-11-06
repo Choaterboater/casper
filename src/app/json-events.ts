@@ -128,12 +128,32 @@ export interface ReceiptEvent {
   text: string;
 }
 
-function delegateFields(input?: ToolObservationInput): DelegateEventFields {
+/** What a tool step works on, as its title names it: a pattern, a path, a command, an operation or a check. */
+export function toolTarget(input: ToolObservationInput | undefined): string | undefined {
+  return input?.pattern ?? input?.path ?? input?.command ?? input?.operation ?? input?.check;
+}
+
+/** A delegate step's role, goal and part, from its identity fields only (`--json` and `casper acp`). */
+export function delegateFields(input?: ToolObservationInput): DelegateEventFields {
   const safe = observationInput(input);
   return { ...(safe.role ? { role: safe.role } : {}), ...(safe.goal !== undefined ? { goal: safe.goal } : {}), ...(safe.of !== undefined ? { part: safe.of } : {}) };
 }
 
-interface DelegateEventFields { role?: "explorer" | "reviewer" | "builder"; goal?: string; part?: number }
+/** A delegate step's fields at its end: those of its start and its end, and the part a builder landed (from its
+ * report). */
+export function delegateEndFields(started: DelegateEventFields | undefined, input: ToolObservationInput | undefined, output: string | undefined): DelegateEventFields {
+  const delegate = { ...started, ...delegateFields(input) };
+  if (delegate.role === "builder") {
+    try {
+      const report = JSON.parse(output ?? "");
+      const part = report.data?.part ?? report.part;
+      if (Number.isSafeInteger(part) && part > 0) delegate.part = part;
+    } catch { /* A failed or empty builder has no landed part. */ }
+  }
+  return delegate;
+}
+
+export interface DelegateEventFields { role?: "explorer" | "reviewer" | "builder"; goal?: string; part?: number }
 
 export type CasperEvent =
   | { type: "session_start"; casper: string; cwd: string; session: string | null; provider: string | null; model: string | null; effort: string | null }
@@ -357,19 +377,12 @@ export class RuntimeEventMapper {
         const input = event.input;
         const delegate = event.toolName === "delegate" ? delegateFields(input) : {};
         if (event.toolCallId && event.toolName === "delegate") this.delegates.set(event.toolCallId, delegate);
-        const target = input?.pattern ?? input?.path ?? input?.command ?? input?.operation ?? input?.check;
+        const target = toolTarget(input);
         return [{ type: "tool_start", tool: event.toolName, id: event.toolCallId ?? null, target: target === undefined ? null : redactPreview(target), ...delegate }];
       }
       case "tool_end": {
         const started = event.toolCallId ? this.started.get(event.toolCallId) : undefined;
-        const delegate = event.toolName === "delegate" ? { ...(event.toolCallId ? this.delegates.get(event.toolCallId) : {}), ...delegateFields(event.input) } : {};
-        if (event.toolName === "delegate" && delegate.role === "builder") {
-          try {
-            const report = JSON.parse(event.output?.text ?? "");
-            const part = report.data?.part ?? report.part;
-            if (Number.isSafeInteger(part) && part > 0) delegate.part = part;
-          } catch { /* A failed or empty builder has no landed part. */ }
-        }
+        const delegate = event.toolName === "delegate" ? delegateEndFields(event.toolCallId ? this.delegates.get(event.toolCallId) : undefined, event.input, event.output?.text) : {};
         if (event.toolCallId) { this.started.delete(event.toolCallId); this.delegates.delete(event.toolCallId); }
         return [{ type: "tool_end", tool: event.toolName, id: event.toolCallId ?? null, ok: !event.isError,
           ms: started === undefined ? null : Math.round(this.now() - started), ...delegate }];

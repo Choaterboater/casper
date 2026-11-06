@@ -200,7 +200,9 @@ try {
   expect(shell.output?.text).toContain("SHELL_DIAGNOSTIC");
   expect(shell.output?.text).toContain("code 7");
   expect(shell).not.toHaveProperty("exitCode");
-  expect(JSON.stringify(events)).not.toContain("EDIT_BODY_NOT_AN_OBSERVATION");
+  // The model's arguments and what a step showed are casper acp's display only (decision 79): no observation carries them.
+  const observed = events.map((event) => { const { args: _args, display: _display, ...rest } = event as RuntimeEvent & { args?: unknown; display?: unknown }; return rest; });
+  expect(JSON.stringify(observed)).not.toContain("EDIT_BODY_NOT_AN_OBSERVATION");
   expect(await readFile(path.join(f.project, "changed.txt"), "utf8")).toBe("EDIT_BODY_NOT_AN_OBSERVATION");
 }, childTestLimit());
 

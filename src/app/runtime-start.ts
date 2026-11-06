@@ -125,6 +125,8 @@ export async function ensureRuntime(app: CasperApp): Promise<RuntimeSession> {
         else if (event.type === "assistant_response_end" && app.responseText.trim()) { app.lastAnswer = app.responseText; app.toolAfterAnswer = false; }
         else if (event.type === "tool_start") app.toolAfterAnswer = true;
         app.events.handle(event);
+        // Right before its mapping, so the two keep their order.
+        app.onRuntimeEvent?.(event);
         if (app.onEvent) for (const mapped of app.eventMapper.map(event)) app.onEvent(mapped);
       });
       if (app.onEvent) {

@@ -46,7 +46,7 @@ import { loadProjectContext, type ProjectContext } from "./project/context";
 import { broadFolder, inspectProject, type ProjectInfo } from "./project/inspect";
 import { forgetSshSecrets } from "./ssh/login";
 import { useTelemetrySetting } from "./runtime/openrouter-attribution";
-import type { AgentRuntime, RuntimeConversation, RuntimeSession, RuntimeImage, RuntimeTool, RuntimeShell } from "./runtime/types";
+import type { AgentRuntime, RuntimeConversation, RuntimeEvent, RuntimeSession, RuntimeImage, RuntimeTool, RuntimeShell } from "./runtime/types";
 import { SkillRegistry, skillRegistryOptions } from "./skills/registry";
 import type { TaskResult, TaskUsage } from "./task/result";
 import type { TaskClassification } from "./task/classify";
@@ -153,6 +153,8 @@ export interface CasperAppOptions {
   effort?: string;
   /** Machine-readable events (`--json`): the session, streamed text, tools and checks. */
   onEvent?: (event: CasperEvent) => void;
+  /** The runtime's own events, each right before its `onEvent` mapping (`casper acp` builds its steps from them). */
+  onRuntimeEvent?: (event: RuntimeEvent) => void;
   /** Stop each model request after this many turns (`--max-turns`); the task is then incomplete. */
   maxTurns?: number;
   /** Continue the workspace's latest conversation, or the saved one whose ID starts with `resume`. */
@@ -348,6 +350,7 @@ export class CasperApp {
   runConversation?: CasperAppOptions["conversation"];
   readonly maxTurns?: number;
   readonly onEvent?: (event: CasperEvent) => void;
+  readonly onRuntimeEvent?: (event: RuntimeEvent) => void;
   readonly eventMapper = new RuntimeEventMapper();
   /** The text of the response being streamed, and of the last response that had text. */
   responseText = "";
@@ -695,6 +698,7 @@ export class CasperApp {
     this.runConversation = options.conversation;
     this.maxTurns = options.maxTurns;
     this.onEvent = options.onEvent;
+    this.onRuntimeEvent = options.onRuntimeEvent;
     this.verificationFlag = options.verificationMode
       ?? (options.autoVerify === undefined ? undefined : options.autoVerify ? "offer" : "off");
     this.visualizationProviders = options.visualizationProviders ?? [new MermaidProvider(), new MindMeshProvider(), new DrawioProvider()];

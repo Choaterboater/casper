@@ -124,6 +124,10 @@ attached file goes as its path, which Casper reads with its own tools. When the 
 shows the same question as the terminal: send without it, or switch for that request.
 [Decision 78](docs/adr/0002/78-an-acp-prompt-carries-pictures-and-files.md).
 
+Each step the AI takes reaches the app with what it did: an edit's or a write's diff, a command's output and exit
+code, a read's lines, grep's matches by file, the files find and ls listed, and a web search's sources. Secrets stay
+hidden, and a file's text that holds one is not shown. [Decision 79](docs/adr/0002/79-an-acp-step-carries-its-output.md).
+
 Type `/help` for the commands. Ctrl+C stops the current work but keeps changes already made;
 Ctrl+D on an empty prompt exits. [Keys and commands](docs/TERMINAL_UX.md#quick-reference).
 

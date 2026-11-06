@@ -14,7 +14,7 @@ import type { CliOptions } from "../cli-args";
 import type { CasperApp } from "../app";
 import { receiptEvent, type CasperEvent } from "../app/json-events";
 import { cancelCurrent } from "../app/command-loop";
-import { ownSecretValues } from "../app/network-host";
+import { networkLoginFile, ownSecretValues } from "../app/network-host";
 import { ensureRuntime } from "../app/runtime-start";
 import { transcriptsIn, withoutTranscripts } from "../app/request-words";
 import { promptWords } from "../app/rewind";
@@ -23,6 +23,8 @@ import { CASPER_VERSION } from "../version";
 import type { AwayAsker } from "../tui/terminal";
 import { readAcpMcpSetting, type AcpMcpSetting } from "../config/load";
 import type { MCPServerDefinition } from "../mcp/config";
+import type { RuntimeEvent } from "../runtime/types";
+import { fileTextHoldsSecret, onlyNetconanChecks } from "../secrets/tool-output";
 import { clientServers } from "./client-servers";
 import { AcpAsker } from "./permission";
 import { promptContent } from "./prompt";
@@ -76,7 +78,9 @@ export function answerThroughClient(app: CasperApp, asker: AwayAsker, write: (te
 export interface SessionOptions {
   cli: CliOptions;
   /** Builds the app (the CLI passes the one --json would build, with this session's events and output). */
-  createApp(input: { conversation: { continue: true } | { resume: string } | undefined; onEvent: (event: CasperEvent) => void; output: { write(text: string): void };
+  createApp(input: { conversation: { continue: true } | { resume: string } | undefined; onEvent: (event: CasperEvent) => void;
+    /** The runtime's own events: tool steps with their arguments, output and diffs (decision 79). */
+    onRuntimeEvent: (event: RuntimeEvent) => void; output: { write(text: string): void };
     /** The client's MCP servers for this session (decision 77), added after the ones Casper's files define. */
     mcpServers: MCPServerDefinition[] }): Promise<CasperApp>;
   /** Your home folder (the client's stdio servers start there). Default: os.homedir(). */
@@ -103,7 +107,14 @@ export async function runAcpSession(options: SessionOptions): Promise<void> {
     catch { secrets = [...clientSecrets].sort((a, b) => b.length - a.length); }
   };
   const hide = hider(() => secrets);
-  const mapper = new UpdateMapper(hide);
+  // A step shows a file's text only when it holds no secret by the rules a read of that file gets. Those rules take
+  // netconan in too when it is installed, and it can't run on text shown at once, so then no device config is shown.
+  let netconanInUse = false;
+  // A step's relative path is resolved from where the runtime works (the git top level of a session opened in a
+  // subfolder), so its locations and diffs name the file it really wrote.
+  const mapper = new UpdateMapper(hide, { cwd: () => app?.projectContext ? app.activeWorkspaceRoot() : folder ?? process.cwd(), mcpTool: (name, args) => app?.broker?.named(name, args),
+    holdsSecret: (file, text) => fileTextHoldsSecret(file, text, app ? { configs: app.scrubFiles, networkLoginFile: networkLoginFile(app) } : {}),
+    unchecked: (file) => onlyNetconanChecks(file, { configs: app?.scrubFiles, netconan: netconanInUse }) });
   // Casper's transcript goes to stderr as it is written.
   const output = { write: (text: string) => { process.stderr.write(withoutClientValues(text)); } };
   // Casper's own lines (app.onOutput: never the model's words, which reach the client as events) are read a whole line
@@ -135,13 +146,15 @@ export async function runAcpSession(options: SessionOptions): Promise<void> {
     let created: CasperApp | undefined;
     try {
       created = app = await options.createApp({ conversation, output, mcpServers: client.definitions,
-        onEvent: (event) => { for (const update of mapper.map(event)) sendUpdate(update); } });
+        onEvent: (event) => { for (const update of mapper.map(event)) sendUpdate(update); },
+        onRuntimeEvent: (event) => { for (const update of mapper.runtime(event)) sendUpdate(update); } });
       // A call to the app's server names the step it is, as the client saw it start.
       created.acpToolCallId = (id) => mapper.acpId(id);
       created.onOutput = ownLines;
       learnSecrets();
       try {
         await created.start(folder);
+        netconanInUse = (await created.scrubber.netconan().catch(() => undefined))?.state === "found";
         const runtime = await ensureRuntime(created);
         sessionId = runtime.getSessionInfo?.().sessionId;
       } catch (error) {

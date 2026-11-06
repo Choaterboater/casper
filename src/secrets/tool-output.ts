@@ -84,6 +84,31 @@ export async function scrubToolOutput(scrubber: Pick<Scrubber, "scrubText">, too
   return { texts: out, ...(note ? { note } : {}) };
 }
 
+/**
+ * Whether a file's text holds a secret by the rules a read of that file gets (scrubToolOutput above): the device-config
+ * pass for a config file while `configs` is on, and the always-on pass with the file's own kind (.env, key, .pgpass).
+ * For text Casper shows rather than hides in place (`casper acp`'s diffs, written text and read previews), so it runs
+ * at once, with Casper's own rules for the device pass; while netconan is in use a device config is not shown at all
+ * (onlyNetconanChecks below), since netconan may find more than these rules.
+ */
+export function fileTextHoldsSecret(filePath: string, text: string, options: ToolOutputScrubOptions = {}): boolean {
+  if (!text) return false;
+  if ((options.configs ?? true) && shouldScrubRead(filePath) && scrubText(text).hidden) return true;
+  const values = [...loginFileValues(options.loginFile ?? path.join(casperAgentDir(), "auth.json")),
+    ...options.networkLoginFile ? networkLoginValues(options.networkLoginFile) : []];
+  return scrubPlainSecrets(text, { secretFile: isSecretFile(filePath), keyFile: isKeyFile(filePath), pgpass: isPgpassFile(filePath), values,
+    ...(options.env ? { env: options.env } : {}) }).hidden > 0;
+}
+
+/**
+ * Whether a file's text is one only netconan can check: a device config (shouldScrubRead) while the config pass is on
+ * and netconan is in use. netconan runs on what the AI reads and may find more there than Casper's own rules, but it
+ * can't run on text Casper shows at once, so such text is never shown (`casper acp`'s diffs and written text).
+ */
+export function onlyNetconanChecks(filePath: string, options: { configs?: boolean; netconan: boolean }): boolean {
+  return options.netconan && (options.configs ?? true) && shouldScrubRead(filePath);
+}
+
 /** Whether any line starts with a key file's name and a line number: "certs/key.pem:2: ...", "./id_rsa-3-...". */
 function namesKeyFile(text: string): boolean {
   for (const match of text.matchAll(/^([^\s:]+?)(?::\d+:|-\d+-)/gm)) if (isKeyFile(match[1]!)) return true;

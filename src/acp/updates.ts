@@ -2,9 +2,12 @@
 // Everything that leaves goes through `hide` first: the --json redaction plus the exact values of the user's own secrets.
 
 import type { CasperEvent, PhaseEvent, ReceiptEvent } from "../app/json-events";
+import type { RuntimeEvent } from "../runtime/types";
+import { fileTextHoldsSecret } from "../secrets/tool-output";
 import type { TaskResult } from "../task/result";
 import { redactPreview } from "../tui/format";
 import type { Json } from "./rpc";
+import { endUpdate, startUpdate, stepFacts, type ShowRules, type StepFacts } from "./tool-content";
 
 const HIDDEN = "<secret hidden>";
 
@@ -27,11 +30,12 @@ export function valuesHider(values: () => readonly string[]): (text: string) => 
   };
 }
 
-/** Every string inside `value`, hidden the same way (a receipt's data). */
-export function hideDeep<T>(value: T, hide: (text: string) => string): T {
+/** Every string inside `value`, hidden the same way (a receipt's data); `keys` hides the names too (the model's own
+ * arguments, whose names it chose). */
+export function hideDeep<T>(value: T, hide: (text: string) => string, options: { keys?: boolean } = {}): T {
   if (typeof value === "string") return hide(value) as T;
-  if (Array.isArray(value)) return value.map((item) => hideDeep(item, hide)) as T;
-  if (value && typeof value === "object") return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, hideDeep(item, hide)])) as T;
+  if (Array.isArray(value)) return value.map((item) => hideDeep(item, hide, options)) as T;
+  if (value && typeof value === "object") return Object.fromEntries(Object.entries(value).map(([key, item]) => [options.keys ? hide(key) : key, hideDeep(item, hide, options)])) as T;
   return value;
 }
 
@@ -48,35 +52,60 @@ const PHASE_WORDS: Record<PhaseEvent["phase"], string> = {
   repair: "Fix what the checks found",
 };
 
-/** ACP's tool kinds, for the client's icons. */
-function toolKind(tool: string): string {
-  if (tool === "read") return "read";
-  if (["grep", "find", "ls", "web_search"].includes(tool)) return "search";
-  if (["edit", "write"].includes(tool)) return "edit";
-  if (["bash", "powershell", "casper_check", "service"].includes(tool)) return "execute";
-  if (["web_fetch", "fetch"].includes(tool)) return "fetch";
-  if (tool === "delegate") return "think";
-  return "other";
-}
-
 const text = (words: string) => ({ type: "text", text: words });
+
+export interface MapperOptions {
+  /** The folder a relative path in a step is in. Default: the process's. */
+  cwd?: () => string;
+  /** The MCP server and tool a runtime tool reaches (CapabilityBroker.named). */
+  mcpTool?: (name: string, args: Record<string, unknown>) => { server: string; tool: string } | undefined;
+  /** Whether a file's text holds a secret; default fileTextHoldsSecret with Casper's own login files. */
+  holdsSecret?: ShowRules["holdsSecret"];
+  /** A file whose text only netconan can check (onlyNetconanChecks); default none. */
+  unchecked?: ShowRules["unchecked"];
+}
 
 /**
  * Stateful, one per session. The model's text goes out a line at a time, so a secret is hidden whole, never split
- * across two chunks; the rest goes out when the message ends, before a tool starts, or at flush().
+ * across two chunks; the rest goes out when the message ends, before a tool starts, or at flush(). Tool steps come
+ * from the runtime's own events (runtime()), with their arguments, output and diffs (src/acp/tool-content.ts).
  */
 export class UpdateMapper {
   private pending = "";
   private readonly plan: Array<{ phase: PhaseEvent["phase"]; status: "in_progress" | "completed" }> = [];
   private steps = 0;
   /** The ACP id of each running tool, by the model's id: a model may use the same id again in a later turn. */
-  private readonly running = new Map<string, string>();
+  private readonly running = new Map<string, { id: string; facts: StepFacts }>();
+  private readonly cwd: () => string;
+  private readonly rules: ShowRules;
 
-  constructor(private readonly hide: (text: string) => string) {}
+  constructor(private readonly hide: (text: string) => string, private readonly options: MapperOptions = {}) {
+    this.cwd = options.cwd ?? (() => process.cwd());
+    this.rules = { holdsSecret: options.holdsSecret ?? ((file, text) => fileTextHoldsSecret(file, text)), ...(options.unchecked ? { unchecked: options.unchecked } : {}) };
+  }
 
   /** The ACP toolCallId of the running tool the model calls `id`, if it is running. */
   acpId(id: string): string | undefined {
-    return this.running.get(id);
+    return this.running.get(id)?.id;
+  }
+
+  /** A runtime event as updates: a tool step's start and end (every other event comes through map()). */
+  runtime(event: RuntimeEvent): Json[] {
+    if (event.type === "tool_start") {
+      const id = `casper-tool-${++this.steps}`;
+      let mcp: { server: string; tool: string } | undefined;
+      try { mcp = this.options.mcpTool?.(event.toolName, event.args ?? {}); } catch { mcp = undefined; }
+      const facts = stepFacts(event, this.cwd(), mcp);
+      if (event.toolCallId) this.running.set(event.toolCallId, { id, facts });
+      return [...this.flush(), hideDeep(startUpdate(id, facts, this.rules), this.hide, { keys: true })];
+    }
+    if (event.type === "tool_end") {
+      const step = event.toolCallId ? this.running.get(event.toolCallId) : undefined;
+      if (!step) return [];
+      this.running.delete(event.toolCallId!);
+      return [hideDeep(endUpdate(step.id, step.facts, event, this.rules), this.hide, { keys: true })];
+    }
+    return [];
   }
 
   map(event: CasperEvent): Json[] {
@@ -90,19 +119,6 @@ export class UpdateMapper {
         return [this.message(ready)];
       }
       case "assistant_message": return this.flush();
-      case "tool_start": {
-        const id = `casper-tool-${++this.steps}`;
-        if (event.id) this.running.set(event.id, id);
-        const title = event.target ? `${event.tool} ${event.target}` : event.tool;
-        return [...this.flush(), { sessionUpdate: "tool_call", toolCallId: id, title: this.hide(title), kind: toolKind(event.tool), status: "in_progress",
-          rawInput: { tool: event.tool, ...(event.target ? { target: this.hide(event.target) } : {}) } }];
-      }
-      case "tool_end": {
-        const id = event.id ? this.running.get(event.id) : undefined;
-        if (!id) return [];
-        this.running.delete(event.id!);
-        return [{ sessionUpdate: "tool_call_update", toolCallId: id, status: event.ok ? "completed" : "failed" }];
-      }
       case "check": {
         const notRun = event.status === "skip";
         const title = `Check ${event.name}${event.command ? `: ${event.command}` : ""}${notRun ? " (not run)" : ""}`;

@@ -72,7 +72,7 @@ import { CASPER_SAID_ENTRY, conversationRecord, saidBy } from "../sessions/recor
 import { ELISION_NOTE, elisionTexts, newElisions } from "./elision";
 import { addsSecret } from "../secrets/files";
 import { ToolArgumentRepair } from "./tool-repair";
-import { nativeEditPath, observationInput, editPatch, observationOutput, patchLineCounts, stepTitle, writeLineCounts, type ToolObservationInput } from "./observation";
+import { nativeEditPath, observationInput, editPatch, observationOutput, patchLineCounts, shellExitCode, stepTitle, writeLineCounts, type ToolObservationInput } from "./observation";
 import { reasoningHeadline } from "./reasoning-headline";
 import type {
   AgentRuntime,
@@ -101,6 +101,7 @@ import type {
   RuntimeConversation,
   ConversationItem,
   RuntimeEvent,
+  ToolDisplay,
 } from "./types";
 import { isOutside } from "../platform/inside";
 import { withToolCall, withToolReason } from "./tool-reason";
@@ -109,6 +110,8 @@ import { CheckChangeGuard, guardedFileTools } from "./check-changes";
 class PiToolController {
   private tools: RuntimeTool[];
   private update: (tools: RuntimeTool[]) => void = () => {};
+  /** Each shell step's exit code as the shell reported it, by call id, until its end: display only (casper acp). */
+  readonly exitCodes = new Map<string, number>();
 
   constructor(initial: RuntimeTool[]) {
     this.tools = [...initial];
@@ -669,7 +672,8 @@ class PiRuntimeSession implements RuntimeSession {
           if (secret) { input.secretWritten = displayPath(file!, this.runtime.cwd); input.secretWhere = `line ${secret.line}, ${secret.kind}`; }
           const description = stepTitle(event.toolName, event.args);
           if (description !== undefined && this.toolTitles.size < 64) this.toolTitles.set(event.toolCallId, description);
-          this.emit({ type: "tool_start", toolName: event.toolName, toolCallId: event.toolCallId, input, ...(description !== undefined ? { description } : {}) });
+          this.emit({ type: "tool_start", toolName: event.toolName, toolCallId: event.toolCallId, input, ...(description !== undefined ? { description } : {}),
+            args: Object(event.args) });
           break;
         }
         case "tool_execution_update": {
@@ -684,6 +688,8 @@ class PiRuntimeSession implements RuntimeSession {
         }
         case "tool_execution_end": {
           this.progressAt.delete(event.toolCallId);
+          const exitCode = this.tools.exitCodes.get(event.toolCallId);
+          this.tools.exitCodes.delete(event.toolCallId);
           const input = this.toolInputs.get(event.toolCallId);
           this.toolInputs.delete(event.toolCallId);
           const description = this.toolTitles.get(event.toolCallId);
@@ -694,12 +700,20 @@ class PiRuntimeSession implements RuntimeSession {
           const lines = event.isError || kept ? undefined : event.toolName === "edit" ? patchLineCounts(event.result)
             : write && write.before !== null ? writeLineCounts(write.before, write.after) : undefined;
           const diff = !event.isError && event.toolName === "edit" ? editPatch(event.result) : undefined;
+          // What casper acp shows of the step: a write's old text is null for a new file (readSmallText's undefined)
+          // and left out when it was too big or unreadable (its null).
+          const firstChanged = event.toolName === "edit" ? Reflect.get(Object(event.result?.details), "firstChangedLine") : undefined;
+          const display: ToolDisplay = { ...observationOutput(event.result, 65_536),
+            ...(["bash", "powershell"].includes(event.toolName) ? { exitCode: exitCode ?? shellExitCode(event.result) } : {}),
+            ...(write && write.before !== null ? { before: write.before ?? null } : {}),
+            ...(Number.isSafeInteger(firstChanged) && firstChanged > 0 ? { line: firstChanged as number } : {}) };
           // Lookup notes (empty results and skipped repeats) need bounded text even on success.
           this.emit({ type: "tool_end", toolName: event.toolName, toolCallId: event.toolCallId, input, output: ["bash", "casper_check", "read", "grep", "find", "ls"].includes(event.toolName) || event.isError || kept ? observationOutput(event.result) : undefined,
-            isError: event.isError, ...(description !== undefined ? { description } : {}), ...(kept ? { sessionOnlyCheck: true } : {}), ...(lines ? { lines } : {}), ...(diff ? { diff } : {}) });
+            isError: event.isError, ...(description !== undefined ? { description } : {}), ...(kept ? { sessionOnlyCheck: true } : {}), ...(lines ? { lines } : {}), ...(diff ? { diff } : {}), display });
           break;
         }
         case "agent_end": {
+          this.tools.exitCodes.clear();
           this.toolInputs.clear();
           this.toolTitles.clear();
           this.progressAt.clear();
@@ -1203,6 +1217,12 @@ export class PiRuntime implements AgentRuntime {
         pi.on("tool_call", (event) => {
           const reason = loopGuard.before(event.toolCallId, event.toolName, event.input);
           if (reason) return { block: true, reason };
+        });
+        // A shell step's exit code, kept before any handler below replaces its content: Pi then drops what the shell
+        // reported with it (structuredContent).
+        pi.on("tool_result", (event) => {
+          const code = event.structuredContent && typeof event.structuredContent === "object" ? Reflect.get(event.structuredContent, "exit_code") : undefined;
+          if (["bash", "powershell"].includes(event.toolName) && Number.isSafeInteger(code) && tools.exitCodes.size < 64) tools.exitCodes.set(event.toolCallId, code);
         });
         // After every refusal above: a refused call never waits. A picture the call would touch is finished first.
         const waitNotes = new Map<string, string[]>();
