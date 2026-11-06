@@ -1280,7 +1280,7 @@ function mcpListText(statuses: readonly MCPStatus[], hints: boolean): string {
       ...(ready ? [`${status.toolCount} ${status.toolCount === 1 ? "tool" : "tools"}`, `writes ${status.writes}`] : []),
       ...(ready && sandboxWord(status) ? [sandboxWord(status)!] : []),
       ...(access ? [access] : []),
-      ...(status.importedFrom ? [`from ${status.importedFrom}`] : []),
+      ...(status.importedFrom ? [`from ${status.importedFrom}`] : status.scope === "client" ? ["from the app, this session only"] : []),
       ...(hints && status.state === "disconnected" ? [`/mcp connect ${status.name}`] : []),
     ];
     return terminalText(`${status.name.padEnd(width)}  ${parts.join(" · ")}`);
@@ -1291,7 +1291,10 @@ function mcpListText(statuses: readonly MCPStatus[], hints: boolean): string {
 /** "Heads up: writes are on for lab; lab runs outside the sandbox." under the list (or before the picker), or nothing. */
 function headsUpText(statuses: readonly MCPStatus[], hints: boolean): string {
   // Your own servers' writes are on by default (My MCP servers); the heads-up is for writes you turned on.
-  const writesOn = statuses.filter((status) => status.writes === "on" && !status.ownWrites).map((status) => status.name);
+  // So are those of a server the app handed over (casper acp): a change on one still asks, in the app or here. One that
+  // is a network product starts with writes off, so its writes being on are yours and get the heads-up.
+  const writesOn = statuses.filter((status) => status.writes === "on" && !status.ownWrites && (status.scope !== "client" || status.preset))
+    .map((status) => status.name);
   const open = statuses.filter((status) => status.state === "ready" && status.sandbox && status.sandbox.state !== "on").map((status) => status.name);
   const warn = [
     ...(writesOn.length ? [`writes are on for ${writesOn.join(", ")}`] : []),
@@ -1304,7 +1307,8 @@ function headsUpText(statuses: readonly MCPStatus[], hints: boolean): string {
  * products it covers: the ones with a saved login, else every product it serves. */
 async function mcpPickerRow(host: CommandHost, status: MCPStatus): Promise<{ label: string; description: string }> {
   const definition = host.mcp!.definition(status.name);
-  let from = status.importedFrom ? `from ${status.importedFrom}` : status.scope === "project" ? "from this project" : undefined;
+  let from = status.importedFrom ? `from ${status.importedFrom}` : status.scope === "project" ? "from this project"
+    : status.scope === "client" ? "from the app, this session only" : undefined;
   if (getsLogins(definition)) {
     const saved = Object.keys(await readLogins(host.homeDir()).catch(() => ({}))) as NetworkProduct[];
     const products = (saved.length ? saved : [...NETWORK_PRODUCTS]).map((product) => PRODUCT_LABELS[product]);
@@ -1449,6 +1453,14 @@ async function handleMCPDocs(host: CommandHost): Promise<void> {
 
 /** Plain lines about approval: not approved yet, changed since, or remembered. */
 function approvalLines(status: MCPStatus): string[] {
+  // The app's server (casper acp): connects for this session whatever My MCP servers says; a network product with writes off.
+  if (status.scope === "client") {
+    if (!status.approved) return [];
+    if (status.writes === "off") return ["  From the app, this session only: connects on its own, with writes off."];
+    return [status.ownWrites
+      ? "  From the app, this session only: writes on; the app asks before each change, and firmware, delete and admin changes ask here too."
+      : "  From the app, this session only: writes on; every change asks here."];
+  }
   // My MCP servers: your own server needs no /mcp connect and nothing to remember.
   if (status.ownWrites) return ["  Your own server: connects on its own, writes on; firmware, delete and admin changes still ask."];
   if (status.startsOwn && status.approved) return ["  Your own server: connects on its own, with writes off."];
@@ -1464,7 +1476,7 @@ function approvalLines(status: MCPStatus): string[] {
  * so a habitual 1 never remembers a server. */
 async function offerRemember(host: CommandHost, name: string): Promise<void> {
   const status = host.mcp!.status().find((entry) => entry.name === name);
-  if (!host.interactive || !status || status.scope === "project" || status.consent === "remembered" || status.startsOwn) return;
+  if (!host.interactive || !status || status.scope === "project" || status.scope === "client" || status.consent === "remembered" || status.startsOwn) return;
   const block = host.mcp!.rememberBlock(name);
   if (block) { host.output.write(`[mcp] ${terminalText(block)}\n`); return; }
   // The box's one-line record ("Remember lab? → No") is the whole outcome of a No; the choices say what each means.

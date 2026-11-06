@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import { existsSync, realpathSync } from "node:fs";
+import { existsSync, readFileSync, realpathSync } from "node:fs";
 import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { agentText, startAcp, until, type AcpClient } from "./support/acp-client";
@@ -7,6 +7,7 @@ import { childTestLimit } from "./support/limits";
 import { isOutside } from "../src/platform/inside";
 import { systemTempDirs } from "../src/sandbox/policy";
 import { cleanUpAfterEach, fixProject, fixture, lastUser, shellCheckTest, type Payload, type Step } from "./support/scripting";
+import { httpFixture } from "./fixtures/mcp-http-server";
 
 // Bun runs afterEach hooks in the order they are added: the agents stop (with their session processes) before the
 // fixture's folders are removed, which Windows refuses while a process works in one.
@@ -261,3 +262,181 @@ test("two sessions run in parallel, each with its own updates", async () => {
   expect(await realpath(f.project)).not.toBe(await realpath(projectB));
   onlyProtocol(client);
 }, childTestLimit(2));
+
+// The app's own MCP servers, listed in session/new (decision 77).
+const MCP_FIXTURE = path.join(import.meta.dir, "fixtures/mcp-server.ts");
+/** A stdio server entry the way ACP lists one: an absolute command, and env as name/value pairs. */
+const stdioEntry = (calls: string, mode = "generic", meta?: Record<string, unknown>) => ({ name: "app", command: process.execPath, args: [MCP_FIXTURE],
+  env: [{ name: "FIXTURE_MODE", value: mode }, { name: "FIXTURE_CALLS_FILE", value: calls }], ...(meta ? { _meta: meta } : {}) });
+const ASKS = { "casper/clientAsks": true };
+/** Tool results the model has had since the person's last message. */
+const resultsSoFar = (payload: Payload) => {
+  const lastUserAt = payload.messages.map((message) => message.role).lastIndexOf("user");
+  return payload.messages.slice(lastUserAt + 1).filter((message) => message.role === "tool").length;
+};
+/** The model calls each capability in turn (one per answer), then says Done. Only the task's turns call anything. */
+const callsInTurn = (...calls: Array<{ id: string; arguments?: Record<string, unknown> }>) => (_request: number, payload: Payload): Step => {
+  if (isChecklistCall(payload)) return { text: "[]" };
+  const next = calls[resultsSoFar(payload)];
+  return next && lastUser(payload).includes("app's server") ? { tools: [{ name: "call_capability", args: { id: next.id, arguments: next.arguments ?? {} } }] } : { text: "Done." };
+};
+const toolsCalled = async (file: string) => existsSync(file) ? (await readFile(file, "utf8")).split("\n").filter(Boolean).map((line) => JSON.parse(line).tool as string) : [];
+const option = (params: Record<string, any>, kind: string) => ({ optionId: (params.options as Array<{ kind: string; optionId: string }>).find((choice) => choice.kind === kind)!.optionId });
+
+test("The app's stdio MCP server connects for the session and closes with it", async () => {
+  const f = await fixture(callsInTurn({ id: "mcp:acp-app:status" }));
+  const calls = path.join(f.root, "calls.jsonl");
+  const client = open(f);
+  const init = await client.request("initialize", INIT);
+  expect(init.agentCapabilities.mcpCapabilities).toEqual({ http: true, sse: false });
+  const { sessionId } = await client.request("session/new", { cwd: f.project, mcpServers: [stdioEntry(calls)] });
+  expect(client.stderr()).toContain("[acp] The app's MCP server acp-app connects for this session.");
+  expect((await client.request("session/prompt", { sessionId, prompt: text("What does the app's server say its status is?") })).stopReason).toBe("end_turn");
+  expect(client.permissions).toHaveLength(0);
+  expect(await toolsCalled(calls)).toEqual(["status"]);
+  const answer = JSON.stringify(f.payloads.map((payload) => payload.messages));
+  const pid = Number(/\\"pid\\":(\d+)/.exec(answer)?.[1]);
+  expect(pid).toBeGreaterThan(0);
+  const alive = () => { try { process.kill(pid, 0); return true; } catch { return false; } };
+  expect(alive()).toBe(true);
+  expect(await client.close()).toBe(0);
+  // Its process ends with the session: nothing of it is left behind or written down.
+  await until(() => !alive(), 30_000, "the app's server to stop");
+  expect(existsSync(path.join(f.home, ".casper/mcp.json"))).toBe(false);
+  expect(existsSync(path.join(f.home, ".casper/mcp-consent.json"))).toBe(false);
+  onlyProtocol(client);
+}, childTestLimit(1));
+
+test("A session/load that fails closes the app's servers, and session/new on the same process then works", async () => {
+  const f = await fixture(() => ({ text: "Done." }));
+  // One session process, driven directly (as the router drives it), so the retry reaches the process that failed.
+  const client = open(f, [], { CASPER_ACP_SESSION: "1" });
+  await client.request("initialize", INIT);
+  const pidFile = (name: string) => path.join(f.root, `${name}.pid`);
+  const entry = (name: string) => ({ name, command: process.execPath, args: [MCP_FIXTURE], env: [{ name: "FIXTURE_PID_FILE", value: pidFile(name) }] });
+  const pidOf = (name: string) => existsSync(pidFile(name)) ? Number(readFileSync(pidFile(name), "utf8").trim().split("\n").at(-1)) : 0;
+  const alive = (pid: number) => { try { process.kill(pid, 0); return true; } catch { return false; } };
+  const failed = await client.request("session/load", { sessionId: "no-such-conversation", cwd: f.project, mcpServers: [entry("first")] })
+    .then(() => undefined, (error: Error) => error);
+  expect(failed?.message).toContain("no-such-conversation");
+  const first = await until(() => pidOf("first"), 30_000, "the failed session's server to have started");
+  // The failed load left nothing running: its server stopped, and the process holds no session.
+  await until(() => !alive(first), 30_000, "the failed session's server to stop");
+  const { sessionId } = await client.request("session/new", { cwd: f.project, mcpServers: [entry("second")] });
+  expect(typeof sessionId).toBe("string");
+  expect(client.stderr()).toContain("[acp] The app's MCP server acp-second connects for this session.");
+  expect(alive(await until(() => pidOf("second"), 30_000, "the new session's server to start"))).toBe(true);
+  expect((await client.request("session/prompt", { sessionId, prompt: text("hi") })).stopReason).toBe("end_turn");
+  onlyProtocol(client);
+}, childTestLimit(1));
+
+test("A read tool from the app runs without a box; a change asks through request_permission", async () => {
+  const f = await fixture(callsInTurn({ id: "mcp:acp-app:status" }, { id: "mcp:acp-app:set_site", arguments: { site: "lab" } }));
+  const calls = path.join(f.root, "calls.jsonl");
+  const client = open(f);
+  await client.request("initialize", INIT);
+  client.answerPermissions((params) => option(params, "allow_once"));
+  const { sessionId } = await client.request("session/new", { cwd: f.project, mcpServers: [stdioEntry(calls)] });
+  expect((await client.request("session/prompt", { sessionId, prompt: text("Read the app's server status, then set site lab") })).stopReason).toBe("end_turn");
+  // One box, for the change only, with Casper's choices.
+  expect(client.permissions).toHaveLength(1);
+  expect(client.permissions[0].options[0]).toMatchObject({ name: "No", kind: "reject_once" });
+  expect(JSON.stringify(client.permissions[0])).toContain("set_site");
+  expect(await toolsCalled(calls)).toEqual(["status", "set_site"]);
+  onlyProtocol(client);
+}, childTestLimit(1));
+
+test("A server the app says asks for itself runs its change with no Casper box", async () => {
+  const f = await fixture(callsInTurn({ id: "mcp:acp-app:set_site", arguments: { site: "lab" } }));
+  const calls = path.join(f.root, "calls.jsonl");
+  const client = open(f);
+  await client.request("initialize", INIT);
+  const { sessionId } = await client.request("session/new", { cwd: f.project, mcpServers: [stdioEntry(calls, "generic", ASKS)] });
+  expect((await client.request("session/prompt", { sessionId, prompt: text("Use the app's server to set site lab") })).stopReason).toBe("end_turn");
+  expect(client.permissions).toHaveLength(0);
+  expect(await toolsCalled(calls)).toEqual(["set_site"]);
+  onlyProtocol(client);
+}, childTestLimit(1));
+
+test("A delete-named tool on a clientAsks server still asks for the kind", async () => {
+  const f = await fixture(callsInTurn({ id: "mcp:acp-app:delete_site", arguments: { site: "lab" } }));
+  const calls = path.join(f.root, "calls.jsonl");
+  const client = open(f);
+  await client.request("initialize", INIT);
+  const answers: string[] = ["reject_once", "allow_once"];
+  client.answerPermissions((params) => option(params, answers.shift()!));
+  const { sessionId } = await client.request("session/new", { cwd: f.project, mcpServers: [stdioEntry(calls, "own", ASKS)] });
+  // No: nothing is deleted.
+  expect((await client.request("session/prompt", { sessionId, prompt: text("Ask the app's server to delete site lab") })).stopReason).toBe("end_turn");
+  expect(client.permissions).toHaveLength(1);
+  expect(client.permissions[0].toolCall.title).toContain("Allow deletes");
+  expect(await toolsCalled(calls)).toEqual([]);
+  // Yes to the kind: it runs, with no change box after it (the app asks for that itself).
+  expect((await client.request("session/prompt", { sessionId, prompt: text("Ask the app's server to delete site lab again") })).stopReason).toBe("end_turn");
+  expect(client.permissions).toHaveLength(2);
+  expect(client.permissions[1].toolCall.title).toContain("Allow deletes");
+  expect(await toolsCalled(calls)).toEqual(["delete_site"]);
+  onlyProtocol(client);
+}, childTestLimit(1));
+
+test("The app's http MCP server with a bearer header connects, and the header value never appears in an update or the receipt", async () => {
+  const token = `acp-bearer-${crypto.randomUUID()}`;
+  const server = await httpFixture(token);
+  try {
+    // The model even repeats the token in its answer: the client never sees it.
+    const f = await fixture((request, payload) => isChecklistCall(payload) ? { text: "[]" }
+      : resultsSoFar(payload) === 0 ? { tools: [{ name: "call_capability", args: { id: "mcp:acp-app:whoami", arguments: {} } }] }
+      : { text: `The app's server says ${token}.\n` });
+    const client = open(f);
+    await client.request("initialize", INIT);
+    const { sessionId } = await client.request("session/new", { cwd: f.project,
+      mcpServers: [{ type: "http", name: "app", url: server.url, headers: [{ name: "Authorization", value: `Bearer ${token}` }], _meta: ASKS }] });
+    const done = await client.request("session/prompt", { sessionId, prompt: text("Who does the app's server think I am?") });
+    expect(done.stopReason).toBe("end_turn");
+    expect(server.calls.map((call) => call.name)).toEqual(["whoami"]);
+    expect(server.refused()).toBe(0);
+    // The server's answer reached the model with the token hidden.
+    expect(JSON.stringify(f.payloads)).not.toContain(token);
+    expect(agentText(client.updates, sessionId)).toContain("The app's server says");
+    expect(client.lines.join("\n")).not.toContain(token);
+    expect(JSON.stringify(done)).not.toContain(token);
+    expect(client.stderr()).not.toContain(token);
+    onlyProtocol(client);
+  } finally { await server.close(); }
+}, childTestLimit(1));
+
+test("A call to the app's server carries the ACP tool call id", async () => {
+  const token = `acp-bearer-${crypto.randomUUID()}`;
+  const server = await httpFixture(token);
+  try {
+    const f = await fixture(callsInTurn({ id: "mcp:acp-app:set_site", arguments: { site: "lab" } }));
+    const client = open(f);
+    await client.request("initialize", INIT);
+    const { sessionId } = await client.request("session/new", { cwd: f.project,
+      mcpServers: [{ type: "http", name: "app", url: server.url, headers: [{ name: "Authorization", value: `Bearer ${token}` }], _meta: ASKS }] });
+    expect((await client.request("session/prompt", { sessionId, prompt: text("Use the app's server to set site lab") })).stopReason).toBe("end_turn");
+    expect(server.calls).toHaveLength(1);
+    const step = ofSession(client, sessionId).find((update) => update.sessionUpdate === "tool_call" && String(update.title).startsWith("call_capability"));
+    expect(step?.toolCallId).toMatch(/^casper-tool-\d+$/);
+    expect(server.calls[0]!.meta).toEqual({ "casper/acpToolCallId": step.toolCallId });
+    onlyProtocol(client);
+  } finally { await server.close(); }
+}, childTestLimit(1));
+
+test("acp_mcp off leaves the app's servers unconnected and initialize says http false", async () => {
+  const f = await fixture(() => ({ text: "Done." }));
+  await writeFile(path.join(f.home, ".casper/config.yaml"), "acp_mcp: off\n");
+  const calls = path.join(f.root, "calls.jsonl");
+  const client = open(f);
+  const init = await client.request("initialize", INIT);
+  expect(init.agentCapabilities.mcpCapabilities).toEqual({ http: false, sse: false });
+  const { sessionId } = await client.request("session/new", { cwd: f.project, mcpServers: [stdioEntry(calls)] });
+  expect(client.stderr()).toContain("[acp] The app's MCP server acp-app is not connected: acp_mcp is off.");
+  expect((await client.request("session/prompt", { sessionId, prompt: text("What does the app's server say its status is?") })).stopReason).toBe("end_turn");
+  expect(await toolsCalled(calls)).toEqual([]);
+  // The model was never offered the server's tools.
+  const offered = JSON.stringify(f.payloads.map((payload) => (payload as Payload & { tools?: unknown }).tools ?? []));
+  expect(offered).toContain('"name":"read"');
+  expect(offered).not.toContain("call_capability");
+  onlyProtocol(client);
+}, childTestLimit(1));

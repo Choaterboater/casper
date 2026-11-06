@@ -26,6 +26,11 @@ import { DEFAULT_SPEND_LIMITS, type SpendLimits } from "../task/spend";
 import { isOutside } from "../platform/inside";
 
 
+/** `acp_mcp:` (in ~/.casper/config.yaml only) whether the MCP servers an ACP client lists connect for its session, and
+ * whether one the client says asks for itself skips Casper's change box (decision 77). Unset: on. */
+export const ACP_MCP_SETTINGS = ["on", "ask", "off"] as const;
+export type AcpMcpSetting = typeof ACP_MCP_SETTINGS[number];
+
 /** `showPages:` whether the AI is shown page screenshots after a UI change: ask once a session, always, or never. */
 export const SHOW_PAGES_SETTINGS = ["ask", "on", "off"] as const;
 export type ShowPagesSetting = typeof SHOW_PAGES_SETTINGS[number];
@@ -160,6 +165,8 @@ export interface LoadedConfiguration {
   stalledCommands?: boolean;
   /** `mcp_autoconnect: off` in your own config: your own MCP servers wait for /mcp connect, with writes off and the change box. Unset: on. */
   mcpAutoconnect?: boolean;
+  /** `acp_mcp: on|ask|off` in ~/.casper/config.yaml: an ACP client's MCP servers (decision 77). Unset: on. */
+  acpMcp?: AcpMcpSetting;
   /** `lsp_autostart: off` in your own config: your own language servers wait for /lsp connect. Unset: on. */
   lspAutostart?: boolean;
   /** `notifications: off` in your own config: no bell or desktop notification when a long task ends or a question waits. Unset: on. */
@@ -320,7 +327,7 @@ const POLICY_KEYS = {
 } as const;
 const ISOLATE_KEYS = ["parallelAgents", "riskyRefactor", "experimentalBranch"];
 const TOP_LEVEL_KEYS = new Set(["profile", "project", "languages", "frameworks", "packageManager", "commands", "architecture",
-  "conventions", "verify", "verification", "repair", "skills", "visualize", "policy", "services", "smoke", "pages", "lab", "suggestions", "updates", "sideQuestions", "localModels", "modelServers", "cache", "display", "theme", "showPages", "spend", "sandbox", "shell", "web", "reader", "delegate", "browser", "templates", "packs", "github", "telemetry", "tools", "ssh_login", "other_logins", "network_updates", "ai_pages", "open_pages", "pictures", "browser_clicks", "routine_commands", "auto_mode", "hide_tool_output", "reasoning_headline", "lean_guidance", "compact_at", "slow_commands", "keep_going", "stalled_commands", "mcp_autoconnect", "lsp_autostart", "notifications", ...Object.keys(POLICY_KEYS)]);
+  "conventions", "verify", "verification", "repair", "skills", "visualize", "policy", "services", "smoke", "pages", "lab", "suggestions", "updates", "sideQuestions", "localModels", "modelServers", "cache", "display", "theme", "showPages", "spend", "sandbox", "shell", "web", "reader", "delegate", "browser", "templates", "packs", "github", "telemetry", "tools", "ssh_login", "other_logins", "network_updates", "ai_pages", "open_pages", "pictures", "browser_clicks", "routine_commands", "auto_mode", "hide_tool_output", "reasoning_headline", "lean_guidance", "compact_at", "slow_commands", "keep_going", "stalled_commands", "mcp_autoconnect", "acp_mcp", "lsp_autostart", "notifications", ...Object.keys(POLICY_KEYS)]);
 
 /** Typos used to fall back silently to the defaults; the loader names them instead. */
 function unknownKeys(document: Mapping, label: string): string[] {
@@ -621,6 +628,21 @@ function webUserLayer(document: Mapping, label: string, into: WebSettings, warni
     }
     into.searxngUrl = url.href;
   }
+}
+
+/** `acp_mcp:` on, ask or off (YAML's true and false are on and off). */
+function acpMcpValue(value: unknown, label: string): AcpMcpSetting | undefined {
+  if (value === undefined || value === null) return undefined;
+  const setting = value === true ? "on" : value === false ? "off" : value;
+  if (!ACP_MCP_SETTINGS.some((known) => known === setting)) throw new Error(`${label}: acp_mcp must be ${alternatives(ACP_MCP_SETTINGS)}`);
+  return setting as AcpMcpSetting;
+}
+
+/** `acp_mcp` from ~/.casper/config.yaml, before any project is known (casper acp's initialize). A file Casper can't
+ * read gives ask: the servers may connect, and every change asks (the session then reports the file's problem). */
+export async function readAcpMcpSetting(homeDir = os.homedir()): Promise<AcpMcpSetting> {
+  try { return acpMcpValue((await readYaml(path.join(homeDir, ".casper", "config.yaml"))).acp_mcp, "~/.casper/config.yaml") ?? "on"; }
+  catch { return "ask"; }
 }
 
 /** A plain on/off key (`browser:`, `pages:`, `telemetry:`) from your own file or a profile. */
@@ -1013,6 +1035,12 @@ export async function loadConfiguration(
   if (projectDocument.lsp_autostart !== undefined) throw new Error("lsp_autostart is a user setting (~/.casper/config.yaml); a project cannot start your language servers or stop them starting");
   let mcpAutoconnect: boolean | undefined;
   let lspAutostart: boolean | undefined;
+  // Which servers an app that starts casper acp may hand Casper is yours, set in your own file only.
+  if (projectDocument.acp_mcp !== undefined) throw new Error("acp_mcp is a user setting (~/.casper/config.yaml); a project cannot change which servers an app may connect");
+  for (const [document, label] of [[profileDocument, labels.profile], [userProfileDocument, labels.userProfile]] as const) {
+    if (document.acp_mcp !== undefined) throw new Error(`${label}: acp_mcp is set in ~/.casper/config.yaml only`);
+  }
+  const acpMcp = acpMcpValue(globalDocument.acp_mcp, labels.global);
   // Whether your terminal rings or shows a notification is yours too.
   if (projectDocument.notifications !== undefined) throw new Error("notifications is a user setting (~/.casper/config.yaml); a project cannot turn Casper's notifications on or off");
   let notifications: boolean | undefined;
@@ -1108,6 +1136,7 @@ export async function loadConfiguration(
     ...(keepGoing !== undefined ? { keepGoing } : {}),
     ...(stalledCommands !== undefined ? { stalledCommands } : {}),
     ...(mcpAutoconnect !== undefined ? { mcpAutoconnect } : {}),
+    ...(acpMcp !== undefined ? { acpMcp } : {}),
     ...(lspAutostart !== undefined ? { lspAutostart } : {}),
     ...(notifications !== undefined ? { notifications } : {}),
     ...(pageChecks !== undefined ? { pageChecks } : {}),

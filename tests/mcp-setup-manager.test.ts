@@ -123,6 +123,28 @@ test("a server recognised only by its tool list is started once more with the pr
   expect(statusOf(mcp, "router").error).toBeUndefined();
 }, childTestLimit(2));
 
+test("The app's server that is a network product starts with writes off and its read-only settings, like any", async () => {
+  const app = (name: string, env: Record<string, string>, asks = false): MCPServerDefinition =>
+    ({ ...server(name, env, [], "client"), ...(asks ? { clientAsks: true } : {}) });
+  const mcp = manager([
+    // A network product by its definition, even one whose app says it asks for itself.
+    app("acp-clearpass", { FIXTURE_MODE: "access-bad", FIXTURE_ENV_DUMP: "1", CLEARPASS_HOST: "cppm.example.net" }, true),
+    // A network product shown only by its tool list.
+    app("acp-router", { FIXTURE_MODE: "hpe-router", FIXTURE_ENV_DUMP: "1" }),
+    app("acp-tools", { FIXTURE_MODE: "access-bad" }, true),
+  ]);
+  expect(statusOf(mcp, "acp-clearpass")).toMatchObject({ approved: true, writes: "off" });
+  expect(statusOf(mcp, "acp-clearpass").ownWrites).toBeUndefined();
+  expect(statusOf(mcp, "acp-tools")).toMatchObject({ approved: true, writes: "on", ownWrites: true });
+  for (const name of ["acp-clearpass", "acp-router", "acp-tools"]) await mcp.connect(name);
+  expect((await envOf(mcp, "acp-clearpass")).env.CLEARPASS_READ_ONLY).toBe("true");
+  expect(mcp.policy("acp-clearpass")).toMatchObject({ writes: "off" });
+  expect(mcp.policy("acp-clearpass").ownWrites).toBeUndefined();
+  expect(statusOf(mcp, "acp-router")).toMatchObject({ state: "ready", writes: "off", preset: { id: "hpe-networking-mcp" } });
+  expect((await envOf(mcp, "acp-router")).env).toMatchObject({ HPE_MCP_ACCESS_PROFILE: "safe-read-only", HPE_MCP_READONLY: "1" });
+  expect(mcp.writesOn()).toEqual(["acp-tools"]);
+}, childTestLimit(4));
+
 test("a read-only login (access_check) hides every non-read tool, refuses them, tells the model, and can't turn writes on", async () => {
   const mcp = manager([server("aruba", { FIXTURE_MODE: "access-ro" })]);
   const confirmed: string[] = [];

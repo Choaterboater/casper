@@ -17,6 +17,16 @@ export function hider(values: () => readonly string[]): (text: string) => string
   };
 }
 
+/** Only each of `values` replaced, the rest left as it is: Casper's transcript on stderr, where the client's own MCP
+ * values (a bearer token) never show. */
+export function valuesHider(values: () => readonly string[]): (text: string) => string {
+  return (text) => {
+    let shown = text;
+    for (const value of values()) if (value.length >= 6 && shown.includes(value)) shown = shown.split(value).join(HIDDEN);
+    return shown;
+  };
+}
+
 /** Every string inside `value`, hidden the same way (a receipt's data). */
 export function hideDeep<T>(value: T, hide: (text: string) => string): T {
   if (typeof value === "string") return hide(value) as T;
@@ -63,6 +73,11 @@ export class UpdateMapper {
   private readonly running = new Map<string, string>();
 
   constructor(private readonly hide: (text: string) => string) {}
+
+  /** The ACP toolCallId of the running tool the model calls `id`, if it is running. */
+  acpId(id: string): string | undefined {
+    return this.running.get(id);
+  }
 
   map(event: CasperEvent): Json[] {
     switch (event.type) {

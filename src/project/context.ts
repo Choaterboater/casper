@@ -104,6 +104,8 @@ export interface ProjectContext {
   stalledCommands?: boolean;
   /** `mcp_autoconnect: off` in the user's config: their own MCP servers wait for /mcp connect. Unset: on. */
   mcpAutoconnect?: boolean;
+  /** `acp_mcp: on|ask|off` in ~/.casper/config.yaml: an ACP client's MCP servers (decision 77). Unset: on. */
+  acpMcp?: LoadedConfiguration["acpMcp"];
   /** `lsp_autostart: off` in the user's config: their own language servers wait for /lsp connect. Unset: on. */
   lspAutostart?: boolean;
   /** `notifications: off` in the user's config: nothing rings when a long task ends or a question waits. Unset: on. */
@@ -233,6 +235,7 @@ export async function loadProjectContext(
     ...(configuration.keepGoing !== undefined ? { keepGoing: configuration.keepGoing } : {}),
     ...(configuration.stalledCommands !== undefined ? { stalledCommands: configuration.stalledCommands } : {}),
     ...(configuration.mcpAutoconnect !== undefined ? { mcpAutoconnect: configuration.mcpAutoconnect } : {}),
+    ...(configuration.acpMcp !== undefined ? { acpMcp: configuration.acpMcp } : {}),
     ...(configuration.lspAutostart !== undefined ? { lspAutostart: configuration.lspAutostart } : {}),
     ...(configuration.notifications !== undefined ? { notifications: configuration.notifications } : {}),
     ...(configuration.toolDownloads !== undefined ? { toolDownloads: configuration.toolDownloads } : {}),

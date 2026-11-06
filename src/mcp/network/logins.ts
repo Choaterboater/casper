@@ -267,7 +267,8 @@ export function loginSecretValues(env: Record<string, string>): string[] {
  * list alone, which another program can copy) and it is your own, not a project's.
  */
 export function getsLogins(definition: MCPServerDefinition): boolean {
-  if (definition.transport.type !== "stdio" || definition.scope === "project") return false;
+  // Never a project's server, nor one an app handed over for its session (decision 77).
+  if (definition.transport.type !== "stdio" || definition.scope === "project" || definition.scope === "client") return false;
   return matchPreset(definition)?.preset.logins === true;
 }
 

@@ -5,7 +5,7 @@ import type { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdi
 import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
 import { IMPORT_LABELS, MAX_CALL_SECONDS, projectDefinitionReview, resolvedSecrets, resolveEnvironment, type MCPConfiguration, type MCPServerDefinition } from "./config";
 import type { ConsentState, ConsentStore, RememberResult } from "./consent";
-import { definitionIdentity } from "./consent";
+import { clientNotRemembered, definitionIdentity } from "./consent";
 import type { ChangeKind } from "../capabilities/kinds";
 import {
   matchPreset, planPins, presetById, presetLine, rememberBlock, type PinPlan, type PresetMatch,
@@ -105,7 +105,7 @@ export const MAX_CALL_TIMEOUT_S = MAX_CALL_SECONDS;
 /** After a call ran out of time: how to give the server longer, for a server in a file /mcp update changes. Twice the
  * limit, at least 5 minutes, at most MAX_CALL_TIMEOUT_S; none when it already has the most. */
 export function longerLine(definition: MCPServerDefinition, callMs: number): string | undefined {
-  if (definition.importedFrom || callMs >= MAX_CALL_TIMEOUT_S * 1000) return undefined;
+  if (definition.importedFrom || definition.scope === "client" || callMs >= MAX_CALL_TIMEOUT_S * 1000) return undefined;
   const seconds = Math.min(MAX_CALL_TIMEOUT_S, Math.max(300, Math.ceil((callMs * 2) / 60_000) * 60));
   return `To give it longer, the user types /mcp update ${definition.name} --timeout ${seconds % 60 ? `${seconds}s` : `${seconds / 60}m`}`
     + ` (or casper_mcp_add with replace: true and timeout, after their yes).`;
@@ -162,6 +162,8 @@ export interface MCPManagerOptions {
   /** My MCP servers (mcp_autoconnect): your own, profile and imported servers connect without /mcp connect, and those
    * that aren't a network product start with writes on. Project servers keep their review. */
   autoconnect?: boolean;
+  /** The `_meta` a call to a client server carries (casper acp: the ACP toolCallId of the step running it), if any. */
+  clientCallMeta?: () => Record<string, unknown> | undefined;
 }
 
 /** The call the user approved: its server questions may reach the user. */
@@ -224,6 +226,9 @@ interface Entry {
   /** Started with writes on as your own server. Ends when writes go off (Ctrl+X, /mcp writes off) or its tool list
    * shows a network product. */
   ownWrites: boolean;
+  /** Writes are on only because the server started that way (your own, or the app's). Ends when writes go off; its
+   * tool list showing a network product turns them off. */
+  startWrites: boolean;
   /** Times writes went off (Ctrl+X, /mcp writes off, disconnect, a changed definition): a "for this session" answer
    * given before the last one no longer counts. */
   writesOffCount: number;
@@ -302,14 +307,18 @@ function questionShape(schema: unknown): { field: string; kind: "boolean" | "cho
 }
 
 /** My MCP servers: your own, profile or imported server connects on its own, and one that isn't a network product (no
- * preset by its definition) starts with writes on. A project's server never does. */
-function ownStart(definition: MCPServerDefinition, autoconnect: boolean): { approved: boolean; writes: boolean } {
-  const own = autoconnect && definition.scope !== "project" && !definition.disabled;
-  return { approved: own, writes: own && !matchPreset(definition) };
+ * preset by its definition) starts with writes on. A project's server never does. A client server (the app's, for this
+ * session: decision 77) connects whatever My MCP servers says, with writes on unless it is a network product; only one
+ * whose app asks for itself skips the change box. */
+function ownStart(definition: MCPServerDefinition, autoconnect: boolean): { approved: boolean; writes: boolean; noBox: boolean } {
+  const client = definition.scope === "client";
+  const own = (client || autoconnect) && definition.scope !== "project" && !definition.disabled;
+  const writes = own && !matchPreset(definition);
+  return { approved: own, writes, noBox: writes && (!client || definition.clientAsks === true) };
 }
 
 function newEntry(definition: MCPServerDefinition, consent?: ConsentStore, autoconnect = false): Entry {
-  const personal = definition.scope !== "project";
+  const personal = definition.scope !== "project" && definition.scope !== "client";
   const own = ownStart(definition, autoconnect);
   return {
     definition, state: definition.disabled ? "disabled" : "disconnected",
@@ -317,7 +326,7 @@ function newEntry(definition: MCPServerDefinition, consent?: ConsentStore, autoc
     // Remembered approval only ever means "connect with writes off"; project servers always ask.
     approved: own.approved || (personal && !definition.disabled && (consent?.has(definition) ?? false)),
     consent: personal ? consent?.state(definition) ?? "none" : "none",
-    writes: own.writes ? "on" : "off", ownWrites: own.writes,
+    writes: own.writes ? "on" : "off", ownWrites: own.noBox, startWrites: own.writes,
     writesOffCount: 0, allowanceEnds: 0, mismatch: false, pins: { kind: "none" }, showOptIn: false,
   };
 }
@@ -347,6 +356,7 @@ export class MCPManager {
   private readonly homeDir?: string;
   private readonly holder?: MCPServerHolder;
   private readonly autoconnect: boolean;
+  private readonly clientCallMeta?: () => Record<string, unknown> | undefined;
 
   constructor(configuration: MCPConfiguration, options: MCPManagerOptions = {}) {
     this.diagnostics = [...configuration.diagnostics, ...options.consent?.diagnostics ?? []];
@@ -356,6 +366,7 @@ export class MCPManager {
     this.homeDir = options.homeDir;
     this.holder = options.sandbox;
     this.autoconnect = options.autoconnect ?? false;
+    this.clientCallMeta = options.clientCallMeta;
     this.defaults = {
       connectMs: options.connectTimeoutMs ?? options.timeoutMs ?? MCP_LIMITS.connectMs,
       callMs: options.callTimeoutMs ?? options.timeoutMs ?? MCP_LIMITS.callMs,
@@ -428,11 +439,13 @@ export class MCPManager {
     return entry.writes === "on" ? lines.filter((line) => !line.startsWith("Can't pin")) : lines;
   }
 
-  /** How the broker must treat this server's tools. */
   /** The saved network logins this server was started with (only Casper's network server has any), so they are hidden
-   * in its results too, even a Central client ID that matches no secret pattern. */
+   * in its results too, even a Central client ID that matches no secret pattern. A client server (the app's) also gets
+   * every header and env value the app gave it hidden: a token it echoes never reaches the model. */
   loginValues(server: string): readonly string[] {
-    return [...this.entries.get(server)?.loginSecrets ?? []];
+    const entry = this.entries.get(server);
+    if (!entry) return [];
+    return entry.definition.scope === "client" ? [...new Set([...entry.loginSecrets, ...entry.secrets])] : [...entry.loginSecrets];
   }
 
   /** One line for the AI when Casper's network server runs without your saved logins because a project defines it. */
@@ -463,6 +476,7 @@ export class MCPManager {
   rememberBlock(name: string): string | undefined {
     const { definition } = this.entry(name);
     if (definition.scope === "project") return `Not remembered: ${definition.name} comes from the project, so Casper asks each time.`;
+    if (definition.scope === "client") return clientNotRemembered(definition.name);
     if (!this.consent) return "Not remembered: this session can't keep approvals.";
     return rememberBlock(definition, matchPreset(definition));
   }
@@ -539,6 +553,7 @@ export class MCPManager {
       entry.writes = "off";
       // Turned on again later, it is like any server's: every change asks.
       entry.ownWrites = false;
+      entry.startWrites = false;
       entry.writesOffCount++;
       // The broker re-pinning after "Yes, this once" is not the person turning writes off.
       if (!options.once) entry.allowanceEnds++;
@@ -719,14 +734,16 @@ export class MCPManager {
       }
       // Moving into a project file is a trust change: the repository now owns it, so it needs the review.
       const intoProject = replacement.scope === "project" && entry.definition.scope !== "project";
-      if (sameDefinition(entry.definition, replacement) && !intoProject) {
+      // So is moving between the app's session servers and a file.
+      const clientMoved = (replacement.scope === "client") !== (entry.definition.scope === "client");
+      if (sameDefinition(entry.definition, replacement) && !intoProject && !clientMoved) {
         // Same program from a different file: keep the connection, update the reported source.
         entry.definition.source = replacement.source;
         entry.definition.scope = replacement.scope;
         entry.definition.shadows = replacement.shadows;
         if (replacement.importedFrom) entry.definition.importedFrom = replacement.importedFrom;
         else delete entry.definition.importedFrom;
-        entry.consent = replacement.scope === "project" ? "none" : this.consent?.state(replacement) ?? "none";
+        entry.consent = this.consent?.state(replacement) ?? "none";
         // New time limits apply to the next start or call; consent and the connection stay.
         if (replacement.limits) entry.definition.limits = replacement.limits;
         else delete entry.definition.limits;
@@ -735,21 +752,22 @@ export class MCPManager {
       // Back to a definition you remembered: it connects on its own again (writes off), like at start. With My MCP
       // servers on, your own server connects on its own anyway, as it would at start.
       const own = ownStart(replacement, this.autoconnect);
-      const remembered = own.approved || (replacement.scope !== "project" && !replacement.disabled && (this.consent?.has(replacement) ?? false));
+      const remembered = own.approved || (replacement.scope !== "project" && replacement.scope !== "client" && !replacement.disabled && (this.consent?.has(replacement) ?? false));
       if (entry.approved && !remembered) revoked.push(name);
       await this.disconnect(name);
       entry.definition = replacement;
       entry.approved = remembered;
       // A different program starts over: writes as at start, no opt-ins, and its remembered approval no longer matches.
       entry.writes = own.writes ? "on" : "off";
-      entry.ownWrites = own.writes;
+      entry.ownWrites = own.noBox;
+      entry.startWrites = own.writes;
       entry.writesOffCount++;
       entry.allowanceEnds++;
       entry.showOptIn = false;
       entry.toolPreset = undefined;
       entry.access = undefined;
       entry.mismatch = false;
-      entry.consent = replacement.scope === "project" ? "none" : this.consent?.state(replacement) ?? "none";
+      entry.consent = this.consent?.state(replacement) ?? "none";
       // A different program deserves a fresh burst budget.
       entry.attempts = [];
       entry.state = replacement.disabled ? "disabled" : "disconnected";
@@ -805,7 +823,9 @@ export class MCPManager {
     entry.inFlight++;
     if (running) entry.approvedCall = running;
     try {
-      return await client.callTool({ name, arguments: args }, undefined, {
+      // A call to the app's server says which of Casper's steps it is (ACP's toolCallId), so the app's own box joins it.
+      const meta = entry.definition.scope === "client" ? this.clientCallMeta?.() : undefined;
+      return await client.callTool({ name, arguments: args, ...(meta ? { _meta: meta } : {}) }, undefined, {
         signal: callSignal,
         timeout: SDK_REQUEST_TIMEOUT_MS,
         // Passing onprogress makes the SDK send a progress token; each message restarts the idle timer.
@@ -954,7 +974,8 @@ export class MCPManager {
     const logins = this.homeDir && getsLogins(entry.definition)
       ? await loginEnv(this.homeDir, (text) => this.onNote?.(`[mcp] ${text}`)).catch(() => ({})) : {};
     // Your own server's key (~/.casper/mcp-secrets.json), read fresh on every start; never part of the definition either.
-    const key = this.homeDir
+    // A client server (the app's) never gets one, whatever its name.
+    const key = this.homeDir && entry.definition.scope !== "client"
       ? await serverKeyFor(entry.definition, this.homeDir, (text) => this.onNote?.(`[mcp] ${text}`)).catch(() => ({ headers: {}, env: {} }))
       : { headers: {}, env: {} };
     entry.loginSecrets = [...loginSecretValues(logins), ...keyValues(key)];
@@ -1002,13 +1023,15 @@ export class MCPManager {
         if (entry.state === "ready") this.scheduleRefresh(entry, connectedClient);
       });
       const config = entry.pins.kind === "pinned" ? entry.pins.transport : entry.definition.transport;
+      // A client server's values are taken as the app gave them: a ${VAR} in one is never filled from your environment.
+      const expand = entry.definition.scope === "client" ? (value: string) => value : resolveEnvironment;
       let transport: Transport;
       if (config.type === "stdio") {
         const { StdioClientTransport } = await import("@modelcontextprotocol/sdk/client/stdio.js");
         if (!current()) throw new Error("stale connection");
         let launch: ServerLaunch = {
-          command: resolveEnvironment(config.command), args: config.args.map(resolveEnvironment),
-          env: { ...Object.fromEntries(Object.entries(config.env).map(([k, v]) => [k, resolveEnvironment(v)])), ...key.env, ...logins },
+          command: expand(config.command), args: config.args.map(expand),
+          env: { ...Object.fromEntries(Object.entries(config.env).map(([k, v]) => [k, expand(v)])), ...key.env, ...logins },
           ...(entry.definition.cwd ? { cwd: entry.definition.cwd } : {}),
         };
         // A server Casper knows the needs of starts inside the sandbox; any other, or a sandbox that can't start, as before.
@@ -1031,7 +1054,7 @@ export class MCPManager {
         const { StreamableHTTPClientTransport } = await import("@modelcontextprotocol/sdk/client/streamableHttp.js");
         if (!current()) throw new Error("stale connection");
         transport = new StreamableHTTPClientTransport(new URL(config.url), {
-          requestInit: { headers: { ...Object.fromEntries(Object.entries(config.headers).map(([k, v]) => [k, resolveEnvironment(v)])), ...key.headers } },
+          requestInit: { headers: { ...Object.fromEntries(Object.entries(config.headers).map(([k, v]) => [k, expand(v)])), ...key.headers } },
           reconnectionOptions: { maxRetries: 2, initialReconnectionDelay: 500, maxReconnectionDelay: 2000, reconnectionDelayGrowFactor: 2 },
           fetch: async (url, init) => {
             const response = await fetch(url, {
@@ -1076,9 +1099,11 @@ export class MCPManager {
       if (match?.by === "tools") {
         const first = entry.toolPreset !== match.preset.id;
         entry.toolPreset = match.preset.id;
-        // Your own server whose tools show a network product: writes off and the yes/no box, as for any such server.
-        if (entry.ownWrites) {
+        // Your own or the app's server whose tools show a network product: writes off and the yes/no box, as for any
+        // such server.
+        if (entry.startWrites) {
           entry.ownWrites = false;
+          entry.startWrites = false;
           entry.writes = "off";
           entry.writesOffCount++;
         }

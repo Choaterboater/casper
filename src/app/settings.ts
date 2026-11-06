@@ -1,6 +1,6 @@
 import { isMap } from "yaml";
 import type { ProjectContext } from "../project/context";
-import { DEFAULT_READER, DEFAULT_WEB, SHOW_PAGES_SETTINGS, type ShowPagesSetting, UPDATES_SETTINGS, type UpdatesSetting } from "../config/load";
+import { ACP_MCP_SETTINGS, type AcpMcpSetting, DEFAULT_READER, DEFAULT_WEB, SHOW_PAGES_SETTINGS, type ShowPagesSetting, UPDATES_SETTINGS, type UpdatesSetting } from "../config/load";
 import { editUserConfig, USER_CONFIG, userConfigValue } from "../config/user-write";
 import { DEFAULT_SPEND_LIMITS, formatLimit } from "../task/spend";
 import { PROMPT_CACHE_SETTINGS, type PromptCacheSetting } from "../runtime/cache";
@@ -140,6 +140,21 @@ const SHOW_PAGES_WORDS: Record<ShowPagesSetting, { value: string; choice: string
   on: { value: "always", choice: "Always show them" },
   off: { value: "never", choice: "Never show them" },
 };
+
+const ACP_MCP_WORDS: Record<AcpMcpSetting, { value: string; choice: string; description: string }> = {
+  on: { value: "on", choice: "On", description: "they connect; a change on one the app guards asks only in the app" },
+  ask: { value: "ask", choice: "Ask in Casper too", description: "they connect; every change also asks in Casper's box" },
+  off: { value: "off", choice: "Off", description: "none connects" },
+};
+
+/** The MCP servers an app that runs casper acp hands Casper for its session (decision 77). */
+function acpMcpRow(now: AcpMcpSetting): Setting {
+  return { label: "Apps' MCP servers", value: ACP_MCP_WORDS[now].value,
+    question: `An app that runs casper acp can hand Casper its own MCP servers for that session only: never saved, remembered or given your keys. Reads run without asking; a change asks in the app's own box when the app says it asks, else in Casper's; delete, firmware and admin changes always ask in Casper's too. It is ${ACP_MCP_WORDS[now].value}. A change applies from the next session.`,
+    keep: `Keep ${ACP_MCP_WORDS[now].value}`,
+    choices: ACP_MCP_SETTINGS.filter((setting) => setting !== now)
+      .map((setting) => ({ label: ACP_MCP_WORDS[setting].choice, description: ACP_MCP_WORDS[setting].description, keys: ["acp_mcp"], value: setting, shown: ACP_MCP_WORDS[setting].value })) };
+}
 
 /** After a UI change Casper saves page screenshots (no tokens); this says whether a model that sees pictures gets them. */
 function showPagesRow(now: ShowPagesSetting): Setting {
@@ -305,6 +320,7 @@ export function settingRows(context: ProjectContext): Setting[] {
     onOffRow("My MCP servers", context.mcpAutoconnect !== false,
       "Your own MCP servers (~/.casper/mcp.json, your profile, ones found in Claude Code or VS Code) connect at the start, and a change on one that isn't a network product runs without asking; firmware, delete and admin changes still ask. Network products (Mist, Central, ClearPass…) keep writes off and their yes/no box; a project's servers keep their review. Off: /mcp connect, writes off, every change asks. A change applies from the next start.",
       ["mcp_autoconnect"], true),
+    acpMcpRow(context.acpMcp ?? "on"),
     onOffRow("My language servers", context.lspAutostart !== false,
       "Your own language servers (~/.casper/lsp.json, your profile) start with the session, with no /lsp connect. A project's servers keep their review. A change applies from the next start.",
       ["lsp_autostart"], true),

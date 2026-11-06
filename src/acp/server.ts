@@ -8,6 +8,7 @@ import path from "node:path";
 import type { Subprocess } from "bun";
 import { runningFromBinary } from "../update/mode";
 import { RpcConnection, RpcFailure, RPC, type Json } from "./rpc";
+import { readAcpMcpSetting } from "../config/load";
 import { initializeResult, sessionFolder } from "./session";
 
 /** Set only on the session processes this router starts (removed from their own environment at once). */
@@ -78,7 +79,7 @@ export async function runAcpServer(argv: readonly string[], launchedFrom: string
     return session;
   };
 
-  client.onRequest("initialize", async () => initializeResult());
+  client.onRequest("initialize", async () => initializeResult(await readAcpMcpSetting()));
   client.onRequest("session/new", (params) => start("session/new", params));
   client.onRequest("session/load", (params) => start("session/load", params));
   client.onRequest("session/prompt", async (params) => route(params).connection.request("session/prompt", params));

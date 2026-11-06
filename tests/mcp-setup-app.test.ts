@@ -6,7 +6,8 @@ import path from "node:path";
 import { CasperApp } from "../src/app";
 import { loadProjectContext } from "../src/project/context";
 import { SkillRegistry } from "../src/skills/registry";
-import { discoverMCPConfiguration } from "../src/mcp/config";
+import { discoverMCPConfiguration, type MCPConfiguration } from "../src/mcp/config";
+import { clientServers, withClientServers } from "../src/acp/client-servers";
 import { MCP_ADD_HINT, mcpAddLine } from "../src/mcp/add";
 import type { AgentRuntime, RuntimeStartOptions, RuntimeTool } from "../src/runtime/types";
 import { childTestLimit } from "./support/limits";
@@ -35,7 +36,8 @@ const entry = (env: Record<string, string>, args: string[] = []) => ({ command: 
  * each "Type 1 or 2" box, in order. `model` runs when a command is not a slash command.
  */
 async function session(home: string, project: string, commands: string[], answers: string[] = [],
-  model?: (tools: RuntimeTool[]) => Promise<void>, prepare?: (app: CasperApp) => void) {
+  model?: (tools: RuntimeTool[]) => Promise<void>, prepare?: (app: CasperApp) => void,
+  loadMCP: () => Promise<MCPConfiguration> = () => discoverMCPConfiguration({ projectRoot: project, homeDir: home, platform: "linux" })) {
   const runtime: AgentRuntime = {
     async start(options: RuntimeStartOptions) {
       let tools = options.tools ?? [];
@@ -54,7 +56,7 @@ async function session(home: string, project: string, commands: string[], answer
     runtimeFactory: () => runtime, input, sessionHomeDir: home,
     loadProjectContext: (info) => loadProjectContext(info, { homeDir: home }),
     loadSkillRegistry: (context) => SkillRegistry.discover({ projectRoot: context.info.root, homeDir: home }),
-    loadMCPConfiguration: () => discoverMCPConfiguration({ projectRoot: project, homeDir: home, platform: "linux" }),
+    loadMCPConfiguration: loadMCP,
     output: { write: (text) => {
       output += text;
       if (text === "> ") queueMicrotask(() => input.write(`${pending.shift() ?? "/exit"}\n`));
@@ -320,6 +322,30 @@ test("a warning line names servers with writes on", async () => {
   const { output } = await session(home, project, ["/mcp connect lab", "/mcp writes lab", "/mcp"], ["1", "2"]);
   expect(lastPrinted(output)).toContain("Heads up: writes are on for lab;");
 });
+
+test("/mcp says the app's servers are the app's, with their writes as they are, and no heads-up for them", async () => {
+  const { home, project } = await fixture({});
+  const env = (extra: Record<string, string> = {}) => Object.entries({ FIXTURE_MODE: "access-bad", ...extra }).map(([name, value]) => ({ name, value }));
+  const asks = { _meta: { "casper/clientAsks": true } };
+  const { definitions } = clientServers([
+    { name: "plain", command: process.execPath, args: [network], env: env() },
+    { name: "asks", command: process.execPath, args: [network], env: env(), ...asks },
+    { name: "cp", command: process.execPath, args: [network], env: env({ CLEARPASS_HOST: "cppm.example.net" }), ...asks },
+  ], { home, setting: "on" });
+  const load = () => discoverMCPConfiguration({ projectRoot: project, homeDir: home, platform: "linux" }).then(withClientServers(definitions));
+  const { output } = await session(home, project, ["/mcp detail", "/mcp", "/mcp writes acp-cp", "/mcp"], ["2"], undefined, undefined, load);
+  const block = (name: string) => new RegExp(`${name} \\[stdio[^\n]*\n((?:  [^\n]*\n)*)`).exec(output)?.[0] ?? "";
+  expect(block("acp-plain")).toContain("  From the app, this session only: writes on; every change asks here.\n");
+  expect(block("acp-asks")).toContain("  From the app, this session only: writes on; the app asks before each change, and firmware, delete and admin changes ask here too.\n");
+  expect(block("acp-cp")).toContain("  From the app, this session only: connects on its own, with writes off.\n");
+  for (const name of ["acp-plain", "acp-asks", "acp-cp"]) expect(block(name)).not.toContain("Your own server");
+  // The first /mcp list: writes on by start for the app's servers is no heads-up.
+  const list = output.split("> ").find((part) => part.startsWith("acp-asks   "));
+  expect(list).toContain("Details: /mcp detail [name]");
+  expect(list).not.toContain("writes are on");
+  // Writes you turn on for one that is a network product get the heads-up, as for any server.
+  expect(lastPrinted(output)).toContain("Heads up: writes are on for acp-cp;");
+}, childTestLimit(3));
 
 function rich(app: CasperApp, picks: (string | undefined)[], asked: { question: string; labels: string[] }[], rows: string[] = []) {
   Object.defineProperty(app.terminal, "rich", { get: () => true });

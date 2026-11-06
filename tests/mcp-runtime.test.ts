@@ -6,6 +6,7 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { ErrorCode, McpError } from "@modelcontextprotocol/sdk/types.js";
 import { CasperApp } from "../src/app";
+import { clientServers, withClientServers } from "../src/acp/client-servers";
 import { discoverMCPConfiguration, MissingEnvironmentError, resolvedSecrets, resolveEnvironment, startFolder, type MCPServerDefinition } from "../src/mcp/config";
 import { MCPManager } from "../src/mcp/manager";
 import { CallClock, CallClockTimeout } from "../src/mcp/clock";
@@ -142,6 +143,29 @@ test("reloading with only a new callTimeout keeps consent and the connection", a
   expect(mcp.status()[0]).toMatchObject({ state: "ready", limits: { connectS: 20, callS: 400 } });
   const pid = (value: string) => /\\"pid\\":(\d+)/.exec(value)?.[1];
   expect(pid(JSON.stringify(await mcp.call("generic", "status", {})))).toBe(pid(before));
+});
+
+test("Reload keeps the app's servers", async () => {
+  const root = await tempRoot("casper-mcp-client-reload-");
+  const home = path.join(root, "home");
+  const project = path.join(root, "project");
+  await mkdir(path.join(home, ".casper"), { recursive: true });
+  await mkdir(project, { recursive: true });
+  const { definitions } = clientServers([{ name: "app", command: process.execPath, args: [fixturePath], env: [{ name: "FIXTURE_MODE", value: "runtime" }] }], { home, setting: "on" });
+  // The loader casper acp uses: your files, then the app's servers, read again on every reload.
+  const load = () => discoverMCPConfiguration({ projectRoot: project, homeDir: home, imports: false }).then(withClientServers(definitions));
+  // My MCP servers off: the app's server still connects, for this session.
+  const mcp = manager((await load()).servers, { autoconnect: false });
+  await mcp.prepare();
+  expect(mcp.status()).toEqual([expect.objectContaining({ name: "acp-app", scope: "client", state: "ready", approved: true, consent: "none", writes: "on" })]);
+  const pid = (value: string) => /\\"pid\\":(\d+)/.exec(value)?.[1];
+  const before = pid(JSON.stringify(await mcp.call("acp-app", "status", {})));
+  expect(before).toBeDefined();
+  await writeFile(path.join(home, ".casper/mcp.json"), JSON.stringify({ mcpServers: { other: { command: process.execPath, args: [fixturePath], disabled: true } } }));
+  expect(await mcp.reload(await load())).toEqual({ added: ["other"], removed: [], changed: [], revoked: [] });
+  expect(mcp.status().find((status) => status.name === "acp-app")).toMatchObject({ state: "ready", approved: true, writes: "on" });
+  // The same process: the reload did not even restart it.
+  expect(pid(JSON.stringify(await mcp.call("acp-app", "status", {})))).toBe(before);
 });
 
 test("an imported server's folder that links into the project still starts outside it", async () => {

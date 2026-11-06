@@ -303,8 +303,13 @@ export async function runCli(): Promise<void> {
       delete process.env[SESSION_ENV];
       const [{ runAcpSession }, { CasperApp }, { PassThrough }] = await Promise.all([import("./acp/session"), import("./app"), import("node:stream")]);
       // stdin and stdout carry the protocol: the app reads nothing from stdin and writes for a person on stderr.
-      await runAcpSession({ cli: options, createApp: async ({ conversation, onEvent, output }) =>
-        new CasperApp({ ...appOptions(), ...(conversation ? { conversation } : {}), onEvent, output, input: new PassThrough() }) });
+      await runAcpSession({ cli: options, createApp: async ({ conversation, onEvent, output, mcpServers }) => {
+        // The client's servers for this session join the ones Casper's files define, each time they are read (reload too).
+        const [{ discoverMCPConfiguration }, { withClientServers }] = await Promise.all([import("./mcp/config"), import("./acp/client-servers")]);
+        const addClient = withClientServers(mcpServers);
+        return new CasperApp({ ...appOptions(), ...(conversation ? { conversation } : {}), onEvent, output, input: new PassThrough(),
+          ...(mcpServers.length ? { loadMCPConfiguration: (context) => discoverMCPConfiguration({ projectRoot: context.info.root, profileName: context.profileName }).then(addClient) } : {}) });
+      } });
       process.exit(0);
     }
     await runAcpServer(process.argv.slice(2), launchedFrom);

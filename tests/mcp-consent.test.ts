@@ -69,6 +69,23 @@ test("a project server is never remembered, even with a matching record", async 
   expect(await store.remember(project)).toEqual({ remembered: false, reason: "Not remembered: aruba-central comes from the project, so Casper asks each time." });
 });
 
+test("A client server is never remembered", async () => {
+  const dir = await home();
+  const store = new ConsentStore(dir);
+  await store.load();
+  // Even when a server of the same name and definition was remembered from your own file.
+  await store.remember(definition());
+  await store.rememberKinds(definition(), ["delete"]);
+  const client = definition({ scope: "client", source: "the app (ACP)" });
+  expect(store.state(client)).toBe("none");
+  expect(store.has(client)).toBe(false);
+  expect(store.rememberedKinds(client)).toEqual([]);
+  const before = await readFile(path.join(dir, ".casper/mcp-consent.json"), "utf8");
+  expect(await store.remember(client)).toEqual({ remembered: false, reason: "Not remembered: aruba-central comes from the app for this session." });
+  expect(await store.rememberKinds(client, ["admin"])).toEqual({ remembered: false, reason: "Not remembered: aruba-central comes from the app for this session." });
+  expect(await readFile(path.join(dir, ".casper/mcp-consent.json"), "utf8")).toBe(before);
+});
+
 test("the store holds keyed hashes only: no values and no plain sha256 of the definition", async () => {
   const dir = await home();
   const store = new ConsentStore(dir);

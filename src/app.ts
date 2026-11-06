@@ -271,6 +271,9 @@ export class CasperApp {
   /** `casper acp`: an ACP client's person answers the approval boxes (session/request_permission), so the run keeps the
    * terminal's checklist and screenshot-question defaults; it is otherwise one-shot. */
   remoteApprovals = false;
+  /** `casper acp`: the ACP toolCallId of the step the model's tool call `id` is, sent with a call to the app's own MCP
+   * server (decision 77). */
+  acpToolCallId?: (id: string) => string | undefined;
   /** beforeChanges gate state for the current task; a recorded ask attempt satisfies it. */
   editGateActive = false;
   asksThisTask = 0;

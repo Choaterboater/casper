@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import os from "node:os";
 import path from "node:path";
 import type { MCPServerDefinition } from "../src/mcp/config";
-import { newerNpmLine, npmLatest, npmPin, parseTimeout, replaceForAI, splitTimeoutFlag, type McpEditToolHost } from "../src/mcp/edit";
+import { mcpRemoveTool, newerNpmLine, npmLatest, npmPin, parseTimeout, replaceForAI, runMcpRemove, serverPlace, splitTimeoutFlag, type McpEditToolHost } from "../src/mcp/edit";
 import { privatePathCommand } from "../src/platform/project-paths";
 
 const home = path.join(os.tmpdir(), "casper-mcp-edit-home");
@@ -97,4 +97,24 @@ test("a timeout is a length from 1s to 30m, written anywhere after the name", ()
   expect(splitTimeoutFlag("rea --timeout=300s npx -y rea-agents@6.8.0 mcp")).toEqual({ rest: "rea npx -y rea-agents@6.8.0 mcp", timeout: "300s" });
   expect(splitTimeoutFlag("rea npx x")).toEqual({ rest: "rea npx x" });
   expect(splitTimeoutFlag("rea --timeout")).toEqual({ error: "--timeout needs a length, such as --timeout 5m." });
+});
+
+test("The AI cannot edit or remove the app's server", async () => {
+  const app: MCPServerDefinition = { name: "acp-app", source: "the app (ACP)", scope: "client", cwd: home, disabled: false,
+    transport: { type: "http", url: "http://127.0.0.1:4000/mcp/app", headers: { Authorization: "Bearer app-EXAMPLE-token-0123456789" } } };
+  expect(serverPlace(app, home)).toEqual({ kind: "other", label: "the app that started Casper", how: "change it in the app" });
+  const boxes: string[] = [];
+  const said: string[] = [];
+  const host: McpEditToolHost = {
+    homeDir: home, write: (text) => { said.push(text); }, configured: async () => [app], connect: async () => ({ ok: true }),
+    reload: async () => {}, restart: async () => {}, forgetConsent: async () => {}, canAsk: () => true, tell: () => {}, describe: () => undefined,
+    approveEdit: async (preview) => { boxes.push(preview); return true; },
+  };
+  const refusal = "acp-app is in the app that started Casper, not one of Casper's files. Tell the user to change it there (change it in the app).";
+  expect(await replaceForAI(host, { name: "acp-app", entry: { url: "http://127.0.0.1:4001/mcp/other" } })).toEqual({ text: `Not changed: ${refusal}`, isError: true });
+  expect(await mcpRemoveTool(host).execute({ name: "acp-app" }, new AbortController().signal)).toEqual({ text: `Not removed: ${refusal}`, isError: true });
+  // No box was shown, and no file was named or touched.
+  expect(boxes).toEqual([]);
+  expect(await runMcpRemove(host, "acp-app")).toBe("elsewhere");
+  expect(said.join("")).toBe("[mcp] acp-app is in the app that started Casper, not one of Casper's files, so Casper didn't change it. Remove it there: change it in the app.\n");
 });
