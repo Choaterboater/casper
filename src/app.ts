@@ -775,13 +775,14 @@ export class CasperApp {
   }
 
   /** `asked`: the request without a transcript pasted into it, when the caller found one (casper acp). `images`: the
-   * pictures the request names as `[image N]`, as if pasted with Ctrl+V (an ACP prompt's image blocks). */
-  async runOnce(prompt: string, cwd = process.cwd(), asked?: string, options: { images?: ReadonlyMap<number, RuntimeImage> } = {}): Promise<VerificationReport | undefined> {
+   * pictures the request names as `[image N]`, as if pasted with Ctrl+V (an ACP prompt's image blocks). `echo: false`:
+   * the line is not written back first (casper acp sends a command's output as its reply, the line already shown). */
+  async runOnce(prompt: string, cwd = process.cwd(), asked?: string, options: { images?: ReadonlyMap<number, RuntimeImage>; echo?: boolean } = {}): Promise<VerificationReport | undefined> {
     if (!this.projectContext) {
       await this.start(cwd);
     }
 
-    writePrompt(this, /^\s*\/login(?:\s|$)/.test(prompt) ? "/login" : prompt);
+    if (options.echo !== false) writePrompt(this, /^\s*\/login(?:\s|$)/.test(prompt) ? "/login" : prompt);
     // Kept under the exact line handlePrompt reads them by (the trimmed prompt), and gone when it ends.
     const line = prompt.trim();
     if (options.images?.size) this.lineImages.set(line, new Map(options.images));

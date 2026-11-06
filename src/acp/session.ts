@@ -5,7 +5,7 @@
 // A prompt runs as `casper --json "<prompt>"` runs it (trust, sandbox, checks and receipt), except that a person
 // answers: the approval boxes a one-shot run must refuse are put to the client as session/request_permission (anything
 // but a picked choice is No), and the terminal's defaults hold: the checklist for a code change, and the screenshot
-// question once a session.
+// question once a session. A / command's output is its reply (src/acp/commands.ts lists the commands).
 
 import os from "node:os";
 import path from "node:path";
@@ -25,11 +25,13 @@ import { readAcpMcpSetting, type AcpMcpSetting } from "../config/load";
 import type { MCPServerDefinition } from "../mcp/config";
 import type { RuntimeEvent } from "../runtime/types";
 import { fileTextHoldsSecret, onlyNetconanChecks } from "../secrets/tool-output";
+import { leadingImagePath, startsWithImageFile } from "../app/images";
 import { clientServers } from "./client-servers";
+import { acpCommands, acpRefusal } from "./commands";
 import { AcpAsker } from "./permission";
 import { promptContent } from "./prompt";
 import { RpcConnection, RpcFailure, RPC, type Json } from "./rpc";
-import { acpReceipt, hider, receiptUpdate, UpdateMapper, valuesHider } from "./updates";
+import { acpReceipt, commandsUpdate, hider, receiptUpdate, UpdateMapper, valuesHider } from "./updates";
 
 /** ACP's protocol version this agent speaks. */
 export const ACP_PROTOCOL_VERSION = 1;
@@ -115,21 +117,50 @@ export async function runAcpSession(options: SessionOptions): Promise<void> {
   const mapper = new UpdateMapper(hide, { cwd: () => app?.projectContext ? app.activeWorkspaceRoot() : folder ?? process.cwd(), mcpTool: (name, args) => app?.broker?.named(name, args),
     holdsSecret: (file, text) => fileTextHoldsSecret(file, text, app ? { configs: app.scrubFiles, networkLoginFile: networkLoginFile(app) } : {}),
     unchecked: (file) => onlyNetconanChecks(file, { configs: app?.scrubFiles, netconan: netconanInUse }) });
-  // Casper's transcript goes to stderr as it is written.
-  const output = { write: (text: string) => { process.stderr.write(withoutClientValues(text)); } };
-  // Casper's own lines (app.onOutput: never the model's words, which reach the client as events) are read a whole line
-  // at a time, so a secret is hidden whole; the ones for the person (`[image] …`: a picture that was not sent) also go
-  // to the client.
-  let pendingOut = "";
-  const route = (line: string) => { if (line.startsWith("[image] ")) for (const update of mapper.note(line)) sendUpdate(update); };
-  const routeRest = () => { const rest = pendingOut; pendingOut = ""; if (rest) route(rest); };
-  const ownLines = (text: string) => {
-    pendingOut += text;
-    for (let end = pendingOut.indexOf("\n"); end >= 0; end = pendingOut.indexOf("\n")) {
-      const line = pendingOut.slice(0, end + 1);
-      pendingOut = pendingOut.slice(end + 1);
-      route(line);
-    }
+  // A box is a step on the wire: the text so far, and a command's open block, end before it (and before its answer).
+  const boxUpdate = (update: Json) => { for (const done of mapper.flush()) sendUpdate(done); sendUpdate(update); };
+  // The / command a prompt runs (decision 80), until the model speaks in it: what the terminal shows for it then is its
+  // output, Casper's reply.
+  let commandRun: { spoke: boolean } | undefined;
+  // Lines for the person (`[image] …`: a picture that was not sent; `[plan] …`: what /plan did) go to the client as
+  // they are, never inside a command's block.
+  const forPerson = (line: string) => line.startsWith("[image] ") || line.startsWith("[plan] ");
+  // Whole lines from a stream, so a secret is hidden whole.
+  const lineReader = (route: (line: string) => void) => {
+    let pending = "";
+    return {
+      write(text: string) {
+        pending += text;
+        for (let end = pending.indexOf("\n"); end >= 0; end = pending.indexOf("\n")) {
+          const line = pending.slice(0, end + 1);
+          pending = pending.slice(end + 1);
+          route(line);
+        }
+      },
+      /** A part line left over, routed as a line. */
+      rest() { const rest = pending; pending = ""; if (rest) route(rest); },
+    };
+  };
+  // What the terminal writes (Casper's transcript, its panels and lists) goes to stderr as it is written; during a
+  // command, before its model speaks, it is the command's output too.
+  const shown = lineReader((line) => {
+    if (commandRun && !commandRun.spoke && !app?.modelTaskActive && !forPerson(line)) for (const update of mapper.commandText(line)) sendUpdate(update);
+  });
+  const output = { write: (text: string) => { process.stderr.write(withoutClientValues(text)); shown.write(text); } };
+  // Casper's own lines (app.onOutput: never the model's words, which reach the client as events): the ones for the
+  // person also go to the client.
+  const own = lineReader((line) => { if (forPerson(line)) for (const update of mapper.note(line)) sendUpdate(update); });
+  const ownLines = (text: string) => own.write(text);
+  const routeRest = () => { own.rest(); shown.rest(); };
+  // The commands the client lists, sent again only when they changed (your own command files are read each time).
+  let offeredCommands = "";
+  const sendCommands = () => {
+    if (!app || !sessionId) return;
+    const list = acpCommands(options.homeDir ?? os.homedir(), hide);
+    const json = JSON.stringify(list);
+    if (json === offeredCommands) return;
+    offeredCommands = json;
+    sendUpdate(commandsUpdate(list));
   };
 
   const open = async (params: Json, load: boolean): Promise<Json> => {
@@ -146,8 +177,15 @@ export async function runAcpSession(options: SessionOptions): Promise<void> {
     let created: CasperApp | undefined;
     try {
       created = app = await options.createApp({ conversation, output, mcpServers: client.definitions,
-        onEvent: (event) => { for (const update of mapper.map(event)) sendUpdate(update); },
-        onRuntimeEvent: (event) => { for (const update of mapper.runtime(event)) sendUpdate(update); } });
+        onEvent: (event) => {
+          if (event.type === "assistant_delta" && commandRun) commandRun.spoke = true;
+          for (const update of mapper.map(event)) sendUpdate(update);
+        },
+        onRuntimeEvent: (event) => {
+          // A response starts before the terminal writes any of its words, so none of them reads as the command's.
+          if (event.type === "assistant_response_start" && commandRun) commandRun.spoke = true;
+          for (const update of mapper.runtime(event)) sendUpdate(update);
+        } });
       // A call to the app's server names the step it is, as the client saw it start.
       created.acpToolCallId = (id) => mapper.acpId(id);
       created.onOutput = ownLines;
@@ -172,7 +210,7 @@ export async function runAcpSession(options: SessionOptions): Promise<void> {
       secrets = [];
       throw error;
     }
-    answerThroughClient(created, new AcpAsker(sessionId, { request: (permission, signal) => connection.request("session/request_permission", permission, signal), update: sendUpdate }, hide), output.write);
+    answerThroughClient(created, new AcpAsker(sessionId, { request: (permission, signal) => connection.request("session/request_permission", permission, signal), update: boxUpdate }, hide), output.write);
     if (load) {
       // The conversation so far, as the person typed it.
       for (const entry of app.session?.conversationEntries?.() ?? []) {
@@ -186,8 +224,9 @@ export async function runAcpSession(options: SessionOptions): Promise<void> {
   };
 
   connection.onRequest("initialize", async () => initializeResult(await readAcpMcpSetting(options.homeDir ?? os.homedir())));
-  connection.onRequest("session/new", (params) => open(params, false));
-  connection.onRequest("session/load", (params) => open(params, true));
+  // The commands follow the reply, which names the session (a load's, after the conversation it replays).
+  connection.onRequest("session/new", (params) => open(params, false), sendCommands);
+  connection.onRequest("session/load", (params) => open(params, true), sendCommands);
   connection.onRequest("session/prompt", async (params) => {
     if (!app || !sessionId || params.sessionId !== sessionId) throw new RpcFailure(RPC.notFound, "Unknown session");
     if (busy) throw new RpcFailure(RPC.invalidRequest, "This session is already working on a prompt; cancel it or wait");
@@ -199,26 +238,53 @@ export async function runAcpSession(options: SessionOptions): Promise<void> {
     cancelled = false;
     // A part line left from before this prompt (the start's transcript) ends here, not inside this prompt's first line.
     routeRest();
-    // What was not sent (audio, a ninth picture, a HEIC photo) is said first, as the terminal says it.
-    for (const note of content.notes) app.output.write(`[image] ${note}\n`);
     let report: Awaited<ReturnType<CasperApp["runOnce"]>>;
+    let failure: { error: unknown } | undefined;
+    let isCommand = false;
     try {
-      report = await app.runOnce(content.text, folder, askedWithout(params.prompt, content.text), { images: content.images });
-    } catch (error) {
-      // A cancelled task ends with the stop itself; its receipt still follows. Anything else is an error reply.
-      if (!cancelled) {
-        for (const update of mapper.flush()) sendUpdate(update);
-        throw new RpcFailure(RPC.internal, hide(error instanceof Error ? error.message : String(error)));
+      // A command as the terminal tells one (src/app/command-loop.ts): a leading "/" that is not a picture file's path.
+      const line = content.text.trim();
+      isCommand = line.startsWith("/") && !(leadingImagePath(line) !== undefined && await startsWithImageFile(line, { cwd: app.activeWorkspaceRoot() }));
+      const refusal = isCommand ? acpRefusal(line) : undefined;
+      if (refusal) {
+        for (const update of mapper.note(refusal)) sendUpdate(update);
+        return { stopReason: "end_turn", _meta: { casper: { refused: hide(refusal) } } };
       }
-    } finally { busy = false; routeRest(); }
+      // What was not sent (audio, a ninth picture, a HEIC photo) is said first, as the terminal says it.
+      for (const note of content.notes) app.output.write(`[image] ${note}\n`);
+      commandRun = isCommand ? { spoke: false } : undefined;
+      // A command's line is not written back: its output is the reply.
+      report = await app.runOnce(content.text, folder, askedWithout(params.prompt, content.text), { images: content.images, echo: !isCommand });
+    } catch (error) {
+      failure = { error };
+    } finally {
+      busy = false;
+      routeRest();
+      commandRun = undefined;
+    }
+    // A cancelled task ends with the stop itself; its receipt still follows. A command's error (an unknown name, words
+    // it does not take) is its reply, as in the terminal; anything else is an error reply.
+    let commandError: string | undefined;
+    if (failure && !cancelled) {
+      const message = hide(failure.error instanceof Error ? failure.error.message : String(failure.error));
+      if (!isCommand) {
+        for (const update of mapper.flush()) sendUpdate(update);
+        throw new RpcFailure(RPC.internal, message);
+      }
+      commandError = message;
+      for (const update of mapper.note(`[error] ${message}`)) sendUpdate(update);
+    }
     const task = app.getCommandTaskResult();
     const exitCode = taskExitCode(report, task, { requireVerification: options.cli.requireVerification });
     learnSecrets();
     for (const update of mapper.flush()) sendUpdate(update);
     const receipt = acpReceipt(receiptEvent(report, task, exitCode, app.sandboxReceipt(), app.commandUsage()), task, hide);
-    sendUpdate(receiptUpdate(receipt));
+    // A command that is not a task (/status) has no receipt to show.
+    if (receipt.text.trim()) sendUpdate(receiptUpdate(receipt));
+    // Before the reply: a command may have changed the list (a new file in ~/.casper/commands).
+    sendCommands();
     const stopReason = cancelled || task?.execution === "cancelled" ? "cancelled" : task?.turnLimit ? "max_turn_requests" : "end_turn";
-    return { stopReason, _meta: { casper: { receipt } } };
+    return { stopReason, _meta: { casper: { receipt, ...(commandError !== undefined ? { error: commandError } : {}) } } };
   });
   connection.onNotification("session/cancel", (params) => {
     if (!app || params.sessionId !== sessionId || !busy) return;

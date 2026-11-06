@@ -123,6 +123,50 @@ test("a note for the person goes after the model's text so far, on a line of its
   expect(mapper.flush()).toEqual([]);
 });
 
+test("a command's output is one fenced block, a whole line at a time (a secret split across two writes is hidden whole); model text, a note or a flush closes it", () => {
+  const mapper = new UpdateMapper(hider(() => ["value-from-the-env-1234"]));
+  const texts = (updates: Array<Record<string, unknown>>) => updates.map((update) => (update.content as { text: string }).text);
+  expect(texts([...mapper.commandText(" model   value-from-"), ...mapper.commandText("the-env-1234\n mcp       2 configured\n"), ...mapper.commandText(" shell")]))
+    .toEqual(["````text\n model   <secret hidden>\n mcp       2 configured\n"]);
+  // The model speaking ends the block: its part line first, then the close, then the model's words.
+  expect(texts(mapper.map({ type: "assistant_delta", text: "Done.\n" }))).toEqual([" shell\n", "````\n", "Done.\n"]);
+  expect(texts([...mapper.commandText("again\n"), ...mapper.note("[plan] Nothing was built.")])).toEqual(["````text\nagain\n", "````\n", "[plan] Nothing was built.\n"]);
+  expect(texts([...mapper.commandText("last\n"), ...mapper.flush()])).toEqual(["````text\nlast\n", "````\n"]);
+  expect(mapper.flush()).toEqual([]);
+});
+
+test("a line of four or more backticks in a command's output (a Markdown file in /diff or /output) stays inside its block", () => {
+  const mapper = new UpdateMapper(hider(() => []));
+  const output = ["````markdown", "```sh", "```", "````", " ````  ", "# Heading from the file", "![img](http://192.0.2.1/x.png)", "`````", ""].join("\n");
+  const sent = [...mapper.commandText(output), ...mapper.flush()].map((update) => (update.content as { text: string }).text).join("");
+  // As CommonMark reads it: a line of 4 or more backticks, at most 3 spaces in and nothing but spaces after, closes
+  // the block. Only the last line does; every line of the output is inside it.
+  const lines = sent.split("\n");
+  const closers = lines.flatMap((line, index) => /^ {0,3}`{4,}[ \t]*$/.test(line) ? [index] : []);
+  expect(lines[0]).toBe("````text");
+  expect(closers).toEqual([lines.length - 2]);
+  expect(lines.slice(1, -2).join("\n").replaceAll("\u200b", "")).toBe(output.trimEnd());
+});
+
+test("JSON-RPC: a request's after hook runs once its reply line is written, and never after an error reply", async () => {
+  const input = new PassThrough();
+  const written: string[] = [];
+  const connection = new RpcConnection(input, (line) => { written.push(line); });
+  connection.onRequest("session/new", async () => ({ sessionId: "s1" }), (result, params) => { written.push(`after ${JSON.stringify(result)} ${JSON.stringify(params)}`); });
+  connection.onRequest("session/load", async () => { throw new Error("no"); }, () => { written.push("after load"); });
+  input.write(`${JSON.stringify({ jsonrpc: "2.0", id: 1, method: "session/new", params: { cwd: "/p" } })}\n`);
+  input.write(`${JSON.stringify({ jsonrpc: "2.0", id: 2, method: "session/load", params: {} })}\n`);
+  input.end();
+  await connection.closed;
+  // The replies are written as their handlers settle.
+  for (let tries = 0; written.length < 3 && tries < 200; tries++) await Bun.sleep(5);
+  expect(written).toEqual([
+    `${JSON.stringify({ jsonrpc: "2.0", id: 1, result: { sessionId: "s1" } })}\n`,
+    'after {"sessionId":"s1"} {"cwd":"/p"}',
+    `${JSON.stringify({ jsonrpc: "2.0", id: 2, error: { code: -32603, message: "no" } })}\n`,
+  ]);
+});
+
 test("JSON-RPC: a line that is not JSON gets a parse error, an unknown method gets Method not found", async () => {
   const input = new PassThrough();
   const written: string[] = [];

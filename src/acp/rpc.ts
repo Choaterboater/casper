@@ -15,6 +15,8 @@ export class RpcFailure extends Error {
 
 export type RequestHandler = (params: Json) => Promise<unknown>;
 export type NotificationHandler = (params: Json) => void;
+/** Runs right after a request's reply line is written (never after an error reply): what must follow the reply. */
+export type AfterReply = (result: unknown, params: Json) => void;
 
 /**
  * One peer: reads lines from `input`, writes lines with `write`. Requests from the other side go to the handler named
@@ -24,7 +26,7 @@ export type NotificationHandler = (params: Json) => void;
 export class RpcConnection {
   private nextId = 1;
   private readonly waiting = new Map<number | string, { resolve: (value: unknown) => void; reject: (error: RpcFailure) => void }>();
-  private readonly requests = new Map<string, RequestHandler>();
+  private readonly requests = new Map<string, { handler: RequestHandler; after?: AfterReply }>();
   private readonly notifications = new Map<string, NotificationHandler>();
   private ended = false;
   /** Resolves when the input ends; every request still waiting rejects then. */
@@ -34,7 +36,8 @@ export class RpcConnection {
     this.closed = this.read(input);
   }
 
-  onRequest(method: string, handler: RequestHandler): void { this.requests.set(method, handler); }
+  /** `after`: runs once the reply line is written (session/new's commands come after the reply that names the session). */
+  onRequest(method: string, handler: RequestHandler, after?: AfterReply): void { this.requests.set(method, { handler, ...(after ? { after } : {}) }); }
   onNotification(method: string, handler: NotificationHandler): void { this.notifications.set(method, handler); }
 
   /** Sends a request and waits for its reply. Rejects when the reply is an error, or when the input ends first. */
@@ -103,9 +106,12 @@ export class RpcConnection {
       return;
     }
     const id = message.id;
-    const handler = this.requests.get(message.method);
-    if (!handler) { this.send({ id, error: { code: RPC.methodNotFound, message: `Method not found: ${message.method}` } }); return; }
-    handler(params).then((result) => { this.send({ id, result: result ?? null }); }, (error: unknown) => {
+    const entry = this.requests.get(message.method);
+    if (!entry) { this.send({ id, error: { code: RPC.methodNotFound, message: `Method not found: ${message.method}` } }); return; }
+    entry.handler(params).then((result) => {
+      this.send({ id, result: result ?? null });
+      try { entry.after?.(result, params); } catch { /* the reply is out; nothing to answer */ }
+    }, (error: unknown) => {
       const failure = error instanceof RpcFailure ? error : new RpcFailure(RPC.internal, error instanceof Error ? error.message : String(error));
       this.send({ id, error: { code: failure.code, message: failure.message } });
     });

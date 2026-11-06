@@ -128,6 +128,11 @@ Each step the AI takes reaches the app with what it did: an edit's or a write's 
 code, a read's lines, grep's matches by file, the files find and ls listed, and a web search's sources. Secrets stay
 hidden, and a file's text that holds one is not shown. [Decision 79](docs/adr/0002/79-an-acp-step-carries-its-output.md).
 
+Casper's `/` commands, and your own from `~/.casper/commands`, appear in the app's `/` menu. A command's output is
+Casper's reply, in a monospace block. The ones that would move Casper to another conversation or folder (`/clear`,
+`/resume`, `/branch <name>` and the like) say to use the app's own chats instead, and change nothing.
+[Decision 80](docs/adr/0002/80-an-acp-app-lists-casper-commands.md).
+
 Type `/help` for the commands. Ctrl+C stops the current work but keeps changes already made;
 Ctrl+D on an empty prompt exits. [Keys and commands](docs/TERMINAL_UX.md#quick-reference).
 

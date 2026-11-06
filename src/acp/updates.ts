@@ -6,6 +6,7 @@ import type { RuntimeEvent } from "../runtime/types";
 import { fileTextHoldsSecret } from "../secrets/tool-output";
 import type { TaskResult } from "../task/result";
 import { redactPreview } from "../tui/format";
+import type { AcpCommand } from "./commands";
 import type { Json } from "./rpc";
 import { endUpdate, startUpdate, stepFacts, type ShowRules, type StepFacts } from "./tool-content";
 
@@ -54,6 +55,18 @@ const PHASE_WORDS: Record<PhaseEvent["phase"], string> = {
 
 const text = (words: string) => ({ type: "text", text: words });
 
+/** A command's output is a monospace block: four backticks, so a ``` line in it does not end the block. */
+export const COMMAND_FENCE_OPEN = "````text\n";
+/** A line of the output that would end that block (four or more backticks, at most 3 spaces in, nothing after them
+ * but spaces: a Markdown file's own block in /diff or /output). */
+const ENDS_BLOCK = /^( {0,3})(`{4,}[ \t]*\r?)$/gm;
+export const COMMAND_FENCE_CLOSE = "````\n";
+
+/** The / commands an ACP client lists (src/acp/commands.ts). */
+export function commandsUpdate(commands: readonly AcpCommand[]): Json {
+  return { sessionUpdate: "available_commands_update", availableCommands: commands };
+}
+
 export interface MapperOptions {
   /** The folder a relative path in a step is in. Default: the process's. */
   cwd?: () => string;
@@ -72,6 +85,9 @@ export interface MapperOptions {
  */
 export class UpdateMapper {
   private pending = "";
+  /** A command's output not sent yet (a part line), and whether its fenced block is open. */
+  private commandPending = "";
+  private fenceOpen = false;
   private readonly plan: Array<{ phase: PhaseEvent["phase"]; status: "in_progress" | "completed" }> = [];
   private steps = 0;
   /** The ACP id of each running tool, by the model's id: a model may use the same id again in a later turn. */
@@ -111,12 +127,14 @@ export class UpdateMapper {
   map(event: CasperEvent): Json[] {
     switch (event.type) {
       case "assistant_delta": {
+        // The model speaking ends a command's block first.
+        const closed = this.closeFence();
         this.pending += event.text;
         const end = this.pending.lastIndexOf("\n");
-        if (end < 0) return [];
+        if (end < 0) return closed;
         const ready = this.pending.slice(0, end + 1);
         this.pending = this.pending.slice(end + 1);
-        return [this.message(ready)];
+        return [...closed, this.message(ready)];
       }
       case "assistant_message": return this.flush();
       case "check": {
@@ -143,11 +161,38 @@ export class UpdateMapper {
     return [...this.flush(), this.message(line.endsWith("\n") ? line : `${line}\n`)];
   }
 
-  /** The model's text not sent yet. */
+  /** A command's output (/status), a whole line at a time, so a secret is hidden whole: Casper's reply in a fenced
+   * text block, opened on its first line and closed by the next flush, model text, tool, check or error. */
+  commandText(text: string): Json[] {
+    this.commandPending += text;
+    const end = this.commandPending.lastIndexOf("\n");
+    if (end < 0) return [];
+    const ready = this.commandPending.slice(0, end + 1);
+    this.commandPending = this.commandPending.slice(end + 1);
+    return [this.fenced(ready)];
+  }
+
+  /** The model's text not sent yet, and the end of a command's block. */
   flush(): Json[] {
+    const closed = this.closeFence();
     const rest = this.pending;
     this.pending = "";
-    return rest ? [this.message(rest)] : [];
+    return rest ? [...closed, this.message(rest)] : closed;
+  }
+
+  private fenced(lines: string): Json {
+    const open = this.fenceOpen ? "" : COMMAND_FENCE_OPEN;
+    this.fenceOpen = true;
+    // A zero-width space before such a line keeps it inside: the rest is never read as Markdown.
+    return this.message(`${open}${lines.replace(ENDS_BLOCK, "$1\u200b$2")}`);
+  }
+
+  private closeFence(): Json[] {
+    const rest = this.commandPending;
+    this.commandPending = "";
+    const out = rest ? [this.fenced(`${rest}\n`)] : [];
+    if (this.fenceOpen) { this.fenceOpen = false; out.push(this.message(COMMAND_FENCE_CLOSE)); }
+    return out;
   }
 
   private message(words: string): Json {
