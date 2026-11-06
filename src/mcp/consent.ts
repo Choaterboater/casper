@@ -92,6 +92,11 @@ export async function writePrivate(file: string, text: string): Promise<void> {
 
 export type RememberResult = { remembered: true } | { remembered: false; reason: string };
 
+/** Why a server the app that started casper acp handed over is never remembered (decision 77). */
+export function clientNotRemembered(name: string): string {
+  return `Not remembered: ${name} comes from the app for this session.`;
+}
+
 export class ConsentStore {
   readonly file: string;
   readonly keyFile: string;
@@ -115,7 +120,8 @@ export class ConsentStore {
 
   /** remembered: same definition approved before; changed: approved before, but it changed since. */
   state(definition: MCPServerDefinition): ConsentState {
-    if (definition.scope === "project") return "none";
+    // Project and client (the app's, decision 77) servers are never remembered.
+    if (definition.scope === "project" || definition.scope === "client") return "none";
     const stored = this.data.servers[definition.name];
     if (!stored) return "none";
     if (!this.key) return "changed";
@@ -132,6 +138,7 @@ export class ConsentStore {
       if (definition.scope === "project") {
         return { remembered: false, reason: `Not remembered: ${definition.name} comes from the project, so Casper asks each time.` };
       }
+      if (definition.scope === "client") return { remembered: false, reason: clientNotRemembered(definition.name) };
       const block = rememberBlock(definition, matchPreset(definition));
       if (block) return { remembered: false, reason: block };
       const key = await this.ensureKey();
@@ -164,7 +171,7 @@ export class ConsentStore {
 
   /** The risky kinds remembered for this exact definition (empty for a project server or a changed definition). */
   rememberedKinds(definition: MCPServerDefinition): ChangeKind[] {
-    if (definition.scope === "project" || !this.key) return [];
+    if (definition.scope === "project" || definition.scope === "client" || !this.key) return [];
     const stored = this.data.kinds?.[definition.name];
     return stored && stored.hash === this.hashOf(definition) ? [...stored.kinds] : [];
   }
@@ -175,6 +182,7 @@ export class ConsentStore {
       if (definition.scope === "project") {
         return { remembered: false, reason: `Not remembered: ${definition.name} comes from the project. Allowed for this session only.` };
       }
+      if (definition.scope === "client") return { remembered: false, reason: clientNotRemembered(definition.name) };
       const block = rememberBlock(definition, matchPreset(definition));
       if (block) return { remembered: false, reason: block };
       const key = await this.ensureKey();

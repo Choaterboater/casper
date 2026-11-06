@@ -8,6 +8,7 @@ import { definitionHash } from "../src/mcp/consent";
 import { MCPManager } from "../src/mcp/manager";
 import { forgetLogin, LOGIN_FIELDS, LOGIN_FILE, loginEnv, readLogins, saveLogin, spawnEnvFor } from "../src/mcp/network/logins";
 import { networkServerEntry } from "../src/mcp/network/server";
+import { getsServerKey, saveServerKey } from "../src/mcp/server-secrets";
 import { PRIVATE_PATHS } from "../src/platform/project-paths";
 import { networkLoginValues } from "../src/secrets/files";
 import { scrubToolOutput } from "../src/secrets/tool-output";
@@ -161,6 +162,29 @@ test("the manager starts Casper's network server with the saved logins, read-onl
   await bare.connect("network");
   const bareRaw = await bare.call("network", "get_env", {}) as { content: { text: string }[] };
   expect(JSON.parse(bareRaw.content[0]!.text).env.MIST_API_TOKEN).toBeUndefined();
+});
+
+test("A client server never gets saved logins or keys", async () => {
+  const home = await tempHome();
+  await saveLogin(home, "mist", { MIST_HOST: "https://api.mist.com", MIST_API_TOKEN: "tok_EXAMPLE_0123456789" });
+  // A key saved for this very name in your own file, and a definition that runs Casper's own network server.
+  await saveServerKey(home, "network", { kind: "env", name: "HPE_MCP_KEY" }, "key_EXAMPLE_0123456789");
+  await fakeServerProgram(await installedProgram(home), "mcp-network-server", { FIXTURE_ENV_DUMP: "1" });
+  const own = networkDefinition(home);
+  const client: MCPServerDefinition = { ...own, scope: "client", transport: { ...own.transport, env: { ...(own.transport.type === "stdio" ? own.transport.env : {}), HPE_MCP_GIVEN: "${HOME}" } } as MCPServerDefinition["transport"] };
+  expect(getsServerKey(own, home)).toBe(true);
+  expect(getsServerKey(client, home)).toBe(false);
+  expect((await spawnEnvFor(client, home)).MIST_API_TOKEN).toBeUndefined();
+  const manager = new MCPManager({ servers: [client], diagnostics: [] }, { timeoutMs: 10_000, homeDir: home });
+  cleanup.push(() => manager.close());
+  await manager.connect("network");
+  const raw = await manager.call("network", "get_env", {}) as { content: { text: string }[] };
+  const seen = JSON.parse(raw.content[0]!.text) as { env: Record<string, string> };
+  expect(seen.env.MIST_API_TOKEN).toBeUndefined();
+  expect(seen.env.HPE_MCP_KEY).toBeUndefined();
+  // The app's values are passed as given: ${HOME} is not filled from Casper's environment.
+  expect(seen.env.HPE_MCP_GIVEN).toBe("${HOME}");
+  expect(manager.loginValues("network")).toEqual(["${HOME}"]);
 });
 
 test("a login the server prints on stderr is hidden in /mcp", async () => {

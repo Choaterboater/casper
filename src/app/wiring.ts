@@ -38,7 +38,7 @@ import { checksPlan } from "./verification";
 import { mcpServerSandbox } from "../mcp/sandbox";
 import { trustProjectFile } from "./project-file";
 import { addToPath, keepEngineFromFetchingRipgrep } from "../security/ripgrep";
-import { toolReason } from "../runtime/tool-reason";
+import { toolCallId, toolReason } from "../runtime/tool-reason";
 import { judgeForApp, noteJudgeAllowed } from "./auto-mode";
 
 /** What the sandbox asks through: Casper's own numbered question, only while someone can answer it. Its questions
@@ -173,6 +173,12 @@ export async function loadWorkspace(app: CasperApp, cwd: string) {
   const autoconnect = ownServerDefaults.start && context.mcpAutoconnect !== false;
   app.mcp = new MCPManager(mcpConfiguration, {
     consent, autoconnect,
+    // casper acp: a call to a server the app handed over names Casper's step, so the app's own box joins its row.
+    clientCallMeta: () => {
+      const id = toolCallId();
+      const acp = id === undefined ? undefined : app.acpToolCallId?.(id);
+      return acp ? { "casper/acpToolCallId": acp } : undefined;
+    },
     // Casper's network server starts with the logins saved in ~/.casper/network-logins.json.
     homeDir: app.sessionHomeDir ?? os.homedir(),
     elicit: (question, signal) => answerServerQuestion(app, question, signal),
@@ -184,7 +190,9 @@ export async function loadWorkspace(app: CasperApp, cwd: string) {
   app.lsp = new LSPManager(context.info.root, lspConfiguration);
   // Started now, not at the first task, so they are ready when it comes. A failure shows in /mcp; /lsp connect tries again.
   // A one-shot run waits for them instead: its tools are there for the first turn, and no start is still running when it exits.
-  const ownStarts = [autoconnect ? app.mcp.prepare().catch(() => {}) : undefined,
+  // The servers an app handed over (casper acp) connect for the session whatever My MCP servers says.
+  const clientServers = mcpConfiguration.servers.some((server) => server.scope === "client");
+  const ownStarts = [autoconnect || clientServers ? app.mcp.prepare().catch(() => {}) : undefined,
     ownServerDefaults.start && context.lspAutostart !== false ? app.lsp.startOwn() : undefined];
   if (!app.interactive) await Promise.all(ownStarts);
   app.visualization = new VisualizationRouter({ providers: app.visualizationProviders, settings: context.visualize, workspaceRoot: context.info.root });

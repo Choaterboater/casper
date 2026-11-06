@@ -41,6 +41,8 @@ export function serverPlace(definition: MCPServerDefinition, home: string): Serv
   if (from === "vscode") return { kind: "other", label: "VS Code's settings", how: "in VS Code, MCP: List Servers" };
   if (from === "vscode-project") return { kind: "other", label: ".vscode/mcp.json (VS Code)", how: "edit .vscode/mcp.json" };
   if (from === "mcp.json") return { kind: "other", label: "~/.mcp.json", how: "edit ~/.mcp.json" };
+  // The app that started casper acp handed it over for this session: no file holds it (decision 77).
+  if (definition.scope === "client") return { kind: "other", label: "the app that started Casper", how: "change it in the app" };
   return { kind: "file", file: definition.source, label: homeShown(definition.source, home), own: definition.scope === "user" || definition.scope === "profile" };
 }
 

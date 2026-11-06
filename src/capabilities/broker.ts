@@ -50,8 +50,13 @@ interface Capability {
   hidden?: string;
   /** A docs tool of a recognised hpe-networking-mcp server: always offered to the model. */
   docs?: true;
+  /** A tool an ACP client's server asks to keep in front of the model (`_meta["casper/pin"]`, decision 77). */
+  clientPin?: true;
   policy: ServerPolicy;
 }
+
+/** At most this many tools of an ACP client's servers are always offered (inside the cap of 8). */
+export const MAX_CLIENT_PINS = 4;
 /** One page of the `find_capability({ query: "*" })` listing. */
 export interface CapabilityListPage {
   total: number;
@@ -877,6 +882,7 @@ export class CapabilityBroker {
           descriptionWords: indexWords(descriptor.description),
           ...(hidden ? { hidden } : {}), policy,
           ...(docsServer && !hidden && safety === "read" && (DOCS_TOOL_NAMES as readonly string[]).includes(tool.name) ? { docs: true as const } : {}),
+          ...(definition?.scope === "client" && !hidden && listed._meta?.["casper/pin"] === true ? { clientPin: true as const } : {}),
         });
       }
     }
@@ -1000,12 +1006,16 @@ export class CapabilityBroker {
     const docs = [...this.capabilities.values()].filter((c) => c.docs && !c.hidden).sort((a, b) =>
       DOCS_TOOL_NAMES.indexOf(a.descriptor.name as typeof DOCS_TOOL_NAMES[number]) - DOCS_TOOL_NAMES.indexOf(b.descriptor.name as typeof DOCS_TOOL_NAMES[number])
       || a.descriptor.id.localeCompare(b.descriptor.id)).slice(0, 3);
-    const pinned = new Set([...routers, ...docs]);
+    // The tools an ACP client's servers pin, in their order, whatever the task words: a first prompt of "hi" must
+    // not leave them out for the session. The first one (the app's way in) goes before the docs tools, so routers
+    // and docs together never push every pin out; the rest come after the docs.
+    const clientPins = [...this.capabilities.values()].filter((c) => c.clientPin && !c.hidden && !c.router && !c.docs).slice(0, MAX_CLIENT_PINS);
+    const pinned = new Set([...routers, ...docs, ...clientPins]);
     // Same servers as when the set was picked: offer it again (less any tool that went away or is now hidden).
     const kept = this.picked?.servers === this.servers ? this.picked.ids : undefined;
     const candidates = kept
       ? kept.map((id) => this.capabilities.get(id)).filter((c): c is Capability => c !== undefined && !c.hidden)
-      : [...routers, ...docs, ...this.rank(task).filter((c) => !routedServers.has(c.descriptor.source) && !pinned.has(c))];
+      : [...routers, ...clientPins.slice(0, 1), ...docs, ...clientPins.slice(1), ...this.rank(task).filter((c) => !routedServers.has(c.descriptor.source) && !pinned.has(c))];
     const ids: string[] = [];
     let schemaBytes = 0;
     for (const capability of candidates) {

@@ -126,6 +126,13 @@ export function fixtureServer(mode = "generic") {
     // A server of your own that is not a network product: a plain change and a delete (a risky kind).
     tools.push({ name: "delete_site", description: "Delete a site", inputSchema: site, annotations: { readOnlyHint: false } });
   }
+  if (mode === "pins") {
+    // An app's server (casper acp) that asks for six of its tools to stay in front of the model; one more it doesn't.
+    tools = [
+      ...["one", "two", "three", "four", "five", "six"].map((word): Tool => ({ ...read(`pin_${word}`, `Pinned tool ${word}`), _meta: { "casper/pin": true } })),
+      read("plain_read", "Not pinned"),
+    ];
+  }
   if (mode === "schema-budget") {
     const schemaAt = (bytes: number): Tool["inputSchema"] => {
       const schema = { ...empty, description: '"'.repeat(2000) };
@@ -281,6 +288,8 @@ export function fixtureServer(mode = "generic") {
 }
 
 if (import.meta.main) {
+  // Who started, so a test can tell the server stopped without calling a tool.
+  if (process.env.FIXTURE_PID_FILE) appendFileSync(process.env.FIXTURE_PID_FILE, `${process.pid}\n`);
   if (process.env.FIXTURE_START_DELAY_MS) await Bun.sleep(Number(process.env.FIXTURE_START_DELAY_MS));
   if (process.env.FIXTURE_CHATTY) {
     // A server that logs a lot (INFO logging): Casper must keep draining stderr.

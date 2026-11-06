@@ -114,6 +114,11 @@ it is No. Because a person answers there, a session keeps the terminal's default
 and the screenshot question as a card. Run options such as `--model` go before or after `acp`.
 [Decision 76](docs/adr/0002/76-casper-speaks-acp.md).
 
+The MCP servers an app lists for a session connect for that session only, as `acp-<name>`: never saved or
+remembered. Reads run; a change asks in the app, unless a server on this computer says the app asks for itself, and
+then only deletes, firmware and admin changes ask in Casper's box. `acp_mcp: ask` or `off` in `~/.casper/config.yaml`
+takes that back. [Decision 77](docs/adr/0002/77-an-acp-client-hands-casper-its-tools.md).
+
 Type `/help` for the commands. Ctrl+C stops the current work but keeps changes already made;
 Ctrl+D on an empty prompt exits. [Keys and commands](docs/TERMINAL_UX.md#quick-reference).
 

@@ -8,8 +8,9 @@ import { duplicateDiagnostics, importAll, type ImportedFrom } from "./import";
 import { isOutside } from "../platform/inside";
 
 /** Where a discovered definition came from; programmatic definitions carry none.
- * "imported" definitions come from other tools' files (WP4) and always start outside the project. */
-export type ServerDefinitionScope = "user" | "profile" | "project" | "imported";
+ * "imported" definitions come from other tools' files (WP4) and always start outside the project. "client" ones come
+ * from the app that started `casper acp` (session/new), for that session only: never written or remembered. */
+export type ServerDefinitionScope = "user" | "profile" | "project" | "imported" | "client";
 
 /** Per-server time limits. They are not part of a server's identity: changing one keeps consent. */
 export interface MCPServerLimits {
@@ -40,6 +41,8 @@ export interface MCPServerDefinition {
   limits?: MCPServerLimits;
   /** Set when the definition was found in another tool's file (Claude Code, VS Code). */
   importedFrom?: ImportedFrom;
+  /** A client server whose app shows its own approval for every change (decision 77): no change box from Casper. */
+  clientAsks?: true;
   transport: { type: "stdio"; command: string; args: string[]; env: Record<string, string> }
     | { type: "http"; url: string; headers: Record<string, string> };
 }
@@ -63,6 +66,12 @@ function stringMap(value: unknown): Record<string, string> {
 const ENTRY_REASONS = new Set(["cwd must be absolute, ~/..., or ${PROJECT_ROOT}", "cwd outside the project", "HTTPS required outside this computer and your network",
   "invalid args", "invalid cwd", "invalid definition", "invalid disabled flag", "invalid URL", "missing command", "too many servers",
   "unsupported transport", "invalid callTimeout", "invalid connectTimeout"]);
+
+/** The reason Casper may show for a refused entry, or undefined when the error is not one of its own (a parser's
+ * message could quote a value). */
+export function entryReason(error: unknown): string | undefined {
+  return error instanceof Error && ENTRY_REASONS.has(error.message) ? error.message : undefined;
+}
 
 /**
  * Where a stdio server starts. Your own (user/profile) servers start in your home folder by default,
@@ -160,6 +169,11 @@ export function plainHttpHost(hostname: string): boolean {
   const family = isIP(host);
   if (family) return NETWORK.check(host, family === 4 ? "ipv4" : "ipv6");
   return /^[a-z0-9-]+(?:\.[a-z0-9-]+)*\.(?:local|lan|home\.arpa)$/.test(host);
+}
+
+/** One server entry checked as an MCP file's entry is: its name, URL rules (decision 32) and fields. */
+export function entryDefinition(name: string, value: unknown, source: string, cwd: string): MCPServerDefinition {
+  return definition(name, value, source, cwd);
 }
 
 function definition(name: string, value: unknown, source: string, cwd: string): MCPServerDefinition {
@@ -341,6 +355,12 @@ export function projectDefinitionReview(definition: MCPServerDefinition): string
   ].join("\n");
 }
 
+/** A value to hide, and the credential in it after an auth scheme ("Bearer abc…" hides "abc…" on its own too). */
+export function secretParts(value: string): string[] {
+  const credential = /^(?:Bearer|Basic|Token|Bot|ApiKey)\s+(\S.*)$/i.exec(value)?.[1];
+  return credential ? [value, credential] : [value];
+}
+
 /** Only explicit ${ENV_NAME} (or ${ENV_NAME:-default}) references; never shell commands or config writes. */
 export function resolveEnvironment(value: string): string {
   return value.replace(REFERENCE, (_whole, name: string, fallback: string | undefined) => {
@@ -369,6 +389,11 @@ export function resolvedSecrets(definition: MCPServerDefinition, logins: readonl
     try { add(resolveEnvironment(value)); } catch { /* a missing variable has no value to hide */ }
   };
   const transport = definition.transport;
+  // A client server's values are used as given (no ${VAR}): each is hidden as it is, and a credential after its scheme.
+  if (definition.scope === "client") {
+    for (const value of transport.type === "stdio" ? Object.values(transport.env) : Object.values(transport.headers)) for (const part of secretParts(value)) add(part);
+    return [...values];
+  }
   if (transport.type === "stdio") {
     for (const value of Object.values(transport.env)) take(value, true);
     for (const value of transport.args) take(value, false);

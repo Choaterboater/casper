@@ -369,6 +369,10 @@ with more care (see "Discovery is not permission" below). Started from your home
 folder, item 9 is `~/.casper/mcp.json` itself: it stays your own file (item 4), never a
 project file, and `~/.casper/lsp.json` the same.
 
+An app that runs `casper acp` can also hand Casper its own servers for one session. They come after
+these files, are named `acp-<name>`, and never replace a server from any of them (see
+[Servers an app hands Casper](#servers-an-app-hands-casper)).
+
 ### Servers you already set up elsewhere
 
 Items 1-3 are the files Claude Code and VS Code use, so you don't have to copy
@@ -467,7 +471,8 @@ an MCP server's key ([Keys and tokens](#keys-and-tokens)). It writes MCP configu
 that says so: `/mcp add`, `/mcp setup ssh`, `/mcp setup network`, and `/mcp docs` after
 you pick `2 Add it` (see [Secrets and docs servers](#secrets-and-docs-servers)), or after
 your yes in the box of the AI's `casper_mcp_add`. Each adds one server to
-`~/.casper/mcp.json`, never over a name a server already has.
+`~/.casper/mcp.json`, never over a name a server already has. A server an app hands Casper over
+ACP is never written anywhere.
 
 ### Commands
 
@@ -602,6 +607,9 @@ off, every server starts disconnected and only your `/mcp connect` or `--mcp` co
   `1 No · 2 Yes, this once`.
 - Permission lasts for this run of Casper unless you remember the server (see
   [Remembered servers](#remembered-servers)). It is separate from skill trust.
+- A server an app lists in ACP's `session/new` connects for that session only, because the app that
+  started `casper acp` chose it ([Servers an app hands Casper](#servers-an-app-hands-casper)). A file
+  or a skill still can't.
 - `/mcp` on a normal terminal is an arrow-key picker of the servers: each row says its state and
   where it came from (`from ~/.claude.json`, `from VS Code`), and Casper's own network server says
   which products it covers (`network  not connected · Casper's (Mist, Central, ClearPass)`). No list
@@ -655,6 +663,39 @@ Turn it off with `/settings` (**My MCP servers**, it writes `mcp_autoconnect: fa
 `~/.casper/config.yaml`; a project file can't set it). Off is the behavior before: every server
 waits for `/mcp connect` (or a remembered approval), starts with writes off, and every change asks
 in the box. It applies from the next start.
+
+### Servers an app hands Casper
+
+An app or an editor that runs `casper acp` can list MCP servers in `session/new` or `session/load`
+(decision 77). Casper Desktop lists its own, so its plugin tools reach Casper. Each one:
+
+- **Connects for that session only**, as `acp-<name>`, with no box, whatever My MCP servers says.
+  Casper writes `[acp] The app's MCP server acp-app connects for this session.` on stderr, or why it
+  is not connected. It goes when the session ends, or when the session does not open (a
+  `session/load` of a conversation Casper does not have), so the app can try `session/new` next.
+- **Is never kept.** It is never written to a file or remembered, gets no saved key or network
+  login, and its values are used as the app sent them: no `${VAR}` is filled in. Every header and
+  env value is hidden in what the app sees, in Casper's stderr and in the server's results.
+- **Follows the usual rules**: https, or plain http only to this computer or your network; no SSE; a
+  program at an absolute path, started in your home folder; no `PATH`, `NODE_OPTIONS`, `LD_*` or
+  `DYLD_*`; at most 8. A name a file already uses is left out, so it never replaces your server.
+- **Asks as any server does.** A read tool runs without asking. A change asks in Casper's change
+  box, which goes to the app as a permission request. When the app marks a server on this computer
+  (or a program it runs) with `_meta: { "casper/clientAsks": true }`, the app shows its own box for
+  each change, so Casper does not: one install, one box. Deletes, firmware and admin changes still
+  ask in Casper's box first. A network product (a [preset](#presets), by its definition or its tool
+  list) starts with writes off and its read-only settings, as everywhere, `casper/clientAsks` or not.
+  `/mcp detail` says `From the app, this session only:` and how its writes stand.
+- **Can keep up to 4 tools in front of the AI** (`_meta: { "casper/pin": true }` on a tool), within
+  the 8 direct tools, so a first prompt of "hi" does not leave them out for the session. They are
+  taken in the order the server lists them. The first comes right after network routers, ahead of
+  docs tools, so it stays in front even with both connected; the others come after docs tools.
+- **Is the app's to change.** `/mcp` shows it as `from the app, this session only`; the AI's
+  `casper_mcp_add` and `casper_mcp_remove` refuse it and say to change it in the app.
+
+`acp_mcp` in `~/.casper/config.yaml` (**Apps' MCP servers** in `/settings`; a profile or a project
+file can't set it) is `on` by default. `ask` connects them and brings Casper's change box back on
+every one, also where the app asks too. `off` connects none, and `initialize` tells the app.
 
 ### Remembered servers
 
@@ -1155,6 +1196,10 @@ server does**.
   (the AI's file tools can't open them either). Without the sandbox (Windows, Linux
   without bubblewrap, `--no-sandbox`), the AI's shell could read MCP configuration or go
   around this interface. See [SECURITY.md](SECURITY.md).
+- A server an app hands Casper over ACP runs as the app chose: a stdio one outside the
+  sandbox, and with `casper/clientAsks` its changes ask only in the app's own box. The
+  app that started `casper acp` already answers Casper's boxes, so this trusts it no
+  further; `acp_mcp: ask` or `off` takes it back.
 - Only connect servers you trust, and give them logins with only the rights they
   need. Tool descriptions and results are outside content, not instructions.
 

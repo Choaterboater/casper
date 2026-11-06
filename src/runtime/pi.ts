@@ -103,7 +103,7 @@ import type {
   RuntimeEvent,
 } from "./types";
 import { isOutside } from "../platform/inside";
-import { withToolReason } from "./tool-reason";
+import { withToolCall, withToolReason } from "./tool-reason";
 import { CheckChangeGuard, guardedFileTools } from "./check-changes";
 
 class PiToolController {
@@ -1292,7 +1292,7 @@ export class PiRuntime implements AgentRuntime {
           prepareArguments: repair.hook(tool.name, tool.inputSchema, (args) => args as Record<string, unknown>),
           ...(tool.sequential ? { executionMode: "sequential" as const } : {}),
           execute: async (id, args, signal, _update, ctx) => {
-            const result = await withToolReason(reasons.get(id) ?? "", () => tool.execute(args, signal, { withFileLocks }));
+            const result = await withToolCall(id, () => withToolReason(reasons.get(id) ?? "", () => tool.execute(args, signal, { withFileLocks })));
             if (result.isError) throw new Error(result.text);
             return { content: toolContent(result, Boolean(ctx?.model?.input?.includes("image"))), details: {} };
           },

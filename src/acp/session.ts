@@ -7,6 +7,7 @@
 // but a picked choice is No), and the terminal's defaults hold: the checklist for a code change, and the screenshot
 // question once a session.
 
+import os from "node:os";
 import path from "node:path";
 import { stat } from "node:fs/promises";
 import type { CliOptions } from "../cli-args";
@@ -20,18 +21,22 @@ import { promptWords } from "../app/rewind";
 import { taskExitCode } from "../task/result";
 import { CASPER_VERSION } from "../version";
 import type { AwayAsker } from "../tui/terminal";
+import { readAcpMcpSetting, type AcpMcpSetting } from "../config/load";
+import type { MCPServerDefinition } from "../mcp/config";
+import { clientServers } from "./client-servers";
 import { AcpAsker } from "./permission";
 import { RpcConnection, RpcFailure, RPC, type Json } from "./rpc";
-import { acpReceipt, hider, receiptUpdate, UpdateMapper } from "./updates";
+import { acpReceipt, hider, receiptUpdate, UpdateMapper, valuesHider } from "./updates";
 
 /** ACP's protocol version this agent speaks. */
 export const ACP_PROTOCOL_VERSION = 1;
 
-/** The initialize reply, the same from the router and from each session. */
-export function initializeResult(): Json {
+/** The initialize reply, the same from the router and from each session. `acp_mcp: off` says no http server is taken
+ * (stdio ones are ACP's baseline; Casper connects none of them either). */
+export function initializeResult(setting: AcpMcpSetting = "on"): Json {
   return {
     protocolVersion: ACP_PROTOCOL_VERSION,
-    agentCapabilities: { loadSession: true, promptCapabilities: { image: false, audio: false, embeddedContext: false }, mcpCapabilities: { http: false, sse: false } },
+    agentCapabilities: { loadSession: true, promptCapabilities: { image: false, audio: false, embeddedContext: false }, mcpCapabilities: { http: setting !== "off", sse: false } },
     agentInfo: { name: "casper", title: "Casper", version: CASPER_VERSION },
     authMethods: [],
   };
@@ -80,22 +85,33 @@ export function answerThroughClient(app: CasperApp, asker: AwayAsker, write: (te
 export interface SessionOptions {
   cli: CliOptions;
   /** Builds the app (the CLI passes the one --json would build, with this session's events and output). */
-  createApp(input: { conversation: { continue: true } | { resume: string } | undefined; onEvent: (event: CasperEvent) => void; output: { write(text: string): void } }): Promise<CasperApp>;
+  createApp(input: { conversation: { continue: true } | { resume: string } | undefined; onEvent: (event: CasperEvent) => void; output: { write(text: string): void };
+    /** The client's MCP servers for this session (decision 77), added after the ones Casper's files define. */
+    mcpServers: MCPServerDefinition[] }): Promise<CasperApp>;
+  /** Your home folder (the client's stdio servers start there). Default: os.homedir(). */
+  homeDir?: string;
 }
 
 /** Runs one session on stdin/stdout until stdin ends; then closes the app. */
 export async function runAcpSession(options: SessionOptions): Promise<void> {
   const connection = new RpcConnection(Bun.stdin.stream(), (line) => { process.stdout.write(line); });
-  const output = { write: (text: string) => { process.stderr.write(text); } };
+  // The values the client gave its MCP servers (a bearer token), longest first: never on stderr either.
+  let clientSecrets: string[] = [];
+  const withoutClientValues = valuesHider(() => clientSecrets);
+  const output = { write: (text: string) => { process.stderr.write(withoutClientValues(text)); } };
   let app: CasperApp | undefined;
   let sessionId: string | undefined;
   let folder: string | undefined;
   let busy = false;
   let cancelled = false;
   const sendUpdate = (update: Json) => { if (sessionId) connection.notify("session/update", { sessionId, update }); };
-  // The user's own secrets (logins, keys, secret-looking variables), read again at each prompt: never in an update.
+  // The user's own secrets (logins, keys, secret-looking variables), read again at each prompt, and every value the
+  // client gave its MCP servers: never in an update.
   let secrets: string[] = [];
-  const learnSecrets = () => { try { if (app) secrets = ownSecretValues(app); } catch { /* the --json redaction still applies */ } };
+  const learnSecrets = () => {
+    try { if (app) secrets = [...ownSecretValues(app), ...clientSecrets].sort((a, b) => b.length - a.length); }
+    catch { secrets = [...clientSecrets].sort((a, b) => b.length - a.length); }
+  };
   const hide = hider(() => secrets);
   const mapper = new UpdateMapper(hide);
 
@@ -104,22 +120,38 @@ export async function runAcpSession(options: SessionOptions): Promise<void> {
     folder = await sessionFolder(params);
     if (load && (typeof params.sessionId !== "string" || !/^[A-Za-z0-9_-]{1,128}$/.test(params.sessionId))) throw new RpcFailure(RPC.invalidParams, "session/load needs a sessionId");
     process.chdir(folder);
-    // A server reaches Casper only through Casper's own consent, never from the client's list.
-    if (Array.isArray(params.mcpServers) && params.mcpServers.length) {
-      output.write(`[acp] The app's ${params.mcpServers.length === 1 ? "MCP server is" : `${params.mcpServers.length} MCP servers are`} not connected: Casper uses only the servers you added to Casper.\n`);
-    }
+    // The client's MCP servers connect for this session only (decision 77); the notes name them, never a value.
+    const home = options.homeDir ?? os.homedir();
+    const client = clientServers(params.mcpServers, { home, setting: await readAcpMcpSetting(home) });
+    clientSecrets = [...client.secrets].sort((a, b) => b.length - a.length);
+    for (const note of client.notes) output.write(`${note}\n`);
     const conversation = load ? { resume: params.sessionId as string } : options.cli.resume ? { resume: options.cli.resume } : options.cli.continueConversation ? { continue: true as const } : undefined;
-    const created = app = await options.createApp({ conversation, output, onEvent: (event) => { for (const update of mapper.map(event)) sendUpdate(update); } });
-    learnSecrets();
+    let created: CasperApp | undefined;
     try {
-      await created.start(folder);
-      const runtime = await ensureRuntime(created);
-      sessionId = runtime.getSessionInfo?.().sessionId;
+      created = app = await options.createApp({ conversation, output, mcpServers: client.definitions,
+        onEvent: (event) => { for (const update of mapper.map(event)) sendUpdate(update); } });
+      // A call to the app's server names the step it is, as the client saw it start.
+      created.acpToolCallId = (id) => mapper.acpId(id);
+      learnSecrets();
+      try {
+        await created.start(folder);
+        const runtime = await ensureRuntime(created);
+        sessionId = runtime.getSessionInfo?.().sessionId;
+      } catch (error) {
+        throw new RpcFailure(load ? RPC.notFound : RPC.internal, hide(error instanceof Error ? error.message : String(error)));
+      }
+      if (!sessionId) throw new RpcFailure(RPC.internal, "This runtime keeps no conversations, so it has no session ID");
+      if (load && sessionId !== params.sessionId) throw new RpcFailure(RPC.notFound, `No saved conversation ${params.sessionId as string} in ${folder}`);
     } catch (error) {
-      throw new RpcFailure(load ? RPC.notFound : RPC.internal, hide(error instanceof Error ? error.message : String(error)));
+      // A session that did not open leaves nothing behind: its app closes (and the client's servers with it), so the
+      // client's next session/new on this process starts clean.
+      await created?.close().catch(() => {});
+      app = undefined;
+      sessionId = undefined;
+      clientSecrets = [];
+      secrets = [];
+      throw error;
     }
-    if (!sessionId) throw new RpcFailure(RPC.internal, "This runtime keeps no conversations, so it has no session ID");
-    if (load && sessionId !== params.sessionId) throw new RpcFailure(RPC.notFound, `No saved conversation ${params.sessionId as string} in ${folder}`);
     answerThroughClient(created, new AcpAsker(sessionId, { request: (permission, signal) => connection.request("session/request_permission", permission, signal), update: sendUpdate }, hide), output.write);
     if (load) {
       // The conversation so far, as the person typed it.
@@ -133,7 +165,7 @@ export async function runAcpSession(options: SessionOptions): Promise<void> {
     return { sessionId };
   };
 
-  connection.onRequest("initialize", async () => initializeResult());
+  connection.onRequest("initialize", async () => initializeResult(await readAcpMcpSetting(options.homeDir ?? os.homedir())));
   connection.onRequest("session/new", (params) => open(params, false));
   connection.onRequest("session/load", (params) => open(params, true));
   connection.onRequest("session/prompt", async (params) => {

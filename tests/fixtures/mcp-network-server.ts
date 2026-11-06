@@ -41,6 +41,11 @@ function catalog(mode: string): Tool[] {
       read("ask_docs", { type: "object", properties: { question: { type: "string" } } }),
       ...Array.from({ length: 20 }, (_, i) => read(`configure_vlan_uplink_helper_${i}`)),
     ];
+    // hpe-networking-mcp's docs tools on their own (a docs-only copy, rag.py): no router tools.
+    case "hpe-rag": return [
+      read("search_docs", { type: "object", properties: { query: { type: "string" } } }),
+      read("lookup_api", { type: "object", properties: { query: { type: "string" } } }),
+    ];
     // A server that returns device configs with secrets in them (like get_device_running_config).
     case "config": return [
       read("get_running_config"), read("get_ssid"),
