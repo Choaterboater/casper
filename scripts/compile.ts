@@ -24,6 +24,16 @@ export async function compileExecutable(entrypoint: string, outfile: string, tar
   }
 }
 
+/** The engine's start, with its version written in. In a compiled binary the engine reads its package.json next to the
+ * program, where there is none, so its version was "0.0.0": ChatGPT's model list then left out every model newer
+ * than that client (GPT-6 Sol, GPT-6.1 Sol), and pi.dev gave it no model list. A package.json found there still
+ * wins, as it does for the engine. */
+export function withEngineVersion(source: string, version: string): string {
+  const empty = "let pkg = {};";
+  if (source.split(empty).length !== 2 || !/^\d+\.\d+\.\d+/.test(version)) throw new Error("Pi config layout changed; review the compiled engine version");
+  return source.replace(empty, `let pkg = ${JSON.stringify({ version })};`);
+}
+
 async function build(entrypoint: string, outfile: string, target?: Bun.Build.CompileTarget): Promise<void> {
   const result = await Bun.build({
     entrypoints: [path.resolve(entrypoint)],
@@ -43,6 +53,14 @@ async function build(entrypoint: string, outfile: string, target?: Bun.Build.Com
             contents: source.replace(lookup, "").replace(original, "const bytes = require('fs').readFileSync(require('./photon_rs_bg.wasm'));"),
             loader: "js", resolveDir: path.dirname(file),
           };
+        });
+      },
+    }, {
+      name: "embedded-engine-version",
+      setup(build) {
+        build.onLoad({ filter: /[\\/]pi-coding-agent[\\/]dist[\\/]config\.js$/ }, async ({ path: file }) => {
+          const { version } = JSON.parse(await readFile(path.join(path.dirname(file), "..", "package.json"), "utf8")) as { version: string };
+          return { contents: withEngineVersion(await readFile(file, "utf8"), version), loader: "js", resolveDir: path.dirname(file) };
         });
       },
     }],

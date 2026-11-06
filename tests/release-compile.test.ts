@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, readdir, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { deflateSync } from "node:zlib";
-import { compileExecutable } from "../scripts/compile";
+import { compileExecutable, withEngineVersion } from "../scripts/compile";
 import { CASPER_VERSION } from "../src/version";
 import { cleanEnv } from "./support/env";
 import { needsSandbox } from "./support/platform";
@@ -89,6 +89,28 @@ test("the compiled binary carries the bundled network, home lab and design skill
     await removeDir(root);
   }
 }, 120_000);
+
+test("the compiled binary's engine knows its own version, which ChatGPT's and pi.dev's model lists are asked with", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "casper-compiled-engine-"));
+  try {
+    const binary = path.join(root, process.platform === "win32" ? "probe.exe" : "probe");
+    await compileExecutable(path.join(import.meta.dir, "fixtures/compiled-engine-version.ts"), binary);
+    const child = Bun.spawn([binary], { cwd: root, env: cleanEnv({ HOME: root, USERPROFILE: root }), stdout: "pipe", stderr: "pipe" });
+    const [exit, stdout, stderr] = await Promise.all([child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()]);
+    // No package.json sits beside the program: the engine said "0.0.0", and ChatGPT listed only models that old.
+    const engine = (await Bun.file(path.join(import.meta.dir, "../node_modules/@earendil-works/pi-coding-agent/package.json")).json()) as { version: string };
+    expect({ exit, stderr, version: stdout.trim() }).toEqual({ exit: 0, stderr: "", version: engine.version });
+  } finally {
+    await removeDir(root);
+  }
+}, 120_000);
+
+test("the engine's version is written only where the pinned engine starts with an empty package", () => {
+  expect(withEngineVersion("const a = 1;\nlet pkg = {};\ntry { pkg = read(); } catch {}\n", "1.4.0")).toBe('const a = 1;\nlet pkg = {"version":"1.4.0"};\ntry { pkg = read(); } catch {}\n');
+  expect(() => withEngineVersion("let pkg = read();\n", "1.4.0")).toThrow("Pi config layout changed");
+  expect(() => withEngineVersion("let pkg = {};\nlet pkg = {};\n", "1.4.0")).toThrow("Pi config layout changed");
+  expect(() => withEngineVersion("let pkg = {};\n", "")).toThrow("Pi config layout changed");
+});
 
 function chunk(kind: string, bytes: Buffer): Buffer {
   const tag = Buffer.from(kind);
