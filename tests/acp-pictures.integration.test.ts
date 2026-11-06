@@ -83,7 +83,8 @@ test("with no model that can see pictures, a note goes to the app and the words 
   expect((await client.request("session/prompt", { sessionId, prompt: [words("What colour is the Save button?"), image()] })).stopReason).toBe("end_turn");
   const first = requestWith(f.payloads, "What colour is the Save button?")!;
   expect(lastAsk(first).pictures).toBe(0);
-  expect(chunks(client, sessionId).filter((chunk) => chunk === "[image] words the model wrote\n")).toHaveLength(1);
+  // After Casper's note, the model's words start a paragraph of their own.
+  expect(chunks(client, sessionId).filter((chunk) => chunk.replace(/^\n+/, "") === "[image] words the model wrote\n")).toHaveLength(1);
   const note = chunks(client, sessionId).find((chunk) => chunk.startsWith("[image] ") && chunk.includes("can't see pictures"));
   expect(note).toMatch(/^\[image\] .+ can't see pictures, and no model you set up can; the request goes without it\. \/model picks one that can\.\n$/);
   expect(client.permissions).toEqual([]);

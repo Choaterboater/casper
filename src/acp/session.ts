@@ -35,7 +35,7 @@ import { accessModeOf, modeState, setAccessMode, withModeTold } from "./modes";
 import { AcpAsker } from "./permission";
 import { promptContent } from "./prompt";
 import { RpcConnection, RpcFailure, RPC, type Json } from "./rpc";
-import { acpReceipt, commandsUpdate, configUpdate, hider, receiptUpdate, UpdateMapper, valuesHider } from "./updates";
+import { acpReceipt, commandsUpdate, configUpdate, hider, UpdateMapper, valuesHider } from "./updates";
 
 /** ACP's protocol version this agent speaks. */
 export const ACP_PROTOCOL_VERSION = 1;
@@ -282,6 +282,7 @@ export async function runAcpSession(options: SessionOptions): Promise<void> {
     catch (error) { throw error instanceof RpcFailure ? new RpcFailure(error.code, hide(error.message)) : error; }
     busy = true;
     cancelled = false;
+    mapper.newPrompt();
     // A part line left from before this prompt (the start's transcript) ends here, not inside this prompt's first line.
     routeRest();
     let report: Awaited<ReturnType<CasperApp["runOnce"]>>;
@@ -329,7 +330,7 @@ export async function runAcpSession(options: SessionOptions): Promise<void> {
     announce();
     const receipt = acpReceipt(receiptEvent(report, task, exitCode, app.sandboxReceipt(), app.commandUsage()), task, hide);
     // A command that is not a task (/status) has no receipt to show.
-    if (receipt.text.trim()) sendUpdate(receiptUpdate(receipt));
+    if (receipt.text.trim()) for (const update of mapper.receipt(receipt)) sendUpdate(update);
     // Before the reply: a command may have changed the list (a new file in ~/.casper/commands).
     sendCommands();
     const stopReason = cancelled || task?.execution === "cancelled" ? "cancelled" : task?.turnLimit ? "max_turn_requests" : "end_turn";

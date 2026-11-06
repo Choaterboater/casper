@@ -7,7 +7,7 @@ import { AcpAsker, optionKind } from "../src/acp/permission";
 import { RpcConnection } from "../src/acp/rpc";
 import { sessionArgs } from "../src/acp/server";
 import { askedWithout, promptText } from "../src/acp/session";
-import { hider, UpdateMapper } from "../src/acp/updates";
+import { hider, keptLines, UpdateMapper, type AcpReceipt } from "../src/acp/updates";
 import { NO, YES_ONCE, YES_SESSION } from "../src/app/safe-choices";
 import type { AwayQuestion } from "../src/tui/terminal";
 
@@ -119,8 +119,50 @@ test("a prompt is its text blocks, a linked file by its quoted path, embedded te
 test("a note for the person goes after the model's text so far, on a line of its own, hidden like the rest", () => {
   const mapper = new UpdateMapper(hider(() => ["value-from-the-env-1234"]));
   const out = [...mapper.map({ type: "assistant_delta", text: "Looking at it" }), ...mapper.note("[image] value-from-the-env-1234.png is not a PNG, JPEG, GIF or WebP picture; not attached")];
-  expect(out.map((update) => (update.content as { text: string }).text)).toEqual(["Looking at it", "[image] <secret hidden>.png is not a PNG, JPEG, GIF or WebP picture; not attached\n"]);
+  expect(out.map((update) => (update.content as { text: string }).text)).toEqual(["Looking at it", "\n\n[image] <secret hidden>.png is not a PNG, JPEG, GIF or WebP picture; not attached\n"]);
   expect(mapper.flush()).toEqual([]);
+});
+
+/** The agent message an app shows, as Markdown renders it: each paragraph, its lines as the app shows them. */
+const rendered = (updates: Array<Record<string, unknown>>) => Bun.markdown.html(updates.map((update) => (update.content as { text: string }).text).join(""))
+  .split(/<\/p>\s*/).filter((paragraph) => paragraph.trim()).map((paragraph) => paragraph.replace(/^\s*<p>/, "").split(/<br \/>\n?/).map((line) => line.replaceAll("&#39;", "'").replaceAll("&amp;", "&")));
+
+test("the receipt reaches the app as the terminal prints it: its own paragraph after the model's words, each line on its own", () => {
+  const lines = ["– Not verified — the model's review lists unfinished items", "✓ Changed 2 files: calc.py, test_calc.py", "✓ test passed (python3 -m unittest discover)",
+    "– Changed while checking: test_calc.py", "Undo: casper /undo 1 · Diff: casper /diff 1"];
+  const receipt = { text: lines.join("\n") } as AcpReceipt;
+  const mapper = new UpdateMapper(hider(() => []));
+  const out = [...mapper.map({ type: "assistant_delta", text: "Tests: 3 passed." }), ...mapper.map({ type: "assistant_message", text: "Tests: 3 passed." }), ...mapper.receipt(receipt)];
+  expect(rendered(out)).toEqual([["Tests: 3 passed."], lines]);
+  // The data keeps the receipt's text as --json prints it.
+  expect((out.at(-1)!._meta as { casper: { receipt: AcpReceipt } }).casper.receipt.text).toBe(lines.join("\n"));
+  // Two [image] notes and the model's words after them: each note on its own line, the words a paragraph of their own.
+  const notes = new UpdateMapper(hider(() => []));
+  expect(rendered([...notes.note("[image] a.heic is not a PNG; not attached"), ...notes.note("[image] b.heic is not a PNG; not attached"),
+    ...notes.map({ type: "assistant_delta", text: "Here is what I see.\n" }), ...notes.map({ type: "error", message: "quota reached\ntry again in an hour" })]))
+    .toEqual([["[image] a.heic is not a PNG; not attached"], ["[image] b.heic is not a PNG; not attached"], ["Here is what I see."], ["[error] quota reached", "try again in an hour"]]);  // A line of only spaces ends the paragraph as a blank line does, so the line before it gets no break (one that ends a
+  // paragraph would show as a backslash).
+  expect(Bun.markdown.html(keptLines("[error] quota\n  \nretry later"))).not.toContain("\\");
+});
+
+test("two model messages in one turn reach the app as two paragraphs; the streamed chunks of one message stay joined", () => {
+  const mapper = new UpdateMapper(hider(() => []));
+  const out = [
+    ...mapper.map({ type: "assistant_delta", text: "Still not done: none.\n" }), ...mapper.map({ type: "assistant_delta", text: "Covered: 3 of 3 " }),
+    ...mapper.map({ type: "assistant_delta", text: "requirements." }), ...mapper.map({ type: "assistant_message", text: "" }),
+    ...mapper.map({ type: "assistant_delta", text: "I found no issues" }), ...mapper.map({ type: "assistant_delta", text: ": all done." }), ...mapper.map({ type: "assistant_message", text: "" }),
+  ];
+  expect(out.map((update) => (update.content as { text: string }).text).join("")).toBe("Still not done: none.\nCovered: 3 of 3 requirements.\n\nI found no issues: all done.");
+  expect(rendered(out)).toEqual([["Still not done: none.\nCovered: 3 of 3 requirements."], ["I found no issues: all done."]]);
+  // After a tool step the app starts a new block itself: nothing goes before the next message's words, nor before a
+  // new prompt's.
+  const steps = new UpdateMapper((text) => text, { holdsSecret: () => false });
+  steps.map({ type: "assistant_delta", text: "Reading." }); steps.map({ type: "assistant_message", text: "" });
+  steps.runtime({ type: "tool_start", toolName: "read", toolCallId: "call_1", input: { path: "a.js" }, args: { path: "a.js" } });
+  expect(steps.map({ type: "assistant_delta", text: "Done.\n" }).map((update) => (update.content as { text: string }).text)).toEqual(["Done.\n"]);
+  steps.map({ type: "assistant_message", text: "" });
+  steps.newPrompt();
+  expect(steps.map({ type: "assistant_delta", text: "Next.\n" }).map((update) => (update.content as { text: string }).text)).toEqual(["Next.\n"]);
 });
 
 test("a command's output is one fenced block, a whole line at a time (a secret split across two writes is hidden whole); model text, a note or a flush closes it", () => {

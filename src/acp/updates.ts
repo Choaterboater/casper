@@ -55,6 +55,21 @@ const PHASE_WORDS: Record<PhaseEvent["phase"], string> = {
 
 const text = (words: string) => ({ type: "text", text: words });
 
+/** What starts a paragraph of its own after `tail` (the end of the text sent so far): the app reads an agent message
+ * as Markdown, where text after a single newline goes on in the same paragraph. */
+function paragraphAfter(tail: string): string {
+  return !tail || tail.endsWith("\n\n") ? "" : tail.endsWith("\n") ? "\n" : "\n\n";
+}
+
+/** Casper's own lines (a receipt, an `[image]` note) as Markdown keeps them: each line ends in a hard break, so the app
+ * shows them one under another as the terminal does, not run on as one paragraph. A blank line (or one of only spaces)
+ * stays a blank line, and the line before it gets no break: a break that ends a paragraph would show as a backslash. */
+export function keptLines(lines: string): string {
+  const all = lines.replace(/^\n+|\n+$/g, "").split("\n");
+  // A line that ends in a backslash already would read as an escaped one: two spaces are its break.
+  return `${all.map((line, index) => all[index + 1]?.trim() && line.trim() ? `${line}${line.endsWith("\\") ? "  " : "\\"}` : line).join("\n")}\n`;
+}
+
 /** A command's output is a monospace block: four backticks, so a ``` line in it does not end the block. */
 export const COMMAND_FENCE_OPEN = "````text\n";
 /** A line of the output that would end that block (four or more backticks, at most 3 spaces in, nothing after them
@@ -90,6 +105,10 @@ export interface MapperOptions {
  */
 export class UpdateMapper {
   private pending = "";
+  /** The last two letters of the text sent in this prompt since its last step, and whether the next text starts a
+   * paragraph of its own: another model message, or words after Casper's own lines. */
+  private tail = "";
+  private separate = false;
   /** A command's output not sent yet (a part line), and whether its fenced block is open. */
   private commandPending = "";
   private fenceOpen = false;
@@ -118,7 +137,9 @@ export class UpdateMapper {
       try { mcp = this.options.mcpTool?.(event.toolName, event.args ?? {}); } catch { mcp = undefined; }
       const facts = stepFacts(event, this.cwd(), mcp);
       if (event.toolCallId) this.running.set(event.toolCallId, { id, facts });
-      return [...this.flush(), hideDeep(startUpdate(id, facts, this.rules), this.hide, { keys: true })];
+      const before = this.flush();
+      this.tail = "";
+      return [...before, hideDeep(startUpdate(id, facts, this.rules), this.hide, { keys: true })];
     }
     if (event.type === "tool_end") {
       const step = event.toolCallId ? this.running.get(event.toolCallId) : undefined;
@@ -134,6 +155,9 @@ export class UpdateMapper {
       case "assistant_delta": {
         // The model speaking ends a command's block first.
         const closed = this.closeFence();
+        // A model message after another one, or after Casper's own lines, is a paragraph of its own (two messages
+        // would otherwise read as one: "…requirements.I found no issues"); the chunks of one message stay joined.
+        if (this.separate && event.text) { this.pending += paragraphAfter(this.tail); this.separate = false; }
         this.pending += event.text;
         const end = this.pending.lastIndexOf("\n");
         if (end < 0) return closed;
@@ -141,11 +165,13 @@ export class UpdateMapper {
         this.pending = this.pending.slice(end + 1);
         return [...closed, this.message(ready)];
       }
-      case "assistant_message": return this.flush();
+      case "assistant_message": { const rest = this.flush(); this.separate = true; return rest; }
       case "check": {
         const notRun = event.status === "skip";
         const title = `Check ${event.name}${event.command ? `: ${event.command}` : ""}${notRun ? " (not run)" : ""}`;
-        return [...this.flush(), { sessionUpdate: "tool_call", toolCallId: `casper-check-${++this.steps}`, title: this.hide(title), kind: "execute",
+        const before = this.flush();
+        this.tail = "";
+        return [...before, { sessionUpdate: "tool_call", toolCallId: `casper-check-${++this.steps}`, title: this.hide(title), kind: "execute",
           status: event.status === "fail" ? "failed" : "completed",
           rawOutput: { status: event.status, exit: event.exit, ms: event.ms, ...(event.ended ? { ended: event.ended } : {}), ...(event.label ? { label: this.hide(event.label) } : {}) } }];
       }
@@ -155,15 +181,33 @@ export class UpdateMapper {
         entry.status = event.state === "start" ? "in_progress" : "completed";
         return [{ sessionUpdate: "plan", entries: this.plan.map((item) => ({ content: PHASE_WORDS[item.phase], priority: "medium", status: item.status })) }];
       }
-      case "error": return [...this.flush(), this.message(`[error] ${event.message}\n`)];
+      case "error": return this.note(`[error] ${event.message}`);
       default: return [];
     }
   }
 
   /** A line for the person (an `[image] ` note: a picture that was not sent), after the model's text so far, so it
-   * reads where it happened. */
+   * reads where it happened: a paragraph of its own, its lines kept (keptLines). */
   note(line: string): Json[] {
-    return [...this.flush(), this.message(line.endsWith("\n") ? line : `${line}\n`)];
+    const before = this.flush();
+    const update = this.message(`${paragraphAfter(this.tail)}${keptLines(line)}`);
+    this.separate = true;
+    return [...before, update];
+  }
+
+  /** The receipt as the prompt's last message (receiptUpdate), a paragraph of its own after the text so far. */
+  receipt(receipt: AcpReceipt): Json[] {
+    const before = this.flush();
+    const update = receiptUpdate(receipt, paragraphAfter(this.tail));
+    this.tail = "";
+    this.separate = false;
+    return [...before, update];
+  }
+
+  /** A new prompt: its first words start the app's new message, so nothing goes before them. */
+  newPrompt(): void {
+    this.tail = "";
+    this.separate = false;
   }
 
   /** A command's output (/status), a whole line at a time, so a secret is hidden whole: Casper's reply in a fenced
@@ -196,12 +240,19 @@ export class UpdateMapper {
     const rest = this.commandPending;
     this.commandPending = "";
     const out = rest ? [this.fenced(`${rest}\n`)] : [];
-    if (this.fenceOpen) { this.fenceOpen = false; out.push(this.message(COMMAND_FENCE_CLOSE)); }
+    if (this.fenceOpen) {
+      this.fenceOpen = false;
+      out.push(this.message(COMMAND_FENCE_CLOSE));
+      // A closed block ends its paragraph as a blank line does.
+      this.tail = "\n\n";
+    }
     return out;
   }
 
   private message(words: string): Json {
-    return { sessionUpdate: "agent_message_chunk", content: text(this.hide(words)) };
+    const shown = this.hide(words);
+    if (shown) this.tail = (this.tail + shown).slice(-2);
+    return { sessionUpdate: "agent_message_chunk", content: text(shown) };
   }
 }
 
@@ -231,8 +282,8 @@ export function acpReceipt(receipt: ReceiptEvent, task: TaskResult | undefined, 
   }, hide);
 }
 
-/** The receipt as the session's last message: the text a person reads, with the data in `_meta`. */
-export function receiptUpdate(receipt: AcpReceipt): Json {
-  // On a line of its own after the model's last words.
-  return { sessionUpdate: "agent_message_chunk", content: text(`\n${receipt.text.replace(/^\n+|\n+$/g, "")}\n`), _meta: { casper: { receipt } } };
+/** The receipt as the session's last message: the text a person reads, each of its lines kept (keptLines), with the
+ * data in `_meta`. `lead` starts its paragraph after the model's last words (UpdateMapper.receipt). */
+export function receiptUpdate(receipt: AcpReceipt, lead = "\n\n"): Json {
+  return { sessionUpdate: "agent_message_chunk", content: text(`${lead}${keptLines(receipt.text)}`), _meta: { casper: { receipt } } };
 }
