@@ -40,6 +40,8 @@ export interface SecretToolHost {
   canAsk(): boolean;
   /** Plan mode: nothing in the project changes. */
   planning?(): boolean;
+  /** Read only access, set by the app that runs casper acp: nothing changes either. */
+  readOnly?(): boolean;
   /** The hidden box. The value, or undefined when the person skipped it (Esc, Ctrl+C, nothing typed). */
   ask(ask: SecretAsk, signal?: AbortSignal): Promise<string | undefined>;
   /** A line for the person (never the AI). */
@@ -145,6 +147,7 @@ export function secretTool(host: SecretToolHost): RuntimeTool {
       if (saveTo !== undefined && (typeof saveTo !== "string" || !saveTo.trim())) return refused("Not asked: saveTo must be a file path in the project, or left out.");
       if (saveTo === undefined && RESERVED.test(name)) return refused(`Not asked: $${name} is one the shell or Casper uses. Pick another name.`);
       if (saveTo !== undefined && host.planning?.()) return refused("Not asked: plan mode changes no files. Ask for it when you build.");
+      if (saveTo !== undefined && host.readOnly?.()) return refused("Not asked: Read only (set by the app) changes no files. Ask for it once the app allows changes.");
       const target = saveTo === undefined ? undefined : await fileTarget(host, saveTo);
       if (target && "error" in target) return refused(target.error);
       if (!host.canAsk()) {

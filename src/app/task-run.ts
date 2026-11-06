@@ -129,13 +129,16 @@ export async function runModelTask(app: CasperApp, prompt: string, options: { fl
   const typed = prompt;
   prompt = attached.text;
   // A flow the user picked, /plan or /look is already this task's one choice before work: no other panel.
-  app.beforeWorkAsked = Boolean(options.flow || options.planFirst || options.guide);
-  if (await offerNamedProject(app, typed, options.planFirst, options.pasted) === "stop" || app.closing || app.commandAbort?.signal.aborted) return;
-  if ((!options.planFirst && await offerNewProject(app, prompt) === "stop") || app.closing || app.commandAbort?.signal.aborted) return;
+  // Read only (set by the app that runs casper acp, decision 82): Casper looks and answers, so nothing before the work
+  // offers a change: no project offers, no checklist, no plan-first line, and no checks after it.
+  const readOnly = app.readOnlyAccess;
+  app.beforeWorkAsked = Boolean(options.flow || options.planFirst || options.guide || readOnly);
+  if (!readOnly && await offerNamedProject(app, typed, options.planFirst, options.pasted) === "stop" || app.closing || app.commandAbort?.signal.aborted) return;
+  if ((!options.planFirst && !readOnly && await offerNewProject(app, prompt) === "stop") || app.closing || app.commandAbort?.signal.aborted) return;
   app.planBuild = undefined;
   app.events.setPlanProgress(undefined);
   // Only words the person typed name a network product: a pasted screen, log or page never brings up the offer.
-  await offerNetworkServer(app, options.pasted ? withoutPasted(typed, options.pasted) : typed);
+  if (!readOnly) await offerNetworkServer(app, options.pasted ? withoutPasted(typed, options.pasted) : typed);
   if (app.closing || app.commandAbort?.signal.aborted) return;
   const previous = app.observations.spent();
   app.spentBefore = { tokens: app.spentBefore.tokens + previous.tokens, cost: app.spentBefore.cost + previous.cost };
@@ -376,7 +379,7 @@ export async function runModelTask(app: CasperApp, prompt: string, options: { fl
         takeOpenPlan(app),
         // Only in a folder holding nothing but .casper: `git clone <url> .` would refuse it.
         emptyFolder,
-        formatTaskPrompt(prompt, classification, context.model, { verificationMode, proveChange: proving, typed, machines: machineNames(app.machines, app.sessionHomeDir),
+        formatTaskPrompt(prompt, classification, context.model, { verificationMode, proveChange: proving, typed, machines: machineNames(app.machines, app.sessionHomeDir), readOnly,
           reviewFollows: context.verification.review === true, afterContext: Boolean(memoryContext || skillContext) }),
         planBlock,
         // "in parallel", "by yourself": one line, only where builders are offered.
@@ -741,7 +744,7 @@ export async function runModelTask(app: CasperApp, prompt: string, options: { fl
       ...(services.length ? { services } : {}), ...(riskyLines.length ? { riskyLines: [...riskyLines], ...(riskyLines.more ? { riskyMore: riskyLines.more } : {}) } : {}),
       // Smoke checks ran even without a configured command, so "no checks" no longer describes the task.
       verificationMode, ...(!flag && !configured && verificationMode === "auto" ? { verificationDefaulted: true as const } : {}),
-      ...(plan.untrusted ? { untrustedFolder: plan.untrusted } : {}),
+      ...(plan.untrusted ? { untrustedFolder: plan.untrusted } : {}), ...(plan.readOnly ? { readOnlyAccess: true as const } : {}),
       ...(autoChecks?.skipped && !verification?.smoke && !verification?.pages ? { autoSkipped: autoChecks.skipped } : {}),
       ...(autoChecks?.skipped === "no-checks" && !verification?.smoke && !verification?.pages && context.model.testsWithoutCommand ? { testsWithoutCommand: true as const } : {}),
       ...(pageNotes?.length && !verification?.pages ? { pageNotes } : {}), ...(pagesShown ? { pagesShown } : {}),

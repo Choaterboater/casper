@@ -23,6 +23,17 @@ test("tool targets and error messages are redacted; a provider failure becomes a
   expect(mapper.map({ type: "assistant_response_end", stopReason: "error", errorMessage: "429", retrying: true })).toEqual([unknownUsage]);
 });
 
+test("a step's model arguments and what it showed (casper acp's) never reach --json", () => {
+  const mapper = new RuntimeEventMapper(() => 0);
+  const events = [
+    ...mapper.map({ type: "tool_start", toolName: "write", toolCallId: "t1", input: { path: "a.txt" }, args: { path: "a.txt", content: "the-written-body" } }),
+    ...mapper.map({ type: "tool_end", toolName: "write", toolCallId: "t1", isError: false, display: { text: "the-shown-output", truncated: false, before: "the-old-body", exitCode: 3, line: 4 } }),
+  ];
+  expect(events).toEqual([{ type: "tool_start", tool: "write", id: "t1", target: "a.txt" }, { type: "tool_end", tool: "write", id: "t1", ok: true, ms: 0 }]);
+  const lines = events.map(formatJsonEvent).join("");
+  for (const text of ["the-written-body", "the-shown-output", "the-old-body", "display", "args"]) expect(lines).not.toContain(text);
+});
+
 test("each event is one line with v:1, and terminal controls stay escaped", () => {
   const line = formatJsonEvent({ type: "assistant_delta", text: "a\u001b[2Jb\u009bc\u202ed\n" });
   expect(line.endsWith("\n")).toBe(true);

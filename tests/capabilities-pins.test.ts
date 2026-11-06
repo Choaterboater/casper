@@ -59,3 +59,15 @@ test("With routers and a docs server too, the app's first pin stays direct and d
   expect(order.slice(3)).toEqual(["acp-app:pin_one", "hpe:lookup_api", "hpe:search_docs"]);
   expect(await direct(all, "search the docs")).toEqual(order);
 }, childTestLimit(6));
+
+test("A runtime tool call names its MCP server and tool: a direct tool by name, call_capability by its id", async () => {
+  const broker = await brokerFor(definition("acp-app", "pins", "client"));
+  const [pinned] = (await broker.prepare("hi")).filter((tool) => tool.name.startsWith("mcp_"));
+  expect(broker.named(pinned!.name)).toEqual({ server: "acp-app", tool: "pin_one" });
+  expect(broker.named("call_capability", { id: "mcp:acp-app:pin_two" })).toEqual({ server: "acp-app", tool: "pin_two" });
+  // An id Casper doesn't know still names what it asked for; anything else names nothing.
+  expect(broker.named("call_capability", { id: "mcp:other%20server:do" })).toEqual({ server: "other server", tool: "do" });
+  expect(broker.named("call_capability", { id: "status" })).toBeUndefined();
+  expect(broker.named("find_capability", { query: "x" })).toBeUndefined();
+  expect(broker.named("read")).toBeUndefined();
+}, childTestLimit(1));

@@ -95,6 +95,8 @@ export interface ServerPolicy {
   showOptIn: boolean;
   /** Your own server started with writes on (My MCP servers): a change runs without the change box. */
   ownWrites?: true;
+  /** An app's server that asks for itself (casper/clientAsks): its ownWrites stands for the app's own box. */
+  clientAsks?: true;
 }
 
 /** Casper's defaults: 20 s to start, 90 s per call without progress, 10 min for any call. */
@@ -459,7 +461,8 @@ export class MCPManager {
     if (!entry) return { writes: "off", showOptIn: false };
     const match = this.match(entry);
     return { ...(match ? { match } : {}), writes: entry.writes, ...(entry.access ? { access: entry.access } : {}), showOptIn: entry.showOptIn,
-      ...(entry.ownWrites && entry.writes === "on" && !match ? { ownWrites: true as const } : {}) };
+      ...(entry.ownWrites && entry.writes === "on" && !match ? { ownWrites: true as const } : {}),
+      ...(entry.definition.scope === "client" && entry.definition.clientAsks ? { clientAsks: true as const } : {}) };
   }
 
   /** A copy of one loaded definition (for the user's own notes; never shown to the model). */

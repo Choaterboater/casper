@@ -14,7 +14,12 @@ import { initializeResult, sessionFolder } from "./session";
 /** Set only on the session processes this router starts (removed from their own environment at once). */
 export const SESSION_ENV = "CASPER_ACP_SESSION";
 
-interface SessionProcess { child: Subprocess<"pipe", "pipe", "pipe">; connection: RpcConnection }
+interface SessionProcess {
+  child: Subprocess<"pipe", "pipe", "pipe">;
+  connection: RpcConnection;
+  /** The session's command list, held until this router has written the reply that names the session. */
+  held?: Json[];
+}
 
 /** The router's own arguments for each session process, without --cd: the session gets its folder from the client. */
 export function sessionArgs(argv: readonly string[]): string[] {
@@ -54,10 +59,14 @@ export async function runAcpServer(argv: readonly string[], launchedFrom: string
     running.add(child);
     void child.exited.then(() => { running.delete(child); });
     const connection = new RpcConnection(child.stdout, (line) => { child.stdin.write(line); child.stdin.flush(); });
-    const session: SessionProcess = { child, connection };
+    const session: SessionProcess = { child, connection, held: [] };
     // What the session says for a person (Casper's transcript) goes to this process's stderr, as --json's does.
     void (async () => { for await (const chunk of child.stderr) process.stderr.write(chunk); })().catch(() => {});
-    connection.onNotification("session/update", (update) => { client.notify("session/update", update); });
+    connection.onNotification("session/update", (update) => {
+      // The session sends its commands right after its own reply; the client gets them after this router's.
+      if (session.held && (update.update as Json | undefined)?.sessionUpdate === "available_commands_update") session.held.push(update);
+      else client.notify("session/update", update);
+    });
     connection.onRequest("session/request_permission", (request) => client.request("session/request_permission", request));
     try {
       await connection.request("initialize", { protocolVersion: initializeResult().protocolVersion });
@@ -79,10 +88,22 @@ export async function runAcpServer(argv: readonly string[], launchedFrom: string
     return session;
   };
 
+  // Once the reply is out, what the session held for after it goes too, and from then on as it comes. A start that
+  // failed has no session: what it held is dropped with it.
+  const release = (id: unknown) => {
+    const session = typeof id === "string" ? sessions.get(id) : undefined;
+    const held = session?.held;
+    if (!session || !held) return;
+    session.held = undefined;
+    for (const update of held) client.notify("session/update", update);
+  };
+
   client.onRequest("initialize", async () => initializeResult(await readAcpMcpSetting()));
-  client.onRequest("session/new", (params) => start("session/new", params));
-  client.onRequest("session/load", (params) => start("session/load", params));
+  client.onRequest("session/new", (params) => start("session/new", params), (result) => release((result as Json | null)?.sessionId));
+  client.onRequest("session/load", (params) => start("session/load", params), (_result, params) => release(params.sessionId));
   client.onRequest("session/prompt", async (params) => route(params).connection.request("session/prompt", params));
+  client.onRequest("session/set_config_option", async (params) => route(params).connection.request("session/set_config_option", params));
+  client.onRequest("session/set_mode", async (params) => route(params).connection.request("session/set_mode", params));
   client.onNotification("session/cancel", (params) => { try { route(params).connection.notify("session/cancel", params); } catch { /* an unknown session has nothing to stop */ } });
 
   // Ctrl+C, SIGTERM or the client gone: each session closes as Casper closes (its checks and services stop), then

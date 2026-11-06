@@ -41,7 +41,7 @@ shellCheckTest("casper acp runs a whole task: tools, text, plan, checks, then th
   const client = open(f);
   const init = await client.request("initialize", INIT);
   expect(init.protocolVersion).toBe(1);
-  expect(init.agentCapabilities).toMatchObject({ loadSession: true, promptCapabilities: { image: false, audio: false, embeddedContext: false } });
+  expect(init.agentCapabilities).toMatchObject({ loadSession: true, promptCapabilities: { image: true, audio: false, embeddedContext: true } });
   expect(init.agentInfo).toMatchObject({ name: "casper" });
   const { sessionId } = await client.request("session/new", { cwd: f.project, mcpServers: [] });
   expect(sessionId).toMatch(/^[0-9a-f-]{36}$/);
@@ -219,20 +219,30 @@ shellCheckTest.skipIf(Bun.which("junoser") !== null)("a check that did not run i
   expect(last.content.text).toContain("junoser not run");
 }, childTestLimit(1));
 
-test("secrets stay hidden in every update: model text, tool titles and the receipt", async () => {
+test("secrets stay hidden in every update: model text, tool titles, arguments, output, written text and the receipt", async () => {
   const value = "acp-env-secret-7f3a9c";
-  const f = await fixture((_request, payload) => payload.messages.at(-1)?.role === "tool"
+  const f = await fixture((_request, payload) => isChecklistCall(payload) ? { text: "[]" } : payload.messages.at(-1)?.role === "tool"
     ? { text: `Here: sk-live1234567890abcdef and token=hunter2-literal and ${value}.\nBearer abcdef0123456789` }
-    : { tools: [{ name: "bash", args: { command: `echo ok --password hunter3-literal # ${value}` } }] });
+    : { tools: [{ name: "bash", args: { command: `echo ok --password hunter3-literal # ${value}` } },
+      { name: "bash", args: { command: "printf 'key %s\\n' \"$DEMO_API_KEY\"" } },
+      { name: "write", args: { path: "deploy.env", content: `DEMO_API_KEY=${value}\nGITHUB_TOKEN=ghp_abcdefghijklmnopqrstuvwxyz0123456789\n` } }] });
   const client = open(f, [], { DEMO_API_KEY: value });
   await client.request("initialize", INIT);
   const { sessionId } = await client.request("session/new", { cwd: f.project, mcpServers: [] });
-  client.answerPermissions(() => "cancelled");
+  client.answerPermissions((params) => option(params, "allow_once"));
   const done = await client.request("session/prompt", { sessionId, prompt: text("Show me") });
   expect(done.stopReason).toBe("end_turn");
   expect(agentText(client.updates, sessionId)).toContain("Here:");
+  // The steps ran and ended with what they showed: the printed key and the written file, secrets hidden.
+  const updates = ofSession(client, sessionId);
+  const ends = updates.filter((update) => update.sessionUpdate === "tool_call_update" && String(update.toolCallId).startsWith("casper-tool-"));
+  expect(ends.length).toBeGreaterThanOrEqual(3);
+  expect(JSON.stringify(ends)).toContain("key ");
+  // Its exit code too, though hiding the key replaced the output the shell reported it with.
+  expect(ends).toContainEqual(expect.objectContaining({ rawOutput: { exitCode: 0, truncated: false } }));
+  expect(updates).toContainEqual(expect.objectContaining({ sessionUpdate: "tool_call", title: "write deploy.env", rawInput: { path: "deploy.env", content: expect.stringMatching(/^<not shown: /) } }));
   const everything = client.lines.join("\n");
-  for (const secret of ["sk-live1234567890abcdef", "hunter2-literal", "hunter3-literal", value, "abcdef0123456789"]) expect(everything).not.toContain(secret);
+  for (const secret of ["sk-live1234567890abcdef", "hunter2-literal", "hunter3-literal", value, "abcdef0123456789", "ghp_abcdefghijklmnopqrstuvwxyz0123456789"]) expect(everything).not.toContain(secret);
 }, childTestLimit(1));
 
 test("two sessions run in parallel, each with its own updates", async () => {
@@ -419,6 +429,9 @@ test("A call to the app's server carries the ACP tool call id", async () => {
     const step = ofSession(client, sessionId).find((update) => update.sessionUpdate === "tool_call" && String(update.title).startsWith("call_capability"));
     expect(step?.toolCallId).toMatch(/^casper-tool-\d+$/);
     expect(server.calls[0]!.meta).toEqual({ "casper/acpToolCallId": step.toolCallId });
+    // The step names the app's server and tool it reached, and carries the model's arguments.
+    expect(step._meta.casper).toMatchObject({ tool: "call_capability", mcp: { server: "acp-app", tool: "set_site" } });
+    expect(step.rawInput).toEqual({ id: "mcp:acp-app:set_site", arguments: { site: "lab" } });
     onlyProtocol(client);
   } finally { await server.close(); }
 }, childTestLimit(1));

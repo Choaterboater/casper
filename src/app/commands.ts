@@ -1,5 +1,6 @@
 import path from "node:path";
 import { judgeStatusLine } from "./auto-mode";
+import { someoneAnswers } from "./approvals";
 import { untrustedReason } from "../project/trust";
 import { savedLocalServers } from "../runtime/local-models";
 import { addLabHosts, labConfigPlace, labImportList, parseLabFile } from "../network/lab-import";
@@ -53,7 +54,7 @@ import { describeVisualization } from "../visualize/tools";
 import { renderProjectSummary } from "../tui/banner";
 import { LifecycleRegistry } from "./lifecycle";
 import type { RenderedVisualization, VisualizationRouter } from "../visualize/router";
-import type { RuntimeAuthenticationResult, RuntimeAuthProvider, RuntimeSession, RuntimeTool, AgentRuntime } from "../runtime/types";
+import type { RuntimeAuthenticationResult, RuntimeAuthProvider, RuntimeModelSelection, RuntimeSession, RuntimeTool, AgentRuntime } from "../runtime/types";
 import { describeChecksPlan, TESTS_WITHOUT_COMMAND, type ChecksPlan } from "../verify/mode";
 import { detectedMigrations, MIGRATIONS_CHECK } from "../verify/migrations-check";
 import { detectedE2e, E2E_CHECK } from "../verify/e2e";
@@ -115,6 +116,12 @@ export interface CommandHost {
   readonly verbose?: boolean;
   /** /permissions all: the shell's questions are answered "Yes, for this session" until you quit or type /permissions ask. */
   stopAsking: boolean;
+  /** The app that runs casper acp answers Casper's boxes (decision 76). */
+  readonly remoteApprovals?: boolean;
+  /** Read only, set by that app (decision 82). */
+  readonly readOnlyAccess?: boolean;
+  /** Casper changed its access itself: casper acp tells the app (decision 82). */
+  onAccessChange?: () => void;
   readonly closing: boolean;
   readonly subagents: SubagentManager;
   /** Pictures make_picture is still making (src/pictures/pending.ts). */
@@ -248,6 +255,21 @@ export function loginProvider(word: string): RuntimeAuthProvider | undefined {
   return Object.hasOwn(LOGIN_PROVIDERS, word.toLowerCase()) ? LOGIN_PROVIDERS[word.toLowerCase()] : undefined;
 }
 
+/** What /model says after a selection: the status block and where the next request goes. An app's pick over
+ * `casper acp` (src/acp/config-options.ts) says the same. */
+export function modelSelectedText(result: RuntimeModelSelection, helpers = false): string {
+  const lines: string[] = [];
+  if (result.from !== undefined) lines.push(`[model] ${terminalText(`${result.status.provider}/${result.status.model}`)} (from ${terminalText(JSON.stringify(result.from))})`);
+  lines.push(formatRuntimeStatus(result.status));
+  if (result.selected) {
+    lines.push(result.savedDefault ? "[model] Selected and saved as the Casper default for new conversations." : "[model] Selected for this conversation only; startup default unchanged.");
+    lines.push(`[model] The next request sends this conversation's context to ${result.status.provider}.`);
+    if (result.status.provider === "anthropic") lines.push(`[model] anthropic is the direct API route; for your Claude Code plan login use /model claude-subscription/${terminalText(result.status.model ?? "<model-id>")}.`);
+    if (helpers) lines.push("[model] Helpers already working keep their model; your next message uses this one.");
+  }
+  return lines.map((line) => `${line}\n`).join("");
+}
+
 export async function runSlashCommand(host: CommandHost, prompt: string): Promise<VerificationReport | undefined> {
     if (host.closing) return;
     if (/^\/help(?:\s|$)/.test(prompt)) {
@@ -307,14 +329,7 @@ export async function runSlashCommand(host: CommandHost, prompt: string): Promis
       if (result.candidates) throw new Error(severalModelsMessage(query, result.candidates));
       // A cancelled picker changes nothing; the status block was already shown at startup.
       if (!result.selected && !result.models) { host.output.write("[model] Selection cancelled; model unchanged.\n"); return; }
-      if (result.from !== undefined) host.output.write(`[model] ${terminalText(`${result.status.provider}/${result.status.model}`)} (from ${terminalText(JSON.stringify(result.from))})\n`);
-      host.output.write(`${formatRuntimeStatus(result.status)}\n`);
-      if (result.selected) host.output.write(result.savedDefault
-        ? "[model] Selected and saved as the Casper default for new conversations.\n"
-        : "[model] Selected for this conversation only; startup default unchanged.\n");
-      if (result.selected) host.output.write(`[model] The next request sends this conversation's context to ${result.status.provider}.\n`);
-      if (result.selected && result.status.provider === "anthropic") host.output.write(`[model] anthropic is the direct API route; for your Claude Code plan login use /model claude-subscription/${terminalText(result.status.model ?? "<model-id>")}.\n`);
-      if (result.selected && helpers) host.output.write("[model] Helpers already working keep their model; your next message uses this one.\n");
+      host.output.write(modelSelectedText(result, helpers));
       if (result.models) {
         host.output.write(result.models.length ? result.models.map((model) => `  ${model.provider}/${model.id}`).join("\n") + "\n" : "No models with configured credentials. Use /login to configure a supported provider.\n");
         host.output.write("Use /model <provider/model-id> to select. Selection does not send a prompt.\n");
@@ -1862,11 +1877,15 @@ async function handlePermissions(host: CommandHost, prompt: string, duringWork =
     host.stopAsking = false;
     host.updateFooter();
     host.output.write(`[permissions] Asking is on again.${task}`);
+    host.onAccessChange?.();
     return;
   }
   if (command.kind === "all") {
-    // A run that can't ask has no person to answer: --no-sandbox is the flag for one run.
-    if (!host.interactive) throw new Error("/permissions all needs a terminal where you can answer. For one run, use --no-sandbox.");
+    // A run that can't ask has no person to answer: --no-sandbox is the flag for one run. The app that runs casper acp
+    // has one, and gets the box as a card.
+    if (!someoneAnswers(host)) throw new Error("/permissions all needs a terminal where you can answer. For one run, use --no-sandbox.");
+    // Read only is the app's: it is changed there, not by a stop-asking switch under it.
+    if (host.readOnlyAccess) { host.output.write("[permissions] The app set Read only: pick another access in the app first. Nothing changed.\n"); return; }
     if (host.stopAsking) { host.output.write("[permissions] Asking is already off. /permissions ask turns it back on.\n"); return; }
     // Typed during a task, the command is the answer: a box would only close again for the task's next question.
     if (typedDuringTask()) { stopAsking(host, task); return; }
@@ -1890,7 +1909,7 @@ async function handlePermissions(host: CommandHost, prompt: string, duringWork =
   // Your own servers that started with writes on are listed apart: their changes don't ask (My MCP servers).
   const asked = host.mcp?.writesOn({ own: false }) ?? [];
   const view: PermissionsView = {
-    shell: basics[0]!, scripts: basics.at(-1)!, ...(host.folderTrust ? { folder: folderTrustText(host.folderTrust) } : {}),
+    ...(host.readOnlyAccess ? { readOnly: true } : {}), shell: basics[0]!, scripts: basics.at(-1)!, ...(host.folderTrust ? { folder: folderTrustText(host.folderTrust) } : {}),
     sandboxReason: sandbox?.failure ?? sandbox?.state.reason, shellAsks: Boolean(sandbox?.asksFirst), routine: context?.routineCommands !== false,
     asking: !host.stopAsking, sandboxOn: Boolean(sandbox?.on), outsideWritesAsk: sandbox?.asksOutsideWrites !== false,
     commandsSession: entries.filter((entry) => entry.session).length, commandsSaved: entries.filter((entry) => !entry.session).length,
@@ -1906,7 +1925,7 @@ async function handlePermissions(host: CommandHost, prompt: string, duringWork =
   if (command.kind === "details") { host.output.write(`${permissionsScreen(view)}\n`); return; }
   host.output.write(`${permissionsSummary(view)}\n`);
   // The one thing most people came for, as its own box (Keep asking first, so Enter changes nothing).
-  if (!host.stopAsking && host.interactive && !duringWork) await stopAskingBox(host, false);
+  if (!host.stopAsking && someoneAnswers(host) && !host.readOnlyAccess && !duringWork) await stopAskingBox(host, false);
   else if (!host.stopAsking) host.output.write(duringWork ? "/permissions all, after this task, stops asking until you quit (it asks first).\n" : "In a terminal, /permissions all stops asking until you quit (it asks first).\n");
 }
 
@@ -1918,10 +1937,11 @@ async function stopAskingBox(host: CommandHost, sayStill = true, task = "\n"): P
 }
 
 /** /permissions all's switch, turned on: by its box (which "stop asking" typed alone also opens), or by "Yes to everything this session" in the shell box. */
-export function stopAsking(host: Pick<CommandHost, "stopAsking" | "updateFooter" | "output">, task = "\n"): void {
+export function stopAsking(host: Pick<CommandHost, "stopAsking" | "updateFooter" | "output" | "onAccessChange">, task = "\n"): void {
   host.stopAsking = true;
   host.updateFooter();
   host.output.write(`[permissions] Not asking until you quit: shell commands, hosts, writes outside the project and other machines are answered Yes for this session. Protected places, secrets, device writes and the spend pause stay as they are. /permissions ask turns asking back on.${task}`);
+  host.onAccessChange?.();
 }
 
 /** /permissions' line about the open folder: trusted, or what not trusting it means and how to change that. */

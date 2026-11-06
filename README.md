@@ -119,6 +119,30 @@ remembered. Reads run; a change asks in the app, unless a server on this compute
 then only deletes, firmware and admin changes ask in Casper's box. `acp_mcp: ask` or `off` in `~/.casper/config.yaml`
 takes that back. [Decision 77](docs/adr/0002/77-an-acp-client-hands-casper-its-tools.md).
 
+A picture pasted or attached in the app goes to Casper's model as a Ctrl+V picture does in the terminal, and an
+attached file goes as its path, which Casper reads with its own tools. When the model can't see pictures, the app
+shows the same question as the terminal: send without it, or switch for that request.
+[Decision 78](docs/adr/0002/78-an-acp-prompt-carries-pictures-and-files.md).
+
+Each step the AI takes reaches the app with what it did: an edit's or a write's diff, a command's output and exit
+code, a read's lines, grep's matches by file, the files find and ls listed, and a web search's sources. Secrets stay
+hidden, and a file's text that holds one is not shown. [Decision 79](docs/adr/0002/79-an-acp-step-carries-its-output.md).
+
+Casper's `/` commands, and your own from `~/.casper/commands`, appear in the app's `/` menu. A command's output is
+Casper's reply, in a monospace block. The ones that would move Casper to another conversation or folder (`/clear`,
+`/resume`, `/branch <name>` and the like) say to use the app's own chats instead, and change nothing.
+[Decision 80](docs/adr/0002/80-an-acp-app-lists-casper-commands.md).
+
+The app's model badge and picker show Casper's own models, the ones you're signed in to, with Casper's effort
+levels. A pick changes Casper's model for the next message and is saved as your default, as `/model` does; a
+`/model` typed into Casper moves the badge. [Decision 81](docs/adr/0002/81-an-acp-app-picks-casper-model-and-effort.md).
+
+The app's access chip reaches Casper. Read only stops Casper changing anything it can see and runs no checks; Ask
+first is Casper's usual boxes; Don't ask equals `/permissions all`, and then a change on the app's own server asks in
+Casper's box instead of the app's. Picking Read only during a prompt closes its open boxes as No. A typed
+`/permissions all` or "Yes to everything this session" shows in the app. `acp_access: off` in `~/.casper/config.yaml`
+keeps Don't ask from apps. [Decision 82](docs/adr/0002/82-an-acp-app-sets-casper-access.md).
+
 Type `/help` for the commands. Ctrl+C stops the current work but keeps changes already made;
 Ctrl+D on an empty prompt exits. [Keys and commands](docs/TERMINAL_UX.md#quick-reference).
 

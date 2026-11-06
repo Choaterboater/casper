@@ -15,6 +15,8 @@ export class RpcFailure extends Error {
 
 export type RequestHandler = (params: Json) => Promise<unknown>;
 export type NotificationHandler = (params: Json) => void;
+/** Runs right after a request's reply line is written (never after an error reply): what must follow the reply. */
+export type AfterReply = (result: unknown, params: Json) => void;
 
 /**
  * One peer: reads lines from `input`, writes lines with `write`. Requests from the other side go to the handler named
@@ -24,7 +26,7 @@ export type NotificationHandler = (params: Json) => void;
 export class RpcConnection {
   private nextId = 1;
   private readonly waiting = new Map<number | string, { resolve: (value: unknown) => void; reject: (error: RpcFailure) => void }>();
-  private readonly requests = new Map<string, RequestHandler>();
+  private readonly requests = new Map<string, { handler: RequestHandler; after?: AfterReply }>();
   private readonly notifications = new Map<string, NotificationHandler>();
   private ended = false;
   /** Resolves when the input ends; every request still waiting rejects then. */
@@ -34,7 +36,8 @@ export class RpcConnection {
     this.closed = this.read(input);
   }
 
-  onRequest(method: string, handler: RequestHandler): void { this.requests.set(method, handler); }
+  /** `after`: runs once the reply line is written (session/new's commands come after the reply that names the session). */
+  onRequest(method: string, handler: RequestHandler, after?: AfterReply): void { this.requests.set(method, { handler, ...(after ? { after } : {}) }); }
   onNotification(method: string, handler: NotificationHandler): void { this.notifications.set(method, handler); }
 
   /** Sends a request and waits for its reply. Rejects when the reply is an error, or when the input ends first. */
@@ -61,17 +64,23 @@ export class RpcConnection {
 
   private async read(input: AsyncIterable<Uint8Array | string>): Promise<void> {
     const decoder = new TextDecoder();
-    let buffer = "";
+    // The line so far, from chunks with no line end in them. Only a new chunk is searched for one, and the parts are
+    // joined once it comes, so a long line (a prompt with pictures in it) costs its length, not its length squared.
+    let partial: string[] = [];
     try {
       for await (const chunk of input) {
-        buffer += typeof chunk === "string" ? chunk : decoder.decode(chunk, { stream: true });
-        for (let end = buffer.indexOf("\n"); end >= 0; end = buffer.indexOf("\n")) {
-          const line = buffer.slice(0, end).trim();
-          buffer = buffer.slice(end + 1);
+        const text = typeof chunk === "string" ? chunk : decoder.decode(chunk, { stream: true });
+        let start = 0;
+        for (let end = text.indexOf("\n"); end >= 0; end = text.indexOf("\n", start)) {
+          const line = (partial.length ? partial.join("") + text.slice(start, end) : text.slice(start, end)).trim();
+          partial = [];
+          start = end + 1;
           if (line) this.receive(line);
         }
+        if (start < text.length) partial.push(text.slice(start));
       }
-      if (buffer.trim()) this.receive(buffer.trim());
+      const rest = partial.join("").trim();
+      if (rest) this.receive(rest);
     } catch { /* the input failed: the same as its end */ }
     this.ended = true;
     for (const waiting of this.waiting.values()) waiting.reject(new RpcFailure(RPC.internal, "the connection closed"));
@@ -97,9 +106,12 @@ export class RpcConnection {
       return;
     }
     const id = message.id;
-    const handler = this.requests.get(message.method);
-    if (!handler) { this.send({ id, error: { code: RPC.methodNotFound, message: `Method not found: ${message.method}` } }); return; }
-    handler(params).then((result) => { this.send({ id, result: result ?? null }); }, (error: unknown) => {
+    const entry = this.requests.get(message.method);
+    if (!entry) { this.send({ id, error: { code: RPC.methodNotFound, message: `Method not found: ${message.method}` } }); return; }
+    entry.handler(params).then((result) => {
+      this.send({ id, result: result ?? null });
+      try { entry.after?.(result, params); } catch { /* the reply is out; nothing to answer */ }
+    }, (error: unknown) => {
       const failure = error instanceof RpcFailure ? error : new RpcFailure(RPC.internal, error instanceof Error ? error.message : String(error));
       this.send({ id, error: { code: failure.code, message: failure.message } });
     });

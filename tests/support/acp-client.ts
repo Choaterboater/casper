@@ -12,6 +12,8 @@ export type PermissionAnswer = { optionId: string } | "cancelled" | "error" | "n
 
 export interface AcpClient {
   request(method: string, params: Json): Promise<Json>;
+  /** Several requests in one write, so the agent reads them together: each comes while the one before is handled. */
+  requestTogether(calls: Array<[method: string, params: Json]>): Array<Promise<Json>>;
   notify(method: string, params: Json): void;
   /** Every session/update notification's params, in order. */
   readonly updates: Json[];
@@ -83,6 +85,15 @@ export function startAcp(f: Fixture, args: string[] = [], extraEnv: Record<strin
       const reply = new Promise<Json>((resolve, reject) => pending.set(id, { resolve, reject }));
       write({ id, method, params });
       return reply;
+    },
+    requestTogether(calls) {
+      const replies = calls.map(([method, params]) => {
+        const id = nextId++;
+        child.stdin.write(`${JSON.stringify({ jsonrpc: "2.0", id, method, params })}\n`);
+        return new Promise<Json>((resolve, reject) => pending.set(id, { resolve, reject }));
+      });
+      child.stdin.flush();
+      return replies;
     },
     notify(method, params) { write({ method, params }); },
     updates, permissions, lines,

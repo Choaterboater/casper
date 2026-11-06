@@ -1,5 +1,6 @@
 import type { SideQuestionUsage } from "./app/side-question";
 import { readOnlyCommand } from "./sandbox/read-only";
+import { PLANNING_BLOCKED, READ_ONLY_BLOCKED } from "./flows/plan";
 import type { FolderTrust } from "./project/trust";
 import type { KnownFolderName } from "./platform/known-folders";
 import { reviewerLine } from "./crew/review-line";
@@ -46,7 +47,7 @@ import { loadProjectContext, type ProjectContext } from "./project/context";
 import { broadFolder, inspectProject, type ProjectInfo } from "./project/inspect";
 import { forgetSshSecrets } from "./ssh/login";
 import { useTelemetrySetting } from "./runtime/openrouter-attribution";
-import type { AgentRuntime, RuntimeConversation, RuntimeSession, RuntimeImage, RuntimeTool, RuntimeShell } from "./runtime/types";
+import type { AgentRuntime, RuntimeConversation, RuntimeEvent, RuntimeSession, RuntimeImage, RuntimeTool, RuntimeShell } from "./runtime/types";
 import { SkillRegistry, skillRegistryOptions } from "./skills/registry";
 import type { TaskResult, TaskUsage } from "./task/result";
 import type { TaskClassification } from "./task/classify";
@@ -153,6 +154,8 @@ export interface CasperAppOptions {
   effort?: string;
   /** Machine-readable events (`--json`): the session, streamed text, tools and checks. */
   onEvent?: (event: CasperEvent) => void;
+  /** The runtime's own events, each right before its `onEvent` mapping (`casper acp` builds its steps from them). */
+  onRuntimeEvent?: (event: RuntimeEvent) => void;
   /** Stop each model request after this many turns (`--max-turns`); the task is then incomplete. */
   maxTurns?: number;
   /** Continue the workspace's latest conversation, or the saved one whose ID starts with `resume`. */
@@ -274,6 +277,9 @@ export class CasperApp {
   /** `casper acp`: the ACP toolCallId of the step the model's tool call `id` is, sent with a call to the app's own MCP
    * server (decision 77). */
   acpToolCallId?: (id: string) => string | undefined;
+  /** `casper acp`: Casper's own transcript lines as they are written through `output` (never the model's words, which
+   * the terminal writes itself), so the session can send the ones meant for the person (decision 78). */
+  onOutput?: (text: string) => void;
   /** beforeChanges gate state for the current task; a recorded ask attempt satisfies it. */
   editGateActive = false;
   asksThisTask = 0;
@@ -345,6 +351,7 @@ export class CasperApp {
   runConversation?: CasperAppOptions["conversation"];
   readonly maxTurns?: number;
   readonly onEvent?: (event: CasperEvent) => void;
+  readonly onRuntimeEvent?: (event: RuntimeEvent) => void;
   readonly eventMapper = new RuntimeEventMapper();
   /** The text of the response being streamed, and of the last response that had text. */
   responseText = "";
@@ -523,6 +530,10 @@ export class CasperApp {
   readonly suggestions = new SuggestionController((text) => { if (!this.closing) this.output.write(text); }, () => this.homeDir());
   /** A plan turn is running: every tool but reading is refused (see src/flows/plan.ts). */
   planning = false;
+  /** Why changes are refused now: a plan turn, then Read only access; undefined when they are not. */
+  changesBlocked(): string | undefined {
+    return this.planning ? PLANNING_BLOCKED : this.readOnlyAccess ? READ_ONLY_BLOCKED : undefined;
+  }
   planBuild?: import("./flows/plan-build").PlanBuild;
   /** Flow warnings (a user's flow that could not be used) are said once. */
   readonly flowWarnings = new Set<string>();
@@ -534,6 +545,14 @@ export class CasperApp {
    * answered "Yes, for this session" without showing them. Memory only: never saved, off at start, set only by the
    * person's typed command and numbered answer (src/app/permissions.ts). */
   stopAsking = false;
+  /** Read only access, set by the app that runs casper acp (decision 82): every change Casper can see is refused, as in
+   * a plan turn, and no box is asked. Memory only; only the app's own pick (session/set_mode) sets it. */
+  readOnlyAccess = false;
+  /** The access mode the app last picked (casper acp), when it picked one: its "Don't ask" means the app asks nothing,
+   * so the app's own servers' changes ask in Casper's box again (decision 82). */
+  clientAccess?: "read" | "ask" | "full";
+  /** Casper changed its access itself (/permissions all or ask, "Yes to everything this session"): casper acp tells the app. */
+  onAccessChange?: () => void;
   /** "Yes, for this session" in the box for the AI's change to an MCP server's entry (casper_mcp_remove, casper_mcp_add
    * with replace): later such changes this session need no box. Memory only; only the person's answer sets it. */
   mcpEditsAllowed = false;
@@ -638,7 +657,7 @@ export class CasperApp {
     // The / menu lists your own commands (Markdown files in ~/.casper/commands) with Casper's.
     this.terminal.setUserCommands(() => usableCommands(loadUserCommands(this.homeDir())));
     // Tool calls live in the event view's Working box on a rich surface; the transcript gets plain writes.
-    this.output = { write: (text) => { this.terminal.write(text); } };
+    this.output = { write: (text) => { this.onOutput?.(text); this.terminal.write(text); } };
     this.events = new RuntimeEventView(this.terminal, this.output, {
       updateFooter: () => updateFooter(this),
       builderGoals: () => this.subagents.runs().filter(run => run.role === "builder").map(run => run.goal),
@@ -692,6 +711,7 @@ export class CasperApp {
     this.runConversation = options.conversation;
     this.maxTurns = options.maxTurns;
     this.onEvent = options.onEvent;
+    this.onRuntimeEvent = options.onRuntimeEvent;
     this.verificationFlag = options.verificationMode
       ?? (options.autoVerify === undefined ? undefined : options.autoVerify ? "offer" : "off");
     this.visualizationProviders = options.visualizationProviders ?? [new MermaidProvider(), new MindMeshProvider(), new DrawioProvider()];
@@ -767,14 +787,20 @@ export class CasperApp {
       : task;
   }
 
-  /** `asked`: the request without a transcript pasted into it, when the caller found one (casper acp). */
-  async runOnce(prompt: string, cwd = process.cwd(), asked?: string): Promise<VerificationReport | undefined> {
+  /** `asked`: the request without a transcript pasted into it, when the caller found one (casper acp). `images`: the
+   * pictures the request names as `[image N]`, as if pasted with Ctrl+V (an ACP prompt's image blocks). `echo: false`:
+   * the line is not written back first (casper acp sends a command's output as its reply, the line already shown). */
+  async runOnce(prompt: string, cwd = process.cwd(), asked?: string, options: { images?: ReadonlyMap<number, RuntimeImage>; echo?: boolean } = {}): Promise<VerificationReport | undefined> {
     if (!this.projectContext) {
       await this.start(cwd);
     }
 
-    writePrompt(this, /^\s*\/login(?:\s|$)/.test(prompt) ? "/login" : prompt);
-    return handlePrompt(this, prompt.trim(), undefined, asked);
+    if (options.echo !== false) writePrompt(this, /^\s*\/login(?:\s|$)/.test(prompt) ? "/login" : prompt);
+    // Kept under the exact line handlePrompt reads them by (the trimmed prompt), and gone when it ends.
+    const line = prompt.trim();
+    if (options.images?.size) this.lineImages.set(line, new Map(options.images));
+    try { return await handlePrompt(this, line, undefined, asked); }
+    finally { if (options.images?.size) this.lineImages.delete(line); }
   }
 
   async runInteractive(cwd = process.cwd(), firstRequest?: string): Promise<void> { return runInteractive(this, cwd, firstRequest); }

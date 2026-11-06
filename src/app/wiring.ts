@@ -46,15 +46,19 @@ import { judgeForApp, noteJudgeAllowed } from "./auto-mode";
 export function sandboxHost(app: CasperApp): SandboxHost {
   return {
     onCleanupFailure: app.blockOnCleanupFailure,
-    canAsk: () => someoneAnswers(app) && app.terminal.canAsk && !app.closing,
+    // Read only (decision 82) asks nothing: a box queued behind an open one is No too, so it is checked again when its
+    // turn comes (two of the AI's commands may ask at once, before the switch).
+    canAsk: () => !app.readOnlyAccess && someoneAnswers(app) && app.terminal.canAsk && !app.closing,
     pick: (question, options, signal, settings) => {
       const stop = signal ?? app.commandAbort?.signal;
-      return oneAtATime(app, async () => app.closing ? undefined : app.terminal.pick(question, options, stop, settings?.record ? { record: settings.record } : {}));
+      return oneAtATime(app, async () => app.closing || app.readOnlyAccess ? undefined : app.terminal.pick(question, options, stop, settings?.record ? { record: settings.record } : {}));
     },
     write: (text) => { if (!app.closing) app.output.write(text); },
-    planning: () => app.planning,
-    // Only while a person can answer: a one-shot or --json run never stops asking this way (it refuses, or takes --no-sandbox).
-    stopAsking: () => app.stopAsking && app.interactive && app.terminal.canAsk && !app.closing,
+    // A plan turn or Read only access: the project is mounted read-only and no write is offered.
+    planning: () => app.changesBlocked() !== undefined,
+    // Only while a person can answer (a terminal, or the app that runs casper acp): a one-shot or --json run never
+    // stops asking this way (it refuses, or takes --no-sandbox).
+    stopAsking: () => app.stopAsking && someoneAnswers(app) && app.terminal.canAsk && !app.closing,
     // The session's own shell only (a builder's keeps to its copy): plain reads in your own folders don't ask.
     homeReads: () => true,
     // The shell box's "Yes to everything this session": the same switch, and the same line, as /permissions all.
@@ -201,6 +205,9 @@ export async function loadWorkspace(app: CasperApp, cwd: string) {
   app.broker = new CapabilityBroker(app.mcp, (call, signal) => confirmCapability(app, call, signal), { writesGate: true, scrubber: app.scrubber,
     secretValues: () => ownSecretValues(app),
     planning: () => app.planning,
+    readOnly: () => app.readOnlyAccess,
+    // The app's "Don't ask" asks nothing, so the app's servers' changes get Casper's box (decision 82).
+    clientAsksIgnored: () => app.clientAccess === "full",
     onSessionCovered: (server, tool) => { if (!app.closing) app.output.write(`[approval] allowed (this session): ${terminalText(server)} · ${terminalText(tool)}\n`); },
     // An MCP change is treated like a shell command: it may change the project's files (or a service's), so later
     // checks are not "before the change", services restart, and the tree is compared to tell.

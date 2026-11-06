@@ -682,7 +682,9 @@ An app or an editor that runs `casper acp` can list MCP servers in `session/new`
 - **Asks as any server does.** A read tool runs without asking. A change asks in Casper's change
   box, which goes to the app as a permission request. When the app marks a server on this computer
   (or a program it runs) with `_meta: { "casper/clientAsks": true }`, the app shows its own box for
-  each change, so Casper does not: one install, one box. Deletes, firmware and admin changes still
+  each change, so Casper does not: one install, one box. When the app has set Casper to Don't ask,
+  the app asks nothing, so that server's changes ask in Casper's box again
+  ([decision 82](adr/0002/82-an-acp-app-sets-casper-access.md)). Deletes, firmware and admin changes still
   ask in Casper's box first. A network product (a [preset](#presets), by its definition or its tool
   list) starts with writes off and its read-only settings, as everywhere, `casper/clientAsks` or not.
   `/mcp detail` says `From the app, this session only:` and how its writes stand.

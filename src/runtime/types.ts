@@ -258,6 +258,9 @@ export type RuntimeAuthenticationResult = { /** Login remains owned by Claude Co
 
 export interface RuntimeModelSelectionOptions {
   query?: string;
+  /** Exactly this model, taken before any query parsing (an app's picker over `casper acp`, decision 81): no words,
+   * roles or picker. The sign-in, tools and credential checks still run. */
+  exact?: { provider: string; id: string };
   /** Explicitly select AND save a Casper startup default. */
   persist?: boolean;
   signal?: AbortSignal;
@@ -298,6 +301,17 @@ export interface RuntimeModelInfo {
   inputCostPerMillion?: number;
   /** The model can see images. */
   images?: boolean;
+}
+
+/** A model you can pick now (signed in, able to call tools), as /model lists it. */
+export interface RuntimeOfferedModel {
+  provider: string;
+  id: string;
+  name: string;
+  /** The thinking levels the model supports (effortChoices turns them into /effort's choices). */
+  levels: string[];
+  /** Its provider's own name in the model catalog ("OpenAI"), when it has one; Casper's names come first (providerName). */
+  providerName?: string;
 }
 
 /** A picture sent with a request: base64 bytes and their type (image/png, image/jpeg, image/gif, image/webp). */
@@ -350,6 +364,19 @@ export interface RuntimeSwitchOptions {
   context?: string;
 }
 
+/** A tool step's result as `casper acp` shows it (src/acp/tool-content.ts): display only. */
+export interface ToolDisplay {
+  /** The result's text, 64 KB at most (head and tail), secrets already scrubbed as the model got them. */
+  text: string;
+  truncated: boolean;
+  /** A shell step's exit code; null when it gave none (stopped, timed out). */
+  exitCode?: number | null;
+  /** A write's old text: null for a new file; absent when the file was too big or unreadable. */
+  before?: string | null;
+  /** An edit's first changed line in the new file. */
+  line?: number;
+}
+
 export type RuntimeEvent =
   | { type: "model_controls_changed"; status: RuntimeStatus }
   /** A request to the model is about to be sent: before any answer comes back (a slow provider may say nothing for a while). */
@@ -368,8 +395,10 @@ export type RuntimeEvent =
    * the current block; this is liveness for the person watching, never transcript content. `headline`: a short line of
    * readable reasoning (reasoningHeadline), for the status row only (decision 24). */
   | { type: "assistant_progress"; kind: "thinking" | "tool_call"; toolName?: string; chars: number; headline?: string }
-  /** `description`: the AI's title for a shell step (stepTitle), shown with the command, never instead of it. */
-  | { type: "tool_start"; toolName: string; toolCallId?: string; input?: ToolObservationInput; description?: string }
+  /** `description`: the AI's title for a shell step (stepTitle), shown with the command, never instead of it. `args`:
+   * the model's own arguments, for `casper acp`'s steps only (src/acp/tool-content.ts hides them): never on the screen,
+   * in --json or in a receipt. */
+  | { type: "tool_start"; toolName: string; toolCallId?: string; input?: ToolObservationInput; description?: string; args?: Record<string, unknown> }
   /** A running bash command printed more: the tail of its output so far (screen only, throttled; never in --json). */
   | { type: "tool_progress"; toolName: string; toolCallId?: string; text: string }
   /** Diagnostic tool status only: isError=false is not process-exit evidence. */
@@ -381,7 +410,9 @@ export type RuntimeEvent =
       /** A successful edit's size, from the runtime's patch. */
       lines?: { added: number; removed: number };
       /** A successful edit's unified diff, for the screen only (detailed display and ctrl+t). */
-      diff?: string }
+      diff?: string;
+      /** What the step showed, for `casper acp`'s steps only: never on the screen, in --json or in a receipt. */
+      display?: ToolDisplay }
   | { type: "message_end" }
   /** The prompt's `maxTurns` ended it after that many model turns, with the model still working. */
   | { type: "turn_limit"; turns: number }
@@ -416,6 +447,9 @@ export interface RuntimeSession {
   conversationEntries?(from?: string): Array<{ id: string; prompt?: string }>;
   getStatus?(): RuntimeStatus;
   selectModel?(options: RuntimeModelSelectionOptions): Promise<RuntimeModelSelection>;
+  /** The models you can pick now, in /model's order (the current one first, then your default). Empty in a
+   * read-only child. Makes no call. */
+  offeredModels?(): RuntimeOfferedModel[];
   /** Pick a default model for a signed-in provider only when no model is selected; never overrides a choice. */
   selectDefaultModel?(options?: { provider?: string; signal?: AbortSignal }): Promise<RuntimeModelSelection | undefined>;
   /** The selected model's server didn't answer when Casper started: look once more and use the model if it is there now. */

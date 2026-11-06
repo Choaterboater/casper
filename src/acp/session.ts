@@ -5,7 +5,9 @@
 // A prompt runs as `casper --json "<prompt>"` runs it (trust, sandbox, checks and receipt), except that a person
 // answers: the approval boxes a one-shot run must refuse are put to the client as session/request_permission (anything
 // but a picked choice is No), and the terminal's defaults hold: the checklist for a code change, and the screenshot
-// question once a session.
+// question once a session. A / command's output is its reply (src/acp/commands.ts lists the commands). The app's
+// model and effort picker shows Casper's own models (src/acp/config-options.ts), and its access chip sets Read only,
+// Ask first or Don't ask (src/acp/modes.ts).
 
 import os from "node:os";
 import path from "node:path";
@@ -14,7 +16,7 @@ import type { CliOptions } from "../cli-args";
 import type { CasperApp } from "../app";
 import { receiptEvent, type CasperEvent } from "../app/json-events";
 import { cancelCurrent } from "../app/command-loop";
-import { ownSecretValues } from "../app/network-host";
+import { networkLoginFile, ownSecretValues } from "../app/network-host";
 import { ensureRuntime } from "../app/runtime-start";
 import { transcriptsIn, withoutTranscripts } from "../app/request-words";
 import { promptWords } from "../app/rewind";
@@ -23,10 +25,17 @@ import { CASPER_VERSION } from "../version";
 import type { AwayAsker } from "../tui/terminal";
 import { readAcpMcpSetting, type AcpMcpSetting } from "../config/load";
 import type { MCPServerDefinition } from "../mcp/config";
+import type { RuntimeEvent } from "../runtime/types";
+import { fileTextHoldsSecret, onlyNetconanChecks } from "../secrets/tool-output";
+import { leadingImagePath, startsWithImageFile } from "../app/images";
 import { clientServers } from "./client-servers";
+import { acpCommands, acpRefusal } from "./commands";
+import { offerOf, setOption } from "./config-options";
+import { accessModeOf, modeState, setAccessMode, withModeTold } from "./modes";
 import { AcpAsker } from "./permission";
+import { promptContent } from "./prompt";
 import { RpcConnection, RpcFailure, RPC, type Json } from "./rpc";
-import { acpReceipt, hider, receiptUpdate, UpdateMapper, valuesHider } from "./updates";
+import { acpReceipt, commandsUpdate, configUpdate, hider, UpdateMapper, valuesHider } from "./updates";
 
 /** ACP's protocol version this agent speaks. */
 export const ACP_PROTOCOL_VERSION = 1;
@@ -36,7 +45,7 @@ export const ACP_PROTOCOL_VERSION = 1;
 export function initializeResult(setting: AcpMcpSetting = "on"): Json {
   return {
     protocolVersion: ACP_PROTOCOL_VERSION,
-    agentCapabilities: { loadSession: true, promptCapabilities: { image: false, audio: false, embeddedContext: false }, mcpCapabilities: { http: setting !== "off", sse: false } },
+    agentCapabilities: { loadSession: true, promptCapabilities: { image: true, audio: false, embeddedContext: true }, mcpCapabilities: { http: setting !== "off", sse: false } },
     agentInfo: { name: "casper", title: "Casper", version: CASPER_VERSION },
     authMethods: [],
   };
@@ -57,19 +66,9 @@ export function askedWithout(blocks: unknown, prompt: string): string | undefine
   return withoutTranscripts(prompt, transcriptsIn(texts));
 }
 
-/** The prompt's words: text blocks as they are, a linked or embedded file by its address (and text when it has some). */
+/** The prompt's words as Casper runs them (src/acp/prompt.ts): a picture as `[image N]`, a file as its quoted path. */
 export function promptText(blocks: unknown): string {
-  if (!Array.isArray(blocks)) throw new RpcFailure(RPC.invalidParams, "prompt must be a list of content blocks");
-  const parts = blocks.map((block: Json) => {
-    if (block?.type === "text" && typeof block.text === "string") return block.text;
-    if (block?.type === "resource_link" && typeof block.uri === "string") return block.uri;
-    const resource = block?.resource as Json | undefined;
-    if (block?.type === "resource" && typeof resource?.uri === "string") return typeof resource.text === "string" ? `${resource.uri}\n${resource.text}` : resource.uri;
-    return "";
-  }).filter(Boolean);
-  const prompt = parts.join("\n").trim();
-  if (!prompt) throw new RpcFailure(RPC.invalidParams, "The prompt has no text");
-  return prompt;
+  return promptContent(blocks).text;
 }
 
 /**
@@ -85,7 +84,9 @@ export function answerThroughClient(app: CasperApp, asker: AwayAsker, write: (te
 export interface SessionOptions {
   cli: CliOptions;
   /** Builds the app (the CLI passes the one --json would build, with this session's events and output). */
-  createApp(input: { conversation: { continue: true } | { resume: string } | undefined; onEvent: (event: CasperEvent) => void; output: { write(text: string): void };
+  createApp(input: { conversation: { continue: true } | { resume: string } | undefined; onEvent: (event: CasperEvent) => void;
+    /** The runtime's own events: tool steps with their arguments, output and diffs (decision 79). */
+    onRuntimeEvent: (event: RuntimeEvent) => void; output: { write(text: string): void };
     /** The client's MCP servers for this session (decision 77), added after the ones Casper's files define. */
     mcpServers: MCPServerDefinition[] }): Promise<CasperApp>;
   /** Your home folder (the client's stdio servers start there). Default: os.homedir(). */
@@ -98,11 +99,12 @@ export async function runAcpSession(options: SessionOptions): Promise<void> {
   // The values the client gave its MCP servers (a bearer token), longest first: never on stderr either.
   let clientSecrets: string[] = [];
   const withoutClientValues = valuesHider(() => clientSecrets);
-  const output = { write: (text: string) => { process.stderr.write(withoutClientValues(text)); } };
   let app: CasperApp | undefined;
   let sessionId: string | undefined;
   let folder: string | undefined;
   let busy = false;
+  // A model or effort change the client asked for is being applied: no prompt starts meanwhile.
+  let changing = false;
   let cancelled = false;
   const sendUpdate = (update: Json) => { if (sessionId) connection.notify("session/update", { sessionId, update }); };
   // The user's own secrets (logins, keys, secret-looking variables), read again at each prompt, and every value the
@@ -113,7 +115,92 @@ export async function runAcpSession(options: SessionOptions): Promise<void> {
     catch { secrets = [...clientSecrets].sort((a, b) => b.length - a.length); }
   };
   const hide = hider(() => secrets);
-  const mapper = new UpdateMapper(hide);
+  // A step shows a file's text only when it holds no secret by the rules a read of that file gets. Those rules take
+  // netconan in too when it is installed, and it can't run on text shown at once, so then no device config is shown.
+  let netconanInUse = false;
+  // A step's relative path is resolved from where the runtime works (the git top level of a session opened in a
+  // subfolder), so its locations and diffs name the file it really wrote.
+  const mapper = new UpdateMapper(hide, { cwd: () => app?.projectContext ? app.activeWorkspaceRoot() : folder ?? process.cwd(), mcpTool: (name, args) => app?.broker?.named(name, args),
+    holdsSecret: (file, text) => fileTextHoldsSecret(file, text, app ? { configs: app.scrubFiles, networkLoginFile: networkLoginFile(app) } : {}),
+    unchecked: (file) => onlyNetconanChecks(file, { configs: app?.scrubFiles, netconan: netconanInUse }) });
+  // A box is a step on the wire: the text so far, and a command's open block, end before it (and before its answer).
+  const boxUpdate = (update: Json) => { for (const done of mapper.flush()) sendUpdate(done); sendUpdate(update); };
+  // The / command a prompt runs (decision 80), until the model speaks in it: what the terminal shows for it then is its
+  // output, Casper's reply.
+  let commandRun: { spoke: boolean } | undefined;
+  // Lines for the person (`[image] …`: a picture that was not sent; `[plan] …`: what /plan did) go to the client as
+  // they are, never inside a command's block.
+  const forPerson = (line: string) => line.startsWith("[image] ") || line.startsWith("[plan] ");
+  // Whole lines from a stream, so a secret is hidden whole.
+  const lineReader = (route: (line: string) => void) => {
+    let pending = "";
+    return {
+      write(text: string) {
+        pending += text;
+        for (let end = pending.indexOf("\n"); end >= 0; end = pending.indexOf("\n")) {
+          const line = pending.slice(0, end + 1);
+          pending = pending.slice(end + 1);
+          route(line);
+        }
+      },
+      /** A part line left over, routed as a line. */
+      rest() { const rest = pending; pending = ""; if (rest) route(rest); },
+    };
+  };
+  // What the terminal writes (Casper's transcript, its panels and lists) goes to stderr as it is written; during a
+  // command, before its model speaks, it is the command's output too.
+  const shown = lineReader((line) => {
+    if (commandRun && !commandRun.spoke && !app?.modelTaskActive && !forPerson(line)) for (const update of mapper.commandText(line)) sendUpdate(update);
+  });
+  const output = { write: (text: string) => { process.stderr.write(withoutClientValues(text)); shown.write(text); } };
+  // Casper's own lines (app.onOutput: never the model's words, which reach the client as events): the ones for the
+  // person also go to the client.
+  const own = lineReader((line) => { if (forPerson(line)) for (const update of mapper.note(line)) sendUpdate(update); });
+  const ownLines = (text: string) => own.write(text);
+  const routeRest = () => { own.rest(); shown.rest(); };
+  // The commands the client lists, sent again only when they changed (your own command files are read each time).
+  let offeredCommands = "";
+  const sendCommands = () => {
+    if (!app || !sessionId) return;
+    const list = acpCommands(options.homeDir ?? os.homedir(), hide);
+    const json = JSON.stringify(list);
+    if (json === offeredCommands) return;
+    offeredCommands = json;
+    sendUpdate(commandsUpdate(list));
+  };
+  // The options and the access mode the client was last told (decisions 81 and 82): Casper says only what changed since.
+  let lastOffer = "";
+  let lastMode = "";
+  const offerNow = () => offerOf(app?.session, hide, app);
+  const configOptions = () => {
+    const offer = offerNow();
+    lastOffer = JSON.stringify(offer.wire);
+    if (app) lastMode = accessModeOf(app);
+    return offer.wire;
+  };
+  /** A change Casper made itself (a typed /model or /permissions, a failover, a model server found later, "Yes to
+   * everything this session"), sent once. A change the client asked for is never sent back. */
+  const announce = () => {
+    if (!app || !sessionId) return;
+    const mode = accessModeOf(app);
+    if (mode !== lastMode) {
+      lastMode = mode;
+      sendUpdate({ sessionUpdate: "current_mode_update", currentModeId: mode });
+    }
+    const offer = offerNow();
+    const json = JSON.stringify(offer.wire);
+    if (json === lastOffer) return;
+    lastOffer = json;
+    sendUpdate(configUpdate(offer.wire));
+  };
+  let asker: AcpAsker | undefined;
+  /** The access the app picked (session/set_mode, or the `mode` option): it holds from the next tool call, also during
+   * a prompt. A switch to Read only closes every open box as No. */
+  const setMode = (value: unknown) => {
+    if (!app) return;
+    const before = setAccessMode(app, value, output.write);
+    if (value === "read" && before !== "read") asker?.withdrawAll();
+  };
 
   const open = async (params: Json, load: boolean): Promise<Json> => {
     if (app) throw new RpcFailure(RPC.invalidRequest, "This Casper process already holds a session");
@@ -129,12 +216,22 @@ export async function runAcpSession(options: SessionOptions): Promise<void> {
     let created: CasperApp | undefined;
     try {
       created = app = await options.createApp({ conversation, output, mcpServers: client.definitions,
-        onEvent: (event) => { for (const update of mapper.map(event)) sendUpdate(update); } });
+        onEvent: (event) => {
+          if (event.type === "assistant_delta" && commandRun) commandRun.spoke = true;
+          for (const update of mapper.map(event)) sendUpdate(update);
+        },
+        onRuntimeEvent: (event) => {
+          // A response starts before the terminal writes any of its words, so none of them reads as the command's.
+          if (event.type === "assistant_response_start" && commandRun) commandRun.spoke = true;
+          for (const update of mapper.runtime(event)) sendUpdate(update);
+        } });
       // A call to the app's server names the step it is, as the client saw it start.
       created.acpToolCallId = (id) => mapper.acpId(id);
+      created.onOutput = ownLines;
       learnSecrets();
       try {
         await created.start(folder);
+        netconanInUse = (await created.scrubber.netconan().catch(() => undefined))?.state === "found";
         const runtime = await ensureRuntime(created);
         sessionId = runtime.getSessionInfo?.().sessionId;
       } catch (error) {
@@ -152,7 +249,13 @@ export async function runAcpSession(options: SessionOptions): Promise<void> {
       secrets = [];
       throw error;
     }
-    answerThroughClient(created, new AcpAsker(sessionId, { request: (permission, signal) => connection.request("session/request_permission", permission, signal), update: sendUpdate }, hide), output.write);
+    // Again now the session has started (its logins are read), so the options the reply carries are hidden with them.
+    learnSecrets();
+    asker = new AcpAsker(sessionId, { request: (permission, signal) => connection.request("session/request_permission", permission, signal), update: boxUpdate }, hide);
+    asker.readOnly = () => app?.readOnlyAccess === true;
+    answerThroughClient(created, asker, output.write);
+    // "Yes to everything this session", /permissions all or ask: the app's chip hears it at once, mid-prompt too.
+    created.onAccessChange = announce;
     if (load) {
       // The conversation so far, as the person typed it.
       for (const entry of app.session?.conversationEntries?.() ?? []) {
@@ -160,39 +263,111 @@ export async function runAcpSession(options: SessionOptions): Promise<void> {
         const words = entry.prompt === undefined ? undefined : promptWords(entry.prompt);
         if (words) sendUpdate({ sessionUpdate: "user_message_chunk", content: { type: "text", text: hide(words) } });
       }
-      return {};
+      return { configOptions: configOptions(), modes: modeState(created, hide) };
     }
-    return { sessionId };
+    return { sessionId, configOptions: configOptions(), modes: modeState(created, hide) };
   };
 
   connection.onRequest("initialize", async () => initializeResult(await readAcpMcpSetting(options.homeDir ?? os.homedir())));
-  connection.onRequest("session/new", (params) => open(params, false));
-  connection.onRequest("session/load", (params) => open(params, true));
+  // The commands follow the reply, which names the session (a load's, after the conversation it replays).
+  connection.onRequest("session/new", (params) => open(params, false), sendCommands);
+  connection.onRequest("session/load", (params) => open(params, true), sendCommands);
   connection.onRequest("session/prompt", async (params) => {
     if (!app || !sessionId || params.sessionId !== sessionId) throw new RpcFailure(RPC.notFound, "Unknown session");
     if (busy) throw new RpcFailure(RPC.invalidRequest, "This session is already working on a prompt; cancel it or wait");
-    const prompt = promptText(params.prompt);
+    if (changing) throw new RpcFailure(RPC.invalidRequest, "Casper is changing its model or effort; send the prompt again when it is done");
+    learnSecrets();
+    let content: ReturnType<typeof promptContent>;
+    try { content = promptContent(params.prompt); }
+    catch (error) { throw error instanceof RpcFailure ? new RpcFailure(error.code, hide(error.message)) : error; }
     busy = true;
     cancelled = false;
-    learnSecrets();
+    mapper.newPrompt();
+    // A part line left from before this prompt (the start's transcript) ends here, not inside this prompt's first line.
+    routeRest();
     let report: Awaited<ReturnType<CasperApp["runOnce"]>>;
+    let failure: { error: unknown } | undefined;
+    let isCommand = false;
     try {
-      report = await app.runOnce(prompt, folder, askedWithout(params.prompt, prompt));
-    } catch (error) {
-      // A cancelled task ends with the stop itself; its receipt still follows. Anything else is an error reply.
-      if (!cancelled) {
-        for (const update of mapper.flush()) sendUpdate(update);
-        throw new RpcFailure(RPC.internal, hide(error instanceof Error ? error.message : String(error)));
+      // A command as the terminal tells one (src/app/command-loop.ts): a leading "/" that is not a picture file's path.
+      const line = content.text.trim();
+      isCommand = line.startsWith("/") && !(leadingImagePath(line) !== undefined && await startsWithImageFile(line, { cwd: app.activeWorkspaceRoot() }));
+      const refusal = isCommand ? acpRefusal(line) : undefined;
+      if (refusal) {
+        for (const update of mapper.note(refusal)) sendUpdate(update);
+        return { stopReason: "end_turn", _meta: { casper: { refused: hide(refusal) } } };
       }
-    } finally { busy = false; }
+      // What was not sent (audio, a ninth picture, a HEIC photo) is said first, as the terminal says it.
+      for (const note of content.notes) app.output.write(`[image] ${note}\n`);
+      commandRun = isCommand ? { spoke: false } : undefined;
+      // A command's line is not written back: its output is the reply.
+      report = await app.runOnce(content.text, folder, askedWithout(params.prompt, content.text), { images: content.images, echo: !isCommand });
+    } catch (error) {
+      failure = { error };
+    } finally {
+      busy = false;
+      routeRest();
+      commandRun = undefined;
+    }
+    // A cancelled task ends with the stop itself; its receipt still follows. A command's error (an unknown name, words
+    // it does not take) is its reply, as in the terminal; anything else is an error reply.
+    let commandError: string | undefined;
+    if (failure && !cancelled) {
+      const message = hide(failure.error instanceof Error ? failure.error.message : String(failure.error));
+      if (!isCommand) {
+        for (const update of mapper.flush()) sendUpdate(update);
+        announce();
+        throw new RpcFailure(RPC.internal, message);
+      }
+      commandError = message;
+      for (const update of mapper.note(`[error] ${message}`)) sendUpdate(update);
+    }
     const task = app.getCommandTaskResult();
     const exitCode = taskExitCode(report, task, { requireVerification: options.cli.requireVerification });
     learnSecrets();
     for (const update of mapper.flush()) sendUpdate(update);
+    // A typed /model, a failover or a model server found since: the picker follows, before the receipt.
+    announce();
     const receipt = acpReceipt(receiptEvent(report, task, exitCode, app.sandboxReceipt(), app.commandUsage()), task, hide);
-    sendUpdate(receiptUpdate(receipt));
+    // A command that is not a task (/status) has no receipt to show.
+    if (receipt.text.trim()) for (const update of mapper.receipt(receipt)) sendUpdate(update);
+    // Before the reply: a command may have changed the list (a new file in ~/.casper/commands).
+    sendCommands();
     const stopReason = cancelled || task?.execution === "cancelled" ? "cancelled" : task?.turnLimit ? "max_turn_requests" : "end_turn";
-    return { stopReason, _meta: { casper: { receipt } } };
+    return { stopReason, _meta: { casper: { receipt, ...(commandError !== undefined ? { error: commandError } : {}) } } };
+  });
+  // The app's model and effort picker (decision 81). Refused while a prompt runs: the runtime takes a change only
+  // between prompts. The reply is the whole list after the change, so it is not sent again as an update.
+  connection.onRequest("session/set_config_option", async (params) => {
+    if (!app || !sessionId || params.sessionId !== sessionId) throw new RpcFailure(RPC.notFound, "Unknown session");
+    // The access chip is taken during a prompt too: Read only must stop work that is already running.
+    if (params.configId === "mode") {
+      try { setMode(params.value); }
+      catch (error) { throw new RpcFailure(error instanceof RpcFailure ? error.code : RPC.internal, hide(error instanceof Error ? error.message : String(error))); }
+      return { configOptions: configOptions() };
+    }
+    if (busy || changing) throw new RpcFailure(RPC.invalidRequest, "Casper is working on a prompt; change the model or effort when it ends");
+    changing = true;
+    try {
+      learnSecrets();
+      await setOption(app.session, offerNow(), params.configId, params.value, output.write);
+    } catch (error) {
+      // What the runtime changed before it failed (a model it took but could not save as the default) still reaches
+      // the app before the refusal, so the app shows the model the next prompt goes to.
+      try { announce(); } catch { /* the refusal still goes */ }
+      throw new RpcFailure(error instanceof RpcFailure ? error.code : RPC.internal, hide(error instanceof Error ? error.message : String(error)));
+    } finally { changing = false; }
+    return { configOptions: configOptions() };
+  });
+  // The same access for a client that knows only session modes.
+  connection.onRequest("session/set_mode", async (params) => {
+    if (!app || !sessionId || params.sessionId !== sessionId) throw new RpcFailure(RPC.notFound, "Unknown session");
+    try { setMode(params.modeId); }
+    catch (error) { throw new RpcFailure(error instanceof RpcFailure ? error.code : RPC.internal, hide(error instanceof Error ? error.message : String(error))); }
+    // What the client set is not sent back, as the mode or as the option; a model change it has not heard of still is.
+    lastMode = accessModeOf(app);
+    lastOffer = withModeTold(lastOffer, offerNow().wire);
+    return {};
   });
   connection.onNotification("session/cancel", (params) => {
     if (!app || params.sessionId !== sessionId || !busy) return;

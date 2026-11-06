@@ -64,6 +64,8 @@ export interface ChecksPlan {
   mode: VerificationMode; checks: CheckName[]; slow?: boolean;
   /** Off because you haven't trusted the folder (src/app/folder-trust.ts), or it is your home folder or a drive. */
   untrusted?: "new" | "home" | "drive";
+  /** Off because the app that runs casper acp set Read only (decision 82): Casper runs none of the project's commands. */
+  readOnly?: true;
   /** Named checks that run only with /verify <name> (set to "ask", and reports). */
   manual?: string[];
   /** Lab checks: they reach the user's lab devices and run only when the user starts them (/verify <name>). */
@@ -75,6 +77,9 @@ export interface ChecksPlan {
   /** No check, but the project has test files Casper has no command for. */
   testsWithoutCommand?: true;
 }
+
+/** Why a Read only task runs no checks, on the receipt and the checks line. */
+export const READ_ONLY_CHECKS = "read only (set by the app)";
 
 /** Something to say on the checks line: a check, a page check, or a /verify-only, lab or found check. */
 export function hasChecks(plan: ChecksPlan): boolean {
@@ -88,6 +93,7 @@ export const TESTS_WITHOUT_COMMAND = "Casper found tests but no command that run
 /** The banner's and /status's plain line for a ChecksPlan. */
 export function describeChecksPlan(plan: ChecksPlan): string {
   if (plan.untrusted) return `off: ${untrustedReason(plan.untrusted)}`;
+  if (plan.readOnly) return `off: ${READ_ONLY_CHECKS}`;
   if (plan.mode === "off") return "off for this session (--no-verify or verification.mode: off)";
   const manual = (plan.manual?.length ? ` · with /verify <name> only: ${plan.manual.join(", ")}` : "")
     + (plan.lab?.length ? ` · lab: ${plan.lab.join(", ")} (device checks: Casper asks before each one)` : "")

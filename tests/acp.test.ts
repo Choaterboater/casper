@@ -1,11 +1,13 @@
 import { expect, test } from "bun:test";
+import path from "node:path";
 import { PassThrough } from "node:stream";
+import { pathToFileURL } from "node:url";
 import { parseCliArgs, UsageError } from "../src/cli-args";
 import { AcpAsker, optionKind } from "../src/acp/permission";
 import { RpcConnection } from "../src/acp/rpc";
 import { sessionArgs } from "../src/acp/server";
 import { askedWithout, promptText } from "../src/acp/session";
-import { hider, UpdateMapper } from "../src/acp/updates";
+import { hider, keptLines, UpdateMapper, type AcpReceipt } from "../src/acp/updates";
 import { NO, YES_ONCE, YES_SESSION } from "../src/app/safe-choices";
 import type { AwayQuestion } from "../src/tui/terminal";
 
@@ -81,11 +83,12 @@ test("the model's text goes out a line at a time, so a secret split across two d
 });
 
 test("a tool id the model uses again in a later turn is a new step for the client", () => {
-  const mapper = new UpdateMapper((text) => text);
-  const ids = [
-    ...mapper.map({ type: "tool_start", tool: "write", id: "call_0", target: "a.js" }), ...mapper.map({ type: "tool_end", tool: "write", id: "call_0", ok: true, ms: 1 }),
-    ...mapper.map({ type: "tool_start", tool: "write", id: "call_0", target: "b.js" }), ...mapper.map({ type: "tool_end", tool: "write", id: "call_0", ok: false, ms: 1 }),
-  ].map((update) => [update.sessionUpdate, update.toolCallId, update.status]);
+  const mapper = new UpdateMapper((text) => text, { holdsSecret: () => false });
+  const step = (file: string, ok: boolean) => [
+    ...mapper.runtime({ type: "tool_start", toolName: "write", toolCallId: "call_0", input: { path: file }, args: { path: file, content: "x\n" } }),
+    ...mapper.runtime({ type: "tool_end", toolName: "write", toolCallId: "call_0", input: { path: file }, isError: !ok, display: { text: "", truncated: false, before: null } }),
+  ];
+  const ids = [...step("a.js", true), ...step("b.js", false)].map((update) => [update.sessionUpdate, update.toolCallId, update.status]);
   expect(ids).toEqual([["tool_call", "casper-tool-1", "in_progress"], ["tool_call_update", "casper-tool-1", "completed"],
     ["tool_call", "casper-tool-2", "in_progress"], ["tool_call_update", "casper-tool-2", "failed"]]);
 });
@@ -106,10 +109,104 @@ test("each session process gets the router's options without --cd (the client na
   expect(sessionArgs(["--cd", "~/code", "acp", "--model", "x", "--cd=elsewhere", "--no-sandbox"])).toEqual(["acp", "--model", "x", "--no-sandbox"]);
 });
 
-test("a prompt is its text blocks, linked files by address; an empty one is refused", () => {
-  expect(promptText([{ type: "text", text: "Fix it" }, { type: "resource_link", uri: "file:///p/a.ts", name: "a.ts" }, { type: "resource", resource: { uri: "file:///p/b.ts", text: "x" } }]))
-    .toBe("Fix it\nfile:///p/a.ts\nfile:///p/b.ts\nx");
-  expect(() => promptText([{ type: "image", data: "", mimeType: "image/png" }])).toThrow("no text");
+test("a prompt is its text blocks, a linked file by its quoted path, embedded text with its address; an empty one is refused", () => {
+  const file = path.resolve("/p/a.ts");
+  expect(promptText([{ type: "text", text: "Fix it" }, { type: "resource_link", uri: pathToFileURL(file).href, name: "a.ts" }, { type: "resource", resource: { uri: "file:///p/b.ts", text: "x" } }]))
+    .toBe(`Fix it\nAttached file a.ts: "${file}"\nfile:///p/b.ts\nx`);
+  expect(() => promptText([{ type: "image", data: "", mimeType: "image/png" }])).toThrow("Nothing in the prompt Casper can read.\nA picture sent with the request could not be read; it was not attached.");
+});
+
+test("a note for the person goes after the model's text so far, on a line of its own, hidden like the rest", () => {
+  const mapper = new UpdateMapper(hider(() => ["value-from-the-env-1234"]));
+  const out = [...mapper.map({ type: "assistant_delta", text: "Looking at it" }), ...mapper.note("[image] value-from-the-env-1234.png is not a PNG, JPEG, GIF or WebP picture; not attached")];
+  expect(out.map((update) => (update.content as { text: string }).text)).toEqual(["Looking at it", "\n\n[image] <secret hidden>.png is not a PNG, JPEG, GIF or WebP picture; not attached\n"]);
+  expect(mapper.flush()).toEqual([]);
+});
+
+/** The agent message an app shows, as Markdown renders it: each paragraph, its lines as the app shows them. */
+const rendered = (updates: Array<Record<string, unknown>>) => Bun.markdown.html(updates.map((update) => (update.content as { text: string }).text).join(""))
+  .split(/<\/p>\s*/).filter((paragraph) => paragraph.trim()).map((paragraph) => paragraph.replace(/^\s*<p>/, "").split(/<br \/>\n?/).map((line) => line.replaceAll("&#39;", "'").replaceAll("&amp;", "&")));
+
+test("the receipt reaches the app as the terminal prints it: its own paragraph after the model's words, each line on its own", () => {
+  const lines = ["– Not verified — the model's review lists unfinished items", "✓ Changed 2 files: calc.py, test_calc.py", "✓ test passed (python3 -m unittest discover)",
+    "– Changed while checking: test_calc.py", "Undo: casper /undo 1 · Diff: casper /diff 1"];
+  const receipt = { text: lines.join("\n") } as AcpReceipt;
+  const mapper = new UpdateMapper(hider(() => []));
+  const out = [...mapper.map({ type: "assistant_delta", text: "Tests: 3 passed." }), ...mapper.map({ type: "assistant_message", text: "Tests: 3 passed." }), ...mapper.receipt(receipt)];
+  expect(rendered(out)).toEqual([["Tests: 3 passed."], lines]);
+  // The data keeps the receipt's text as --json prints it.
+  expect((out.at(-1)!._meta as { casper: { receipt: AcpReceipt } }).casper.receipt.text).toBe(lines.join("\n"));
+  // Two [image] notes and the model's words after them: each note on its own line, the words a paragraph of their own.
+  const notes = new UpdateMapper(hider(() => []));
+  expect(rendered([...notes.note("[image] a.heic is not a PNG; not attached"), ...notes.note("[image] b.heic is not a PNG; not attached"),
+    ...notes.map({ type: "assistant_delta", text: "Here is what I see.\n" }), ...notes.map({ type: "error", message: "quota reached\ntry again in an hour" })]))
+    .toEqual([["[image] a.heic is not a PNG; not attached"], ["[image] b.heic is not a PNG; not attached"], ["Here is what I see."], ["[error] quota reached", "try again in an hour"]]);  // A line of only spaces ends the paragraph as a blank line does, so the line before it gets no break (one that ends a
+  // paragraph would show as a backslash).
+  expect(Bun.markdown.html(keptLines("[error] quota\n  \nretry later"))).not.toContain("\\");
+});
+
+test("two model messages in one turn reach the app as two paragraphs; the streamed chunks of one message stay joined", () => {
+  const mapper = new UpdateMapper(hider(() => []));
+  const out = [
+    ...mapper.map({ type: "assistant_delta", text: "Still not done: none.\n" }), ...mapper.map({ type: "assistant_delta", text: "Covered: 3 of 3 " }),
+    ...mapper.map({ type: "assistant_delta", text: "requirements." }), ...mapper.map({ type: "assistant_message", text: "" }),
+    ...mapper.map({ type: "assistant_delta", text: "I found no issues" }), ...mapper.map({ type: "assistant_delta", text: ": all done." }), ...mapper.map({ type: "assistant_message", text: "" }),
+  ];
+  expect(out.map((update) => (update.content as { text: string }).text).join("")).toBe("Still not done: none.\nCovered: 3 of 3 requirements.\n\nI found no issues: all done.");
+  expect(rendered(out)).toEqual([["Still not done: none.\nCovered: 3 of 3 requirements."], ["I found no issues: all done."]]);
+  // After a tool step the app starts a new block itself: nothing goes before the next message's words, nor before a
+  // new prompt's.
+  const steps = new UpdateMapper((text) => text, { holdsSecret: () => false });
+  steps.map({ type: "assistant_delta", text: "Reading." }); steps.map({ type: "assistant_message", text: "" });
+  steps.runtime({ type: "tool_start", toolName: "read", toolCallId: "call_1", input: { path: "a.js" }, args: { path: "a.js" } });
+  expect(steps.map({ type: "assistant_delta", text: "Done.\n" }).map((update) => (update.content as { text: string }).text)).toEqual(["Done.\n"]);
+  steps.map({ type: "assistant_message", text: "" });
+  steps.newPrompt();
+  expect(steps.map({ type: "assistant_delta", text: "Next.\n" }).map((update) => (update.content as { text: string }).text)).toEqual(["Next.\n"]);
+});
+
+test("a command's output is one fenced block, a whole line at a time (a secret split across two writes is hidden whole); model text, a note or a flush closes it", () => {
+  const mapper = new UpdateMapper(hider(() => ["value-from-the-env-1234"]));
+  const texts = (updates: Array<Record<string, unknown>>) => updates.map((update) => (update.content as { text: string }).text);
+  expect(texts([...mapper.commandText(" model   value-from-"), ...mapper.commandText("the-env-1234\n mcp       2 configured\n"), ...mapper.commandText(" shell")]))
+    .toEqual(["````text\n model   <secret hidden>\n mcp       2 configured\n"]);
+  // The model speaking ends the block: its part line first, then the close, then the model's words.
+  expect(texts(mapper.map({ type: "assistant_delta", text: "Done.\n" }))).toEqual([" shell\n", "````\n", "Done.\n"]);
+  expect(texts([...mapper.commandText("again\n"), ...mapper.note("[plan] Nothing was built.")])).toEqual(["````text\nagain\n", "````\n", "[plan] Nothing was built.\n"]);
+  expect(texts([...mapper.commandText("last\n"), ...mapper.flush()])).toEqual(["````text\nlast\n", "````\n"]);
+  expect(mapper.flush()).toEqual([]);
+});
+
+test("a line of four or more backticks in a command's output (a Markdown file in /diff or /output) stays inside its block", () => {
+  const mapper = new UpdateMapper(hider(() => []));
+  const output = ["````markdown", "```sh", "```", "````", " ````  ", "# Heading from the file", "![img](http://192.0.2.1/x.png)", "`````", ""].join("\n");
+  const sent = [...mapper.commandText(output), ...mapper.flush()].map((update) => (update.content as { text: string }).text).join("");
+  // As CommonMark reads it: a line of 4 or more backticks, at most 3 spaces in and nothing but spaces after, closes
+  // the block. Only the last line does; every line of the output is inside it.
+  const lines = sent.split("\n");
+  const closers = lines.flatMap((line, index) => /^ {0,3}`{4,}[ \t]*$/.test(line) ? [index] : []);
+  expect(lines[0]).toBe("````text");
+  expect(closers).toEqual([lines.length - 2]);
+  expect(lines.slice(1, -2).join("\n").replaceAll("\u200b", "")).toBe(output.trimEnd());
+});
+
+test("JSON-RPC: a request's after hook runs once its reply line is written, and never after an error reply", async () => {
+  const input = new PassThrough();
+  const written: string[] = [];
+  const connection = new RpcConnection(input, (line) => { written.push(line); });
+  connection.onRequest("session/new", async () => ({ sessionId: "s1" }), (result, params) => { written.push(`after ${JSON.stringify(result)} ${JSON.stringify(params)}`); });
+  connection.onRequest("session/load", async () => { throw new Error("no"); }, () => { written.push("after load"); });
+  input.write(`${JSON.stringify({ jsonrpc: "2.0", id: 1, method: "session/new", params: { cwd: "/p" } })}\n`);
+  input.write(`${JSON.stringify({ jsonrpc: "2.0", id: 2, method: "session/load", params: {} })}\n`);
+  input.end();
+  await connection.closed;
+  // The replies are written as their handlers settle.
+  for (let tries = 0; written.length < 3 && tries < 200; tries++) await Bun.sleep(5);
+  expect(written).toEqual([
+    `${JSON.stringify({ jsonrpc: "2.0", id: 1, result: { sessionId: "s1" } })}\n`,
+    'after {"sessionId":"s1"} {"cwd":"/p"}',
+    `${JSON.stringify({ jsonrpc: "2.0", id: 2, error: { code: -32603, message: "no" } })}\n`,
+  ]);
 });
 
 test("JSON-RPC: a line that is not JSON gets a parse error, an unknown method gets Method not found", async () => {
@@ -124,6 +221,23 @@ test("JSON-RPC: a line that is not JSON gets a parse error, an unknown method ge
     { jsonrpc: "2.0", id: null, error: { code: -32700, message: "Parse error" } },
     { jsonrpc: "2.0", id: 7, error: { code: -32601, message: "Method not found: session/set_mode" } },
   ]);
+});
+
+test("JSON-RPC: a picture-sized line read in small chunks costs its length, and lines split or packed across chunks all arrive", async () => {
+  const big = `${JSON.stringify({ jsonrpc: "2.0", method: "seen", params: { data: "x".repeat(16 * 1024 * 1024) } })}\n`;
+  const small = (n: number) => `${JSON.stringify({ jsonrpc: "2.0", method: "seen", params: { data: `é${n}` } })}\n`;
+  const text = `${small(1)}${big}${small(2)}${small(3)}`;
+  // 1 KB chunks: searching the whole line so far on each one took seconds here; the bound is far above the real cost.
+  // Byte chunks, so a two-byte letter can be cut between them too.
+  const bytes = Buffer.from(text);
+  async function* chunks() { for (let at = 0; at < bytes.length; at += 1024) yield bytes.subarray(at, at + 1024); }
+  const seen: number[] = [];
+  const started = performance.now();
+  const connection = new RpcConnection(chunks(), () => {});
+  connection.onNotification("seen", (params) => { seen.push(String(params.data).length); });
+  await connection.closed;
+  expect(performance.now() - started).toBeLessThan(1500);
+  expect(seen).toEqual([2, 16 * 1024 * 1024, 2, 2]);
 });
 
 test("a pasted agent transcript is left out of what was asked; a prompt without one is read whole (undefined)", () => {

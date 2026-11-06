@@ -78,20 +78,21 @@ export function observationInput(value: unknown): ToolObservationInput {
   return result;
 }
 
-export function boundObservationText(text: string): ToolObservationOutput {
-  const limit = 8192;
+/** `text` in at most `limit` bytes: its head and its tail (about half each) around a truncation mark. */
+export function boundObservationText(text: string, limit = 8192): ToolObservationOutput {
   if (Buffer.byteLength(text) <= limit) return { text, truncated: false };
-  const head = Buffer.from(text.slice(0, 4096));
-  let end = Math.min(4000, head.length);
+  const half = Math.floor(limit / 2);
+  const head = Buffer.from(text.slice(0, half));
+  let end = Math.min(half - 96, head.length);
   while (end && (head[end]! & 0xc0) === 0x80) end--;
-  const tail = Buffer.from(text.slice(-4096));
-  let start = Math.max(0, tail.length - 4000);
+  const tail = Buffer.from(text.slice(-half));
+  let start = Math.max(0, tail.length - (half - 96));
   while (start < tail.length && (tail[start]! & 0xc0) === 0x80) start++;
   return { text: `${head.subarray(0, end).toString("utf8")}\n[...output truncated...]\n${tail.subarray(start).toString("utf8")}`, truncated: true };
 }
 
-/** Pi's result envelope is diagnostic data; it supplies no trustworthy exit code. */
-export function observationOutput(value: unknown): ToolObservationOutput {
+/** Pi's result envelope is diagnostic data; it supplies no trustworthy exit code. `limit`: bytes kept (8 KB). */
+export function observationOutput(value: unknown, limit = 8192): ToolObservationOutput {
   if (typeof value !== "object" || value === null) return { text: "", truncated: false };
   const content: unknown = Reflect.get(value, "content");
   if (!Array.isArray(content)) return { text: "", truncated: false };
@@ -103,12 +104,22 @@ export function observationOutput(value: unknown): ToolObservationOutput {
     if (typeof part !== "object" || part === null || Reflect.get(part, "type") !== "text") continue;
     const field: unknown = Reflect.get(part, "text");
     if (typeof field !== "string") continue;
-    const bounded = boundObservationText(field);
-    const combined = boundObservationText(text ? `${text}\n${bounded.text}` : bounded.text);
+    const bounded = boundObservationText(field, limit);
+    const combined = boundObservationText(text ? `${text}\n${bounded.text}` : bounded.text, limit);
     text = combined.text;
     truncated ||= bounded.truncated || combined.truncated;
   }
   return { text, truncated };
+}
+
+/** A shell step's exit code, for display: the result's `exit_code`, else its last line "Command exited with code N";
+ * null when it has neither (stopped, timed out, or no shell). Never evidence: checks run their own commands. */
+export function shellExitCode(result: unknown): number | null {
+  const structured = typeof result === "object" && result !== null ? Reflect.get(result, "structuredContent") : undefined;
+  const code = typeof structured === "object" && structured !== null ? Reflect.get(structured, "exit_code") : undefined;
+  if (Number.isSafeInteger(code)) return code as number;
+  const match = /Command exited with code (-?\d+)\s*$/.exec(observationOutput(result).text);
+  return match ? Number(match[1]) : null;
 }
 
 /** Lines an edit added and removed, from the unified patch Pi's edit tool returns in its details.

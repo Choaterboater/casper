@@ -25,6 +25,9 @@ export const PLANNING_TOOLS = new Set(["read", "grep", "find", "ls", "web_search
 const NOT_RUN = "Not run: ";
 
 export const PLANNING_BLOCKED = "Planning only: Casper blocks file changes until you choose Build";
+/** The app that runs casper acp set its access to Read only (decision 82): the same gate as a plan turn, for every
+ * request until the app sets another mode. */
+export const READ_ONLY_BLOCKED = "Read only: the app set Casper to look and answer, so it blocks every change it can see";
 
 /** Split one command line into words, honouring simple quotes. Undefined for anything Casper will not
  * read with confidence (escapes, unbalanced quotes). */
@@ -173,8 +176,11 @@ function isThisMachine(host: string): boolean {
     || bare.endsWith(".localhost") || (own !== "" && (bare === own || bare === own.split(".")[0] || bare === `${own.split(".")[0]}.local`));
 }
 
-/** The gate for a plan turn, for every tool call. Undefined lets the call run; a reason blocks it. */
-export function planToolGate(toolName: string, input: Record<string, unknown> | undefined, capabilityTool?: (name: string) => boolean): string | undefined {
+/** The gate for a plan turn (and for Read only access, with `reason` READ_ONLY_BLOCKED), for every tool call. Undefined
+ * lets the call run; a reason blocks it. */
+export function planToolGate(toolName: string, input: Record<string, unknown> | undefined, capabilityTool?: (name: string) => boolean,
+  reason: string = PLANNING_BLOCKED): string | undefined {
+  const during = reason === PLANNING_BLOCKED ? "While planning it" : "It";
   if (PLANNING_TOOLS.has(toolName)) return undefined;
   // MCP tools go on to the broker, which sends only reads while planning (a network device's state is research).
   if (capabilityTool?.(toolName)) return undefined;
@@ -196,10 +202,10 @@ export function planToolGate(toolName: string, input: Record<string, unknown> | 
       // A listed PowerShell command is refused only for brackets or @ somewhere in the line.
       : powershell && listed ? "Brackets and @ can run commands in PowerShell, so they are refused."
       : name ? `${lineText(`${name}${sub ? ` ${sub}` : ""}`)}${listed ? " with these options" : ""} is not one.` : "";
-    return `${NOT_RUN}${PLANNING_BLOCKED}. While planning it runs only look commands such as ls, cat, grep and git log.${why ? ` ${why}` : ""}`;
+    return `${NOT_RUN}${reason}. ${during} runs only look commands such as ls, cat, grep and git log.${why ? ` ${why}` : ""}`;
   }
-  if (toolName === "edit" || toolName === "write") return `${NOT_RUN}${PLANNING_BLOCKED}.`;
-  return `${NOT_RUN}${PLANNING_BLOCKED}. While planning it allows only read, grep, find, ls, web, GitHub and MCP lookups and read-only helpers, not ${toolName}.`;
+  if (toolName === "edit" || toolName === "write") return `${NOT_RUN}${reason}.`;
+  return `${NOT_RUN}${reason}. ${during} allows only read, grep, find, ls, web, GitHub and MCP lookups and read-only helpers, not ${toolName}.`;
 }
 
 /** A person-facing plan. Designed specs need no implementation steps; `tests` also holds "Done means".

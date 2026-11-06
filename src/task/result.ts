@@ -12,7 +12,7 @@ import type { SmokeReport } from "../services/smoke";
 import type { AppSmokeReport } from "../services/try-it";
 import { formatPageReport, pageFailureSummary } from "../services/page-report";
 import { movedInto, SNAPSHOT_FILE_LIMIT } from "./changes";
-import { builtOutput, inOutputFolder, isAppDataPath, isOutputPath, TESTS_WITHOUT_COMMAND, type AutoCheckSkip, type VerificationMode } from "../verify/mode";
+import { builtOutput, inOutputFolder, isAppDataPath, isOutputPath, READ_ONLY_CHECKS, TESTS_WITHOUT_COMMAND, type AutoCheckSkip, type VerificationMode } from "../verify/mode";
 import type { ChangeProof } from "../verify/proof";
 import type { AcceptanceResult } from "../verify/acceptance";
 import { ROUND_MAX_TURNS, type RequirementsReview } from "./review";
@@ -124,6 +124,8 @@ export interface TaskResult {
   verificationDefaulted?: true;
   /** Checks were off because you haven't trusted the folder, or it is your home folder or a drive. */
   untrustedFolder?: "new" | "home" | "drive";
+  /** The app that runs casper acp set Read only (decision 82): no checks ran, whatever changed. */
+  readOnlyAccess?: true;
   /** Why auto mode ran no check after the model turn. */
   autoSkipped?: AutoCheckSkip;
   /** With no check to run, the project still has test files Casper has no command for: said as that, not "no tests". */
@@ -826,7 +828,8 @@ function receiptParts(task: TaskResult, options: ReceiptOptions, onScreen = fals
     const own = task.changedPaths?.filter((file) => !movedAway.has(file));
     // A few files are named; more are counted, with where most of them are (line 1 is not a file list).
     const only = (what: string) => `only ${what} changed${here}${!own?.length ? "" : own.length <= 3 ? ` (${pathList(own, safe, false)})` : ` (${filesFolders(own, safe)})`}`;
-    if (task.autoSkipped === "no-checks") {
+    if (task.readOnlyAccess) why(`– Not checked — ${READ_ONLY_CHECKS}: Casper blocked the changes it could see and ran no checks.`, "Not checked", READ_ONLY_CHECKS);
+    else if (task.autoSkipped === "no-checks") {
       if (options.checksHintShown) why("– Not verified — no checks set up", "Not verified", "no checks set up");
       else if (task.testsWithoutCommand) why(TESTS_WITHOUT_COMMAND_LINE, "Not checked", undefined, SET_UP_TEST_COMMAND);
       else why(NO_CHECKS_LINE, "Not checked", "no tests yet", '"add tests"');

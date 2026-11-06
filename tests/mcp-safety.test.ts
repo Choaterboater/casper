@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { MCPManager, type MCPManagerOptions, type ServerQuestion, type ServerQuestionAnswer } from "../src/mcp/manager";
 import type { MCPServerDefinition } from "../src/mcp/config";
-import { CapabilityBroker, type ApprovalAnswer, type ChangeCallHandler, type ConfirmCapability, type ConfirmKind } from "../src/capabilities/broker";
+import { CapabilityBroker, type ApprovalAnswer, type ChangeCallHandler, type ConfirmCapability, type ConfirmKind, READ_ONLY_REFUSED } from "../src/capabilities/broker";
 import { formatApproval } from "../src/capabilities/approval";
 import { numberPrompt } from "../src/tui/terminal";
 import { rejection } from "./support/settle";
@@ -31,7 +31,7 @@ function definition(name: string, mode: string, file: string): MCPServerDefiniti
 }
 async function setup(options: {
   mode?: string; name?: string; confirm?: ConfirmCapability; elicit?: MCPManagerOptions["elicit"]; manager?: MCPManagerOptions; writesGate?: boolean;
-  confirmKind?: ConfirmKind; onChangeCall?: ChangeCallHandler; planning?: () => boolean;
+  confirmKind?: ConfirmKind; onChangeCall?: ChangeCallHandler; planning?: () => boolean; readOnly?: () => boolean;
 } = {}) {
   const file = await callsFile();
   const name = options.name ?? "network";
@@ -42,6 +42,7 @@ async function setup(options: {
   const broker = new CapabilityBroker(mcp, options.confirm, {
     ...(options.writesGate ? { writesGate: true } : {}), ...(options.confirmKind ? { confirmKind: options.confirmKind } : {}),
     ...(options.onChangeCall ? { onChangeCall: options.onChangeCall } : {}), ...(options.planning ? { planning: options.planning } : {}),
+    ...(options.readOnly ? { readOnly: options.readOnly } : {}),
   });
   cleanup.push(() => broker.close());
   await mcp.connect(name);
@@ -117,6 +118,21 @@ test("while planning a read runs and a call that would ask is refused without a 
   expect(toolCalls(await calls(file))).toHaveLength(1);
   // After Build the same call asks as usual.
   planning = false;
+  await broker.invoke(id("invoke_read_tool"), { name: "port_bounce", arguments: {} });
+  expect(boxes).toHaveLength(1);
+});
+
+test("with Read only set by the app a read runs and a call that would ask is refused without a box, with its own words", async () => {
+  let readOnly = true;
+  const { confirm, boxes } = answering(true);
+  const { broker, file, id } = await setup({ mode: "router", name: "r", confirm, readOnly: () => readOnly });
+  const read = await broker.invoke(id("invoke_read_tool"), { name: "inspect_quantum_flux", arguments: { site: "a" } });
+  expect(JSON.stringify(read)).toContain("counter");
+  await expect(broker.invoke(id("invoke_read_tool"), { name: "port_bounce", arguments: {} })).rejects.toThrow(`Not executed (${READ_ONLY_REFUSED}`);
+  expect(boxes).toEqual([]);
+  expect(toolCalls(await calls(file))).toHaveLength(1);
+  // Ask first again: the same call asks as usual.
+  readOnly = false;
   await broker.invoke(id("invoke_read_tool"), { name: "port_bounce", arguments: {} });
   expect(boxes).toHaveLength(1);
 });
