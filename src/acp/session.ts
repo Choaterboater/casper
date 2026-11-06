@@ -25,6 +25,7 @@ import { readAcpMcpSetting, type AcpMcpSetting } from "../config/load";
 import type { MCPServerDefinition } from "../mcp/config";
 import { clientServers } from "./client-servers";
 import { AcpAsker } from "./permission";
+import { promptContent } from "./prompt";
 import { RpcConnection, RpcFailure, RPC, type Json } from "./rpc";
 import { acpReceipt, hider, receiptUpdate, UpdateMapper, valuesHider } from "./updates";
 
@@ -36,7 +37,7 @@ export const ACP_PROTOCOL_VERSION = 1;
 export function initializeResult(setting: AcpMcpSetting = "on"): Json {
   return {
     protocolVersion: ACP_PROTOCOL_VERSION,
-    agentCapabilities: { loadSession: true, promptCapabilities: { image: false, audio: false, embeddedContext: false }, mcpCapabilities: { http: setting !== "off", sse: false } },
+    agentCapabilities: { loadSession: true, promptCapabilities: { image: true, audio: false, embeddedContext: true }, mcpCapabilities: { http: setting !== "off", sse: false } },
     agentInfo: { name: "casper", title: "Casper", version: CASPER_VERSION },
     authMethods: [],
   };
@@ -57,19 +58,9 @@ export function askedWithout(blocks: unknown, prompt: string): string | undefine
   return withoutTranscripts(prompt, transcriptsIn(texts));
 }
 
-/** The prompt's words: text blocks as they are, a linked or embedded file by its address (and text when it has some). */
+/** The prompt's words as Casper runs them (src/acp/prompt.ts): a picture as `[image N]`, a file as its quoted path. */
 export function promptText(blocks: unknown): string {
-  if (!Array.isArray(blocks)) throw new RpcFailure(RPC.invalidParams, "prompt must be a list of content blocks");
-  const parts = blocks.map((block: Json) => {
-    if (block?.type === "text" && typeof block.text === "string") return block.text;
-    if (block?.type === "resource_link" && typeof block.uri === "string") return block.uri;
-    const resource = block?.resource as Json | undefined;
-    if (block?.type === "resource" && typeof resource?.uri === "string") return typeof resource.text === "string" ? `${resource.uri}\n${resource.text}` : resource.uri;
-    return "";
-  }).filter(Boolean);
-  const prompt = parts.join("\n").trim();
-  if (!prompt) throw new RpcFailure(RPC.invalidParams, "The prompt has no text");
-  return prompt;
+  return promptContent(blocks).text;
 }
 
 /**
@@ -98,7 +89,6 @@ export async function runAcpSession(options: SessionOptions): Promise<void> {
   // The values the client gave its MCP servers (a bearer token), longest first: never on stderr either.
   let clientSecrets: string[] = [];
   const withoutClientValues = valuesHider(() => clientSecrets);
-  const output = { write: (text: string) => { process.stderr.write(withoutClientValues(text)); } };
   let app: CasperApp | undefined;
   let sessionId: string | undefined;
   let folder: string | undefined;
@@ -114,6 +104,22 @@ export async function runAcpSession(options: SessionOptions): Promise<void> {
   };
   const hide = hider(() => secrets);
   const mapper = new UpdateMapper(hide);
+  // Casper's transcript goes to stderr as it is written.
+  const output = { write: (text: string) => { process.stderr.write(withoutClientValues(text)); } };
+  // Casper's own lines (app.onOutput: never the model's words, which reach the client as events) are read a whole line
+  // at a time, so a secret is hidden whole; the ones for the person (`[image] …`: a picture that was not sent) also go
+  // to the client.
+  let pendingOut = "";
+  const route = (line: string) => { if (line.startsWith("[image] ")) for (const update of mapper.note(line)) sendUpdate(update); };
+  const routeRest = () => { const rest = pendingOut; pendingOut = ""; if (rest) route(rest); };
+  const ownLines = (text: string) => {
+    pendingOut += text;
+    for (let end = pendingOut.indexOf("\n"); end >= 0; end = pendingOut.indexOf("\n")) {
+      const line = pendingOut.slice(0, end + 1);
+      pendingOut = pendingOut.slice(end + 1);
+      route(line);
+    }
+  };
 
   const open = async (params: Json, load: boolean): Promise<Json> => {
     if (app) throw new RpcFailure(RPC.invalidRequest, "This Casper process already holds a session");
@@ -132,6 +138,7 @@ export async function runAcpSession(options: SessionOptions): Promise<void> {
         onEvent: (event) => { for (const update of mapper.map(event)) sendUpdate(update); } });
       // A call to the app's server names the step it is, as the client saw it start.
       created.acpToolCallId = (id) => mapper.acpId(id);
+      created.onOutput = ownLines;
       learnSecrets();
       try {
         await created.start(folder);
@@ -171,20 +178,26 @@ export async function runAcpSession(options: SessionOptions): Promise<void> {
   connection.onRequest("session/prompt", async (params) => {
     if (!app || !sessionId || params.sessionId !== sessionId) throw new RpcFailure(RPC.notFound, "Unknown session");
     if (busy) throw new RpcFailure(RPC.invalidRequest, "This session is already working on a prompt; cancel it or wait");
-    const prompt = promptText(params.prompt);
+    learnSecrets();
+    let content: ReturnType<typeof promptContent>;
+    try { content = promptContent(params.prompt); }
+    catch (error) { throw error instanceof RpcFailure ? new RpcFailure(error.code, hide(error.message)) : error; }
     busy = true;
     cancelled = false;
-    learnSecrets();
+    // A part line left from before this prompt (the start's transcript) ends here, not inside this prompt's first line.
+    routeRest();
+    // What was not sent (audio, a ninth picture, a HEIC photo) is said first, as the terminal says it.
+    for (const note of content.notes) app.output.write(`[image] ${note}\n`);
     let report: Awaited<ReturnType<CasperApp["runOnce"]>>;
     try {
-      report = await app.runOnce(prompt, folder, askedWithout(params.prompt, prompt));
+      report = await app.runOnce(content.text, folder, askedWithout(params.prompt, content.text), { images: content.images });
     } catch (error) {
       // A cancelled task ends with the stop itself; its receipt still follows. Anything else is an error reply.
       if (!cancelled) {
         for (const update of mapper.flush()) sendUpdate(update);
         throw new RpcFailure(RPC.internal, hide(error instanceof Error ? error.message : String(error)));
       }
-    } finally { busy = false; }
+    } finally { busy = false; routeRest(); }
     const task = app.getCommandTaskResult();
     const exitCode = taskExitCode(report, task, { requireVerification: options.cli.requireVerification });
     learnSecrets();

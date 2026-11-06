@@ -41,7 +41,7 @@ shellCheckTest("casper acp runs a whole task: tools, text, plan, checks, then th
   const client = open(f);
   const init = await client.request("initialize", INIT);
   expect(init.protocolVersion).toBe(1);
-  expect(init.agentCapabilities).toMatchObject({ loadSession: true, promptCapabilities: { image: false, audio: false, embeddedContext: false } });
+  expect(init.agentCapabilities).toMatchObject({ loadSession: true, promptCapabilities: { image: true, audio: false, embeddedContext: true } });
   expect(init.agentInfo).toMatchObject({ name: "casper" });
   const { sessionId } = await client.request("session/new", { cwd: f.project, mcpServers: [] });
   expect(sessionId).toMatch(/^[0-9a-f-]{36}$/);

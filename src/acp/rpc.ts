@@ -61,17 +61,23 @@ export class RpcConnection {
 
   private async read(input: AsyncIterable<Uint8Array | string>): Promise<void> {
     const decoder = new TextDecoder();
-    let buffer = "";
+    // The line so far, from chunks with no line end in them. Only a new chunk is searched for one, and the parts are
+    // joined once it comes, so a long line (a prompt with pictures in it) costs its length, not its length squared.
+    let partial: string[] = [];
     try {
       for await (const chunk of input) {
-        buffer += typeof chunk === "string" ? chunk : decoder.decode(chunk, { stream: true });
-        for (let end = buffer.indexOf("\n"); end >= 0; end = buffer.indexOf("\n")) {
-          const line = buffer.slice(0, end).trim();
-          buffer = buffer.slice(end + 1);
+        const text = typeof chunk === "string" ? chunk : decoder.decode(chunk, { stream: true });
+        let start = 0;
+        for (let end = text.indexOf("\n"); end >= 0; end = text.indexOf("\n", start)) {
+          const line = (partial.length ? partial.join("") + text.slice(start, end) : text.slice(start, end)).trim();
+          partial = [];
+          start = end + 1;
           if (line) this.receive(line);
         }
+        if (start < text.length) partial.push(text.slice(start));
       }
-      if (buffer.trim()) this.receive(buffer.trim());
+      const rest = partial.join("").trim();
+      if (rest) this.receive(rest);
     } catch { /* the input failed: the same as its end */ }
     this.ended = true;
     for (const waiting of this.waiting.values()) waiting.reject(new RpcFailure(RPC.internal, "the connection closed"));

@@ -68,6 +68,8 @@ export class PastedImageFiles {
 export const imageLabel = (number: number) => `[image ${number}]`;
 
 const EXTENSION = String.raw`\.(?:png|jpe?g|gif|webp)`;
+/** A path that ends in a picture extension: the only kind of path attachImages opens. */
+export const PICTURE_PATH = new RegExp(`${EXTENSION}$`, "i");
 /** A quoted path, or an unquoted one that starts at / or ~/ (POSIX, spaces escaped as `\ `), or at a drive letter
  * (Windows). Bare names ("logo.png") are words about the project, never attachments. An unquoted POSIX path ends
  * only at an ASCII space: a terminal escapes only those, so a no-break space (U+00A0, or the U+202F a macOS

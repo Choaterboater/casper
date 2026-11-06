@@ -274,6 +274,9 @@ export class CasperApp {
   /** `casper acp`: the ACP toolCallId of the step the model's tool call `id` is, sent with a call to the app's own MCP
    * server (decision 77). */
   acpToolCallId?: (id: string) => string | undefined;
+  /** `casper acp`: Casper's own transcript lines as they are written through `output` (never the model's words, which
+   * the terminal writes itself), so the session can send the ones meant for the person (decision 78). */
+  onOutput?: (text: string) => void;
   /** beforeChanges gate state for the current task; a recorded ask attempt satisfies it. */
   editGateActive = false;
   asksThisTask = 0;
@@ -638,7 +641,7 @@ export class CasperApp {
     // The / menu lists your own commands (Markdown files in ~/.casper/commands) with Casper's.
     this.terminal.setUserCommands(() => usableCommands(loadUserCommands(this.homeDir())));
     // Tool calls live in the event view's Working box on a rich surface; the transcript gets plain writes.
-    this.output = { write: (text) => { this.terminal.write(text); } };
+    this.output = { write: (text) => { this.onOutput?.(text); this.terminal.write(text); } };
     this.events = new RuntimeEventView(this.terminal, this.output, {
       updateFooter: () => updateFooter(this),
       builderGoals: () => this.subagents.runs().filter(run => run.role === "builder").map(run => run.goal),
@@ -767,14 +770,19 @@ export class CasperApp {
       : task;
   }
 
-  /** `asked`: the request without a transcript pasted into it, when the caller found one (casper acp). */
-  async runOnce(prompt: string, cwd = process.cwd(), asked?: string): Promise<VerificationReport | undefined> {
+  /** `asked`: the request without a transcript pasted into it, when the caller found one (casper acp). `images`: the
+   * pictures the request names as `[image N]`, as if pasted with Ctrl+V (an ACP prompt's image blocks). */
+  async runOnce(prompt: string, cwd = process.cwd(), asked?: string, options: { images?: ReadonlyMap<number, RuntimeImage> } = {}): Promise<VerificationReport | undefined> {
     if (!this.projectContext) {
       await this.start(cwd);
     }
 
     writePrompt(this, /^\s*\/login(?:\s|$)/.test(prompt) ? "/login" : prompt);
-    return handlePrompt(this, prompt.trim(), undefined, asked);
+    // Kept under the exact line handlePrompt reads them by (the trimmed prompt), and gone when it ends.
+    const line = prompt.trim();
+    if (options.images?.size) this.lineImages.set(line, new Map(options.images));
+    try { return await handlePrompt(this, line, undefined, asked); }
+    finally { if (options.images?.size) this.lineImages.delete(line); }
   }
 
   async runInteractive(cwd = process.cwd(), firstRequest?: string): Promise<void> { return runInteractive(this, cwd, firstRequest); }

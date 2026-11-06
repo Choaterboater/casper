@@ -119,6 +119,11 @@ remembered. Reads run; a change asks in the app, unless a server on this compute
 then only deletes, firmware and admin changes ask in Casper's box. `acp_mcp: ask` or `off` in `~/.casper/config.yaml`
 takes that back. [Decision 77](docs/adr/0002/77-an-acp-client-hands-casper-its-tools.md).
 
+A picture pasted or attached in the app goes to Casper's model as a Ctrl+V picture does in the terminal, and an
+attached file goes as its path, which Casper reads with its own tools. When the model can't see pictures, the app
+shows the same question as the terminal: send without it, or switch for that request.
+[Decision 78](docs/adr/0002/78-an-acp-prompt-carries-pictures-and-files.md).
+
 Type `/help` for the commands. Ctrl+C stops the current work but keeps changes already made;
 Ctrl+D on an empty prompt exits. [Keys and commands](docs/TERMINAL_UX.md#quick-reference).
 

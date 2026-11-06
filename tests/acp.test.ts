@@ -1,5 +1,7 @@
 import { expect, test } from "bun:test";
+import path from "node:path";
 import { PassThrough } from "node:stream";
+import { pathToFileURL } from "node:url";
 import { parseCliArgs, UsageError } from "../src/cli-args";
 import { AcpAsker, optionKind } from "../src/acp/permission";
 import { RpcConnection } from "../src/acp/rpc";
@@ -106,10 +108,18 @@ test("each session process gets the router's options without --cd (the client na
   expect(sessionArgs(["--cd", "~/code", "acp", "--model", "x", "--cd=elsewhere", "--no-sandbox"])).toEqual(["acp", "--model", "x", "--no-sandbox"]);
 });
 
-test("a prompt is its text blocks, linked files by address; an empty one is refused", () => {
-  expect(promptText([{ type: "text", text: "Fix it" }, { type: "resource_link", uri: "file:///p/a.ts", name: "a.ts" }, { type: "resource", resource: { uri: "file:///p/b.ts", text: "x" } }]))
-    .toBe("Fix it\nfile:///p/a.ts\nfile:///p/b.ts\nx");
-  expect(() => promptText([{ type: "image", data: "", mimeType: "image/png" }])).toThrow("no text");
+test("a prompt is its text blocks, a linked file by its quoted path, embedded text with its address; an empty one is refused", () => {
+  const file = path.resolve("/p/a.ts");
+  expect(promptText([{ type: "text", text: "Fix it" }, { type: "resource_link", uri: pathToFileURL(file).href, name: "a.ts" }, { type: "resource", resource: { uri: "file:///p/b.ts", text: "x" } }]))
+    .toBe(`Fix it\nAttached file a.ts: "${file}"\nfile:///p/b.ts\nx`);
+  expect(() => promptText([{ type: "image", data: "", mimeType: "image/png" }])).toThrow("Nothing in the prompt Casper can read.\nA picture sent with the request could not be read; it was not attached.");
+});
+
+test("a note for the person goes after the model's text so far, on a line of its own, hidden like the rest", () => {
+  const mapper = new UpdateMapper(hider(() => ["value-from-the-env-1234"]));
+  const out = [...mapper.map({ type: "assistant_delta", text: "Looking at it" }), ...mapper.note("[image] value-from-the-env-1234.png is not a PNG, JPEG, GIF or WebP picture; not attached")];
+  expect(out.map((update) => (update.content as { text: string }).text)).toEqual(["Looking at it", "[image] <secret hidden>.png is not a PNG, JPEG, GIF or WebP picture; not attached\n"]);
+  expect(mapper.flush()).toEqual([]);
 });
 
 test("JSON-RPC: a line that is not JSON gets a parse error, an unknown method gets Method not found", async () => {
@@ -124,6 +134,23 @@ test("JSON-RPC: a line that is not JSON gets a parse error, an unknown method ge
     { jsonrpc: "2.0", id: null, error: { code: -32700, message: "Parse error" } },
     { jsonrpc: "2.0", id: 7, error: { code: -32601, message: "Method not found: session/set_mode" } },
   ]);
+});
+
+test("JSON-RPC: a picture-sized line read in small chunks costs its length, and lines split or packed across chunks all arrive", async () => {
+  const big = `${JSON.stringify({ jsonrpc: "2.0", method: "seen", params: { data: "x".repeat(16 * 1024 * 1024) } })}\n`;
+  const small = (n: number) => `${JSON.stringify({ jsonrpc: "2.0", method: "seen", params: { data: `é${n}` } })}\n`;
+  const text = `${small(1)}${big}${small(2)}${small(3)}`;
+  // 1 KB chunks: searching the whole line so far on each one took seconds here; the bound is far above the real cost.
+  // Byte chunks, so a two-byte letter can be cut between them too.
+  const bytes = Buffer.from(text);
+  async function* chunks() { for (let at = 0; at < bytes.length; at += 1024) yield bytes.subarray(at, at + 1024); }
+  const seen: number[] = [];
+  const started = performance.now();
+  const connection = new RpcConnection(chunks(), () => {});
+  connection.onNotification("seen", (params) => { seen.push(String(params.data).length); });
+  await connection.closed;
+  expect(performance.now() - started).toBeLessThan(1500);
+  expect(seen).toEqual([2, 16 * 1024 * 1024, 2, 2]);
 });
 
 test("a pasted agent transcript is left out of what was asked; a prompt without one is read whole (undefined)", () => {

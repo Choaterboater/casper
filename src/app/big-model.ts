@@ -10,6 +10,7 @@ import { isRetryableAssistantError } from "@earendil-works/pi-ai/utils/retry";
 import { modelFailedChoices, pictureChoices, REMEMBER_BIG_MODEL_CHOICES, REPAIR_LIMIT_STOP } from "./safe-choices";
 import { runLogin } from "./commands";
 import { updateFooter } from "./footer";
+import { someoneAnswers } from "./approvals";
 import { LOCAL_SERVERS, savedLocalServers } from "../runtime/local-models";
 
 const LOGIN_PROVIDERS = ["openai-codex", "github-copilot", "anthropic", "openrouter"] as const;
@@ -196,7 +197,8 @@ export async function imagesForModel(app: CasperApp, session: RuntimeSession, im
     return { images: [] };
   }
   const label = `${vision.provider}/${vision.id}`;
-  if (!app.interactive || !app.terminal.canAsk) {
+  // A person at the terminal, or an ACP client's person (casper acp), picks; a one-shot or --json run says so.
+  if (!someoneAnswers(app) || !app.terminal.canAsk) {
     app.output.write(`[image] ${name} can't see pictures; the request goes without ${them}. ${terminalText(label)} can see them (/model ${terminalText(label)}).\n`);
     return { images: [] };
   }

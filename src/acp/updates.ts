@@ -121,6 +121,12 @@ export class UpdateMapper {
     }
   }
 
+  /** A line for the person (an `[image] ` note: a picture that was not sent), after the model's text so far, so it
+   * reads where it happened. */
+  note(line: string): Json[] {
+    return [...this.flush(), this.message(line.endsWith("\n") ? line : `${line}\n`)];
+  }
+
   /** The model's text not sent yet. */
   flush(): Json[] {
     const rest = this.pending;
