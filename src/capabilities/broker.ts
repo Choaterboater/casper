@@ -113,6 +113,8 @@ const BUILT_IN_SCRUBBER: ResultScrubber = { scrubValue: async (value) => ({ ...s
 export const HIDDEN_SECRET_REASON = `this change still has ${SECRET_MARKER} in it`;
 /** A call that is not a read, sent during a plan turn. */
 export const PLANNING_REFUSED = "planning only: a call that is not a read waits until the person chooses Build";
+/** A call that is not a read, while the app that runs casper acp has set Read only (decision 82). */
+export const READ_ONLY_REFUSED = "read only: the app set Casper to look and answer, so a call that is not a read is not sent";
 export const HIDDEN_SECRET_NEXT = "Casper hid that secret from the AI, so the AI can't send it back. Type the real value yourself or leave that line out.";
 
 /** The user can ask for a preview at most this many times for one call; then only yes or no is left. */
@@ -274,6 +276,11 @@ export class CapabilityBroker {
   private readonly onLoginMissing?: LoginMissingHandler;
   /** True during a plan turn: only a call that would run without a box (a read) is sent; the rest wait for Build. */
   private readonly planning?: () => boolean;
+  /** True while the app that runs casper acp has set Read only: the same rule as a plan turn, with its own words. */
+  private readonly readOnly?: () => boolean;
+  /** True while the app has set "Don't ask" (decision 82): it asks nothing then, so a change on a server it said asks
+   * for itself (casper/clientAsks) gets Casper's change box again. One box either way. */
+  private readonly clientAsksIgnored?: () => boolean;
   /** What each router server's find_tool said about its inner tools (kind, product), per server. Kept while the
    * server's definition stays the same, so the restart that turns writes on keeps them; a changed definition or a
    * server that is gone starts afresh. At most MAX_HITS_PER_SERVER names a server. */
@@ -281,8 +288,11 @@ export class CapabilityBroker {
   constructor(private readonly manager: MCPManager, private readonly confirm?: ConfirmCapability,
     options: { writesGate?: boolean; scrubber?: ResultScrubber; onSessionCovered?: (server: string, realTool: string) => void; confirmKind?: ConfirmKind;
       onAllowAll?: (server: string, realTool: string) => void; onAllowAllStart?: (server: string) => void; onLoginMissing?: LoginMissingHandler;
-      onChangeCall?: ChangeCallHandler; addedThisSession?: (server: string) => boolean; secretValues?: () => readonly string[]; planning?: () => boolean } = {}) {
+      onChangeCall?: ChangeCallHandler; addedThisSession?: (server: string) => boolean; secretValues?: () => readonly string[]; planning?: () => boolean;
+      readOnly?: () => boolean; clientAsksIgnored?: () => boolean } = {}) {
     if (options.planning) this.planning = options.planning;
+    if (options.readOnly) this.readOnly = options.readOnly;
+    if (options.clientAsksIgnored) this.clientAsksIgnored = options.clientAsksIgnored;
     this.secretValues = options.secretValues ?? (() => secretEnvValues());
     if (options.onLoginMissing) this.onLoginMissing = options.onLoginMissing;
     if (options.onAllowAll) this.onAllowAll = options.onAllowAll;
@@ -434,6 +444,7 @@ export class CapabilityBroker {
     const label = planLabel(plan);
     // While planning a read runs (a device's state is research for the plan); a change, or any call that would ask, waits.
     if (this.planning?.() && needsApproval(plan)) throw new NotExecutedError(PLANNING_REFUSED);
+    if (this.readOnly?.() && needsApproval(plan)) throw new NotExecutedError(READ_ONLY_REFUSED);
     // A router call is judged by the real tools it runs: a write behind a read router is refused
     // like the write tool itself while writes are off (or for a read-only login).
     this.refuseByPolicy(capability, label);
@@ -446,7 +457,9 @@ export class CapabilityBroker {
     // Risky kinds (firmware, delete, admin) are off by default: the user allows the kind first, then the change box asks.
     if (needsApproval(plan) && !optedIn && !allCovered) await this.allowRiskyKinds(capability, plan, combined);
     // Your own server that started with writes on (My MCP servers), read fresh: past the kinds box, no change box.
-    const ownCovered = needsApproval(plan) && !optedIn && this.writesGate && this.manager.policy(plan.server).ownWrites === true;
+    const serverPolicy = this.manager.policy(plan.server);
+    const ownCovered = needsApproval(plan) && !optedIn && this.writesGate && serverPolicy.ownWrites === true
+      && !(serverPolicy.clientAsks && this.clientAsksIgnored?.());
     // Covered by the user's "Yes, for this session": approved without a box, so server questions still reach them.
     const covered = allCovered || ownCovered || (needsApproval(plan) && !optedIn && this.sessionCovers(plan, capability));
     const writesBefore = this.writes(policy);

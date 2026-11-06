@@ -24,6 +24,8 @@ const ALLOW_WORDS = new Set<string>(["all", "allow", ...PERMISSIONS_ALL_ALIASES]
 const PERMISSIONS_WORDS = ["all", "ask", "details", "write", "forget"];
 
 export interface PermissionsView {
+  /** The app that runs casper acp set Read only (decision 82). */
+  readOnly?: boolean;
   /** The shell's own paragraph and the last line of /permissions as it was (permissionsText). */
   shell: string;
   /** Whether you trust the open folder, in a sentence (folderTrustText): its checks and project commands depend on it. */
@@ -68,6 +70,9 @@ const list = (items: readonly string[], none = "none") => (items.length ? items.
 
 const plural = (count: number, word: string) => `${count} ${word}${count === 1 ? "" : "s"}`;
 
+/** What Read only means, first on /permissions while the app has it set. */
+export const READ_ONLY_LINE = "Read only (set by the app): Casper looks and answers. Edits, writes, changing commands, checks and MCP changes are not run, and nothing asks. Pick another access in the app to change it.";
+
 /** Plain /permissions: the state first, then one line per kind (state · how to change it), what stays protected and
  * where the rest is. The box that stops asking follows it in a terminal. */
 export function permissionsSummary(view: PermissionsView): string {
@@ -81,6 +86,7 @@ export function permissionsSummary(view: PermissionsView): string {
     : [view.shellAsks ? "shell commands" : "", view.outsideWritesAsk ? "writes outside the project" : "", "other machines"].filter(Boolean).join(", ").replace(/, ([^,]*)$/, " and $1");
   const writes = view.outsideWritesAsk ? asks : "doesn't ask (no sandbox)";
   return [
+    ...(view.readOnly ? [READ_ONLY_LINE] : []),
     view.asking
       ? `Asking is on: Casper asks before ${before}.`
       : "Asking is OFF until you quit: shell commands, hosts, writes outside the project and other machines are answered Yes. /permissions ask turns it back on.",
@@ -100,6 +106,7 @@ export function permissionsSummary(view: PermissionsView): string {
 export function permissionsScreen(view: PermissionsView): string {
   const lines = [
     `What Casper may do here, and how to change it. Asking is ${view.asking ? "on" : "OFF until you quit (/permissions ask turns it back on)"}.`,
+    ...(view.readOnly ? [READ_ONLY_LINE] : []),
     "",
     ...(view.folder ? [view.folder, ""] : []),
     view.shell,

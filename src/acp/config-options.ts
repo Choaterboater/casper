@@ -1,7 +1,8 @@
 // The model and effort an ACP app's picker shows and sets (decision 81), as ACP session config options: Casper's own
 // models (the ones you're signed in to, in /model's order) and /effort's choices. A pick does what `/model
 // provider/id` and `/effort <level>` do without --session: it changes this conversation and is saved as Casper's
-// default. Only a listed value is taken; nothing else in the request reaches the runtime.
+// default. Only a listed value is taken; nothing else in the request reaches the runtime. The access chip's `mode`
+// (decision 82, src/acp/modes.ts) is always last.
 
 import { modelSelectedText } from "../app/commands";
 import { providerName } from "../runtime/pi-models";
@@ -10,6 +11,7 @@ import { effortChoices, effortHint } from "../tui/effort";
 import { formatRuntimeStatus } from "../tui/format";
 import { RpcFailure, RPC, type Json } from "./rpc";
 import { hideDeep } from "./updates";
+import { modeOption, setAccessMode, type AccessHost } from "./modes";
 
 /** What one session offers now: the options as sent, and the values a set may take. */
 export interface Offer {
@@ -38,8 +40,13 @@ export function offeredEfforts(levels: readonly string[] | undefined): string[] 
 interface Entry { value: string; provider: string; name: string; efforts: string[]; description?: string; providerName?: string }
 
 /** The options this session offers now. `hide` is the session's hiding: an option whose value it would change is left
- * out, and every name and description goes through it. */
-export function offerOf(runtime: OfferRuntime | undefined, hide: (text: string) => string): Offer {
+ * out, and every name and description goes through it. `access`: the app whose access mode is the last option. */
+export function offerOf(runtime: OfferRuntime | undefined, hide: (text: string) => string, access?: AccessHost): Offer {
+  const offer = modelOffer(runtime, hide);
+  return access ? { ...offer, wire: [...offer.wire, modeOption(access, hide)] } : offer;
+}
+
+function modelOffer(runtime: OfferRuntime | undefined, hide: (text: string) => string): Offer {
   const none: Offer = { wire: [], models: new Map(), efforts: [] };
   const status = runtime?.getStatus?.();
   if (!runtime || !status?.provider || !status.model) return none;
@@ -83,7 +90,9 @@ const words = (error: unknown) => error instanceof Error ? error.message : Strin
  * string, a model that is not listed or an effort the model does not offer is refused before the runtime is called.
  * `write` gets the lines /model and /effort write (Casper's transcript on stderr).
  */
-export async function setOption(runtime: OfferRuntime | undefined, offer: Offer, configId: unknown, value: unknown, write: (text: string) => void): Promise<void> {
+export async function setOption(runtime: OfferRuntime | undefined, offer: Offer, configId: unknown, value: unknown, write: (text: string) => void,
+  access?: AccessHost): Promise<void> {
+  if (configId === "mode" && access) { setAccessMode(access, value, write); return; }
   if (configId !== "model" && configId !== "effort") throw new RpcFailure(RPC.invalidParams, `Unknown option: ${String(configId)}`);
   if (typeof value !== "string") throw new RpcFailure(RPC.invalidParams, `${configId} takes one of its listed values`);
   if (configId === "model") {

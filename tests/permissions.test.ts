@@ -6,7 +6,7 @@ import { PassThrough } from "node:stream";
 import { CasperApp } from "../src/app";
 import { allowedCommand } from "../src/app/allowed";
 import { updateFooter } from "../src/app/footer";
-import { parsePermissions, permissionsScreen, permissionsSummary, type PermissionsView } from "../src/app/permissions";
+import { parsePermissions, permissionsScreen, permissionsSummary, READ_ONLY_LINE, type PermissionsView } from "../src/app/permissions";
 import { canonicalLine } from "../src/tui/commands";
 import { createSessionSandbox, runtimeShell, type SandboxHost } from "../src/app/sandbox";
 import { sandboxHost } from "../src/app/wiring";
@@ -170,7 +170,8 @@ test("only the person's typed command can set the switch: nothing the AI can cal
   walk(root);
   // crew/shell.ts and sandbox/manager.ts only read it: a builder's box, and a host while a builder runs. command-loop.ts and
   // stop-asking-words.ts only see the person's own typed "stop asking" line, which opens the /permissions all box.
-  expect(found.sort()).toEqual(["app.ts", "app/command-loop.ts", "app/commands.ts", "app/footer.ts", "app/sandbox.ts", "app/stop-asking-words.ts",
+  // acp/modes.ts sets it from the person's own pick of Don't ask in the app that runs casper acp (decision 82).
+  expect(found.sort()).toEqual(["acp/modes.ts", "app.ts", "app/command-loop.ts", "app/commands.ts", "app/footer.ts", "app/sandbox.ts", "app/stop-asking-words.ts",
     "app/wiring.ts", "crew/shell.ts", "sandbox/manager.ts"]);
 });
 
@@ -223,6 +224,17 @@ test("the short screen's Network devices line says which servers have writes on 
   expect(on).toContain("  Network devices (MCP): writes on: central, mist · Yes to everything: central; other changes ask · /mcp writes <server>");
   expect(on).not.toContain("writes off");
   expect(permissionsSummary({ ...view, mcpWritesOn: ["central"] })).toContain("writes on: central · each change asks");
+});
+
+test("with Read only set by the app, /permissions and its details name it first", () => {
+  const view: PermissionsView = {
+    shell: "", scripts: "", asking: true, sandboxOn: false, outsideWritesAsk: true, commandsSession: 0, commandsSaved: 0, listedHosts: 0, rememberedHosts: [], reachHosts: [],
+    labDevices: 0, labAsks: undefined, checks: "ask", checksRemembered: false, writesForGood: [], writesSession: [], mcpWritesOn: [], mcpAllowAll: [],
+    web: true, github: true, sshLogin: true, downloads: true, show: (folder) => folder,
+  };
+  expect(permissionsSummary(view)).not.toContain(READ_ONLY_LINE);
+  expect(permissionsSummary({ ...view, readOnly: true }).split("\n")[0]).toBe(READ_ONLY_LINE);
+  expect(permissionsScreen({ ...view, readOnly: true }).split("\n")[1]).toBe(READ_ONLY_LINE);
 });
 
 test("your own servers that started with writes on are named apart: their changes don't ask, a network product's still do", () => {

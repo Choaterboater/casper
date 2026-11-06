@@ -246,6 +246,8 @@ export function networkOptions(app: CasperApp): { network?: NetworkToolContext }
 export async function checksPlan(app: CasperApp, context: ProjectContext): Promise<ChecksPlan> {
   // A folder you haven't trusted runs none of its commands: no checks, pages or smoke checks, whatever its project file says.
   if (app.folderTrust?.trusted === false) return { mode: "off", checks: [], untrusted: app.folderTrust.why };
+  // Read only (set by the app that runs casper acp): looking and answering runs none of the project's commands.
+  if (app.readOnlyAccess) return { mode: "off", checks: [], readOnly: true };
   const flag = app.verificationFlag;
   const configured = context.verification.mode;
   const checks = selectedChecks(context.verification.checks, context.model.commands, context.model.namedChecks,

@@ -1,5 +1,6 @@
 import type { SideQuestionUsage } from "./app/side-question";
 import { readOnlyCommand } from "./sandbox/read-only";
+import { PLANNING_BLOCKED, READ_ONLY_BLOCKED } from "./flows/plan";
 import type { FolderTrust } from "./project/trust";
 import type { KnownFolderName } from "./platform/known-folders";
 import { reviewerLine } from "./crew/review-line";
@@ -529,6 +530,10 @@ export class CasperApp {
   readonly suggestions = new SuggestionController((text) => { if (!this.closing) this.output.write(text); }, () => this.homeDir());
   /** A plan turn is running: every tool but reading is refused (see src/flows/plan.ts). */
   planning = false;
+  /** Why changes are refused now: a plan turn, then Read only access; undefined when they are not. */
+  changesBlocked(): string | undefined {
+    return this.planning ? PLANNING_BLOCKED : this.readOnlyAccess ? READ_ONLY_BLOCKED : undefined;
+  }
   planBuild?: import("./flows/plan-build").PlanBuild;
   /** Flow warnings (a user's flow that could not be used) are said once. */
   readonly flowWarnings = new Set<string>();
@@ -540,6 +545,14 @@ export class CasperApp {
    * answered "Yes, for this session" without showing them. Memory only: never saved, off at start, set only by the
    * person's typed command and numbered answer (src/app/permissions.ts). */
   stopAsking = false;
+  /** Read only access, set by the app that runs casper acp (decision 82): every change Casper can see is refused, as in
+   * a plan turn, and no box is asked. Memory only; only the app's own pick (session/set_mode) sets it. */
+  readOnlyAccess = false;
+  /** The access mode the app last picked (casper acp), when it picked one: its "Don't ask" means the app asks nothing,
+   * so the app's own servers' changes ask in Casper's box again (decision 82). */
+  clientAccess?: "read" | "ask" | "full";
+  /** Casper changed its access itself (/permissions all or ask, "Yes to everything this session"): casper acp tells the app. */
+  onAccessChange?: () => void;
   /** "Yes, for this session" in the box for the AI's change to an MCP server's entry (casper_mcp_remove, casper_mcp_add
    * with replace): later such changes this session need no box. Memory only; only the person's answer sets it. */
   mcpEditsAllowed = false;

@@ -62,8 +62,8 @@ function recordOutcome(app: CasperApp, line: string, recorded: boolean): void {
 /** Whether a box can be answered: by the person at Casper's terminal, or by an ACP client's person (casper acp, which
  * is otherwise a one-shot run). Nobody else ever answers one. Each gate keeps its own closing check. The checklist
  * default and the screenshot question (task-run.ts) follow it too. */
-export function someoneAnswers(app: CasperApp): boolean {
-  return app.interactive || app.remoteApprovals;
+export function someoneAnswers(app: Pick<CasperApp, "interactive"> & { readonly remoteApprovals?: boolean }): boolean {
+  return app.interactive || app.remoteApprovals === true;
 }
 
 export function approvalStopped(app: CasperApp, signal?: AbortSignal): boolean {

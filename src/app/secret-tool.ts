@@ -17,6 +17,7 @@ export function secretToolFor(app: CasperApp): RuntimeTool {
     privatePaths: () => projectPrivatePaths(app),
     canAsk: () => app.interactive && app.terminal.canAsk && !app.closing && (seam !== undefined || !!app.terminal.exclusiveHost()),
     planning: () => app.planning,
+    readOnly: () => app.readOnlyAccess,
     ask: (ask, signal) => oneAtATime(app, async () => {
       if (app.closing) return undefined;
       const stop = signal ?? app.commandAbort?.signal ?? new AbortController().signal;

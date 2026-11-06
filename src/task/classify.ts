@@ -143,6 +143,9 @@ export const CONTINUE_TYPED = "Earlier sessions: if this conversation doesn't ha
   + "they type /continue for the most recent one here, or /resume to pick one (in another folder, start Casper there). "
   + "You can't run / commands or read saved conversations.";
 
+/** Said only while the app that runs casper acp has set Read only (decision 82), so no other request pays for it. */
+export const READ_ONLY_TYPED = "Read only (the person's app set it): Casper refuses every edit, write and changing command. Look and answer; say what you would change.";
+
 export function formatTaskPrompt(
   request: string,
   classification: TaskClassification,
@@ -153,6 +156,8 @@ export function formatTaskPrompt(
     machines?: readonly string[];
     /** The request as typed, before Casper added lines to it (a saved picture's path); the target check reads this. */
     typed?: string;
+    /** Read only, set by the app that runs casper acp: one line for this request only. */
+    readOnly?: boolean;
   } = {},
 ): string {
   const underSpecified = classification.mode === "modify"
@@ -188,6 +193,7 @@ export function formatTaskPrompt(
     ...(options.machines?.length ? [`- machines: this conversation worked on ${options.machines.join(", ")} over ssh.${sshByName(options.machines)} Work meant for one of them happens there (its files, its services), not in this folder, unless the request asks for files here. Check a change there where the person will see it (its web page in the browser tool, or its API) before you call it done or go on; if you can't, say it is not checked.`] : []),
     ...(mcp ? [`- ${MCP_TYPED}`] : []),
     ...(continued ? [`- ${CONTINUE_TYPED}`] : []),
+    ...(options.readOnly ? [`- ${READ_ONLY_TYPED}`] : []),
     // Which checks to pick and when is in casper_check's description; this is what it does not say.
     "If you ran tests yourself, say in one line what ran and the result. Don't claim a check passed that didn't run.",
     // Auto mode only: Casper owns the final run, so the model need not select checks to record them.

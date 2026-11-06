@@ -6,7 +6,8 @@
 // answers: the approval boxes a one-shot run must refuse are put to the client as session/request_permission (anything
 // but a picked choice is No), and the terminal's defaults hold: the checklist for a code change, and the screenshot
 // question once a session. A / command's output is its reply (src/acp/commands.ts lists the commands). The app's
-// model and effort picker shows Casper's own models (src/acp/config-options.ts).
+// model and effort picker shows Casper's own models (src/acp/config-options.ts), and its access chip sets Read only,
+// Ask first or Don't ask (src/acp/modes.ts).
 
 import os from "node:os";
 import path from "node:path";
@@ -30,6 +31,7 @@ import { leadingImagePath, startsWithImageFile } from "../app/images";
 import { clientServers } from "./client-servers";
 import { acpCommands, acpRefusal } from "./commands";
 import { offerOf, setOption } from "./config-options";
+import { accessModeOf, modeState, setAccessMode, withModeTold } from "./modes";
 import { AcpAsker } from "./permission";
 import { promptContent } from "./prompt";
 import { RpcConnection, RpcFailure, RPC, type Json } from "./rpc";
@@ -166,21 +168,38 @@ export async function runAcpSession(options: SessionOptions): Promise<void> {
     offeredCommands = json;
     sendUpdate(commandsUpdate(list));
   };
-  // The model and effort options the client was last told (decision 81): Casper says only what changed since.
+  // The options and the access mode the client was last told (decisions 81 and 82): Casper says only what changed since.
   let lastOffer = "";
-  const offerNow = () => offerOf(app?.session, hide);
+  let lastMode = "";
+  const offerNow = () => offerOf(app?.session, hide, app);
   const configOptions = () => {
     const offer = offerNow();
     lastOffer = JSON.stringify(offer.wire);
+    if (app) lastMode = accessModeOf(app);
     return offer.wire;
   };
-  /** A change Casper made itself (a typed /model, a failover, a model server found later), sent once. */
+  /** A change Casper made itself (a typed /model or /permissions, a failover, a model server found later, "Yes to
+   * everything this session"), sent once. A change the client asked for is never sent back. */
   const announce = () => {
+    if (!app || !sessionId) return;
+    const mode = accessModeOf(app);
+    if (mode !== lastMode) {
+      lastMode = mode;
+      sendUpdate({ sessionUpdate: "current_mode_update", currentModeId: mode });
+    }
     const offer = offerNow();
     const json = JSON.stringify(offer.wire);
     if (json === lastOffer) return;
     lastOffer = json;
     sendUpdate(configUpdate(offer.wire));
+  };
+  let asker: AcpAsker | undefined;
+  /** The access the app picked (session/set_mode, or the `mode` option): it holds from the next tool call, also during
+   * a prompt. A switch to Read only closes every open box as No. */
+  const setMode = (value: unknown) => {
+    if (!app) return;
+    const before = setAccessMode(app, value, output.write);
+    if (value === "read" && before !== "read") asker?.withdrawAll();
   };
 
   const open = async (params: Json, load: boolean): Promise<Json> => {
@@ -232,7 +251,11 @@ export async function runAcpSession(options: SessionOptions): Promise<void> {
     }
     // Again now the session has started (its logins are read), so the options the reply carries are hidden with them.
     learnSecrets();
-    answerThroughClient(created, new AcpAsker(sessionId, { request: (permission, signal) => connection.request("session/request_permission", permission, signal), update: boxUpdate }, hide), output.write);
+    asker = new AcpAsker(sessionId, { request: (permission, signal) => connection.request("session/request_permission", permission, signal), update: boxUpdate }, hide);
+    asker.readOnly = () => app?.readOnlyAccess === true;
+    answerThroughClient(created, asker, output.write);
+    // "Yes to everything this session", /permissions all or ask: the app's chip hears it at once, mid-prompt too.
+    created.onAccessChange = announce;
     if (load) {
       // The conversation so far, as the person typed it.
       for (const entry of app.session?.conversationEntries?.() ?? []) {
@@ -240,9 +263,9 @@ export async function runAcpSession(options: SessionOptions): Promise<void> {
         const words = entry.prompt === undefined ? undefined : promptWords(entry.prompt);
         if (words) sendUpdate({ sessionUpdate: "user_message_chunk", content: { type: "text", text: hide(words) } });
       }
-      return { configOptions: configOptions() };
+      return { configOptions: configOptions(), modes: modeState(created, hide) };
     }
-    return { sessionId, configOptions: configOptions() };
+    return { sessionId, configOptions: configOptions(), modes: modeState(created, hide) };
   };
 
   connection.onRequest("initialize", async () => initializeResult(await readAcpMcpSetting(options.homeDir ?? os.homedir())));
@@ -316,6 +339,12 @@ export async function runAcpSession(options: SessionOptions): Promise<void> {
   // between prompts. The reply is the whole list after the change, so it is not sent again as an update.
   connection.onRequest("session/set_config_option", async (params) => {
     if (!app || !sessionId || params.sessionId !== sessionId) throw new RpcFailure(RPC.notFound, "Unknown session");
+    // The access chip is taken during a prompt too: Read only must stop work that is already running.
+    if (params.configId === "mode") {
+      try { setMode(params.value); }
+      catch (error) { throw new RpcFailure(error instanceof RpcFailure ? error.code : RPC.internal, hide(error instanceof Error ? error.message : String(error))); }
+      return { configOptions: configOptions() };
+    }
     if (busy || changing) throw new RpcFailure(RPC.invalidRequest, "Casper is working on a prompt; change the model or effort when it ends");
     changing = true;
     try {
@@ -328,6 +357,16 @@ export async function runAcpSession(options: SessionOptions): Promise<void> {
       throw new RpcFailure(error instanceof RpcFailure ? error.code : RPC.internal, hide(error instanceof Error ? error.message : String(error)));
     } finally { changing = false; }
     return { configOptions: configOptions() };
+  });
+  // The same access for a client that knows only session modes.
+  connection.onRequest("session/set_mode", async (params) => {
+    if (!app || !sessionId || params.sessionId !== sessionId) throw new RpcFailure(RPC.notFound, "Unknown session");
+    try { setMode(params.modeId); }
+    catch (error) { throw new RpcFailure(error instanceof RpcFailure ? error.code : RPC.internal, hide(error instanceof Error ? error.message : String(error))); }
+    // What the client set is not sent back, as the mode or as the option; a model change it has not heard of still is.
+    lastMode = accessModeOf(app);
+    lastOffer = withModeTold(lastOffer, offerNow().wire);
+    return {};
   });
   connection.onNotification("session/cancel", (params) => {
     if (!app || params.sessionId !== sessionId || !busy) return;

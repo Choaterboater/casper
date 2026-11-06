@@ -103,6 +103,7 @@ export async function runAcpServer(argv: readonly string[], launchedFrom: string
   client.onRequest("session/load", (params) => start("session/load", params), (_result, params) => release(params.sessionId));
   client.onRequest("session/prompt", async (params) => route(params).connection.request("session/prompt", params));
   client.onRequest("session/set_config_option", async (params) => route(params).connection.request("session/set_config_option", params));
+  client.onRequest("session/set_mode", async (params) => route(params).connection.request("session/set_mode", params));
   client.onNotification("session/cancel", (params) => { try { route(params).connection.notify("session/cancel", params); } catch { /* an unknown session has nothing to stop */ } });
 
   // Ctrl+C, SIGTERM or the client gone: each session closes as Casper closes (its checks and services stop), then

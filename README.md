@@ -137,6 +137,12 @@ The app's model badge and picker show Casper's own models, the ones you're signe
 levels. A pick changes Casper's model for the next message and is saved as your default, as `/model` does; a
 `/model` typed into Casper moves the badge. [Decision 81](docs/adr/0002/81-an-acp-app-picks-casper-model-and-effort.md).
 
+The app's access chip reaches Casper. Read only stops Casper changing anything it can see and runs no checks; Ask
+first is Casper's usual boxes; Don't ask equals `/permissions all`, and then a change on the app's own server asks in
+Casper's box instead of the app's. Picking Read only during a prompt closes its open boxes as No. A typed
+`/permissions all` or "Yes to everything this session" shows in the app. `acp_access: off` in `~/.casper/config.yaml`
+keeps Don't ask from apps. [Decision 82](docs/adr/0002/82-an-acp-app-sets-casper-access.md).
+
 Type `/help` for the commands. Ctrl+C stops the current work but keeps changes already made;
 Ctrl+D on an empty prompt exits. [Keys and commands](docs/TERMINAL_UX.md#quick-reference).
 
