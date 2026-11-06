@@ -39,6 +39,10 @@ export function selfReviewPrompt(request: string): string {
 const ITEM = /^\s*[-*]\s*\[([ xX])\]\s+(.+?)\s*$/;
 /** The plain lines the model is asked for, which never look like boxes to tick: "Still not done: …", "Covered now: …". */
 const PLAIN_ITEM = /^\s*(?:[-*•]\s+)?(?:\*\*)?(still not done|covered now):(?:\*\*)?\s+(.+?)\s*$/i;
+/** An open line whose item is a "nothing" word ("Still not done: none.", "none found", "none — all covered"): the
+ * model found nothing left, so it is no open item. "none of the tests run" or "none yet — the port check" names a gap
+ * and stays open. */
+const NOTHING_OPEN = /^[*_`]*\s*(?:none|nothing|n\/a|no gaps)(?:\s+(?:found|remaining|left))?[\s*_`.!]*(?:[—–(:,-].*)?$/i;
 const MAX_DONE = 50;
 const MAX_ITEM_CHARS = 300;
 
@@ -52,6 +56,7 @@ export function parseChecklist(answer: string): { done: string[]; open: string[]
     if (!box && !plain) continue;
     const isOpen = box ? box[1] === " " : plain![1]!.toLowerCase() === "still not done";
     const item = box ? box[2]! : plain![2]!;
+    if (isOpen && NOTHING_OPEN.test(item)) continue;
     if (!isOpen && done.length >= MAX_DONE) continue;
     const text = item.length > MAX_ITEM_CHARS ? `${item.slice(0, MAX_ITEM_CHARS - 1)}…` : item;
     (isOpen ? open : done).push(text);
@@ -66,12 +71,20 @@ const COVERED = /^[ \t]*\**Covered:\**[ \t]*(\d+)[ \t]*of[ \t]*(\d+)\b/im;
 const DELTA = /^[ \t]*\**Requirements review:/im;
 const ALL_COVERED = /^[ \t]*\**Requirements review:\**[ \t]*all covered\b/im;
 
+/** A "Still not done: none." line: a delta answer that lists no gaps, so a count is not needed to read it. */
+function saysNothingOpen(answer: string): boolean {
+  return answer.split(/\r?\n/).some((line) => {
+    const plain = PLAIN_ITEM.exec(line);
+    return plain?.[1]!.toLowerCase() === "still not done" && NOTHING_OPEN.test(plain[2]!);
+  });
+}
+
 /** The review round's answer: its gap lines plus the requirement count (the delta format), or a legacy
  * full checklist without a count. Undefined when it has neither. */
 export function parseReview(answer: string): RequirementsReview | undefined {
   const checklist = parseChecklist(answer);
   const covered = COVERED.exec(answer);
-  if (!covered && !(checklist ? DELTA : ALL_COVERED).test(answer)) return checklist;
+  if (!covered && !(checklist || saysNothingOpen(answer) ? DELTA : ALL_COVERED).test(answer)) return checklist;
   return { fixed: checklist?.done ?? [], open: checklist?.open ?? [],
     ...(covered ? { covered: Number(covered[1]), total: Number(covered[2]) } : {}) };
 }
