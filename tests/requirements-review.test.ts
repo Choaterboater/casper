@@ -39,6 +39,25 @@ test("open items are plain lines that never look like boxes to tick, and checkbo
   expect(parseChecklist("The handshake is still not done because the library lacks it.")).toBeUndefined();
 });
 
+test("an open line that says nothing is left is no open item; one that names a gap stays open", () => {
+  // Seen live: the review found nothing left and wrote "Still not done: none.", which read as an open item named "none.".
+  const live = "Requirements review:\nCovered now: tls connects — tests/tls.test.ts\nStill not done: none.\nCovered: 3 of 3 requirements.";
+  expect(parseReview(live)).toEqual({ fixed: ["tls connects — tests/tls.test.ts"], open: [], covered: 3, total: 3 });
+  for (const nothing of ["none", "None.", "**none**", "NOTHING", "nothing left.", "n/a", "N/A", "no gaps!", "_none._",
+    "none — all requirements covered", "None (everything is covered).", "nothing remaining.", "none found.", "no gaps left.", "N/A — nothing left"]) {
+    expect(parseChecklist(`Covered now: a — t\nStill not done: ${nothing}`)).toEqual({ done: ["a — t"], open: [] });
+    expect(parseChecklist(`- [ ] ${nothing}`)).toBeUndefined();
+  }
+  expect(parseChecklist("- **Still not done:** none.")).toBeUndefined();
+  // A delta answer with no count that lists no gaps is all covered, not a missing checklist.
+  expect(parseReview("Requirements review:\nStill not done: none.")).toEqual({ fixed: [], open: [] });
+  // Only a whole "nothing" item is dropped: these name a gap.
+  expect(parseChecklist("Still not done: none of the tests run — no runner")).toEqual({ done: [], open: ["none of the tests run — no runner"] });
+  expect(parseChecklist("Still not done: nothing handles a refused port")).toEqual({ done: [], open: ["nothing handles a refused port"] });
+  expect(parseChecklist("- [ ] none of the errors are tested")).toEqual({ done: [], open: ["none of the errors are tested"] });
+  expect(parseChecklist("Still not done: none yet — the port check")).toEqual({ done: [], open: ["none yet — the port check"] });
+});
+
 test("the review prompt checks every stated requirement, from the request and the project docs, but answers only the gaps", () => {
   const prompt = requirementsReviewPrompt("Add --tls to portcheck.");
   expect(prompt).toContain("Add --tls to portcheck.");

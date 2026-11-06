@@ -126,7 +126,21 @@ shellCheckTest("the review round fixes a gap the model finds; a gap it admits ke
   const gapReceipt = JSON.parse(gap.stdout.trim().split("\n").at(-1)!);
   expect({ exit: gap.exit, outcome: gapReceipt.outcome }).toEqual({ exit: 3, outcome: "not_verified" });
   expect(gapReceipt.text).toContain("⚠ The model's review says not done: negative numbers — not implemented");
-}, childTestLimit(2));
+
+  // Seen live: "Still not done: none." is the review finding nothing left, not an open item named "none.".
+  const nothingLeft = await fixture((_request, payload) => lastUser(payload).includes(REVIEW)
+    ? { text: "Requirements review:\nCovered now: marker — test\nStill not done: none.\nCovered: 3 of 3 requirements." }
+    : afterTool(payload) ? { text: "Fixed." } : { tools: [{ name: "write", args: { path: "sum.js", content: "fixed\n" } }] });
+  await fixProject(nothingLeft);
+  await reviewOn(nothingLeft);
+  const none = await nothingLeft.run(["--json", "--verify", "--require-verification", "Fix sum.js"]);
+  const noneReceipt = JSON.parse(none.stdout.trim().split("\n").at(-1)!);
+  expect({ exit: none.exit, outcome: noneReceipt.outcome, review: noneReceipt.review })
+    .toEqual({ exit: 0, outcome: "verified", review: { fixed: ["marker — test"], open: [], covered: 3, total: 3 } });
+  expect(noneReceipt.text).toContain("– The model's review: all 3 requirements covered (1 gap fixed; its own claim, not checked by Casper)");
+  expect(noneReceipt.text).not.toContain("says not done");
+  expect(noneReceipt.text).not.toContain("lists unfinished items");
+}, childTestLimit(3));
 
 shellCheckTest("the review stops at its own 12-turn budget; Casper still reruns the checks and proves the change", async () => {
   const f = await fixture(endlessReview);
