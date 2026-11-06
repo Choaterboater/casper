@@ -53,7 +53,7 @@ import { describeVisualization } from "../visualize/tools";
 import { renderProjectSummary } from "../tui/banner";
 import { LifecycleRegistry } from "./lifecycle";
 import type { RenderedVisualization, VisualizationRouter } from "../visualize/router";
-import type { RuntimeAuthenticationResult, RuntimeAuthProvider, RuntimeSession, RuntimeTool, AgentRuntime } from "../runtime/types";
+import type { RuntimeAuthenticationResult, RuntimeAuthProvider, RuntimeModelSelection, RuntimeSession, RuntimeTool, AgentRuntime } from "../runtime/types";
 import { describeChecksPlan, TESTS_WITHOUT_COMMAND, type ChecksPlan } from "../verify/mode";
 import { detectedMigrations, MIGRATIONS_CHECK } from "../verify/migrations-check";
 import { detectedE2e, E2E_CHECK } from "../verify/e2e";
@@ -248,6 +248,21 @@ export function loginProvider(word: string): RuntimeAuthProvider | undefined {
   return Object.hasOwn(LOGIN_PROVIDERS, word.toLowerCase()) ? LOGIN_PROVIDERS[word.toLowerCase()] : undefined;
 }
 
+/** What /model says after a selection: the status block and where the next request goes. An app's pick over
+ * `casper acp` (src/acp/config-options.ts) says the same. */
+export function modelSelectedText(result: RuntimeModelSelection, helpers = false): string {
+  const lines: string[] = [];
+  if (result.from !== undefined) lines.push(`[model] ${terminalText(`${result.status.provider}/${result.status.model}`)} (from ${terminalText(JSON.stringify(result.from))})`);
+  lines.push(formatRuntimeStatus(result.status));
+  if (result.selected) {
+    lines.push(result.savedDefault ? "[model] Selected and saved as the Casper default for new conversations." : "[model] Selected for this conversation only; startup default unchanged.");
+    lines.push(`[model] The next request sends this conversation's context to ${result.status.provider}.`);
+    if (result.status.provider === "anthropic") lines.push(`[model] anthropic is the direct API route; for your Claude Code plan login use /model claude-subscription/${terminalText(result.status.model ?? "<model-id>")}.`);
+    if (helpers) lines.push("[model] Helpers already working keep their model; your next message uses this one.");
+  }
+  return lines.map((line) => `${line}\n`).join("");
+}
+
 export async function runSlashCommand(host: CommandHost, prompt: string): Promise<VerificationReport | undefined> {
     if (host.closing) return;
     if (/^\/help(?:\s|$)/.test(prompt)) {
@@ -307,14 +322,7 @@ export async function runSlashCommand(host: CommandHost, prompt: string): Promis
       if (result.candidates) throw new Error(severalModelsMessage(query, result.candidates));
       // A cancelled picker changes nothing; the status block was already shown at startup.
       if (!result.selected && !result.models) { host.output.write("[model] Selection cancelled; model unchanged.\n"); return; }
-      if (result.from !== undefined) host.output.write(`[model] ${terminalText(`${result.status.provider}/${result.status.model}`)} (from ${terminalText(JSON.stringify(result.from))})\n`);
-      host.output.write(`${formatRuntimeStatus(result.status)}\n`);
-      if (result.selected) host.output.write(result.savedDefault
-        ? "[model] Selected and saved as the Casper default for new conversations.\n"
-        : "[model] Selected for this conversation only; startup default unchanged.\n");
-      if (result.selected) host.output.write(`[model] The next request sends this conversation's context to ${result.status.provider}.\n`);
-      if (result.selected && result.status.provider === "anthropic") host.output.write(`[model] anthropic is the direct API route; for your Claude Code plan login use /model claude-subscription/${terminalText(result.status.model ?? "<model-id>")}.\n`);
-      if (result.selected && helpers) host.output.write("[model] Helpers already working keep their model; your next message uses this one.\n");
+      host.output.write(modelSelectedText(result, helpers));
       if (result.models) {
         host.output.write(result.models.length ? result.models.map((model) => `  ${model.provider}/${model.id}`).join("\n") + "\n" : "No models with configured credentials. Use /login to configure a supported provider.\n");
         host.output.write("Use /model <provider/model-id> to select. Selection does not send a prompt.\n");

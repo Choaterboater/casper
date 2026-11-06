@@ -73,8 +73,23 @@ function sameRef(a: ModelRef | undefined, b: ModelRef): boolean {
 }
 
 /** Keep the two Claude routes distinct without changing their actual provider ids. */
-function providerLabel(provider: string): string {
+export function providerLabel(provider: string): string {
   return provider === "claude-subscription" ? "Claude Code plan" : provider === "anthropic" ? "Anthropic API" : provider;
+}
+
+/** /model's order: the current model first, the Casper default second; then grouped by provider with the newest
+ * versions on top. The catalog carries no release dates, so descending numeric-aware ids (deepseek-v4 above
+ * deepseek-v3, gpt-5.6 above gpt-5.4) are the freshness proxy. `casper acp` lists the models in the same order. */
+export function compareModels(a: ModelRef, b: ModelRef, current?: ModelRef, defaultModel?: ModelRef): number {
+  const aCurrent = sameRef(current, a);
+  const bCurrent = sameRef(current, b);
+  if (aCurrent !== bCurrent) return aCurrent ? -1 : 1;
+  const aDefault = sameRef(defaultModel, a);
+  const bDefault = sameRef(defaultModel, b);
+  if (aDefault !== bDefault) return aDefault ? -1 : 1;
+  const providerOrder = a.provider.localeCompare(b.provider);
+  if (providerOrder !== 0) return providerOrder;
+  return b.id.localeCompare(a.id, undefined, { numeric: true });
 }
 
 /** The words the picker's search matches a model by. */
@@ -335,20 +350,7 @@ export class ModelBrowser {
 
   private sortModels(models: Item[]): Item[] {
     const sorted = [...models];
-    // Current model first, Casper default second; then grouped by provider with the newest
-    // versions on top. The catalog carries no release dates, so descending numeric-aware ids
-    // (deepseek-v4 above deepseek-v3, gpt-5.6 above gpt-5.4) are the freshness proxy.
-    sorted.sort((a, b) => {
-      const aCurrent = sameRef(this.current, a);
-      const bCurrent = sameRef(this.current, b);
-      if (aCurrent !== bCurrent) return aCurrent ? -1 : 1;
-      const aDefault = sameRef(this.defaultModel, a);
-      const bDefault = sameRef(this.defaultModel, b);
-      if (aDefault !== bDefault) return aDefault ? -1 : 1;
-      const providerOrder = a.provider.localeCompare(b.provider);
-      if (providerOrder !== 0) return providerOrder;
-      return b.id.localeCompare(a.id, undefined, { numeric: true });
-    });
+    sorted.sort((a, b) => compareModels(a, b, this.current, this.defaultModel));
     return sorted;
   }
 

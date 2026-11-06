@@ -883,3 +883,29 @@ console.log('RESULT=' + JSON.stringify({ before, after, onVision: session.getSta
   // The model in use is never offered as the switch.
   expect(result.self).toBeNull();
 }, childTestLimit());
+
+test("an exact reference selects a model whose id holds : and /, and offeredModels lists the signed-in ones in /model's order", async () => {
+  const f = await fixture();
+  await writeFile(path.join(f.agent, "models.json"), JSON.stringify({ providers: {
+    fixture: { name: "Fixture Lab", baseUrl: "http://127.0.0.1:9/v1", api: "openai-completions", apiKey: "fixture-not-a-secret", models: [{ id: "first" }, { id: "second", reasoning: true }, { id: "shared" }, { id: "hf.co/owner/model:q4", name: "Tagged" }] },
+    missing: { baseUrl: "http://127.0.0.1:9/v1", api: "openai-completions", models: [{ id: "no-auth" }] },
+  } }));
+  const result = await f.run(`
+const selected = await session.selectModel({ exact: { provider: 'fixture', id: 'hf.co/owner/model:q4' }, persist: false });
+let unknown = '';
+try { await session.selectModel({ exact: { provider: 'missing', id: 'nope' }, persist: false }); } catch (caught) { unknown = caught.message; }
+let signedOut = '';
+try { await session.selectModel({ exact: { provider: 'missing', id: 'no-auth' }, persist: false }); } catch (caught) { signedOut = caught.message; }
+console.log('RESULT=' + JSON.stringify({ selected: selected.selected, status: session.getStatus(), unknown, signedOut, offered: session.offeredModels() }));`);
+  expect(result.selected).toBe(true);
+  expect(result.status).toMatchObject({ provider: "fixture", model: "hf.co/owner/model:q4", selectionSource: "conversation" });
+  expect(result.unknown).toBe("Casper has no model missing/nope. Model unchanged.");
+  // The sign-in check still runs for an exact pick.
+  expect(result.signedOut).toContain("Model unchanged.");
+  expect(result.status.model).toBe("hf.co/owner/model:q4");
+  // The current model first, then the default (fixture/shared); never a provider with no sign-in.
+  expect(result.offered.map((model: { id: string }) => model.id)).toEqual(["hf.co/owner/model:q4", "shared", "second", "first"]);
+  // With its provider's own name, which an app's picker names the group by when Casper has no name of its own for it.
+  expect(result.offered[0]).toMatchObject({ provider: "fixture", name: "Tagged", providerName: "Fixture Lab" });
+  expect(result.offered.find((model: { id: string }) => model.id === "second").levels).toContain("high");
+}, childTestLimit());

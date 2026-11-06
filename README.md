@@ -133,6 +133,10 @@ Casper's reply, in a monospace block. The ones that would move Casper to another
 `/resume`, `/branch <name>` and the like) say to use the app's own chats instead, and change nothing.
 [Decision 80](docs/adr/0002/80-an-acp-app-lists-casper-commands.md).
 
+The app's model badge and picker show Casper's own models, the ones you're signed in to, with Casper's effort
+levels. A pick changes Casper's model for the next message and is saved as your default, as `/model` does; a
+`/model` typed into Casper moves the badge. [Decision 81](docs/adr/0002/81-an-acp-app-picks-casper-model-and-effort.md).
+
 Type `/help` for the commands. Ctrl+C stops the current work but keeps changes already made;
 Ctrl+D on an empty prompt exits. [Keys and commands](docs/TERMINAL_UX.md#quick-reference).
 

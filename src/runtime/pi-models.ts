@@ -6,9 +6,9 @@ import { SettingsManager, type AgentSession, type ModelRuntime, type SessionMana
 import { ClassificationError, classifyEffort, effortBelow, fallbackEffort, fallbackReason, nearestEffort, resolveAutoEffort } from "./auto-effort";
 import { isEffortSelection, isModelRole, resolveModelSelection, type ModelReference, type ModelRoles, type ResolvedModelSelection } from "./model-routing";
 import { matchModelWords, noModelMessage } from "./model-words";
-import type { RuntimeLoginIO, RuntimeModelInfo, RuntimeModelSelection, RuntimeModelSelectionOptions, RuntimeModelWordsMatch, RuntimeModelWordsOptions, RuntimeReadOnlyStartOptions, RuntimeStatus, RuntimeUsage } from "./types";
+import type { RuntimeLoginIO, RuntimeModelInfo, RuntimeModelSelection, RuntimeOfferedModel, RuntimeModelSelectionOptions, RuntimeModelWordsMatch, RuntimeModelWordsOptions, RuntimeReadOnlyStartOptions, RuntimeStatus, RuntimeUsage } from "./types";
 import { pickPiModel, type PickerLists } from "./pi-model-picker";
-import { anyModelMatches } from "./pi-model-browser";
+import { anyModelMatches, compareModels, providerLabel } from "./pi-model-browser";
 import { openRouterRequestHeaders } from "./openrouter-attribution";
 import type { OpenRouterModels } from "./openrouter-models";
 import type { AccountModels } from "./account-models";
@@ -63,6 +63,14 @@ export const DEFAULT_MODELS: ReadonlyArray<{ provider: string; id: string }> = [
 
 /** Names /login knows, and the key variable each provider reads (the common ones). */
 const SIGN_IN_NAMES: Record<string, string> = { openrouter: "OpenRouter", anthropic: "Anthropic", "openai-codex": "OpenAI Codex", "github-copilot": "GitHub Copilot" };
+
+/** A provider's name as Casper says it (an ACP app's model picker): the two Claude routes as /model tells them apart,
+ * /login's names, then the catalog's own name (`catalogName`); its id only when it has no name. */
+export function providerName(provider: string, catalogName?: string): string {
+  const label = providerLabel(provider);
+  if (label !== provider) return label;
+  return SIGN_IN_NAMES[provider] ?? (catalogName?.trim() || provider);
+}
 const KEY_VARIABLES: Record<string, string> = {
   openrouter: "OPENROUTER_API_KEY", anthropic: "ANTHROPIC_API_KEY", "github-copilot": "COPILOT_GITHUB_TOKEN", openai: "OPENAI_API_KEY",
   deepseek: "DEEPSEEK_API_KEY", google: "GEMINI_API_KEY", groq: "GROQ_API_KEY", xai: "XAI_API_KEY", mistral: "MISTRAL_API_KEY",
@@ -262,6 +270,19 @@ export class PiModels {
       return modelInfo(model);
     }
     return undefined;
+  }
+
+  /** The models you can pick now: signed in, able to call tools, in /model's order. Makes no call. */
+  offered(session: AgentSession): RuntimeOfferedModel[] {
+    const current = this.status(session).blocked ? undefined : this.selections.get(session)?.reference;
+    const defaultModel = this.defaultReference();
+    return this.catalog.getAvailableSnapshot()
+      .filter((model) => !cantUseTools(model) && !this.staleAuth.has(model.provider))
+      .sort((a, b) => compareModels(a, b, current, defaultModel))
+      .map((model) => {
+        const catalogName = this.catalog.getProvider(model.provider)?.name;
+        return { provider: model.provider, id: model.id, name: model.name || model.id, levels: [...getSupportedThinkingLevels(model)], ...catalogName ? { providerName: catalogName } : {} };
+      });
   }
 
   getRoles(): ModelRoles { return { ...this.policy().modelRoles }; }
@@ -738,7 +759,12 @@ export class PiModels {
       let resolved: ResolvedModelSelection | undefined;
       // Loose words (`opus 5.5`) the model was found from, when no exact id or role names it.
       let from: string | undefined;
-      if (options.query) {
+      if (options.exact) {
+        // An app's pick (decision 81): exactly this model, never words, a role or the picker.
+        const exact = this.catalog.getModel(options.exact.provider, options.exact.id);
+        if (!exact) throw new Error(`Casper has no model ${options.exact.provider}/${options.exact.id}. Model unchanged.`);
+        resolved = { reference: { provider: exact.provider, id: exact.id } };
+      } else if (options.query) {
         const query = options.query;
         // Look again for a local server's model, or loose words; not for another provider's id (a cloud typo).
         const local = PiModels.localProvider(query);

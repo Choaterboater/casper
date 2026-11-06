@@ -5,7 +5,8 @@
 // A prompt runs as `casper --json "<prompt>"` runs it (trust, sandbox, checks and receipt), except that a person
 // answers: the approval boxes a one-shot run must refuse are put to the client as session/request_permission (anything
 // but a picked choice is No), and the terminal's defaults hold: the checklist for a code change, and the screenshot
-// question once a session. A / command's output is its reply (src/acp/commands.ts lists the commands).
+// question once a session. A / command's output is its reply (src/acp/commands.ts lists the commands). The app's
+// model and effort picker shows Casper's own models (src/acp/config-options.ts).
 
 import os from "node:os";
 import path from "node:path";
@@ -28,10 +29,11 @@ import { fileTextHoldsSecret, onlyNetconanChecks } from "../secrets/tool-output"
 import { leadingImagePath, startsWithImageFile } from "../app/images";
 import { clientServers } from "./client-servers";
 import { acpCommands, acpRefusal } from "./commands";
+import { offerOf, setOption } from "./config-options";
 import { AcpAsker } from "./permission";
 import { promptContent } from "./prompt";
 import { RpcConnection, RpcFailure, RPC, type Json } from "./rpc";
-import { acpReceipt, commandsUpdate, hider, receiptUpdate, UpdateMapper, valuesHider } from "./updates";
+import { acpReceipt, commandsUpdate, configUpdate, hider, receiptUpdate, UpdateMapper, valuesHider } from "./updates";
 
 /** ACP's protocol version this agent speaks. */
 export const ACP_PROTOCOL_VERSION = 1;
@@ -99,6 +101,8 @@ export async function runAcpSession(options: SessionOptions): Promise<void> {
   let sessionId: string | undefined;
   let folder: string | undefined;
   let busy = false;
+  // A model or effort change the client asked for is being applied: no prompt starts meanwhile.
+  let changing = false;
   let cancelled = false;
   const sendUpdate = (update: Json) => { if (sessionId) connection.notify("session/update", { sessionId, update }); };
   // The user's own secrets (logins, keys, secret-looking variables), read again at each prompt, and every value the
@@ -162,6 +166,22 @@ export async function runAcpSession(options: SessionOptions): Promise<void> {
     offeredCommands = json;
     sendUpdate(commandsUpdate(list));
   };
+  // The model and effort options the client was last told (decision 81): Casper says only what changed since.
+  let lastOffer = "";
+  const offerNow = () => offerOf(app?.session, hide);
+  const configOptions = () => {
+    const offer = offerNow();
+    lastOffer = JSON.stringify(offer.wire);
+    return offer.wire;
+  };
+  /** A change Casper made itself (a typed /model, a failover, a model server found later), sent once. */
+  const announce = () => {
+    const offer = offerNow();
+    const json = JSON.stringify(offer.wire);
+    if (json === lastOffer) return;
+    lastOffer = json;
+    sendUpdate(configUpdate(offer.wire));
+  };
 
   const open = async (params: Json, load: boolean): Promise<Json> => {
     if (app) throw new RpcFailure(RPC.invalidRequest, "This Casper process already holds a session");
@@ -210,6 +230,8 @@ export async function runAcpSession(options: SessionOptions): Promise<void> {
       secrets = [];
       throw error;
     }
+    // Again now the session has started (its logins are read), so the options the reply carries are hidden with them.
+    learnSecrets();
     answerThroughClient(created, new AcpAsker(sessionId, { request: (permission, signal) => connection.request("session/request_permission", permission, signal), update: boxUpdate }, hide), output.write);
     if (load) {
       // The conversation so far, as the person typed it.
@@ -218,9 +240,9 @@ export async function runAcpSession(options: SessionOptions): Promise<void> {
         const words = entry.prompt === undefined ? undefined : promptWords(entry.prompt);
         if (words) sendUpdate({ sessionUpdate: "user_message_chunk", content: { type: "text", text: hide(words) } });
       }
-      return {};
+      return { configOptions: configOptions() };
     }
-    return { sessionId };
+    return { sessionId, configOptions: configOptions() };
   };
 
   connection.onRequest("initialize", async () => initializeResult(await readAcpMcpSetting(options.homeDir ?? os.homedir())));
@@ -230,6 +252,7 @@ export async function runAcpSession(options: SessionOptions): Promise<void> {
   connection.onRequest("session/prompt", async (params) => {
     if (!app || !sessionId || params.sessionId !== sessionId) throw new RpcFailure(RPC.notFound, "Unknown session");
     if (busy) throw new RpcFailure(RPC.invalidRequest, "This session is already working on a prompt; cancel it or wait");
+    if (changing) throw new RpcFailure(RPC.invalidRequest, "Casper is changing its model or effort; send the prompt again when it is done");
     learnSecrets();
     let content: ReturnType<typeof promptContent>;
     try { content = promptContent(params.prompt); }
@@ -269,6 +292,7 @@ export async function runAcpSession(options: SessionOptions): Promise<void> {
       const message = hide(failure.error instanceof Error ? failure.error.message : String(failure.error));
       if (!isCommand) {
         for (const update of mapper.flush()) sendUpdate(update);
+        announce();
         throw new RpcFailure(RPC.internal, message);
       }
       commandError = message;
@@ -278,6 +302,8 @@ export async function runAcpSession(options: SessionOptions): Promise<void> {
     const exitCode = taskExitCode(report, task, { requireVerification: options.cli.requireVerification });
     learnSecrets();
     for (const update of mapper.flush()) sendUpdate(update);
+    // A typed /model, a failover or a model server found since: the picker follows, before the receipt.
+    announce();
     const receipt = acpReceipt(receiptEvent(report, task, exitCode, app.sandboxReceipt(), app.commandUsage()), task, hide);
     // A command that is not a task (/status) has no receipt to show.
     if (receipt.text.trim()) sendUpdate(receiptUpdate(receipt));
@@ -285,6 +311,23 @@ export async function runAcpSession(options: SessionOptions): Promise<void> {
     sendCommands();
     const stopReason = cancelled || task?.execution === "cancelled" ? "cancelled" : task?.turnLimit ? "max_turn_requests" : "end_turn";
     return { stopReason, _meta: { casper: { receipt, ...(commandError !== undefined ? { error: commandError } : {}) } } };
+  });
+  // The app's model and effort picker (decision 81). Refused while a prompt runs: the runtime takes a change only
+  // between prompts. The reply is the whole list after the change, so it is not sent again as an update.
+  connection.onRequest("session/set_config_option", async (params) => {
+    if (!app || !sessionId || params.sessionId !== sessionId) throw new RpcFailure(RPC.notFound, "Unknown session");
+    if (busy || changing) throw new RpcFailure(RPC.invalidRequest, "Casper is working on a prompt; change the model or effort when it ends");
+    changing = true;
+    try {
+      learnSecrets();
+      await setOption(app.session, offerNow(), params.configId, params.value, output.write);
+    } catch (error) {
+      // What the runtime changed before it failed (a model it took but could not save as the default) still reaches
+      // the app before the refusal, so the app shows the model the next prompt goes to.
+      try { announce(); } catch { /* the refusal still goes */ }
+      throw new RpcFailure(error instanceof RpcFailure ? error.code : RPC.internal, hide(error instanceof Error ? error.message : String(error)));
+    } finally { changing = false; }
+    return { configOptions: configOptions() };
   });
   connection.onNotification("session/cancel", (params) => {
     if (!app || params.sessionId !== sessionId || !busy) return;

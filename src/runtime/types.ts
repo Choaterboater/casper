@@ -258,6 +258,9 @@ export type RuntimeAuthenticationResult = { /** Login remains owned by Claude Co
 
 export interface RuntimeModelSelectionOptions {
   query?: string;
+  /** Exactly this model, taken before any query parsing (an app's picker over `casper acp`, decision 81): no words,
+   * roles or picker. The sign-in, tools and credential checks still run. */
+  exact?: { provider: string; id: string };
   /** Explicitly select AND save a Casper startup default. */
   persist?: boolean;
   signal?: AbortSignal;
@@ -298,6 +301,17 @@ export interface RuntimeModelInfo {
   inputCostPerMillion?: number;
   /** The model can see images. */
   images?: boolean;
+}
+
+/** A model you can pick now (signed in, able to call tools), as /model lists it. */
+export interface RuntimeOfferedModel {
+  provider: string;
+  id: string;
+  name: string;
+  /** The thinking levels the model supports (effortChoices turns them into /effort's choices). */
+  levels: string[];
+  /** Its provider's own name in the model catalog ("OpenAI"), when it has one; Casper's names come first (providerName). */
+  providerName?: string;
 }
 
 /** A picture sent with a request: base64 bytes and their type (image/png, image/jpeg, image/gif, image/webp). */
@@ -433,6 +447,9 @@ export interface RuntimeSession {
   conversationEntries?(from?: string): Array<{ id: string; prompt?: string }>;
   getStatus?(): RuntimeStatus;
   selectModel?(options: RuntimeModelSelectionOptions): Promise<RuntimeModelSelection>;
+  /** The models you can pick now, in /model's order (the current one first, then your default). Empty in a
+   * read-only child. Makes no call. */
+  offeredModels?(): RuntimeOfferedModel[];
   /** Pick a default model for a signed-in provider only when no model is selected; never overrides a choice. */
   selectDefaultModel?(options?: { provider?: string; signal?: AbortSignal }): Promise<RuntimeModelSelection | undefined>;
   /** The selected model's server didn't answer when Casper started: look once more and use the model if it is there now. */

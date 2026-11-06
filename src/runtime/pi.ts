@@ -81,6 +81,7 @@ import type {
   RuntimeEventListener,
   RuntimeModelSelection,
   RuntimeModelSelectionOptions,
+  RuntimeOfferedModel,
   RuntimeForkOptions,
   RuntimeReadOnlyStartOptions,
   RuntimeBuilderStartOptions,
@@ -285,6 +286,10 @@ class PiRuntimeSession implements RuntimeSession {
     if ((this.busy && !this.midRun) || this.models.busy) throw new Error("Wait for active work before changing models.");
     if (this.readOnly) throw new Error("Model selection is unavailable in read-only children.");
     return this.models.select(this.runtime.session, options, this.midRun);
+  }
+
+  offeredModels(): RuntimeOfferedModel[] {
+    return this.readOnly ? [] : this.models.offered(this.runtime.session);
   }
 
   findModelAgain(options: { signal?: AbortSignal } = {}): Promise<boolean> {

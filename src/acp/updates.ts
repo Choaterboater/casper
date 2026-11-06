@@ -67,6 +67,11 @@ export function commandsUpdate(commands: readonly AcpCommand[]): Json {
   return { sessionUpdate: "available_commands_update", availableCommands: commands };
 }
 
+/** The model and effort options after a change Casper made itself (src/acp/config-options.ts): the whole list. */
+export function configUpdate(configOptions: readonly Json[]): Json {
+  return { sessionUpdate: "config_option_update", configOptions };
+}
+
 export interface MapperOptions {
   /** The folder a relative path in a step is in. Default: the process's. */
   cwd?: () => string;
