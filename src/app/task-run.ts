@@ -224,6 +224,7 @@ export async function runModelTask(app: CasperApp, prompt: string, options: { fl
   // alongside, with the conversation's position (the plan turn and repairs are part of the task).
   app.snapshotFailure = undefined;
   app.snapshotBase = undefined;
+  app.taskUndoStart = undefined;
   // A folder too big to list (a drive's top, a home folder) is not a project: the undo copy stops at once instead of
   // running into its time limit, and the receipt says so once.
   const notProject = new AbortController();
@@ -237,6 +238,7 @@ export async function runModelTask(app: CasperApp, prompt: string, options: { fl
   // Not a project folder: no undo, even when the undo copy finished first. With no change list Casper can't tell the
   // task's changes from other programs' saves, and undo would put those back too.
   if (notProject.signal.aborted) undoStart.snapshot = { unavailable: UNDO_NOT_PROJECT };
+  app.taskUndoStart = undoStart;
   edits.before = before;
   app.snapshotBase = before;
   const liveFiles = liveSinceLastTask(app.taskEndTree, workspaceRoot, before);

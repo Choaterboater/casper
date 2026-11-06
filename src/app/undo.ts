@@ -10,6 +10,7 @@ import type { OutputWriter } from "./commands";
 import { tildePath } from "../new/scaffold";
 import { readProjectText, removeProjectFile, writeProjectFile } from "../platform/files";
 import type { RuntimeSession } from "../runtime/types";
+import type { TaskChanges } from "../agents/manager";
 import { RECEIPTS_KEPT, ReceiptStore, type ReceiptUndo, type StoredReceipt } from "../task/receipts";
 import { CHANGED_BY_OTHERS, formatTaskResult, receiptVerdict, receiptView, UNDO_NOTHING_CHANGED, type TaskResult } from "../task/result";
 import { receiptDetail } from "../tui/receipt-card";
@@ -113,6 +114,18 @@ export class TaskUndo {
     const head = await taskHead(root);
     const snapshot: UndoSnapshot = store ? await store.snapshot(signal) : { unavailable: "Casper has no state folder for this project" };
     return { root, head, snapshot, mark: markOf(session), sessionId: sessionIdOf(session) };
+  }
+
+  /** The files this task changed so far and their diff, against the copy from its start (what a reviewer is handed).
+   * Undefined without that copy. The copy taken now is not kept: the task's end takes its own. */
+  async changedSoFar(start: TaskUndoStart, signal?: AbortSignal): Promise<TaskChanges | undefined> {
+    const store = this.store(start.root);
+    if (!store || !("tree" in start.snapshot)) return undefined;
+    const before = start.snapshot.tree;
+    const now = await store.snapshot(signal);
+    if (!("tree" in now)) return undefined;
+    const files = (await store.changes(before, now.tree)).map((change) => change.path);
+    return { files, diff: (paths) => store.diff(before, now.tree, { paths }) };
   }
 
   /** After the receipt's checks: the second copy, the saved receipt, and what the receipt says about undo. Never

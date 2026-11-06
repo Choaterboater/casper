@@ -65,7 +65,7 @@ import { VerificationTask } from "./verify/task";
 import { ChangeBaseline } from "./verify/proof";
 import type { NetworkToolContext } from "./verify/registry";
 import type { NextItem } from "./tui/next-row";
-import { TaskUndo } from "./app/undo";
+import { TaskUndo, type TaskUndoStart } from "./app/undo";
 import type { BuilderSteer } from "./crew/auto";
 import type { PartRecord } from "./crew/parts";
 import { SuggestionController } from "./app/suggestions";
@@ -956,6 +956,8 @@ export class CasperApp {
 
   /** The current task's first snapshot: its files stay listed while they exist, even once git ignores them. */
   snapshotBase?: Map<string, string>;
+  /** The current task's undo copy from its start: a reviewer is handed the task's diff against it. */
+  taskUndoStart?: TaskUndoStart;
 
   /** This session's answer to "Show the AI the pages?" (showPages: ask); asked once. */
   showPagesAnswer?: boolean;

@@ -54,7 +54,8 @@ function problemCount(report: string | undefined): number | undefined {
 }
 
 /** A diff as text: hunks of text files as they are, binary files by name only, cut at a line near the limit. */
-function excerptOf(patch: Buffer): string {
+/** A diff as a reviewer is handed it: binary files named, not shown, and cut at PART_EXCERPT_BYTES on a line end. */
+export function diffExcerpt(patch: Buffer): string {
   const sections = patch.toString("utf8").split(/^(?=diff --git )/m).filter(Boolean);
   const text = sections.map((section) => {
     if (!/^(?:GIT binary patch|Binary files .* differ)$/m.test(section)) return section;
@@ -90,7 +91,7 @@ export class PartRecord {
   /** A part landed in the folder; its number (1, 2, ...) is what the lead gives the reviewer. */
   landed(input: { goal: string; files: string[]; stat: string; patch: Buffer }): number {
     this.revision++;
-    this.parts.push({ goal: input.goal, files: [...input.files], stat: input.stat, excerpt: excerptOf(input.patch),
+    this.parts.push({ goal: input.goal, files: [...input.files], stat: input.stat, excerpt: diffExcerpt(input.patch),
       version: 0, started: 0, reviewed: false, fixed: false, tiny: fewLines(input.patch) });
     return this.parts.length;
   }
@@ -189,7 +190,7 @@ export class PartRecord {
     const part = this.parts[n - 1];
     if (!part) return [];
     this.revision++;
-    part.excerpt = `(The diff of the fix round, on top of the part's earlier change.)\n${excerptOf(patch)}`;
+    part.excerpt = `(The diff of the fix round, on top of the part's earlier change.)\n${diffExcerpt(patch)}`;
     part.tiny = part.tiny && fewLines(patch);
     part.version++;
     part.started = 0;
