@@ -40,6 +40,7 @@ import { trustProjectFile } from "./project-file";
 import { addToPath, keepEngineFromFetchingRipgrep } from "../security/ripgrep";
 import { toolCallId, toolReason } from "../runtime/tool-reason";
 import { judgeForApp, noteJudgeAllowed } from "./auto-mode";
+import { personNote } from "./person-note";
 
 /** What the sandbox asks through: Casper's own numbered question, only while someone can answer it. Its questions
  * wait their turn in the approval queue, so two at once are both asked and a question nobody saw is never a No. */
@@ -298,7 +299,7 @@ export function reportSkillWarnings(app: CasperApp): void {
     writeFileSync(file, `${JSON.stringify([...seen].slice(-2000))}\n`, { mode: 0o600 });
   } catch { /* said again next start */ }
   if (!warnings.length) return;
-  app.output.write(`[skills] ${warnings.length} new warning${warnings.length === 1 ? "" : "s"}; use /skills diagnostics\n`);
+  personNote(app, `[skills] ${warnings.length} new warning${warnings.length === 1 ? "" : "s"}; use /skills diagnostics`);
 }
 
 /** The banner's checks line; none when there is nothing to check yet and checking is on (/status still says it). */

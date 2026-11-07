@@ -7,9 +7,10 @@ import { AcpAsker, formAnswer, optionKind, questionSchema } from "../src/acp/per
 import { RpcConnection, RpcFailure } from "../src/acp/rpc";
 import { SESSION_REQUESTS, sessionArgs, sessionFor } from "../src/acp/server";
 import { askedWithout, initializeResult, promptText } from "../src/acp/session";
-import { hider, keptLines, UpdateMapper, type AcpReceipt } from "../src/acp/updates";
+import { acpReceipt, hider, keptLines, UpdateMapper, type AcpReceipt } from "../src/acp/updates";
+import type { ReceiptEvent } from "../src/app/json-events";
 import { retryWords } from "../src/app/events";
-import type { RuntimeEvent } from "../src/runtime/types";
+import type { RuntimeEvent, RuntimeSession } from "../src/runtime/types";
 import { reasoningHeadline } from "../src/runtime/reasoning-headline";
 import { NO, PLAN_ANSWER_HINT, PLAN_CHANGE_HINT, PLAN_CHANGE_QUESTION, YES_ONCE, YES_SESSION } from "../src/app/safe-choices";
 import { until } from "./support/acp-client";
@@ -693,5 +694,97 @@ describe("an ACP app sees Casper's reasoning headlines and retries as thoughts (
       .toBe("Can't reach value-from-the-env-1234 · trying again in 2s (2 of 3)");
     expect(mapper.runtime({ type: "retry", provider: "value-from-the-env-1234", attempt: 2, maxAttempts: 3, delayMs: 2000, errorMessage: "fetch failed" }))
       .toEqual([thought("Can't reach <secret hidden> · trying again in 2s (2 of 3)\n\n")]);
+  });
+});
+
+describe("an ACP app sees Casper's usage, its notes and the receipt's fields (decision 88)", () => {
+  type Usage = NonNullable<ReturnType<NonNullable<RuntimeSession["getUsage"]>>>;
+  type Status = NonNullable<ReturnType<NonNullable<RuntimeSession["getStatus"]>>>;
+  const end = (stopReason = "stop", usage: Record<string, number> | null = { tokens: 1300, estimatedCost: 0.002, input: 100, cacheRead: 1000, cacheWrite: 0, output: 200 }): RuntimeEvent =>
+    ({ type: "assistant_response_end", stopReason, ...(usage ? { usage } : {}) }) as RuntimeEvent;
+  const session = (context: Usage["context"], estimatedCost: number | null = 0.0123): Usage =>
+    ({ context, tokens: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 }, messages: 3, ...(estimatedCost === null ? {} : { estimatedCost }) });
+  const usageOf = (updates: Array<Record<string, any>>) => updates.filter((update) => update.sessionUpdate === "usage_update");
+
+  test("A model response's usage is one usage_update with the window, the session's cost and the response's tokens", () => {
+    const status: Status = { provider: "anthropic", model: "claude-model-value-from-env-9", auth: "configured", billing: "per-token" };
+    const mapper = new UpdateMapper(hider(() => ["value-from-env-9"]), { usage: () => session({ tokens: 5000, contextWindow: 200_000, percent: 2.5 }), status: () => status });
+    // The model's half-written line goes first: the usage follows its words.
+    expect(mapper.map({ type: "assistant_delta", text: "Half a line" })).toEqual([]);
+    expect(mapper.runtime(end())).toEqual([
+      { sessionUpdate: "agent_message_chunk", content: { type: "text", text: "Half a line" } },
+      // The context is what this response read and wrote; the cost is the session's so far with this response's.
+      { sessionUpdate: "usage_update", used: 1300, size: 200_000, cost: { amount: 0.0143, currency: "USD" },
+        _meta: { casper: { response: { input: 100, cacheRead: 1000, cacheWrite: 0, output: 200, tokens: 1300, toolUse: false },
+          model: { provider: "anthropic", model: "claude-model-<secret hidden>" }, cost: "estimate" } } },
+    ]);
+  });
+
+  test("No usage_update is sent without a window or reported usage, a subscription has no cost, OpenRouter is charged and toolUse follows the stop reason", () => {
+    let usage: Usage | undefined = session(undefined);
+    let status: Status = { provider: "openai", model: "gpt", auth: "configured" };
+    const mapper = new UpdateMapper(hider(() => []), { usage: () => usage, status: () => status });
+    expect(mapper.runtime(end())).toEqual([]);
+    usage = session({ tokens: 10, contextWindow: 0, percent: null });
+    expect(mapper.runtime(end())).toEqual([]);
+    usage = session({ tokens: 10, contextWindow: 128_000, percent: 0 });
+    expect(mapper.runtime(end("stop", null))).toEqual([]);
+    usage = session({ tokens: null, contextWindow: 128_000, percent: null });
+    status = { provider: "openai-codex", model: "gpt", auth: "configured", billing: "subscription" };
+    const [subscribed] = usageOf(mapper.runtime(end("toolUse")));
+    expect(subscribed).toMatchObject({ used: 1300, size: 128_000, _meta: { casper: { cost: "subscription", response: { toolUse: true } } } });
+    expect(subscribed).not.toHaveProperty("cost");
+    status = { provider: "openrouter", model: "m", auth: "configured", billing: "per-token" };
+    expect(usageOf(mapper.runtime(end()))[0]).toMatchObject({ cost: { amount: 0.0143, currency: "USD" }, _meta: { casper: { cost: "charged", response: { toolUse: false } } } });
+    // The first response of a session: its own cost is the session's.
+    usage = session({ tokens: 10, contextWindow: 128_000, percent: 0 }, null);
+    expect(usageOf(mapper.runtime(end()))[0].cost).toEqual({ amount: 0.002, currency: "USD" });
+    // A free model has no cost.
+    const [unpriced] = usageOf(mapper.runtime(end("stop", { tokens: 1300, estimatedCost: 0, input: 100, cacheRead: 1000, cacheWrite: 0, output: 200 })));
+    expect(unpriced).not.toHaveProperty("cost");
+    expect(unpriced._meta.casper.cost).toBeNull();
+    // A token count the provider left out is null, as in --json, and the context is the runtime's own count.
+    const [unsplit] = usageOf(mapper.runtime(end("stop", { tokens: 50, estimatedCost: 0 })));
+    expect(unsplit.used).toBe(10);
+    expect(unsplit._meta.casper.response).toEqual({ input: null, cacheRead: null, cacheWrite: null, output: null, tokens: 50, toolUse: false });
+    // A runtime that fails to say sends nothing.
+    const broken = new UpdateMapper(hider(() => []), { usage: () => { throw new Error("no session"); }, status: () => status });
+    expect(broken.runtime(end())).toEqual([]);
+  });
+
+  test("A response that was cancelled or failed sends no usage_update, so the app keeps the last context and cost", () => {
+    const zero = { tokens: 0, estimatedCost: 0, input: 0, cacheRead: 0, cacheWrite: 0, output: 0 };
+    const mapper = new UpdateMapper(hider(() => []), { usage: () => session({ tokens: 42_000, contextWindow: 200_000, percent: 21 }, 0.5),
+      status: () => ({ provider: "anthropic", model: "m", auth: "configured", billing: "per-token" }) });
+    expect(usageOf(mapper.runtime(end("aborted", zero)))).toEqual([]);
+    expect(usageOf(mapper.runtime(end("error", zero)))).toEqual([]);
+    // A held error Pi retries, with a partial stream's cost the session already holds.
+    expect(usageOf(mapper.runtime({ ...end("error", { ...zero, tokens: 30, estimatedCost: 0.01, input: 10, output: 20 }), retrying: true } as RuntimeEvent))).toEqual([]);
+    expect(usageOf(mapper.runtime(end()))[0]).toMatchObject({ used: 1300, size: 200_000 });
+  });
+
+  test("A helper's usage sends nothing", () => {
+    const mapper = new UpdateMapper(hider(() => []), { usage: () => session({ tokens: 10, contextWindow: 128_000, percent: 0 }) });
+    const usage = { type: "usage", input: 1, cacheRead: 0, cacheWrite: 0, output: 1, tokens: 2, estimatedCost: 0.01 } as const;
+    expect(mapper.map({ ...usage, helper: 2 })).toEqual([]);
+    expect(mapper.map(usage)).toEqual([]);
+  });
+
+  test("A note carries the note marker and model text does not", () => {
+    const mapper = new UpdateMapper(hider(() => []));
+    expect(mapper.map({ type: "assistant_delta", text: "The model's words.\n" })).toEqual([{ sessionUpdate: "agent_message_chunk", content: { type: "text", text: "The model's words.\n" } }]);
+    expect(mapper.note(" skills selected: network-mist-api")).toEqual([{ sessionUpdate: "agent_message_chunk", content: { type: "text", text: "\n skills selected: network-mist-api\n" }, _meta: { casper: { note: true } } }]);
+    expect(mapper.map({ type: "error", message: "the provider failed" }).at(-1)!._meta).toEqual({ casper: { note: true } });
+    for (const update of [...mapper.words("Words held while planning"), ...mapper.map({ type: "assistant_delta", text: "More words\n" })]) expect(update).not.toHaveProperty("_meta");
+  });
+
+  test("The receipt carries the task's usage, the cost kind and the workspace root, hidden", () => {
+    const usage = { turns: 2, tokens: 240, estimatedCost: 0.00028, input: 200, cacheRead: 0, cacheWrite: 0, output: 40 };
+    const event = { outcome: "unverified", verdict: "Not checked", exitCode: 0, changed: [], checks: [], text: "Not checked", usage } as unknown as ReceiptEvent;
+    const hide = hider(() => ["value-from-env-9"]);
+    expect(acpReceipt(event, undefined, hide, { status: { provider: "fixture", auth: "configured" }, root: "/work/value-from-env-9/app" }))
+      .toMatchObject({ usage, cost: "estimate", root: "/work/<secret hidden>/app" });
+    expect(acpReceipt(event, undefined, hide, { status: { provider: "openai-codex", auth: "configured", billing: "subscription" }, root: "/work" }).cost).toBe("subscription");
+    expect(acpReceipt({ ...event, usage: null }, undefined, hide, { root: "/work" })).toMatchObject({ usage: null, cost: null });
   });
 });

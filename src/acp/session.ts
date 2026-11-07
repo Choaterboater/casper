@@ -10,7 +10,8 @@
 // Ask first or Don't ask (src/acp/modes.ts). An app that shows forms gets the AI's questions and Casper's typed ones as
 // elicitation/create (src/acp/permission.ts, decision 83). /plan's Build box carries the plan, the build's checklist is
 // the app's plan, and the `plan` option is /plan on (decision 84). A line the app sends during a prompt
-// (`_casper/steer`) reaches the AI at its next step, as a line typed in the terminal does (decision 86).
+// (`_casper/steer`) reaches the AI at its next step, as a line typed in the terminal does (decision 86). Each model
+// response is followed by a usage_update, and Casper's lines for the person are notes (decision 88).
 
 import os from "node:os";
 import path from "node:path";
@@ -30,7 +31,7 @@ import type { AwayAsker } from "../tui/terminal";
 import { readAcpMcpSetting, type AcpMcpSetting } from "../config/load";
 import type { MCPServerDefinition } from "../mcp/config";
 import { toolCallId } from "../runtime/tool-reason";
-import type { RuntimeEvent } from "../runtime/types";
+import type { RuntimeEvent, RuntimeStatus } from "../runtime/types";
 import { fileTextHoldsSecret, onlyNetconanChecks } from "../secrets/tool-output";
 import { attachImages, leadingImagePath, startsWithImageFile } from "../app/images";
 import { terminalText } from "../tui/format";
@@ -149,7 +150,9 @@ export async function runAcpSession(options: SessionOptions): Promise<void> {
     planning: () => app?.events.holdingText === true,
     // The model's reasoning headline is a thought, under the status row's own switch and never at quiet (decision 87).
     headlines: () => app?.projectContext?.reasoningHeadline !== false && (!app || displayLevel(app) !== "quiet"),
-    values: () => secrets });
+    values: () => secrets,
+    // The main runtime's usage after each of its responses (decision 88).
+    usage: () => app?.session?.getUsage?.(), status: () => app?.session?.getStatus?.() });
   // A box is a step on the wire: the text so far, and a command's open block, end before it (and before its answer).
   const boxUpdate = (update: Json) => { for (const done of mapper.flush()) sendUpdate(done); sendUpdate(update); };
   /** The app's line, as the AI reads it: after the model's words so far, and before its next ones (a message of their
@@ -194,6 +197,17 @@ export async function runAcpSession(options: SessionOptions): Promise<void> {
   const own = lineReader((line) => { if (forPerson(line)) for (const update of mapper.note(line)) sendUpdate(update); });
   const ownLines = (text: string) => own.write(text);
   const routeRest = () => { own.rest(); shown.rest(); };
+  // Casper's notes for the person written while no prompt runs (decision 88), at most 20: the next prompt sends them
+  // first.
+  let held: string[] = [];
+  const hold = (line: string) => { if (held.length < 20) held.push(line); };
+  /** A note for the person (personNote): sent at once during a prompt, held until the next one otherwise. A command's
+   * own output before its model speaks already carries it. */
+  const personNote = (line: string) => {
+    if (commandRun && !commandRun.spoke && !app?.modelTaskActive) return;
+    if (busy) for (const update of mapper.note(line)) sendUpdate(update);
+    else hold(line);
+  };
   // The commands the client lists, sent again only when they changed (your own command files are read each time).
   let offeredCommands = "";
   const sendCommands = () => {
@@ -247,7 +261,11 @@ export async function runAcpSession(options: SessionOptions): Promise<void> {
     const home = options.homeDir ?? os.homedir();
     const client = clientServers(params.mcpServers, { home, setting: await readAcpMcpSetting(home) });
     clientSecrets = [...client.secrets].sort((a, b) => b.length - a.length);
-    for (const note of client.notes) output.write(`${note}\n`);
+    for (const note of client.notes) {
+      output.write(`${note}\n`);
+      // A server the app asked for that Casper refused is said in the app too; one that connects only on stderr.
+      if (note.includes(" is not connected: ")) hold(note);
+    }
     const conversation = load ? { resume: params.sessionId as string } : options.cli.resume ? { resume: options.cli.resume } : options.cli.continueConversation ? { continue: true as const } : undefined;
     let created: CasperApp | undefined;
     try {
@@ -270,6 +288,7 @@ export async function runAcpSession(options: SessionOptions): Promise<void> {
       // A call to the app's server names the step it is, as the client saw it start.
       created.acpToolCallId = (id) => mapper.acpId(id);
       created.onOutput = ownLines;
+      created.onPersonNote = personNote;
       // The accepted plan's checklist is the app's plan; planning words that were no plan are a message (decision 84).
       created.onPlanSteps = (steps) => { for (const update of mapper.planSteps(steps)) sendUpdate(update); };
       created.onPlanWords = (words) => { for (const update of mapper.words(words)) sendUpdate(update); };
@@ -294,6 +313,7 @@ export async function runAcpSession(options: SessionOptions): Promise<void> {
       await created?.close().catch(() => {});
       app = undefined;
       sessionId = undefined;
+      held = [];
       clientSecrets = [];
       secrets = [];
       throw error;
@@ -347,6 +367,8 @@ export async function runAcpSession(options: SessionOptions): Promise<void> {
     mapper.newPrompt();
     // A part line left from before this prompt (the start's transcript) ends here, not inside this prompt's first line.
     routeRest();
+    // Notes written since the last prompt come first.
+    for (const line of held.splice(0)) for (const update of mapper.note(line)) sendUpdate(update);
     let report: Awaited<ReturnType<CasperApp["runOnce"]>>;
     let failure: { error: unknown } | undefined;
     let isCommand = false;
@@ -399,7 +421,9 @@ export async function runAcpSession(options: SessionOptions): Promise<void> {
     for (const update of mapper.flush()) sendUpdate(update);
     // A typed /model, a failover or a model server found since: the picker follows, before the receipt.
     announce();
-    const receipt = acpReceipt(receiptEvent(report, task, exitCode, app.sandboxReceipt(), app.commandUsage()), task, hide);
+    let status: RuntimeStatus | undefined;
+    try { status = app.session?.getStatus?.(); } catch { status = undefined; }
+    const receipt = acpReceipt(receiptEvent(report, task, exitCode, app.sandboxReceipt(), app.commandUsage()), task, hide, { status, root: app.activeWorkspaceRoot() });
     // A command that is not a task (/status) has no receipt to show.
     if (receipt.text.trim()) for (const update of mapper.receipt(receipt)) sendUpdate(update);
     // Before the reply: a command may have changed the list (a new file in ~/.casper/commands).

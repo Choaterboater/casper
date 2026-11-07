@@ -165,6 +165,11 @@ While the model reasons, the app's reasoning block shows the same short headline
 provider retry says who is busy and when Casper tries again. **Reasoning headline** in `/settings` and `/details quiet`
 turn the headlines off. [Decision 87](docs/adr/0002/87-an-acp-app-sees-casper-reasoning-headlines.md).
 
+The app's context ring fills as in the terminal's footer: after each answer it gets the context used, the model's
+window and the session's cost, with no cost under a subscription. Casper's own lines, such as the skills it picked or
+an app server it did not connect, show in the chat as notes, and the receipt's data names its tokens, its cost and
+the project folder. [Decision 88](docs/adr/0002/88-an-acp-app-shows-casper-usage-notes-and-receipt.md).
+
 Type `/help` for the commands. Ctrl+C stops the current work but keeps changes already made;
 Ctrl+D on an empty prompt exits. [Keys and commands](docs/TERMINAL_UX.md#quick-reference).
 

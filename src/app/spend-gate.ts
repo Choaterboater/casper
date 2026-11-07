@@ -4,6 +4,7 @@
 import type { CasperApp } from "../app";
 import { spendChoices } from "./safe-choices";
 import { oneAtATime } from "./approvals";
+import { personNote } from "./person-note";
 import { formatLimit, SPEND_STOP_REASON } from "../task/spend";
 import { formatCost, formatTokens, NOTE_GLYPH } from "../tui/format";
 
@@ -23,7 +24,7 @@ export function spendNote(app: CasperApp): void {
   // After the model's words from this response, not above them.
   app.terminal.endAssistant();
   app.events.ensureLineBreak();
-  app.output.write(`${NOTE_GLYPH} This task has used ${formatCost(spent.cost)} so far (${formatTokens(spent.tokens)} tok).\n`);
+  personNote(app, `${NOTE_GLYPH} This task has used ${formatCost(spent.cost)} so far (${formatTokens(spent.tokens)} tok).`);
 }
 
 /** The task's spend so far, with what helpers still working have spent (each joins the task's total when it ends). */

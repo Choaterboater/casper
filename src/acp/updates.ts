@@ -4,7 +4,8 @@
 import { retryWords } from "../app/events";
 import type { CasperEvent, PhaseEvent, ReceiptEvent } from "../app/json-events";
 import type { PlanStepReport } from "../flows/plan-build";
-import type { RuntimeEvent } from "../runtime/types";
+import { tokenFields } from "../runtime/model-usage";
+import type { RuntimeEvent, RuntimeStatus, RuntimeUsage } from "../runtime/types";
 import { fileTextHoldsSecret } from "../secrets/tool-output";
 import type { TaskResult } from "../task/result";
 import { lineText, redactPreview } from "../tui/format";
@@ -132,6 +133,40 @@ export interface MapperOptions {
   headlines?: () => boolean;
   /** The user's own secrets, for a headline that changed one or was cut inside one (headlineForms, hideCut). */
   values?: () => readonly string[];
+  /** The main runtime's usage and status, for the usage_update after each of its responses (decision 88). */
+  usage?: () => RuntimeUsage | undefined;
+  status?: () => RuntimeStatus | undefined;
+}
+
+/** How a cost is paid: OpenRouter's is what it charged, another provider's a catalog estimate, a subscription's
+ * no per-token price at all (formatCostLong); null when there is no cost. */
+export type CostKind = "charged" | "estimate" | "subscription" | null;
+
+export function costKind(status: RuntimeStatus | undefined, cost: number | null | undefined): CostKind {
+  if (status?.billing === "subscription") return "subscription";
+  if (cost === undefined || cost === null) return null;
+  return status?.provider === "openrouter" ? "charged" : "estimate";
+}
+
+/** ACP's usage_update after a main-runtime response (decision 88): the context the response left and its window, the
+ * session's cost (none under a subscription), and the response's own tokens in `_meta.casper`. None without a window
+ * or a reported usage, nor for a cancelled or failed response: its usage is a stream's start (Pi's context skips it)
+ * and a held error's cost is already the session's, so the app keeps the last figures. The runtime's figures do not hold the response yet (Pi records it after its listeners hear it),
+ * so the response's prompt and output are the context, and its cost is added to the session's. */
+export function usageUpdate(end: Extract<RuntimeEvent, { type: "assistant_response_end" }>, usage: RuntimeUsage | undefined, status: RuntimeStatus | undefined): Json | undefined {
+  const size = usage?.context?.contextWindow ?? 0;
+  const reported = end.usage;
+  if (!(size > 0) || !reported || end.stopReason === "aborted" || end.stopReason === "error") return undefined;
+  const tokens = tokenFields(reported);
+  const split = tokens.input !== null && tokens.output !== null;
+  const used = split ? tokens.input! + (tokens.cacheRead ?? 0) + (tokens.cacheWrite ?? 0) + tokens.output! : usage?.context?.tokens ?? reported.tokens;
+  const total = (usage?.estimatedCost ?? 0) + (Number.isFinite(reported.estimatedCost) ? reported.estimatedCost : 0);
+  const cost = total > 0 ? total : undefined;
+  const kind = costKind(status, cost);
+  return { sessionUpdate: "usage_update", used, size,
+    ...(cost !== undefined && kind !== "subscription" ? { cost: { amount: cost, currency: "USD" } } : {}),
+    _meta: { casper: { response: { ...tokens, tokens: reported.tokens, toolUse: end.stopReason === "toolUse" },
+      model: { provider: status?.provider ?? null, model: status?.model ?? null }, cost: kind } } };
 }
 
 /** A plan step's status as ACP's: one not done is still open, and says why. */
@@ -204,7 +239,13 @@ export class UpdateMapper {
       return [this.thoughtChunk(`${shown}\n\n`, false)];
     }
     if (event.type === "retry") return [this.thoughtChunk(`${retryWords(event)}\n\n`)];
-    if (event.type === "assistant_response_end") { this.lastHeadline = undefined; return []; }
+    if (event.type === "assistant_response_end") {
+      this.lastHeadline = undefined;
+      // The main runtime's only: a helper's usage comes as a `usage` event, which sends nothing (decision 88).
+      let update: Json | undefined;
+      try { update = usageUpdate(event, this.options.usage?.(), this.options.status?.()); } catch { update = undefined; }
+      return update ? [...this.flush(), hideDeep(update, this.hide)] : [];
+    }
     if (event.type === "tool_start") {
       this.lastHeadline = undefined;
       const id = `casper-tool-${++this.steps}`;
@@ -311,10 +352,11 @@ export class UpdateMapper {
   }
 
   /** A line for the person (an `[image] ` note: a picture that was not sent), after the model's text so far, so it
-   * reads where it happened: a paragraph of its own, its lines kept (keptLines). */
+   * reads where it happened: a paragraph of its own, its lines kept (keptLines). `_meta.casper.note` tells it from the
+   * model's words (decision 88). */
   note(line: string): Json[] {
     const before = this.flush();
-    const update = this.message(`${paragraphAfter(this.tail)}${keptLines(line)}`);
+    const update = { ...this.message(`${paragraphAfter(this.tail)}${keptLines(line)}`), _meta: { casper: { note: true } } };
     this.separate = true;
     return [...before, update];
   }
@@ -403,9 +445,16 @@ export interface AcpReceipt {
   text: string;
   /** Everything `casper --json` puts in its receipt event, for clients that want the rest. */
   json: ReceiptEvent;
+  /** The task's model use, as the receipt event's; null when no model task ran. */
+  usage: ReceiptEvent["usage"];
+  /** How its cost is paid (costKind); null when it has none. */
+  cost: CostKind;
+  /** The folder the changed files are in. */
+  root: string;
 }
 
-export function acpReceipt(receipt: ReceiptEvent, task: TaskResult | undefined, hide: (text: string) => string): AcpReceipt {
+export function acpReceipt(receipt: ReceiptEvent, task: TaskResult | undefined, hide: (text: string) => string,
+  context: { status?: RuntimeStatus; root: string }): AcpReceipt {
   const reasons = new Map((task?.verification?.results ?? []).map((result) => [result.name, result.reason ?? ""]));
   return hideDeep({
     outcome: receipt.outcome, verdict: receipt.verdict, exitCode: receipt.exitCode, changed: receipt.changed,
@@ -413,6 +462,7 @@ export function acpReceipt(receipt: ReceiptEvent, task: TaskResult | undefined, 
       command: check.command, exit: check.exit, ms: check.ms, fresh: check.fresh })),
     checksNotRun: receipt.checks.filter((check) => check.status === "skip").map((check) => ({ name: check.name, reason: reasons.get(check.name) || "not run" })),
     text: receipt.text, json: receipt,
+    usage: receipt.usage ? { ...receipt.usage } : null, cost: costKind(context.status, receipt.usage?.estimatedCost), root: context.root,
   }, hide);
 }
 

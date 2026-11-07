@@ -86,6 +86,7 @@ import { projectPrivatePaths, reportSkillWarnings } from "./wiring";
 import { appAgentDir, ensureRuntime } from "./runtime-start";
 import { reloadProject, writeProjectFile } from "./project-file";
 import { requestAsItStands, withLinesBeforeModel } from "./steered-request";
+import { personNote } from "./person-note";
 
 /** `guide`: guidance a command the user typed adds to this one request (/look's instructions), after the request. */
 /** `asked`: the request without the terminal transcripts pasted into it, when it had any (app/request-words.ts). */
@@ -181,7 +182,7 @@ export async function runModelTask(app: CasperApp, prompt: string, options: { fl
   const selected = await app.skillRegistry!.loadForTask(prompt, context.model, classification);
   reportSkillWarnings(app);
   if (selected.length) {
-    app.output.write(` skills selected: ${selected.map(({ skill }) => skill.name).join(", ")}\n`);
+    personNote(app, ` skills selected: ${selected.map(({ skill }) => skill.name).join(", ")}`);
   }
   const skillContext = formatSelectedSkills(selected);
   let memoryContext = "";
@@ -190,7 +191,7 @@ export async function runModelTask(app: CasperApp, prompt: string, options: { fl
   } catch {
     // Facts are optional guidance. Keep explicit memory operations fail-closed,
     // and never echo possibly sensitive file contents or paths from read errors.
-    if (!app.closing) app.output.write("[memory] Facts unavailable (invalid or unreadable state); continuing without them. Preserve and inspect memory.jsonl before manual repair.\n");
+    if (!app.closing) personNote(app, "[memory] Facts unavailable (invalid or unreadable state); continuing without them. Preserve and inspect memory.jsonl before manual repair.");
   }
   if (app.closing || app.commandAbort?.signal.aborted) return;
   const flag = app.verificationFlag;
@@ -765,7 +766,7 @@ export async function runModelTask(app: CasperApp, prompt: string, options: { fl
     if (!app.closing) {
       app.terminal.endAssistant();
       app.events.ensureLineBreak();
-      if (wroteToolCall) app.output.write(`${TOOL_CALL_AS_TEXT_LINE}\n`);
+      if (wroteToolCall) personNote(app, TOOL_CALL_AS_TEXT_LINE);
       // A question that changed nothing and ran no tests gets no receipt, like a general one: also in a folder too big
       // to compare, when no tool that could change a file ran.
       const answeredOnly = (changedPaths?.length === 0 || (!changedPaths && !observations.possibleMutations && !observations.observedEdits.length))
@@ -894,7 +895,7 @@ export async function runPlanTurn(app: CasperApp, session: RuntimeSession, reque
     const diff = before && after ? diffSnapshots(before, after) : undefined;
     const files = diff ? [...diff.added, ...diff.modified, ...diff.removed].sort() : [];
     for (const file of files) changed.add(file);
-    if (files.length) app.output.write(`– Changed while planning: ${files.map((file) => terminalText(file)).join(", ")}\n`);
+    if (files.length) personNote(app, `– Changed while planning: ${files.map((file) => terminalText(file)).join(", ")}`);
     if (app.taskRuntimeFailed) { showWritten(); app.output.write("[plan] The model failed while planning; nothing was built.\n"); return undefined; }
     const questions = planQuestions(app.lastAnswer) ?? planQuestions(written);
     if (questions && !questionRound) {
@@ -949,7 +950,7 @@ export async function runPlanTurn(app: CasperApp, session: RuntimeSession, reque
     const diff = before && after ? diffSnapshots(before, after) : undefined;
     const files = diff ? [...diff.added, ...diff.modified, ...diff.removed].sort() : [];
     for (const file of files) changed.add(file);
-    if (files.length) app.output.write(`– Changed while planning: ${files.map((file) => terminalText(file)).join(", ")}\n`);
+    if (files.length) personNote(app, `– Changed while planning: ${files.map((file) => terminalText(file)).join(", ")}`);
     if (app.taskRuntimeFailed) app.output.write("[plan] The model failed while answering; the plan is unchanged.\n");
     return true;
   };
@@ -1097,7 +1098,7 @@ export async function makeChecklist(app: CasperApp, complete: NonNullable<Runtim
   if (app.closing || app.commandAbort?.signal.aborted) return undefined;
   if ("error" in result) {
     app.events.ensureLineBreak();
-    app.output.write(`– Checklist not made: ${lineText(result.error)}\n`);
+    personNote(app, `– Checklist not made: ${lineText(result.error)}`);
     app.steps.skip("checklist"); app.terminal.setSteps(app.steps.text());
     return undefined;
   }
@@ -1108,7 +1109,7 @@ export async function makeChecklist(app: CasperApp, complete: NonNullable<Runtim
   }
   // Made quietly: the cases are not printed before work. The receipt names one only when it is not met, and
   // /receipt lists them all. A list cut short still says so.
-  if (result.dropped) { app.events.ensureLineBreak(); app.output.write(`– Checklist kept ${result.cases.length} cases; ${result.dropped} more ${result.dropped === 1 ? "was" : "were"} left out\n`); }
+  if (result.dropped) { app.events.ensureLineBreak(); personNote(app, `– Checklist kept ${result.cases.length} cases; ${result.dropped} more ${result.dropped === 1 ? "was" : "were"} left out`); }
   return result.cases;
 }
 
@@ -1378,7 +1379,7 @@ export async function recordTaskOutcome(app: CasperApp, input: { task: string; s
   // Shutdown is not a completed task. Never launch a late persistence operation.
   if (app.closing) return;
   app.memoryWork = new ProjectMemory(app.projectContext!.stateDirectory).recordOutcome(input).then(() => {}, () => {
-    app.output.write("[memory] Task outcome was not recorded (invalid, locked, full, or unavailable state); no acceptance inferred.\n");
+    personNote(app, "[memory] Task outcome was not recorded (invalid, locked, full, or unavailable state); no acceptance inferred.");
   });
   try { await app.memoryWork; }
   finally { app.memoryWork = undefined; }
@@ -1447,7 +1448,7 @@ export async function loadFlow(app: CasperApp, rule: FlowRule): Promise<Flow | u
   for (const warning of catalog?.warnings ?? []) {
     if (app.flowWarnings.has(warning)) continue;
     app.flowWarnings.add(warning);
-    app.output.write(`${terminalText(warning)}\n`);
+    personNote(app, terminalText(warning));
   }
   return catalog ? findFlow(catalog, rule) : undefined;
 }

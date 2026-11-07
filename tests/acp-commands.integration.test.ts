@@ -85,7 +85,7 @@ test("an unknown command ends the turn with its error; /clear is refused and the
   const cleared = await client.request("session/prompt", { sessionId, prompt: text("/clear") });
   const refused = "/clear starts a new conversation inside Casper, but this app keeps its own chats: start a new chat in the app. Nothing changed.";
   expect(cleared).toEqual({ stopReason: "end_turn", _meta: { casper: { refused } } });
-  expect(since(client, sessionId, before)).toEqual([{ sessionUpdate: "agent_message_chunk", content: { type: "text", text: `${refused}\n` } }]);
+  expect(since(client, sessionId, before)).toEqual([{ sessionUpdate: "agent_message_chunk", content: { type: "text", text: `${refused}\n` }, _meta: { casper: { note: true } } }]);
 
   // Plan mode's own line is for the person: a note, not a block.
   before = client.updates.length;

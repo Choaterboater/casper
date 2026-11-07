@@ -541,3 +541,38 @@ describe("the AI's questions reach a form app (decision 83)", () => {
     onlyProtocol(client);
   }, childTestLimit(1));
 });
+
+describe("an ACP app sees Casper's usage and the receipt's fields (decision 88)", () => {
+  shellCheckTest("Usage reaches the app between a response's text and its tool call, and the receipt carries usage, cost and root", async () => {
+    const f = await fixture(taskTurns((request) => request === 0 ? { said: "Writing the fix.\n", tools: [{ name: "write", args: { path: "sum.js", content: "fixed\n" } }] } : { text: "Fixed sum.js." }));
+    await fixProject(f);
+    const client = open(f);
+    await client.request("initialize", INIT);
+    const { sessionId } = await client.request("session/new", { cwd: f.project, mcpServers: [] });
+    const done = await client.request("session/prompt", { sessionId, prompt: text("Fix sum.js") });
+    expect(done.stopReason).toBe("end_turn");
+    const updates = ofSession(client, sessionId);
+    const said = updates.findIndex((update) => update.sessionUpdate === "agent_message_chunk" && String(update.content?.text).includes("Writing the fix."));
+    const step = updates.findIndex((update) => update.sessionUpdate === "tool_call" && String(update.title).includes("sum.js"));
+    const usages = updates.flatMap((update, index) => update.sessionUpdate === "usage_update" ? [{ update, index }] : []);
+    // One per task response: the checklist call is not the task's runtime, so it sends none.
+    expect(usages).toHaveLength(2);
+    expect(said).toBeGreaterThanOrEqual(0);
+    expect(said).toBeLessThan(usages[0]!.index);
+    expect(usages[0]!.index).toBeLessThan(step);
+    // The scripted provider reports 100 prompt and 20 output tokens a response, at $1 and $2 per million: $0.00014.
+    for (const [at, { update }] of usages.entries()) {
+      expect(update).toMatchObject({ used: 120, size: 128_000, cost: { currency: "USD" },
+        _meta: { casper: { response: { input: 100, output: 20, tokens: 120, toolUse: at === 0 }, model: { provider: "fixture", model: "first" }, cost: "estimate" } } });
+      // The session's cost so far: each response counted once.
+      expect(update.cost.amount).toBeCloseTo(0.00014 * (at + 1), 10);
+    }
+    const receipt = done._meta.casper.receipt;
+    // The task's usage counts the checklist call too.
+    expect(receipt).toMatchObject({ usage: { turns: 2, tokens: 360 }, cost: "estimate" });
+    // The folder the changed files are in, as the app named it or as the system resolves it.
+    expect([f.project, realpathSync(f.project)]).toContain(receipt.root);
+    expect(updates.at(-1)._meta.casper.receipt).toEqual(receipt);
+    onlyProtocol(client);
+  }, childTestLimit(1));
+});

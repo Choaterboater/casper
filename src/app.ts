@@ -574,6 +574,8 @@ export class CasperApp {
   /** `casper acp`: the lines typed before the model started, as the first model turn takes them into the request, so
    * the app hears they were read (decision 86). */
   onLinesJoined?: (lines: readonly string[]) => void;
+  /** `casper acp`: a line Casper wrote for the person (personNote), so the app shows it as a note (decision 88). */
+  onPersonNote?: (line: string) => void;
   readonly allow?: RunAllowances;
   readonly sandboxSeams?: Partial<ShellSandboxOptions>;
   /** web_search and web_fetch for this workspace; unset when web: off. */
