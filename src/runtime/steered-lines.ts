@@ -12,7 +12,8 @@ export function steeredAt(data: unknown): number | undefined {
   return typeof at === "number" && Number.isSafeInteger(at) && at >= 0 ? at : undefined;
 }
 
-const textOf = (message: Extract<Message, { role: "user" }>): string => typeof message.content === "string" ? message.content
+/** A user message's words, as Casper steered them in (its pictures left out). */
+export const userText = (message: Extract<Message, { role: "user" }>): string => typeof message.content === "string" ? message.content
   : message.content.flatMap(part => part.type === "text" ? [part.text] : []).join("\n");
 
 /** A provider-only projection, like the tool history's: the transcript, the waiting rows, ↑ and the saved conversation
@@ -24,6 +25,9 @@ export class SteeredLines {
   /** Casper is handing this line to Pi's queue now. */
   sent(text: string, at = Date.now()): void { this.queued.push({ text, at }); }
 
+  /** A line Casper handed Pi's queue in this prompt and the model has not read yet. */
+  has(text: string): boolean { return this.queued.some(line => line.text === text); }
+
   /** Pi's queue was emptied (taken back, or the task ended): those lines never reach the model as typed lines. */
   cleared(): void { this.queued.length = 0; }
 
@@ -33,7 +37,7 @@ export class SteeredLines {
     const marked = new Set(known);
     for (const message of messages) {
       if (message.role !== "user" || !Number.isSafeInteger(message.timestamp) || marked.has(message.timestamp)) continue;
-      const text = textOf(message);
+      const text = userText(message);
       const index = this.queued.findIndex(line => line.text === text && message.timestamp >= line.at);
       if (index < 0) continue;
       this.queued.splice(index, 1);

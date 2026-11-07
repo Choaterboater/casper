@@ -4,9 +4,9 @@ import { PassThrough } from "node:stream";
 import { pathToFileURL } from "node:url";
 import { parseCliArgs, UsageError } from "../src/cli-args";
 import { AcpAsker, formAnswer, optionKind, questionSchema } from "../src/acp/permission";
-import { RpcConnection } from "../src/acp/rpc";
-import { sessionArgs } from "../src/acp/server";
-import { askedWithout, promptText } from "../src/acp/session";
+import { RpcConnection, RpcFailure } from "../src/acp/rpc";
+import { SESSION_REQUESTS, sessionArgs, sessionFor } from "../src/acp/server";
+import { askedWithout, initializeResult, promptText } from "../src/acp/session";
 import { hider, keptLines, UpdateMapper, type AcpReceipt } from "../src/acp/updates";
 import { NO, PLAN_ANSWER_HINT, PLAN_CHANGE_HINT, PLAN_CHANGE_QUESTION, YES_ONCE, YES_SESSION } from "../src/app/safe-choices";
 import { until } from "./support/acp-client";
@@ -594,5 +594,25 @@ describe("an ACP box names its step and carries its diff (decision 85)", () => {
     expect(await asker.ask(box)).toEqual([YES_ONCE]);
     expect(yes.sent[0]!.options.map((option: { name: string; kind: string }) => [option.name, option.kind]))
       .toEqual([[NO, "reject_once"], [YES_ONCE, "allow_once"], [YES_SESSION, "allow_always"]]);
+  });
+});
+
+describe("an ACP app steers Casper mid-task (decision 86)", () => {
+  test("Initialize says Casper takes steering", () => {
+    for (const setting of ["on", "ask", "off"] as const) expect(initializeResult(setting)).toMatchObject({ agentCapabilities: { _meta: { casper: { steer: true } } } });
+  });
+
+  test("The router answers an unknown session with -32002 and routes a known one", () => {
+    const known = { name: "the session's process" };
+    const sessions = new Map([["s1", known]]);
+    expect(sessionFor(sessions, { sessionId: "s1" })).toBe(known);
+    for (const params of [{ sessionId: "s2" }, {}, { sessionId: 7 }]) {
+      let failure: unknown;
+      try { sessionFor(sessions, params); } catch (error) { failure = error; }
+      expect(failure).toBeInstanceOf(RpcFailure);
+      expect((failure as RpcFailure).code).toBe(-32002);
+    }
+    // A steer goes to its session as a prompt does.
+    expect(SESSION_REQUESTS).toEqual(["session/prompt", "session/set_config_option", "session/set_mode", "_casper/steer"]);
   });
 });

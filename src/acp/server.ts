@@ -2,7 +2,8 @@
 // drives the real Casper. This process only routes: each session runs in a Casper process of its own
 // (src/acp/session.ts), started for session/new or session/load, so sessions run side by side without sharing a
 // folder or a sandbox. The client's messages go to the session they name; the session's updates, permission requests
-// and forms (elicitation/create) come back as they are. Each session is told the client's capabilities.
+// and forms (elicitation/create) come back as they are. Each session is told the client's capabilities. A line the app
+// sends during a prompt (`_casper/steer`, decision 86) goes to its session as a prompt does.
 
 import path from "node:path";
 import type { Subprocess } from "bun";
@@ -19,6 +20,16 @@ interface SessionProcess {
   connection: RpcConnection;
   /** The session's command list, held until this router has written the reply that names the session. */
   held?: Json[];
+}
+
+/** The requests that name a session and go to its process as they are: a steer too (decision 86). */
+export const SESSION_REQUESTS = ["session/prompt", "session/set_config_option", "session/set_mode", "_casper/steer"] as const;
+
+/** The session `params` names; an unknown one is not found (-32002). */
+export function sessionFor<T>(sessions: ReadonlyMap<string, T>, params: Json): T {
+  const session = typeof params.sessionId === "string" ? sessions.get(params.sessionId) : undefined;
+  if (!session) throw new RpcFailure(RPC.notFound, "Unknown session");
+  return session;
 }
 
 /** The router's own arguments for each session process, without --cd: the session gets its folder from the client. */
@@ -85,11 +96,7 @@ export async function runAcpServer(argv: readonly string[], launchedFrom: string
       throw error;
     }
   };
-  const route = (params: Json): SessionProcess => {
-    const session = typeof params.sessionId === "string" ? sessions.get(params.sessionId) : undefined;
-    if (!session) throw new RpcFailure(RPC.notFound, "Unknown session");
-    return session;
-  };
+  const route = (params: Json): SessionProcess => sessionFor(sessions, params);
 
   // Once the reply is out, what the session held for after it goes too, and from then on as it comes. A start that
   // failed has no session: what it held is dropped with it.
@@ -107,9 +114,7 @@ export async function runAcpServer(argv: readonly string[], launchedFrom: string
   });
   client.onRequest("session/new", (params) => start("session/new", params), (result) => release((result as Json | null)?.sessionId));
   client.onRequest("session/load", (params) => start("session/load", params), (_result, params) => release(params.sessionId));
-  client.onRequest("session/prompt", async (params) => route(params).connection.request("session/prompt", params));
-  client.onRequest("session/set_config_option", async (params) => route(params).connection.request("session/set_config_option", params));
-  client.onRequest("session/set_mode", async (params) => route(params).connection.request("session/set_mode", params));
+  for (const method of SESSION_REQUESTS) client.onRequest(method, async (params) => route(params).connection.request(method, params));
   client.onNotification("session/cancel", (params) => { try { route(params).connection.notify("session/cancel", params); } catch { /* an unknown session has nothing to stop */ } });
 
   // Ctrl+C, SIGTERM or the client gone: each session closes as Casper closes (its checks and services stop), then

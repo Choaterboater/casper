@@ -388,6 +388,10 @@ An app that shows forms gets the AI's questions, and Casper's own questions that
 (only there) skips them, as in a one-shot run; it applies from the next session. /settings shows it as **Apps answer
 the AI's questions**.
 
+A line the app sends while Casper works reaches the AI at its next step, or joins the request before the model starts,
+as a line typed in the terminal does ([decision 86](adr/0002/86-an-acp-app-steers-casper-mid-task.md)). The app hears
+when the AI reads it. A line the AI never read stays with the app; Casper queues nothing. It has no setting.
+
 ### Asking less: /permissions
 
 `/permissions` prints a short screen: whether Casper is asking, one line per kind (state · how to change it) and what stays protected, then the numbered box

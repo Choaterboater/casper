@@ -1228,7 +1228,9 @@ is not automatically redacted. `/undo` puts back the files a task changed (see
 [UNDO.md](UNDO.md)); there is no automatic shell shortcut or enforced permission-mode
 selector. A line typed during a task steers the AI at its next step or waits in the
 queue and runs when the task ends (see Current interface above); Esc gives queued
-lines back to the prompt.
+lines back to the prompt. In an app over `casper acp` a line sent during a prompt
+steers the same way, and one the AI never read stays in the app
+([decision 86](adr/0002/86-an-acp-app-steers-casper-mid-task.md)).
 
 ## Design references and reuse
 

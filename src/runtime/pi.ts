@@ -67,7 +67,7 @@ import { waitLabel } from "../sandbox/waits";
 import { cacheRetentionFor, type PromptCacheSetting } from "./cache";
 import { LoopGuard } from "./loop-guard";
 import { ToolHistory, TOOL_HISTORY_ENTRY } from "./tool-history";
-import { SteeredLines, STEERED_LINE_ENTRY, steeredAt } from "./steered-lines";
+import { SteeredLines, STEERED_LINE_ENTRY, steeredAt, userText } from "./steered-lines";
 import { CASPER_SAID_ENTRY, conversationRecord, saidBy } from "../sessions/record";
 import { ELISION_NOTE, elisionTexts, newElisions } from "./elision";
 import { addsSecret } from "../secrets/files";
@@ -517,7 +517,11 @@ class PiRuntimeSession implements RuntimeSession {
       const overflow = this.overflowError; this.overflowError = undefined;
       if (overflow) this.emit(overflow);
       // A line steered in after the model's last step is not lost: it comes back through takeUnsent.
-      if (session.pendingMessageCount) { const left = session.clearQueue(); this.unsent.push(...left.steering, ...left.followUp); }
+      if (session.pendingMessageCount) {
+        const left = session.clearQueue();
+        this.unsent.push(...left.steering, ...left.followUp);
+        if (left.steering.length) this.emit({ type: "steer_unsent", lines: [...left.steering] });
+      }
       this.steeredPictures.clear();
       this.steeredLines.cleared();
       agent.streamFunction = stream;
@@ -617,6 +621,11 @@ class PiRuntimeSession implements RuntimeSession {
           if (event.message.role === "assistant") this.emit({
             type: "assistant_response_start", provider: session.model?.provider, model: session.model?.id,
           });
+          // A line steered in during this prompt goes into the conversation now, before the next request.
+          else if (event.message.role === "user" && this.promptActive) {
+            const text = userText(event.message);
+            if (this.steeredLines.has(text)) this.emit({ type: "steer_read", text });
+          }
           break;
         case "message_end":
           if (event.message.role === "assistant") {

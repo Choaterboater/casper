@@ -9,7 +9,8 @@
 // model and effort picker shows Casper's own models (src/acp/config-options.ts), and its access chip sets Read only,
 // Ask first or Don't ask (src/acp/modes.ts). An app that shows forms gets the AI's questions and Casper's typed ones as
 // elicitation/create (src/acp/permission.ts, decision 83). /plan's Build box carries the plan, the build's checklist is
-// the app's plan, and the `plan` option is /plan on (decision 84).
+// the app's plan, and the `plan` option is /plan on (decision 84). A line the app sends during a prompt
+// (`_casper/steer`) reaches the AI at its next step, as a line typed in the terminal does (decision 86).
 
 import os from "node:os";
 import path from "node:path";
@@ -30,7 +31,9 @@ import type { MCPServerDefinition } from "../mcp/config";
 import { toolCallId } from "../runtime/tool-reason";
 import type { RuntimeEvent } from "../runtime/types";
 import { fileTextHoldsSecret, onlyNetconanChecks } from "../secrets/tool-output";
-import { leadingImagePath, startsWithImageFile } from "../app/images";
+import { attachImages, leadingImagePath, startsWithImageFile } from "../app/images";
+import { terminalText } from "../tui/format";
+import { forgetSteered, settleAppSteers, steerFromApp } from "../app/during-work";
 import { clientServers } from "./client-servers";
 import { acpCommands, acpRefusal } from "./commands";
 import { offerOf, setOption } from "./config-options";
@@ -44,11 +47,13 @@ import { acpReceipt, commandsUpdate, configUpdate, hider, UpdateMapper, valuesHi
 export const ACP_PROTOCOL_VERSION = 1;
 
 /** The initialize reply, the same from the router and from each session. `acp_mcp: off` says no http server is taken
- * (stdio ones are ACP's baseline; Casper connects none of them either). */
+ * (stdio ones are ACP's baseline; Casper connects none of them either). `_meta.casper.steer`: `_casper/steer` takes a
+ * line during a prompt (decision 86). */
 export function initializeResult(setting: AcpMcpSetting = "on"): Json {
   return {
     protocolVersion: ACP_PROTOCOL_VERSION,
-    agentCapabilities: { loadSession: true, promptCapabilities: { image: true, audio: false, embeddedContext: true }, mcpCapabilities: { http: setting !== "off", sse: false } },
+    agentCapabilities: { loadSession: true, promptCapabilities: { image: true, audio: false, embeddedContext: true }, mcpCapabilities: { http: setting !== "off", sse: false },
+      _meta: { casper: { steer: true } } },
     agentInfo: { name: "casper", title: "Casper", version: CASPER_VERSION },
     authMethods: [],
   };
@@ -84,6 +89,10 @@ export function answerThroughClient(app: CasperApp, asker: AwayAsker, write: (te
   app.terminal.leave({ isTTY: false, columns: 100, rows: 40, write }, asker);
 }
 
+/** A line the app steered in during a prompt (decision 86), until the AI reads it: `text` as the app sent it, `sent`
+ * as the AI reads it (its pictures as `[image N]`). */
+interface AppSteer { text: string; sent: string; messageId: string; kind: "pending" | "steered" | "joined" }
+
 export interface SessionOptions {
   cli: CliOptions;
   /** Builds the app (the CLI passes the one --json would build, with this session's events and output). */
@@ -111,6 +120,13 @@ export async function runAcpSession(options: SessionOptions): Promise<void> {
   let cancelled = false;
   // The client said at initialize that it shows forms (elicitation/create): the AI's questions may go to it.
   let formQuestions = false;
+  // The app's lines taken during this prompt (decision 86), oldest first, until the AI reads each: "joined" ones go with
+  // the first model turn's request, "steered" ones at the AI's next step; "pending" is still being handed over.
+  let steers: AppSteer[] = [];
+  // Steers are taken one at a time, in the order they arrived, and only for the prompt that was running then.
+  let steerChain: Promise<unknown> = Promise.resolve();
+  let promptGeneration = 0;
+  let steerN = 0;
   const sendUpdate = (update: Json) => { if (sessionId) connection.notify("session/update", { sessionId, update }); };
   // The user's own secrets (logins, keys, secret-looking variables), read again at each prompt, and every value the
   // client gave its MCP servers: never in an update.
@@ -132,6 +148,15 @@ export async function runAcpSession(options: SessionOptions): Promise<void> {
     planning: () => app?.events.holdingText === true });
   // A box is a step on the wire: the text so far, and a command's open block, end before it (and before its answer).
   const boxUpdate = (update: Json) => { for (const done of mapper.flush()) sendUpdate(done); sendUpdate(update); };
+  /** The app's line, as the AI reads it: after the model's words so far, and before its next ones (a message of their
+   * own). Its words are hidden like the rest. */
+  const readNotice = (entry: AppSteer) => {
+    const at = steers.indexOf(entry);
+    if (at >= 0) steers.splice(at, 1);
+    for (const done of mapper.flush()) sendUpdate(done);
+    sendUpdate({ sessionUpdate: "user_message_chunk", content: { type: "text", text: hide(entry.text) }, messageId: entry.messageId, _meta: { casper: { steered: true } } });
+    mapper.newMessage();
+  };
   // The / command a prompt runs (decision 80), until the model speaks in it: what the terminal shows for it then is its
   // output, Casper's reply.
   let commandRun: { spoke: boolean } | undefined;
@@ -230,6 +255,12 @@ export async function runAcpSession(options: SessionOptions): Promise<void> {
         onRuntimeEvent: (event) => {
           // A response starts before the terminal writes any of its words, so none of them reads as the command's.
           if (event.type === "assistant_response_start" && commandRun) commandRun.spoke = true;
+          // The AI reads a line the app steered in; one the prompt ended before reading is forgotten, with no notice.
+          if (event.type === "steer_read") { const entry = steers.find((item) => item.kind !== "joined" && item.sent === event.text); if (entry) readNotice(entry); }
+          if (event.type === "steer_unsent" && app) {
+            forgetSteered(app, event.lines);
+            for (const line of event.lines) { const at = steers.findIndex((item) => item.kind !== "joined" && item.sent === line); if (at >= 0) steers.splice(at, 1); }
+          }
           for (const update of mapper.runtime(event)) sendUpdate(update);
         } });
       // A call to the app's server names the step it is, as the client saw it start.
@@ -238,6 +269,10 @@ export async function runAcpSession(options: SessionOptions): Promise<void> {
       // The accepted plan's checklist is the app's plan; planning words that were no plan are a message (decision 84).
       created.onPlanSteps = (steps) => { for (const update of mapper.planSteps(steps)) sendUpdate(update); };
       created.onPlanWords = (words) => { for (const update of mapper.words(words)) sendUpdate(update); };
+      // Lines the app sent before the model started go with its first request: each is read now.
+      created.onLinesJoined = (lines) => {
+        for (const line of lines) { const entry = steers.find((item) => item.kind !== "steered" && item.sent === line); if (entry) readNotice(entry); }
+      };
       learnSecrets();
       try {
         await created.start(folder);
@@ -304,6 +339,7 @@ export async function runAcpSession(options: SessionOptions): Promise<void> {
     catch (error) { throw error instanceof RpcFailure ? new RpcFailure(error.code, hide(error.message)) : error; }
     busy = true;
     cancelled = false;
+    promptGeneration++;
     mapper.newPrompt();
     // A part line left from before this prompt (the start's transcript) ends here, not inside this prompt's first line.
     routeRest();
@@ -322,6 +358,12 @@ export async function runAcpSession(options: SessionOptions): Promise<void> {
       // What was not sent (audio, a ninth picture, a HEIC photo) is said first, as the terminal says it.
       for (const note of content.notes) app.output.write(`[image] ${note}\n`);
       commandRun = isCommand ? { spoke: false } : undefined;
+      // From here until the model's first turn, a line the app steers in joins this request (decision 86).
+      if (!isCommand) {
+        app.beforeFirstModelTurn = true;
+        app.linesBeforeModel = [];
+        app.steeredInTask = [];
+      }
       // A command's line is not written back: its output is the reply.
       report = await app.runOnce(content.text, folder, askedWithout(params.prompt, content.text), { images: content.images, echo: !isCommand });
     } catch (error) {
@@ -330,6 +372,9 @@ export async function runAcpSession(options: SessionOptions): Promise<void> {
       busy = false;
       routeRest();
       commandRun = undefined;
+      // Lines the AI never read stay with the app: nothing typed during this prompt is kept for the next.
+      settleAppSteers(app);
+      steers = [];
     }
     // A cancelled task ends with the stop itself; its receipt still follows. A command's error (an unknown name, words
     // it does not take) is its reply, as in the terminal; anything else is an error reply.
@@ -394,9 +439,54 @@ export async function runAcpSession(options: SessionOptions): Promise<void> {
     lastOffer = withModeTold(lastOffer, offerNow().wire);
     return {};
   });
+  // A line the app sends while a prompt runs (decision 86): the same rules as a line typed during a task in the
+  // terminal. Refused (steered: false) when no prompt runs or it is being stopped, while the model or effort changes,
+  // during a / command, for a / line and once the prompt it came for has ended; the app then keeps it. Nothing is
+  // queued here.
+  connection.onRequest("_casper/steer", async (params) => {
+    if (!app || !sessionId || params.sessionId !== sessionId) throw new RpcFailure(RPC.notFound, "Unknown session");
+    const current = app;
+    const generation = promptGeneration;
+    const messageId = typeof params.messageId === "string" && params.messageId ? params.messageId : `casper-steer-${++steerN}`;
+    const refused = { steered: false, messageId };
+    if (!busy || cancelled || changing || commandRun) return refused;
+    try {
+      learnSecrets();
+      const content = promptContent(params.prompt);
+      const line = content.text.trim();
+      if (line.startsWith("/") && !(leadingImagePath(line) !== undefined && await startsWithImageFile(line, { cwd: current.activeWorkspaceRoot() }))) return refused;
+      const taking = steerChain.then(async () => {
+        if (!busy || cancelled || generation !== promptGeneration || commandRun) return refused;
+        // Its pictures, and picture files it names or links, go with it, as a prompt's do (a share path is not opened:
+        // nothing can be asked during work).
+        const attached = await attachImages(line, { cwd: current.activeWorkspaceRoot(), pasted: content.images, saveTo: current.pastedImageFiles })
+          .catch(() => ({ text: line, images: [...content.images.values()], notes: [] }));
+        if (!busy || cancelled || generation !== promptGeneration || commandRun) return refused;
+        // Listed before the runtime has it, so a read that comes at once finds it.
+        const entry: AppSteer = { text: line, sent: attached.text, messageId, kind: "pending" };
+        steers.push(entry);
+        const taken = await steerFromApp(current, attached.text, attached.images);
+        if (taken === "not_taken") {
+          const at = steers.indexOf(entry);
+          if (at >= 0) steers.splice(at, 1);
+          return refused;
+        }
+        entry.kind = taken;
+        // What was not sent with it (audio, a ninth picture) is said, as for a prompt.
+        for (const note of [...content.notes, ...attached.notes.map(terminalText)]) current.output.write(`[image] ${note}\n`);
+        return { steered: true, messageId };
+      });
+      steerChain = taking.catch(() => {});
+      return await taking;
+    } catch (error) {
+      throw new RpcFailure(error instanceof RpcFailure ? error.code : RPC.internal, hide(error instanceof Error ? error.message : String(error)));
+    }
+  });
   connection.onNotification("session/cancel", (params) => {
     if (!app || params.sessionId !== sessionId || !busy) return;
     cancelled = true;
+    // A stopped step never reads the app's lines: none gets a notice.
+    steers = [];
     // The same stop as Ctrl+C in a session: the model and the checks stop, and the changes made so far stay.
     cancelCurrent(app);
   });

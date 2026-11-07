@@ -571,6 +571,9 @@ export class CasperApp {
   /** `casper acp`: the model's planning words Casper held and prints itself because they were no plan, so the app gets
    * them as a message (decision 84). */
   onPlanWords?: (words: string) => void;
+  /** `casper acp`: the lines typed before the model started, as the first model turn takes them into the request, so
+   * the app hears they were read (decision 86). */
+  onLinesJoined?: (lines: readonly string[]) => void;
   readonly allow?: RunAllowances;
   readonly sandboxSeams?: Partial<ShellSandboxOptions>;
   /** web_search and web_fetch for this workspace; unset when web: off. */

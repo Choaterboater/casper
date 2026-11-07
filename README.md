@@ -157,6 +157,10 @@ A box that a step raises names that step, so the app can show it on the step's r
 diff and file, so you see what you allow. The choices and the answers stay the same.
 [Decision 85](docs/adr/0002/85-an-acp-box-names-its-step.md).
 
+A line you send in the app while Casper works reaches the AI at its next step, as in the terminal, and shows in the
+chat when the AI reads it. Sent before the model starts, it joins your request. A line the AI never read stays in the
+app to send again. [Decision 86](docs/adr/0002/86-an-acp-app-steers-casper-mid-task.md).
+
 Type `/help` for the commands. Ctrl+C stops the current work but keeps changes already made;
 Ctrl+D on an empty prompt exits. [Keys and commands](docs/TERMINAL_UX.md#quick-reference).
 

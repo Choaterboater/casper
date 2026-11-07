@@ -281,9 +281,15 @@ export class UpdateMapper {
 
   /** A new prompt: its first words start the app's new message, so nothing goes before them, and it has no plan steps. */
   newPrompt(): void {
+    this.newMessage();
+    this.planned = undefined;
+  }
+
+  /** The app was shown the person's line (a steer the AI read, decision 86): the model's next words start a new
+   * message. The prompt's plan steps stay. */
+  newMessage(): void {
     this.tail = "";
     this.separate = false;
-    this.planned = undefined;
   }
 
   /** A command's output (/status), a whole line at a time, so a secret is hidden whole: Casper's reply in a fenced

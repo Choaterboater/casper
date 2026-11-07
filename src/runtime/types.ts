@@ -420,6 +420,11 @@ export type RuntimeEvent =
   | { type: "notice"; message: string }
   /** The steered lines the model hasn't read yet, oldest first; empty once it has read them all. */
   | { type: "waiting"; lines: string[] }
+  /** The model is reading a line steered in during this prompt (it is in the next request), once per line: for
+   * `casper acp`'s read notice (decision 86). The terminal, --json and receipts ignore it. */
+  | { type: "steer_read"; text: string }
+  /** The prompt ended before the model read these steered lines, oldest first (takeUnsent gives them back). */
+  | { type: "steer_unsent"; lines: string[] }
   | { type: "error"; message: string };
 
 export type RuntimeEventListener = (event: RuntimeEvent) => void;
