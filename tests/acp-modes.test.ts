@@ -229,3 +229,28 @@ test("after session/set_mode only the mode counts as told: a model change Casper
   // With nothing else changed, the next update has nothing to say.
   expect(withModeTold(told, [model("fixture/first"), mode("read")])).toBe(JSON.stringify([model("fixture/first"), mode("read")]));
 });
+
+test("acp_questions is a user setting, on by default, and refused in a project or profile", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "casper-acp-questions-"));
+  try {
+    const home = path.join(root, "home");
+    const project = path.join(root, "project");
+    await mkdir(path.join(home, ".casper/profiles/default"), { recursive: true });
+    await mkdir(path.join(project, ".casper"), { recursive: true });
+    expect((await loadConfiguration({ projectRoot: project, homeDir: home })).acpQuestions).toBeUndefined();
+    await writeFile(path.join(home, ".casper/config.yaml"), "acp_questions: off\n");
+    expect((await loadConfiguration({ projectRoot: project, homeDir: home })).acpQuestions).toBe("off");
+    await writeFile(path.join(home, ".casper/config.yaml"), "acp_questions: false\n");
+    expect((await loadConfiguration({ projectRoot: project, homeDir: home })).acpQuestions).toBe("off");
+    await writeFile(path.join(home, ".casper/config.yaml"), "acp_questions: true\n");
+    expect((await loadConfiguration({ projectRoot: project, homeDir: home })).acpQuestions).toBe("on");
+    await writeFile(path.join(home, ".casper/config.yaml"), "acp_questions: sometimes\n");
+    await expect(loadConfiguration({ projectRoot: project, homeDir: home })).rejects.toThrow("acp_questions must be");
+    await writeFile(path.join(home, ".casper/config.yaml"), "");
+    await writeFile(path.join(project, ".casper/project.yaml"), "acp_questions: on\n");
+    await expect(loadConfiguration({ projectRoot: project, homeDir: home })).rejects.toThrow("acp_questions is a user setting");
+    await writeFile(path.join(project, ".casper/project.yaml"), "");
+    await writeFile(path.join(home, ".casper/profiles/default/config.yaml"), "acp_questions: off\n");
+    await expect(loadConfiguration({ projectRoot: project, homeDir: home })).rejects.toThrow("acp_questions is set in ~/.casper/config.yaml only");
+  } finally { await removeTempDir(root); }
+});

@@ -274,6 +274,10 @@ export class CasperApp {
   /** `casper acp`: an ACP client's person answers the approval boxes (session/request_permission), so the run keeps the
    * terminal's checklist and screenshot-question defaults; it is otherwise one-shot. */
   remoteApprovals = false;
+  /** `casper acp` with an app that shows forms (and `acp_questions` on): the AI's questions and Casper's typed ones go to
+   * the app as elicitation/create, so the ask tool, the plan's question round and the before-changes gate work there
+   * (decision 83). */
+  remoteQuestions = false;
   /** `casper acp`: the ACP toolCallId of the step the model's tool call `id` is, sent with a call to the app's own MCP
    * server (decision 77). */
   acpToolCallId?: (id: string) => string | undefined;

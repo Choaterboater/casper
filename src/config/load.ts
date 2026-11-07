@@ -34,6 +34,10 @@ export type AcpMcpSetting = typeof ACP_MCP_SETTINGS[number];
  * 82); Read only and Ask first are always offered. Unset: on. */
 export const ACP_ACCESS_SETTINGS = ["on", "off"] as const;
 export type AcpAccessSetting = typeof ACP_ACCESS_SETTINGS[number];
+/** `acp_questions:` (in ~/.casper/config.yaml only) whether an ACP client that shows forms gets the AI's questions and
+ * Casper's typed ones (decision 83). Unset: on. */
+export const ACP_QUESTIONS_SETTINGS = ["on", "off"] as const;
+export type AcpQuestionsSetting = typeof ACP_QUESTIONS_SETTINGS[number];
 
 /** `showPages:` whether the AI is shown page screenshots after a UI change: ask once a session, always, or never. */
 export const SHOW_PAGES_SETTINGS = ["ask", "on", "off"] as const;
@@ -173,6 +177,8 @@ export interface LoadedConfiguration {
   acpMcp?: AcpMcpSetting;
   /** `acp_access: on|off` in ~/.casper/config.yaml: whether an ACP client may set Don't ask (decision 82). Unset: on. */
   acpAccess?: AcpAccessSetting;
+  /** `acp_questions: on|off` in ~/.casper/config.yaml: whether a form app gets the AI's questions (decision 83). Unset: on. */
+  acpQuestions?: AcpQuestionsSetting;
   /** `lsp_autostart: off` in your own config: your own language servers wait for /lsp connect. Unset: on. */
   lspAutostart?: boolean;
   /** `notifications: off` in your own config: no bell or desktop notification when a long task ends or a question waits. Unset: on. */
@@ -333,7 +339,7 @@ const POLICY_KEYS = {
 } as const;
 const ISOLATE_KEYS = ["parallelAgents", "riskyRefactor", "experimentalBranch"];
 const TOP_LEVEL_KEYS = new Set(["profile", "project", "languages", "frameworks", "packageManager", "commands", "architecture",
-  "conventions", "verify", "verification", "repair", "skills", "visualize", "policy", "services", "smoke", "pages", "lab", "suggestions", "updates", "sideQuestions", "localModels", "modelServers", "cache", "display", "theme", "showPages", "spend", "sandbox", "shell", "web", "reader", "delegate", "browser", "templates", "packs", "github", "telemetry", "tools", "ssh_login", "other_logins", "network_updates", "ai_pages", "open_pages", "pictures", "browser_clicks", "routine_commands", "auto_mode", "hide_tool_output", "reasoning_headline", "lean_guidance", "compact_at", "slow_commands", "keep_going", "stalled_commands", "mcp_autoconnect", "acp_mcp", "acp_access", "lsp_autostart", "notifications", ...Object.keys(POLICY_KEYS)]);
+  "conventions", "verify", "verification", "repair", "skills", "visualize", "policy", "services", "smoke", "pages", "lab", "suggestions", "updates", "sideQuestions", "localModels", "modelServers", "cache", "display", "theme", "showPages", "spend", "sandbox", "shell", "web", "reader", "delegate", "browser", "templates", "packs", "github", "telemetry", "tools", "ssh_login", "other_logins", "network_updates", "ai_pages", "open_pages", "pictures", "browser_clicks", "routine_commands", "auto_mode", "hide_tool_output", "reasoning_headline", "lean_guidance", "compact_at", "slow_commands", "keep_going", "stalled_commands", "mcp_autoconnect", "acp_mcp", "acp_access", "acp_questions", "lsp_autostart", "notifications", ...Object.keys(POLICY_KEYS)]);
 
 /** Typos used to fall back silently to the defaults; the loader names them instead. */
 function unknownKeys(document: Mapping, label: string): string[] {
@@ -650,6 +656,14 @@ function acpAccessValue(value: unknown, label: string): AcpAccessSetting | undef
   const setting = value === true ? "on" : value === false ? "off" : value;
   if (!ACP_ACCESS_SETTINGS.some((known) => known === setting)) throw new Error(`${label}: acp_access must be ${alternatives(ACP_ACCESS_SETTINGS)}`);
   return setting as AcpAccessSetting;
+}
+
+/** `acp_questions:` on or off (YAML's true and false too). */
+function acpQuestionsValue(value: unknown, label: string): AcpQuestionsSetting | undefined {
+  if (value === undefined || value === null) return undefined;
+  const setting = value === true ? "on" : value === false ? "off" : value;
+  if (!ACP_QUESTIONS_SETTINGS.some((known) => known === setting)) throw new Error(`${label}: acp_questions must be ${alternatives(ACP_QUESTIONS_SETTINGS)}`);
+  return setting as AcpQuestionsSetting;
 }
 
 /** `acp_mcp` from ~/.casper/config.yaml, before any project is known (casper acp's initialize). A file Casper can't
@@ -1061,6 +1075,12 @@ export async function loadConfiguration(
     if (document.acp_access !== undefined) throw new Error(`${label}: acp_access is set in ~/.casper/config.yaml only`);
   }
   const acpAccess = acpAccessValue(globalDocument.acp_access, labels.global);
+  // Whether an app puts the AI's questions to you is yours too.
+  if (projectDocument.acp_questions !== undefined) throw new Error("acp_questions is a user setting (~/.casper/config.yaml); a project cannot choose whether an app asks you the AI's questions");
+  for (const [document, label] of [[profileDocument, labels.profile], [userProfileDocument, labels.userProfile]] as const) {
+    if (document.acp_questions !== undefined) throw new Error(`${label}: acp_questions is set in ~/.casper/config.yaml only`);
+  }
+  const acpQuestions = acpQuestionsValue(globalDocument.acp_questions, labels.global);
   // Whether your terminal rings or shows a notification is yours too.
   if (projectDocument.notifications !== undefined) throw new Error("notifications is a user setting (~/.casper/config.yaml); a project cannot turn Casper's notifications on or off");
   let notifications: boolean | undefined;
@@ -1158,6 +1178,7 @@ export async function loadConfiguration(
     ...(mcpAutoconnect !== undefined ? { mcpAutoconnect } : {}),
     ...(acpMcp !== undefined ? { acpMcp } : {}),
     ...(acpAccess !== undefined ? { acpAccess } : {}),
+    ...(acpQuestions !== undefined ? { acpQuestions } : {}),
     ...(lspAutostart !== undefined ? { lspAutostart } : {}),
     ...(notifications !== undefined ? { notifications } : {}),
     ...(pageChecks !== undefined ? { pageChecks } : {}),

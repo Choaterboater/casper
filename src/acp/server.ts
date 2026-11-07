@@ -1,8 +1,8 @@
 // `casper acp`: an Agent Client Protocol agent on stdin and stdout (agentclientprotocol.com), so an app or an editor
 // drives the real Casper. This process only routes: each session runs in a Casper process of its own
 // (src/acp/session.ts), started for session/new or session/load, so sessions run side by side without sharing a
-// folder or a sandbox. The client's messages go to the session they name; the session's updates and permission
-// requests come back as they are.
+// folder or a sandbox. The client's messages go to the session they name; the session's updates, permission requests
+// and forms (elicitation/create) come back as they are. Each session is told the client's capabilities.
 
 import path from "node:path";
 import type { Subprocess } from "bun";
@@ -47,6 +47,8 @@ export async function runAcpServer(argv: readonly string[], launchedFrom: string
   // that saw it exit can remove the folders the sessions worked in (Windows refuses while a process is in one).
   const running = new Set<SessionProcess["child"]>();
   const args = sessionArgs(argv);
+  // What the client said it can do (forms, decision 83), passed to each session as it starts.
+  let clientCapabilities: Json | undefined;
 
   const start = async (method: "session/new" | "session/load", params: Json): Promise<Json> => {
     // Checked here too, so a wrong folder costs no process.
@@ -68,8 +70,9 @@ export async function runAcpServer(argv: readonly string[], launchedFrom: string
       else client.notify("session/update", update);
     });
     connection.onRequest("session/request_permission", (request) => client.request("session/request_permission", request));
+    connection.onRequest("elicitation/create", (request) => client.request("elicitation/create", request));
     try {
-      await connection.request("initialize", { protocolVersion: initializeResult().protocolVersion });
+      await connection.request("initialize", { protocolVersion: initializeResult().protocolVersion, ...(clientCapabilities ? { clientCapabilities } : {}) });
       const result = await connection.request(method, { ...params, cwd: folder }) as Json;
       const id = method === "session/new" ? result.sessionId : params.sessionId;
       if (typeof id !== "string" || sessions.has(id)) throw new RpcFailure(RPC.internal, "The session did not start");
@@ -98,7 +101,10 @@ export async function runAcpServer(argv: readonly string[], launchedFrom: string
     for (const update of held) client.notify("session/update", update);
   };
 
-  client.onRequest("initialize", async () => initializeResult(await readAcpMcpSetting()));
+  client.onRequest("initialize", async (params) => {
+    clientCapabilities = params.clientCapabilities && typeof params.clientCapabilities === "object" ? params.clientCapabilities as Json : undefined;
+    return initializeResult(await readAcpMcpSetting());
+  });
   client.onRequest("session/new", (params) => start("session/new", params), (result) => release((result as Json | null)?.sessionId));
   client.onRequest("session/load", (params) => start("session/load", params), (_result, params) => release(params.sessionId));
   client.onRequest("session/prompt", async (params) => route(params).connection.request("session/prompt", params));

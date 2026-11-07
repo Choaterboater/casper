@@ -1,14 +1,15 @@
-import { expect, test } from "bun:test";
+import { describe, expect, test } from "bun:test";
 import path from "node:path";
 import { PassThrough } from "node:stream";
 import { pathToFileURL } from "node:url";
 import { parseCliArgs, UsageError } from "../src/cli-args";
-import { AcpAsker, optionKind } from "../src/acp/permission";
+import { AcpAsker, formAnswer, optionKind, questionSchema } from "../src/acp/permission";
 import { RpcConnection } from "../src/acp/rpc";
 import { sessionArgs } from "../src/acp/server";
 import { askedWithout, promptText } from "../src/acp/session";
 import { hider, keptLines, UpdateMapper, type AcpReceipt } from "../src/acp/updates";
-import { NO, YES_ONCE, YES_SESSION } from "../src/app/safe-choices";
+import { NO, PLAN_ANSWER_HINT, PLAN_CHANGE_HINT, PLAN_CHANGE_QUESTION, YES_ONCE, YES_SESSION } from "../src/app/safe-choices";
+import { until } from "./support/acp-client";
 import type { AwayQuestion } from "../src/tui/terminal";
 
 const box: AwayQuestion = { kind: "approve", question: "The AI wants to write to ~/notes. Allow it?", preview: "~/notes/todo.md\n", choices: [{ label: NO }, { label: YES_ONCE }, { label: YES_SESSION }], from: "approval" };
@@ -251,4 +252,198 @@ test("a pasted agent transcript is left out of what was asked; a prompt without 
   // A spec or a note with a bullet or two is no transcript.
   expect(ask(text("Fix sum.js\n● sum(1, 2) is 3\nThanks"))).toBeUndefined();
   expect(ask(text("Fix sum.js"))).toBeUndefined();
+});
+
+describe("the AI's questions reach an ACP app as forms (decision 83)", () => {
+  type Sent = Record<string, any>;
+  const AI: AwayQuestion = { kind: "ask", question: "Which database?", choices: [{ label: "Postgres", description: "a server" }, { label: "SQLite" }], typed: true, from: "ai" };
+  const OWN: AwayQuestion = { kind: "pick", question: "Which port?", choices: [{ label: "3000" }, { label: "8080" }], typed: true, from: "casper" };
+  /** A channel that answers forms with `reply`; `step` is the ask tool's running step, if any. */
+  const forms = (reply: (params: Sent, signal: AbortSignal) => Promise<unknown>, step?: string) => {
+    const base = channel(async () => ({ outcome: { outcome: "selected", optionId: "1" } }));
+    const asked: Sent[] = [];
+    return { ...base, asked, elicit: (params: Sent, signal: AbortSignal) => { asked.push(params); return reply(params, signal); },
+      stepFor: (question: AwayQuestion) => question.from === "ai" ? step : undefined };
+  };
+  const answering = (seen: ReturnType<typeof forms>, hide?: (text: string) => string, waitMs?: number) => {
+    const asker = new AcpAsker("s1", seen, hide, waitMs);
+    asker.questions = () => true;
+    return asker;
+  };
+
+  test("A typed question from the AI asks through elicitation/create on the ask tool's own step and sends no extra tool call", async () => {
+    // The ask tool's step is the one running under the model's own id.
+    const mapper = new UpdateMapper(hider(() => []));
+    const [start] = mapper.runtime({ type: "tool_start", toolName: "ask", toolCallId: "m1", args: { question: AI.question } } as never).slice(-1);
+    expect(mapper.runningStep("ask")).toBe(start!.toolCallId as string);
+    expect(mapper.runningStep("write")).toBeUndefined();
+    const seen = forms(async () => ({ action: "accept", content: { answer: "2" } }), mapper.runningStep("ask"));
+    expect(await answering(seen).ask(AI)).toEqual(["SQLite"]);
+    expect(seen.asked).toHaveLength(1);
+    expect(seen.asked[0]).toEqual({ sessionId: "s1", toolCallId: start!.toolCallId, mode: "form", message: AI.question,
+      requestedSchema: { type: "object", required: [], properties: {
+        answer: { type: "string", title: "Choose", oneOf: [{ const: "1", title: "Postgres", description: "a server" }, { const: "2", title: "SQLite" }] },
+        other: { type: "string", title: "Or type your answer" } } },
+      _meta: { casper: { question: { from: "ai", multi: false, typed: true } } } });
+    // The ask tool's step closes itself with the tool's result: the question sends no step of its own.
+    expect(seen.updates).toEqual([]);
+    expect(seen.sent).toEqual([]);
+  });
+
+  test("Casper's own typed pick opens a casper-question step and closes it with the answer", async () => {
+    const seen = forms(async () => ({ action: "accept", content: { answer: "1", other: "  4000 " } }));
+    expect(await answering(seen).ask(OWN)).toEqual(["4000"]);
+    expect(seen.asked[0]!.toolCallId).toBe("casper-question-1");
+    expect(seen.updates).toEqual([
+      { sessionUpdate: "tool_call", toolCallId: "casper-question-1", title: "Which port?", kind: "other", status: "pending",
+        _meta: { casper: { question: { question: "Which port?", options: [{ label: "3000" }, { label: "8080" }], multi: false, typed: true } } } },
+      { sessionUpdate: "tool_call_update", toolCallId: "casper-question-1", status: "completed", content: [{ type: "content", content: { type: "text", text: "→ 4000" } }] },
+    ]);
+    // A picked choice with no typed words is that choice's label; the next question is a step of its own.
+    const picked = forms(async () => ({ action: "accept", content: { answer: "2" } }));
+    const asker = answering(picked);
+    expect(await asker.ask(OWN)).toEqual(["8080"]);
+    expect(await asker.ask(OWN)).toEqual(["8080"]);
+    expect(picked.updates.map((update) => update.toolCallId)).toEqual(["casper-question-1", "casper-question-1", "casper-question-2", "casper-question-2"]);
+    // The AI's question with no ask step running (a runtime that sends no step) gets one, titled as the AI's.
+    const lone = forms(async () => ({ action: "accept", content: { answer: "1" } }));
+    expect(await answering(lone).ask(AI)).toEqual(["Postgres"]);
+    expect(lone.updates[0]).toMatchObject({ toolCallId: "casper-question-1", title: "The AI asks: Which database?" });
+  });
+
+  test("A multi pick gives its picks in order, drops unknown choices and puts typed words last", async () => {
+    const multi: AwayQuestion = { ...AI, multi: true, choices: [{ label: "Postgres" }, { label: "SQLite" }, { label: "Redis" }] };
+    const schema = questionSchema(multi, (text) => text);
+    expect(schema.properties.answer).toEqual({ type: "array", title: "Choose", items: { anyOf: [{ const: "1", title: "Postgres" }, { const: "2", title: "SQLite" }, { const: "3", title: "Redis" }] } });
+    expect(formAnswer({ action: "accept", content: { answer: ["3", "9", "1", "x"], other: " and a cache " } }, multi)).toEqual(["Postgres", "Redis", "and a cache"]);
+    expect(formAnswer({ action: "accept", content: { answer: ["2"] } }, multi)).toEqual(["SQLite"]);
+    expect(formAnswer({ action: "accept", content: { answer: [] } }, multi)).toBeUndefined();
+    // Typed words count only where the question takes them.
+    expect(formAnswer({ action: "accept", content: { answer: ["2"], other: "MySQL" } }, { ...multi, typed: false })).toEqual(["SQLite"]);
+    expect(questionSchema({ ...multi, typed: false }, (text) => text).properties.other).toBeUndefined();
+    // A single pick prefers the typed words; a line collapses its spaces and must not be empty.
+    expect(formAnswer({ action: "accept", content: { answer: "1", other: "MySQL" } }, AI)).toEqual(["MySQL"]);
+    expect(formAnswer({ action: "accept", content: { answer: "7" } }, AI)).toBeUndefined();
+    const line: AwayQuestion = { kind: "line", question: "What should change?", choices: [], typed: true, hint: "Type the change" };
+    expect(questionSchema(line, (text) => text)).toEqual({ type: "object", required: ["answer"], properties: { answer: { type: "string", title: "Type the change" } } });
+    expect(formAnswer({ action: "accept", content: { answer: "  drop\n step   3 " } }, line)).toEqual(["drop step 3"]);
+    expect(formAnswer({ action: "accept", content: { answer: "   " } }, line)).toBeUndefined();
+    expect(questionSchema({ ...line, hint: undefined }, (text) => text).properties.answer.title).toBe("Your answer");
+  });
+
+  test("A declined, cancelled, failed, aborted or timed-out form is skipped and its own step closes failed", async () => {
+    const replies: Array<(params: Sent, signal: AbortSignal) => Promise<unknown>> = [
+      async () => ({ action: "decline" }),
+      async () => ({ action: "cancel" }),
+      async () => { throw new Error("the client could not show it"); },
+      async () => null,
+    ];
+    for (const reply of replies) {
+      const seen = forms(reply);
+      expect(await answering(seen).ask(OWN)).toBeUndefined();
+      expect(seen.updates.at(-1)).toEqual({ sessionUpdate: "tool_call_update", toolCallId: "casper-question-1", status: "failed", content: [{ type: "content", content: { type: "text", text: "— skipped" } }] });
+    }
+    const never = forms((_params, signal) => new Promise((_resolve, reject) => signal.addEventListener("abort", () => reject(new Error("aborted")))));
+    // No answer in time.
+    const started = performance.now();
+    expect(await answering(never, undefined, 50).ask(OWN)).toBeUndefined();
+    expect(performance.now() - started).toBeLessThan(5_000);
+    expect(never.updates.at(-1)).toMatchObject({ status: "failed" });
+    // The task stopped while the form was open, and a task already stopped asks nothing.
+    const stop = new AbortController();
+    const waiting = answering(never).ask(OWN, stop.signal);
+    stop.abort();
+    expect(await waiting).toBeUndefined();
+    const before = never.asked.length;
+    expect(await answering(never).ask(OWN, stop.signal)).toBeUndefined();
+    expect(never.asked).toHaveLength(before);
+  });
+
+  test("Question words, labels, descriptions and the echoed answer are hidden, and a hidden label maps back by its index", async () => {
+    const secret = "value-from-the-env-1234";
+    const question: AwayQuestion = { kind: "pick", question: `Use ${secret}?`, choices: [{ label: "Keep it" }, { label: `Send ${secret}`, description: `as ${secret}` }], typed: true, from: "casper" };
+    const seen = forms(async (params) => ({ action: "accept", content: { answer: params.requestedSchema.properties.answer.oneOf[1].const } }));
+    expect(await answering(seen, hider(() => [secret])).ask(question)).toEqual([`Send ${secret}`]);
+    const out = JSON.stringify([seen.asked, seen.updates]);
+    expect(out).not.toContain(secret);
+    expect(seen.asked[0]!.requestedSchema.properties.answer.oneOf[1]).toEqual({ const: "2", title: "Send <secret hidden>", description: "as <secret hidden>" });
+    expect(seen.updates.at(-1)!.content[0].content.text).toBe("→ Send <secret hidden>");
+  });
+
+  test("Read only closes an open box but not an open question", async () => {
+    let answerForm!: (value: unknown) => void;
+    const seen = forms(() => new Promise((resolve) => { answerForm = resolve; }));
+    const pending = (_params: Sent, signal: AbortSignal) => new Promise((_resolve, reject) => signal.addEventListener("abort", () => reject(new Error("cancelled"))));
+    const asker = new AcpAsker("s1", { ...seen, request: pending }, undefined);
+    asker.questions = () => true;
+    const question = asker.ask(OWN);
+    const approval = asker.ask(box);
+    await until(() => seen.asked.length === 1 && seen.updates.some((update) => update.toolCallId === "casper-approval-1"), 5_000, "the form and the box");
+    asker.withdrawAll();
+    expect(await approval).toBeUndefined();
+    answerForm({ action: "accept", content: { answer: "2" } });
+    expect(await question).toEqual(["8080"]);
+  });
+
+  test("A client without form support gets no question update and the question is skipped at once", async () => {
+    const seen = forms(async () => ({ action: "accept", content: { answer: "1" } }), "casper-tool-1");
+    const asker = new AcpAsker("s1", seen);
+    for (const question of [AI, OWN, { ...AI, multi: true, typed: false, from: "casper" as const }, { kind: "line" as const, question: "What should change?", choices: [], typed: true }]) {
+      expect(await asker.ask(question)).toBeUndefined();
+    }
+    expect([seen.asked, seen.sent, seen.updates]).toEqual([[], [], []]);
+  });
+
+  test("Choice 1 of a Casper pick is reject_once", async () => {
+    const seen = forms(async () => undefined);
+    const asker = answering(seen);
+    seen.request = async (params: Sent) => { seen.sent.push(params); return { outcome: { outcome: "selected", optionId: "1" } }; };
+    const pick: AwayQuestion = { kind: "pick", question: "Run this command?", choices: [{ label: "Leave it" }, { label: YES_ONCE }, { label: YES_SESSION }], from: "casper" };
+    expect(await asker.ask(pick)).toEqual(["Leave it"]);
+    expect(seen.sent[0]!.options.map((option: Sent) => [option.name, option.kind])).toEqual([["Leave it", "reject_once"], [YES_ONCE, "allow_once"], [YES_SESSION, "allow_once"]]);
+    // Choice 1 is the safe one, so picking it closes the step as a No.
+    expect(seen.updates.at(-1)).toMatchObject({ status: "failed", content: [{ content: { text: "→ Leave it" } }] });
+    // An approval keeps its label's kind.
+    await asker.ask(box);
+    expect(seen.sent[1]!.options.map((option: Sent) => option.kind)).toEqual(["reject_once", "allow_once", "allow_always"]);
+    // A plain pick never goes to a form.
+    expect(seen.asked).toEqual([]);
+  });
+
+  test("Every question that can reach an app as typed words comes from the ask tool, the question round or the plan change line, and none asks for a secret", async () => {
+    // A typed question is the AI's ask (from "ai", or a held one's own from), a pick with typed: true, or a typed line. Each place that
+    // asks one is listed here, with whether an app can see it: the rest need Casper's own terminal (app.interactive).
+    const root = path.join(import.meta.dir, "../src");
+    const found: string[] = [];
+    for (const file of new Bun.Glob("**/*.ts").scanSync(root)) {
+      const name = file.split(path.sep).join("/");
+      // The terminal itself, which every one of them goes through.
+      if (name.startsWith("tui/")) continue;
+      const text = await Bun.file(path.join(root, file)).text();
+      for (const line of text.split("\n")) {
+        if (/\.askLine\(|\.(?:pick|ask)\([^\n]*(?:typed: true|"ai"\)|\.from\b)/.test(line)) found.push(`${name}: ${line.trim().slice(0, 60)}`);
+      }
+    }
+    const reachesApp = [
+      "app/approvals.ts: return app.terminal.ask(question, options, multi, signals.le", // the ask tool
+      "app/task-run.ts: const answer = await app.terminal.pick(q.question, q.options", // the plan's question round
+      "app/task-run.ts: const typed = await app.terminal.askLine(question, questions", // the plan's open questions
+      "app/task-run.ts: const typed = await app.terminal.askLine(PLAN_CHANGE_QUESTIO", // the plan change line
+    ];
+    const terminalOnly = [
+      "app/workspace.ts: pick: (question, options, signal) => app.terminal.pick(quest", // new project: app.interactive
+      "app/jobs.ts: const answer = await app.terminal.askLine(question.question,", // /jobs answer: app.interactive
+      "app/jobs.ts: picked = await app.terminal.ask(question.question, question.", // /jobs answer: app.interactive
+    ];
+    expect(found.sort()).toEqual([...reachesApp, ...terminalOnly].sort());
+    // None of them asks for a secret: a password, a token or a key has Casper's own hidden box, which never crosses.
+    for (const words of [PLAN_CHANGE_QUESTION, PLAN_CHANGE_HINT, PLAN_ANSWER_HINT]) expect(words).not.toMatch(/password|passphrase|secret|token|api key/i);
+    for (const file of ["app/secret-tool.ts", "app/wiring.ts"]) {
+      const text = await Bun.file(path.join(root, file)).text();
+      expect(text).toContain("password: true");
+      expect(text).not.toMatch(/\.askLine\(|\.ask\([^\n]*"ai"\)|typed: true/);
+    }
+    // The hidden box is only offered where Casper has its own terminal.
+    expect(await Bun.file(path.join(root, "app/secret-tool.ts")).text()).toContain("canAsk: () => app.interactive && app.terminal.canAsk");
+  });
 });

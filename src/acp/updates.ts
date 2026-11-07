@@ -129,6 +129,13 @@ export class UpdateMapper {
     return this.running.get(id)?.id;
   }
 
+  /** The ACP toolCallId of the running step of `tool` (the ask tool's, so the AI's question is asked on it). */
+  runningStep(tool: string): string | undefined {
+    let found: string | undefined;
+    for (const step of this.running.values()) if (step.facts.tool === tool) found = step.id;
+    return found;
+  }
+
   /** A runtime event as updates: a tool step's start and end (every other event comes through map()). */
   runtime(event: RuntimeEvent): Json[] {
     if (event.type === "tool_start") {

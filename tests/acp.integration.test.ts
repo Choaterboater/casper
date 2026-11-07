@@ -1,4 +1,4 @@
-import { afterEach, expect, test } from "bun:test";
+import { afterEach, describe, expect, test } from "bun:test";
 import { existsSync, readFileSync, realpathSync } from "node:fs";
 import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
@@ -453,3 +453,91 @@ test("acp_mcp off leaves the app's servers unconnected and initialize says http 
   expect(offered).not.toContain("call_capability");
   onlyProtocol(client);
 }, childTestLimit(1));
+
+describe("the AI's questions reach a form app (decision 83)", () => {
+  const FORMS = { ...INIT, clientCapabilities: { ...INIT.clientCapabilities, elicitation: { form: {} } } };
+  const ASK = { name: "ask", args: { question: "Which database should the app use?", options: [{ label: "Postgres", description: "a server" }, { label: "SQLite" }] } };
+  /** The model asks once, then says what the answer was (the ask tool's result, as the model got it). */
+  const asksThenTells = taskTurns((_request, payload) => {
+    const last = payload.messages.at(-1);
+    return last?.role === "tool" ? { text: `Told: ${JSON.stringify(last.content)}` } : { tools: [ASK] };
+  });
+  const toolResult = (f: Awaited<ReturnType<typeof fixture>>) => JSON.stringify(f.payloads.at(-1)?.messages.at(-1)?.content ?? "");
+
+  test("The ask tool over casper acp reaches a form client and its answer reaches the model", async () => {
+    const f = await fixture(asksThenTells);
+    const client = open(f);
+    await client.request("initialize", FORMS);
+    client.answerForms(() => ({ action: "accept", content: { answer: "2" } }));
+    const { sessionId } = await client.request("session/new", { cwd: f.project, mcpServers: [] });
+    expect((await client.request("session/prompt", { sessionId, prompt: text("Pick a database for the app") })).stopReason).toBe("end_turn");
+    expect(client.forms).toHaveLength(1);
+    const form = client.forms[0]!;
+    // The form is the ask tool's own step, as the app saw it start: no step of its own.
+    const step = ofSession(client, sessionId).find((update) => update.sessionUpdate === "tool_call" && update._meta?.casper?.tool === "ask");
+    expect(form).toMatchObject({ sessionId, toolCallId: step?.toolCallId, mode: "form", message: "Which database should the app use?",
+      _meta: { casper: { question: { from: "ai", multi: false, typed: true } } } });
+    expect(form.requestedSchema.properties.answer.oneOf.map((option: { title: string }) => option.title)).toEqual(["Postgres", "SQLite"]);
+    expect(ofSession(client, sessionId).filter((update) => String(update.toolCallId).startsWith("casper-question-"))).toEqual([]);
+    expect(toolResult(f)).toContain("SQLite");
+    expect(toolResult(f)).toContain('\\"skipped\\":false');
+    onlyProtocol(client);
+  }, childTestLimit(1));
+
+  test("With acp_questions off the ask tool is skipped and no elicitation/create is sent", async () => {
+    const f = await fixture(asksThenTells);
+    await writeFile(path.join(f.home, ".casper/config.yaml"), "acp_questions: off\n");
+    const client = open(f);
+    await client.request("initialize", FORMS);
+    client.answerForms(() => ({ action: "accept", content: { answer: "2" } }));
+    const { sessionId } = await client.request("session/new", { cwd: f.project, mcpServers: [] });
+    expect((await client.request("session/prompt", { sessionId, prompt: text("Pick a database for the app") })).stopReason).toBe("end_turn");
+    expect(client.forms).toEqual([]);
+    expect(toolResult(f)).toContain("skipped");
+    expect(toolResult(f)).not.toContain("SQLite");
+    onlyProtocol(client);
+  }, childTestLimit(1));
+
+  test("The router passes the client's capabilities to the session and forwards elicitation/create", async () => {
+    // A client that did not say it shows forms gets none: the session knows only what the router passed on.
+    const f = await fixture(asksThenTells);
+    const plain = open(f);
+    await plain.request("initialize", INIT);
+    const first = await plain.request("session/new", { cwd: f.project, mcpServers: [] });
+    expect((await plain.request("session/prompt", { sessionId: first.sessionId, prompt: text("Pick a database for the app") })).stopReason).toBe("end_turn");
+    expect(plain.forms).toEqual([]);
+    expect(toolResult(f)).toContain("skipped");
+    expect(await plain.close()).toBe(0);
+    // One that did gets the form from the session it opened, through the router, and its answer goes back.
+    const forms = open(f);
+    await forms.request("initialize", FORMS);
+    forms.answerForms(() => ({ action: "accept", content: { answer: "1", other: "MySQL, please" } }));
+    const second = await forms.request("session/new", { cwd: f.project, mcpServers: [] });
+    expect((await forms.request("session/prompt", { sessionId: second.sessionId, prompt: text("Pick a database for the app") })).stopReason).toBe("end_turn");
+    expect(forms.forms.map((form) => form.sessionId)).toEqual([second.sessionId]);
+    expect(toolResult(f)).toContain("MySQL, please");
+    onlyProtocol(forms);
+  }, childTestLimit(2));
+
+  test("The before-changes question is asked in a form app", async () => {
+    // The model writes; Casper's gate sends it to ask first; with the answer it writes.
+    const f = await fixture(taskTurns((_request, payload) => {
+      const last = JSON.stringify(payload.messages.at(-1)?.content ?? "");
+      if (payload.messages.at(-1)?.role !== "tool") return { tools: [{ name: "write", args: { path: "greeting.txt", content: "hello\n" } }] };
+      if (last.includes("beforeChanges")) return { tools: [ASK] };
+      if (last.includes("answers")) return { tools: [{ name: "write", args: { path: "greeting.txt", content: "hello\n" } }] };
+      return { text: "Done." };
+    }));
+    await mkdir(path.join(f.project, ".casper"));
+    await writeFile(path.join(f.project, ".casper/project.yaml"), "behavior:\n  askQuestions: beforeChanges\n");
+    const client = open(f);
+    await client.request("initialize", FORMS);
+    client.answerForms(() => ({ action: "accept", content: { answer: "2" } }));
+    const { sessionId } = await client.request("session/new", { cwd: f.project, mcpServers: [] });
+    expect((await client.request("session/prompt", { sessionId, prompt: text("Add a greeting page") })).stopReason).toBe("end_turn");
+    expect(client.forms).toHaveLength(1);
+    expect(JSON.stringify(f.payloads)).toContain("beforeChanges");
+    expect(await readFile(path.join(f.project, "greeting.txt"), "utf8")).toBe("hello\n");
+    onlyProtocol(client);
+  }, childTestLimit(1));
+});

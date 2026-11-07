@@ -7,7 +7,8 @@
 // but a picked choice is No), and the terminal's defaults hold: the checklist for a code change, and the screenshot
 // question once a session. A / command's output is its reply (src/acp/commands.ts lists the commands). The app's
 // model and effort picker shows Casper's own models (src/acp/config-options.ts), and its access chip sets Read only,
-// Ask first or Don't ask (src/acp/modes.ts).
+// Ask first or Don't ask (src/acp/modes.ts). An app that shows forms gets the AI's questions and Casper's typed ones as
+// elicitation/create (src/acp/permission.ts, decision 83).
 
 import os from "node:os";
 import path from "node:path";
@@ -106,6 +107,8 @@ export async function runAcpSession(options: SessionOptions): Promise<void> {
   // A model or effort change the client asked for is being applied: no prompt starts meanwhile.
   let changing = false;
   let cancelled = false;
+  // The client said at initialize that it shows forms (elicitation/create): the AI's questions may go to it.
+  let formQuestions = false;
   const sendUpdate = (update: Json) => { if (sessionId) connection.notify("session/update", { sessionId, update }); };
   // The user's own secrets (logins, keys, secret-looking variables), read again at each prompt, and every value the
   // client gave its MCP servers: never in an update.
@@ -251,8 +254,14 @@ export async function runAcpSession(options: SessionOptions): Promise<void> {
     }
     // Again now the session has started (its logins are read), so the options the reply carries are hidden with them.
     learnSecrets();
-    asker = new AcpAsker(sessionId, { request: (permission, signal) => connection.request("session/request_permission", permission, signal), update: boxUpdate }, hide);
+    asker = new AcpAsker(sessionId, { request: (permission, signal) => connection.request("session/request_permission", permission, signal), update: boxUpdate,
+      elicit: (form, signal) => connection.request("elicitation/create", form, signal),
+      // The AI's question is asked on the ask tool's step, as the client saw it start.
+      stepFor: (question) => question.from === "ai" ? mapper.runningStep("ask") : undefined }, hide);
     asker.readOnly = () => app?.readOnlyAccess === true;
+    // acp_questions is read when the session opens: a change applies from the next one.
+    created.remoteQuestions = formQuestions && created.projectContext?.acpQuestions !== "off";
+    asker.questions = () => created.remoteQuestions;
     answerThroughClient(created, asker, output.write);
     // "Yes to everything this session", /permissions all or ask: the app's chip hears it at once, mid-prompt too.
     created.onAccessChange = announce;
@@ -268,7 +277,11 @@ export async function runAcpSession(options: SessionOptions): Promise<void> {
     return { sessionId, configOptions: configOptions(), modes: modeState(created, hide) };
   };
 
-  connection.onRequest("initialize", async () => initializeResult(await readAcpMcpSetting(options.homeDir ?? os.homedir())));
+  connection.onRequest("initialize", async (params) => {
+    const capabilities = params.clientCapabilities as { elicitation?: { form?: unknown } } | undefined;
+    formQuestions = Boolean(capabilities?.elicitation?.form);
+    return initializeResult(await readAcpMcpSetting(options.homeDir ?? os.homedir()));
+  });
   // The commands follow the reply, which names the session (a load's, after the conversation it replays).
   connection.onRequest("session/new", (params) => open(params, false), sendCommands);
   connection.onRequest("session/load", (params) => open(params, true), sendCommands);

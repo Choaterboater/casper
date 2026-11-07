@@ -9,6 +9,8 @@ type Json = Record<string, any>;
 /** How the client answers one session/request_permission: an optionId, the "cancelled" outcome, a JSON-RPC error,
  * or never. */
 export type PermissionAnswer = { optionId: string } | "cancelled" | "error" | "never";
+/** How the client answers one elicitation/create: its result (`{action: "accept", content}`), a JSON-RPC error, or never. */
+export type FormAnswer = Json | "error" | "never";
 
 export interface AcpClient {
   request(method: string, params: Json): Promise<Json>;
@@ -23,6 +25,10 @@ export interface AcpClient {
   readonly lines: string[];
   stderr(): string;
   answerPermissions(answer: (params: Json) => PermissionAnswer | Promise<PermissionAnswer>): void;
+  /** Every elicitation/create (a form) the agent sent, in order. */
+  readonly forms: Json[];
+  /** Default: each form is declined. */
+  answerForms(answer: (params: Json) => FormAnswer | Promise<FormAnswer>): void;
   /** Ends stdin and waits for the agent to exit (killed after `ms`). */
   close(ms?: number): Promise<number>;
 }
@@ -32,10 +38,12 @@ export function startAcp(f: Fixture, args: string[] = [], extraEnv: Record<strin
   const pending = new Map<number, { resolve: (value: Json) => void; reject: (error: Error) => void }>();
   const updates: Json[] = [];
   const permissions: Json[] = [];
+  const forms: Json[] = [];
   const lines: string[] = [];
   let errText = "";
   let nextId = 1;
   let answer: (params: Json) => PermissionAnswer | Promise<PermissionAnswer> = () => "cancelled";
+  let formAnswer: (params: Json) => FormAnswer | Promise<FormAnswer> = () => ({ action: "decline" });
   const write = (message: Json) => { child.stdin.write(`${JSON.stringify({ jsonrpc: "2.0", ...message })}\n`); child.stdin.flush(); };
 
   const handle = async (message: Json) => {
@@ -54,6 +62,14 @@ export function startAcp(f: Fixture, args: string[] = [], extraEnv: Record<strin
       if (given === "error") write({ id: message.id, error: { code: -32603, message: "the client could not ask" } });
       else if (given === "cancelled") write({ id: message.id, result: { outcome: { outcome: "cancelled" } } });
       else write({ id: message.id, result: { outcome: { outcome: "selected", optionId: given.optionId } } });
+      return;
+    }
+    if (message.method === "elicitation/create") {
+      forms.push(message.params);
+      const given = await formAnswer(message.params);
+      if (given === "never") return;
+      if (given === "error") write({ id: message.id, error: { code: -32603, message: "the client could not show the form" } });
+      else write({ id: message.id, result: given });
       return;
     }
     if (message.id !== undefined) write({ id: message.id, error: { code: -32601, message: `Method not found: ${message.method}` } });
@@ -96,9 +112,10 @@ export function startAcp(f: Fixture, args: string[] = [], extraEnv: Record<strin
       return replies;
     },
     notify(method, params) { write({ method, params }); },
-    updates, permissions, lines,
+    updates, permissions, forms, lines,
     stderr: () => errText,
     answerPermissions(given) { answer = given; },
+    answerForms(given) { formAnswer = given; },
     async close(ms = 20_000) {
       try { child.stdin.end(); } catch { /* already closed */ }
       const timer = setTimeout(() => child.kill("SIGKILL"), ms);

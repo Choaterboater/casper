@@ -160,15 +160,15 @@ export async function runModelTask(app: CasperApp, prompt: string, options: { fl
   app.automaticServices = new Set();
   const classification = classifyTask(prompt);
   // beforeChanges policy: under-specified implement/configure work must see one recorded
-  // ask attempt before the first edit. Interactive sessions only — one-shot cannot ask,
-  // so denying edits there would only deadlock the task.
+  // ask attempt before the first edit. Interactive sessions and form apps only — one-shot
+  // cannot ask, so denying edits there would only deadlock the task.
   app.asksThisTask = 0;
   // A new request gets a fresh delegation budget (the budget belongs to the parent task).
   app.delegateToolForTask = undefined;
   app.crewParts = undefined;
   app.crewSweep = undefined;
   app.builderSteer = builderSteer(prompt);
-  app.editGateActive = app.interactive && app.terminal.rich
+  app.editGateActive = ((app.interactive && app.terminal.rich) || app.remoteQuestions)
     && context.policy.behavior.askQuestions === "beforeChanges"
     && (classification.intent === "implement" || classification.intent === "configure")
     && underSpecifiedTarget(typed);
@@ -897,7 +897,7 @@ export async function runPlanTurn(app: CasperApp, session: RuntimeSession, reque
       questionRound = true;
       const answers: string[] = [];
       for (const q of questions) {
-        if (!app.interactive || !app.terminal.canAsk) { answers.push(`${q.question}: unanswered (cannot ask here)`); continue; }
+        if (!(app.interactive || app.remoteQuestions) || !app.terminal.canAsk) { answers.push(`${q.question}: unanswered (cannot ask here)`); continue; }
         const answer = await app.terminal.pick(q.question, q.options, signal, { typed: true });
         if (answer === undefined || signal?.aborted || app.closing) { app.output.write("[plan] Stopped without building.\n"); return undefined; }
         answers.push(`${q.question}: ${answer}`);

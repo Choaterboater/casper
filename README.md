@@ -143,6 +143,11 @@ Casper's box instead of the app's. Picking Read only during a prompt closes its 
 `/permissions all` or "Yes to everything this session" shows in the app. `acp_access: off` in `~/.casper/config.yaml`
 keeps Don't ask from apps. [Decision 82](docs/adr/0002/82-an-acp-app-sets-casper-access.md).
 
+An app that shows forms gets the AI's questions as forms: pick a choice, several, or type your own answer, and it
+goes back to the AI. The plan's questions and the `askQuestions: beforeChanges` question work there too. A question
+nobody answers is skipped. Passwords and other secrets still need Casper's own terminal. `acp_questions: off` in
+`~/.casper/config.yaml` skips them all. [Decision 83](docs/adr/0002/83-an-acp-app-answers-the-ais-questions.md).
+
 Type `/help` for the commands. Ctrl+C stops the current work but keeps changes already made;
 Ctrl+D on an empty prompt exits. [Keys and commands](docs/TERMINAL_UX.md#quick-reference).
 

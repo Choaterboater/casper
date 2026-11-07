@@ -344,6 +344,7 @@ Make this change? → No
             <li>connecting a project's MCP server, or turning a network server's writes on (your own servers connect with the session);</li>
             <li>a change through an MCP server an app hands Casper over <code>casper acp</code>, in the app, unless that app asks for itself (then only a firmware, delete or admin change asks);</li>
             <li>over <code>casper acp</code>, what the app's access chip leaves: nothing on Read only (Casper looks and answers, and changes are not run), the usual boxes on Ask first, and on Don't ask what <code>/permissions all</code> keeps, plus a change on the app's own server, in Casper's box;</li>
+            <li>the AI's questions, and Casper's own that take typed words, as forms in an app over <code>casper acp</code> that shows them (<code>acp_questions: off</code> skips them);</li>
             <li>setting up Casper's network server, and a product's login the first time the AI uses it;</li>
             <li>a device check, before anything is sent to a device;</li>
             <li>a check that timed out or could not start: stop, retry, have the model fix it anyway, or
