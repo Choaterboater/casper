@@ -134,7 +134,7 @@ test("the parent system prompt states Casper's identity exactly once, first, wit
   for (const index of [0, 1]) {
     expect(system(index)).toStartWith("You are Casper, ");
     expect(system(index).split("You are Casper")).toHaveLength(2);
-    expect(system(index)).not.toContain("operating inside pi");
+    expect(system(index)).not.toMatch(/inside pi|coding agent harness/); // Pi's own intro, any version
   }
   expect(system(0)).not.toContain("USER_SYSTEM_PROMPT_LOADS");
   expect(system(1)).toContain("USER_SYSTEM_PROMPT_LOADS");
