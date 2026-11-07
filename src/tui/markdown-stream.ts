@@ -204,6 +204,9 @@ export class StreamingMarkdown implements Component {
     if (!text) return [];
     const markdown = text === this.source ? this.full : this.scratch;
     markdown.setText(literalStars(text));
+    // pi-tui 1.5 reuses a block it rendered before without calling the theme again, which would leave this render's
+    // code lines unrecorded (blank). The reuse Casper wants is its own prefix cache above, so Pi's is cleared.
+    markdown.invalidate();
     this.codeLines = [];
     const rendered = markdown.render(Math.max(1, width - this.indent)).map(line => line.replace(/ +$/, ""));
     return boxFences(rendered, this.codeLines, width, this.indent, this.color, this.styleCode);

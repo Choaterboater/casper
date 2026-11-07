@@ -19,6 +19,12 @@ test("every default model Casper may pick after a sign-in is in Pi's catalog", a
   }
 });
 
+test("each default but OpenRouter's is the engine's own default for that provider", async () => {
+  const { defaultModelPerProvider } = await import(path.join(repo, "node_modules/@earendil-works/pi-coding-agent/dist/core/model-resolver.js")) as { defaultModelPerProvider: Record<string, string> };
+  for (const { provider, id } of DEFAULT_MODELS.filter((entry) => entry.provider !== "openrouter"))
+    expect({ provider, id }).toEqual({ provider, id: defaultModelPerProvider[provider]! });
+});
+
 async function run(auth: Record<string, unknown>, body: string): Promise<unknown> {
   const root = await realpath(await mkdtemp(path.join(os.tmpdir(), "casper-default-model-"))); roots.push(root);
   const home = path.join(root, "home"); const project = path.join(root, "project");

@@ -165,5 +165,5 @@ test("a real session ignores project .pi resources and names Casper once before 
   expect(system).toStartWith("You are Casper, ");
   expect(system.match(/You are Casper/g)).toHaveLength(1);
   expect(system).toContain("USER_INSTRUCTIONS_LOAD");
-  expect(system).not.toMatch(/\bPi\b|operating inside pi/);
+  expect(system).not.toMatch(/\bPi\b|inside pi|coding agent harness/); // Pi's own intro, 1.4 ("operating inside pi") and 1.5 ("running inside pi")
 }, childTestLimit());
