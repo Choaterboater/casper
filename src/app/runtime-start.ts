@@ -101,7 +101,14 @@ export async function ensureRuntime(app: CasperApp): Promise<RuntimeSession> {
         const resumeNotice = await (await ensureSessionWorkspace(app)).resumeActive(app.session, { fresh: true });
         if (resumeNotice) app.output.write(`[sessions] ${resumeNotice}\n`);
       }
+      const resuming = app.runConversation !== undefined;
       await applyRunConversation(app, app.session);
+      // The opened conversation's own model and effort, before the run's flags change them.
+      if (resuming && app.continuedConversation) {
+        const status = app.session.getStatus?.();
+        app.resumedSelection = status?.provider && status.model
+          ? { provider: status.provider, model: status.model, ...(status.configuredEffort ? { effort: status.configuredEffort } : {}) } : undefined;
+      }
       await applyRunSelection(app, app.session);
       app.unsubscribe = app.session.subscribe(event => {
         if (event.type === "waiting") { app.steering = event.lines; showWaiting(app); return; }

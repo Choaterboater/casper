@@ -423,3 +423,36 @@ test("a waiting line shows above the prompt until the AI reads it; ↑ on an emp
     expect(state.conversation.slice(1)).toEqual(["make it rhyme"]);
   } finally { state.gate.resolve(); await app.close(); }
 }, 30_000);
+
+test("A steered line is reported once when read and never on unsteer, take-unsent or the end-of-prompt clear, and unread lines are reported at that clear", async () => {
+  // Request 1 lists the files and 2 answers. Request 3 starts its answer and never finishes it: the prompt is stopped
+  // with a line waiting, so the model never reads that one. Pi reads a line that waits when a run ends by itself.
+  const hanging = () => new Response(new ReadableStream({ start(controller) { controller.enqueue(new TextEncoder().encode(chunk({ role: "assistant", content: "partial" }, null))); } }),
+    { headers: { "content-type": "text/event-stream" } });
+  const { result, payloads } = await run(count => count === 1 ? listCall() : count === 2 ? answer("DONE") : hanging(), `
+    const seen = [];
+    let responses = 0, steering = Promise.resolve();
+    session.subscribe(event => {
+      if (event.type === "steer_read" || event.type === "steer_unsent") seen.push(event);
+      // While the first response streams, long before its step ends: two lines, and the newest taken back.
+      if (event.type === "assistant_response_start" && ++responses === 1) steering = (async () => {
+        await session.steer("READ_THIS_LINE");
+        await session.steer("TAKEN_BACK_LINE");
+        return session.unsteer(true);
+      })();
+      if (event.type === "assistant_text_delta" && responses === 3) steering = session.steer("NEVER_READ_LINE").then(() => session.abort());
+    });
+    await session.prompt("List the files");
+    const takenBack = await steering;
+    const stopped = await session.prompt("Wait for me").then(() => false, () => true);
+    await steering;
+    const unsent = session.takeUnsent();
+    console.log(JSON.stringify({ seen, takenBack, stopped, unsent, after: session.takeUnsent() }));`);
+  expect(result).toEqual({
+    seen: [{ type: "steer_read", text: "READ_THIS_LINE" }, { type: "steer_unsent", lines: ["NEVER_READ_LINE"] }],
+    takenBack: ["TAKEN_BACK_LINE"], stopped: true, unsent: ["NEVER_READ_LINE"], after: [],
+  });
+  expect(payloads).toHaveLength(3);
+  expect(JSON.stringify(payloads[1]!.messages)).toContain("READ_THIS_LINE");
+  for (const payload of payloads) for (const line of ["TAKEN_BACK_LINE", "NEVER_READ_LINE"]) expect(JSON.stringify(payload.messages)).not.toContain(line);
+}, 90_000);

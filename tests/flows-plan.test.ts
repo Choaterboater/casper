@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { refusalForScreen } from "../src/app/events";
 import {
   extractPlan, formatBuildPrompt, formatPlanBlock, formatPlanChangePrompt, isPlanningCommand, isSpecPlan, planDetailsText,
-  planMarkdown, planScreenRows, planToolGate, type ParsedPlan,
+  planMarkdown, planReviewMarkdown, planScreenRows, planToolGate, type ParsedPlan,
 } from "../src/flows/plan";
 
 /** An answer in the shape the plan-first flow asks for now. */
@@ -394,4 +394,31 @@ describe("designed plan model", () => {
     expect(block).toContain("Open questions as unresolved");
     expect(formatBuildPrompt("Build a board", SPEC)).toContain("Casper's checklist");
   });
+});
+
+test("The review Markdown starts with a title and keeps a spec plan's sections and open questions", () => {
+  const spec: ParsedPlan = { title: "A task board", goal: ["Track tasks in the browser."], screens: ["- Board", "- Task card"],
+    see: ["One board, three columns."], mockup: ["┌──────┐", "│ Todo │", "└──────┘"], firstVersion: ["- Add tasks", "- Move tasks"],
+    later: ["- Sharing"], openQuestions: ["Should tasks sync between devices?"], details: ["Use the existing store."], steps: [], tests: ["a task can be added"] };
+  const text = planReviewMarkdown(spec, "make a task board app");
+  expect(text.split("\n")[0]).toBe("# A task board");
+  for (const heading of ["## Goal", "## Screens", "## What you'll see", "## First version", "## Later", "## Done means", "## Open questions"]) expect(text).toContain(`\n${heading}\n`);
+  // The order is the screen's: the open questions last, after Done means; Details stay one step away (the saved file).
+  expect(text.indexOf("## Done means")).toBeLessThan(text.indexOf("## Open questions"));
+  expect(text).not.toContain("Use the existing store.");
+  // The mock-up keeps its spacing in a fence of its own; a numbered list for Done means.
+  expect(text).toContain("~~~\n┌──────┐\n│ Todo │\n└──────┘\n~~~");
+  expect(text).toContain("## Done means\n1. a task can be added");
+  expect(text).toContain("Should tasks sync between devices?");
+  // A plan with no title is named by its request, on one line; its Steps are numbered.
+  const steps = planReviewMarkdown({ steps: ["Write greeting.txt", "Test it"], tests: [] }, "add a\ngreeting");
+  expect(steps).toStartWith("# add a greeting\n");
+  expect(steps).toContain("## Steps\n1. Write greeting.txt\n2. Test it");
+  // A section line that reads as a heading is fenced, as the saved file fences it.
+  expect(planReviewMarkdown({ steps: ["One"], tests: [], goal: ["# Not a heading", "Steps: not a section"] }, "x")).toContain("## Goal\n~~~\n# Not a heading\nSteps: not a section\n~~~");
+  // Past 64 KiB the text is cut at a line and says where the whole plan is.
+  const long = planReviewMarkdown({ steps: Array.from({ length: 3000 }, (_, index) => `Step ${index} ${"x".repeat(40)}`), tests: [] }, "big", "/project/.casper/plans/2026-11-07-big.md");
+  expect(new TextEncoder().encode(long).length).toBeLessThanOrEqual(64 * 1024);
+  expect(long).toEndWith("The plan is longer than this: the whole plan is in .casper/plans/2026-11-07-big.md\n");
+  expect(long.split("\n").filter((line) => /^\d/.test(line)).every((line) => /^\d+\. Step \d+ x+$/.test(line))).toBe(true);
 });

@@ -438,6 +438,58 @@ export function planMarkdown(plan: ParsedPlan): string {
   return sections.join("\n\n");
 }
 
+/** The most an ACP app's Build box carries of the plan (decision 84): the rest is in the saved file. */
+export const PLAN_REVIEW_MAX_BYTES = 64 * 1024;
+
+/**
+ * The plan as Markdown for an ACP app's Build box (decision 84): `# <title>` (the request when it has none), then the
+ * sections the screen shows in its order, each as `## <heading>`, with Steps and Done means numbered and Open questions
+ * last. Details stay in the saved file, as they stay one key away on the screen. A section that holds a line the plan
+ * would read as a heading or a fence is fenced, as the saved file fences it; a mock-up is always fenced. Past
+ * PLAN_REVIEW_MAX_BYTES it is cut at a line and says where the whole plan is (`file`, the saved plan).
+ */
+export function planReviewMarkdown(plan: ParsedPlan, request: string, file?: string): string {
+  plan = questionsOnly(plan);
+  const fenced = (lines: readonly string[]) => {
+    const fence = "~".repeat(Math.max(3, ...lines.map((line) => (/^\s*(~+)/.exec(line)?.[1]?.length ?? 0) + 1)));
+    return `${fence}\n${lines.join("\n")}\n${fence}`;
+  };
+  const needsFence = (lines: readonly string[]) => lines.some((line) => planHeader(line) || /^\s*(?:`{3,}|~{3,})/.test(line));
+  const sections = [`# ${cleanLine(plan.title || request) || "Plan"}`];
+  if (plan.note?.some((line) => line.trim())) sections.push(plan.note.join("\n"));
+  for (const [key, heading] of BLOCKS) {
+    if (key === "openQuestions") continue;
+    const lines = plan[key];
+    const body = lines?.some((line) => line.trim()) ? [needsFence(lines) ? fenced(lines) : lines.join("\n")] : [];
+    if (key === "see" && plan.mockup?.length) body.push(fenced(plan.mockup));
+    if (body.length) sections.push(`## ${heading}\n${body.join("\n\n")}`);
+  }
+  const numbered = (items: readonly string[]) => items.map((item, index) => `${index + 1}. ${lineText(item)}`).join("\n");
+  if (plan.steps.length) sections.push(`## Steps\n${numbered(plan.steps)}`);
+  if (plan.tests.length) sections.push(`## Done means\n${numbered(plan.tests)}`);
+  const questions = openQuestions(plan);
+  if (questions.length) sections.push(`## Open questions\n${questions.map((question) => `- ${question}`).join("\n")}`);
+  const text = `${sections.join("\n\n")}\n`;
+  const bytes = (words: string) => Buffer.byteLength(words, "utf8");
+  if (bytes(text) <= PLAN_REVIEW_MAX_BYTES) return text;
+  const where = `.casper/plans${file ? `/${file.split(/[\\/]/).at(-1)}` : ""}`;
+  const pointer = `\n\nThe plan is longer than this: the whole plan is in ${where}\n`;
+  // Whole lines, and a fence the cut lands in is closed, so the rest still reads as the plan.
+  const kept: string[] = [];
+  let used = bytes(pointer);
+  let open: string | undefined;
+  for (const line of text.split("\n")) {
+    const mark = /^\s*(~{3,}|`{3,})/.exec(line)?.[1];
+    const trimmed = line.trim();
+    const after = !open ? mark : trimmed.length >= open.length && trimmed === open[0]!.repeat(trimmed.length) ? undefined : open;
+    if (used + bytes(line) + 1 + (after ? bytes(after) + 1 : 0) > PLAN_REVIEW_MAX_BYTES) break;
+    kept.push(line);
+    used += bytes(line) + 1;
+    open = after;
+  }
+  return `${kept.join("\n").trimEnd()}${open ? `\n${open}` : ""}${pointer}`;
+}
+
 /** A change request, with the whole current plan and its visible numbering. The flow and original request are
  * sent alongside this. Rewriting is still planning, not acceptance or permission to build. */
 export function formatPlanChangePrompt(plan: ParsedPlan, change: string): string {

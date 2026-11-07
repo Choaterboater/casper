@@ -377,11 +377,31 @@ An app that starts `casper acp` can hand Casper its own MCP servers for that ses
 ([MCP.md](MCP.md#servers-an-app-hands-casper)). `acp_mcp` in `~/.casper/config.yaml` (only there, not a
 profile or project) says what happens: `on` (the default) connects them, and a server on this computer the
 app says asks for itself runs its changes with only the app's box; `ask` connects them with every change
-asking in Casper's box; `off` connects none. /settings shows it as **Apps' MCP servers**.
+asking in Casper's box; `off` connects none. /settings shows it as **Apps' MCP servers**. With `on` or `ask`, only the
+app's own server pins tools and hears which step a call is ([decision 89](adr/0002/89-an-acp-app-forwards-its-own-mcp-servers.md)).
 
 The app's access chip sets Casper's access for the session ([decision 82](adr/0002/82-an-acp-app-sets-casper-access.md)):
 Read only, Ask first, or Don't ask (as `/permissions all`). `acp_access: off` in `~/.casper/config.yaml` (only there)
 offers the app only Read only and Ask first. /settings shows it as **Apps' access modes**.
+
+An app that shows forms gets the AI's questions, and Casper's own questions that take typed words, as forms
+([decision 83](adr/0002/83-an-acp-app-answers-the-ais-questions.md)). `acp_questions: off` in `~/.casper/config.yaml`
+(only there) skips them, as in a one-shot run; it applies from the next session. /settings shows it as **Apps answer
+the AI's questions**.
+
+A line the app sends while Casper works reaches the AI at its next step, or joins the request before the model starts,
+as a line typed in the terminal does ([decision 86](adr/0002/86-an-acp-app-steers-casper-mid-task.md)). The app hears
+when the AI reads it. A line the AI never read stays with the app; Casper queues nothing. It has no setting.
+
+The app's reasoning block gets the model's reasoning headline (below) and each provider retry as thoughts
+([decision 87](adr/0002/87-an-acp-app-sees-casper-reasoning-headlines.md)). `reasoning_headline: false` and
+`display: quiet` keep the headlines out of it too.
+
+An app may close a Casper that sits idle and reopen the conversation later
+([decision 91](adr/0002/91-an-app-may-close-an-idle-casper.md)). Casper says it is idle only when no prompt runs and no
+dev server, command, debugger, helper or checks are at work, a command's end note included. `acp_idle_exit: off` in
+`~/.casper/config.yaml` (only there) keeps it open; it is read again at each check. /settings shows it as **Apps close
+idle Casper**.
 
 ### Asking less: /permissions
 
@@ -538,7 +558,7 @@ loading.
 **Profile trust.** A repository's `profile:` may select one of your existing profiles, including
 its rules, MCP/LSP server definitions, reference sources and the settings a project file may set
 anyway. Your own settings (`sandbox`, `shell`, `web`, `lab`, `spend`, `cache`, `display`, `theme`,
-`showPages`, `hide_tool_output`, `reasoning_headline`, `lean_guidance`, `compact_at`, `suggestions`, `updates`, `sideQuestions`, `localModels`, `modelServers` (from `~/.casper/config.yaml` only), `telemetry`, `ssh_login`, `other_logins`, `network_updates`, `ai_pages`, `open_pages`, `tools.downloads`, `pages: off`, `browser`, `packs`, `skills.imports`, `skills.bundled`, `repair.bigModelLastTry`, `delegate.build`, `mcp_autoconnect`, `lsp_autostart`, `acp_mcp`, `acp_access`, `notifications`)
+`showPages`, `hide_tool_output`, `reasoning_headline`, `lean_guidance`, `compact_at`, `suggestions`, `updates`, `sideQuestions`, `localModels`, `modelServers` (from `~/.casper/config.yaml` only), `telemetry`, `ssh_login`, `other_logins`, `network_updates`, `ai_pages`, `open_pages`, `tools.downloads`, `pages: off`, `browser`, `packs`, `skills.imports`, `skills.bundled`, `repair.bigModelLastTry`, `delegate.build`, `mcp_autoconnect`, `lsp_autostart`, `acp_mcp`, `acp_access`, `acp_questions`, `acp_idle_exit`, `notifications`)
 stay those of the profile you chose yourself (or `~/.casper/config.yaml`), so a repository can't
 turn your sandbox off or your web lookups on by picking or naming a profile; the banner says
 `[config] .casper/project.yaml picked profile lab: …`. `CASPER_PROFILE=lab` (or `profile: lab` in
@@ -1414,8 +1434,9 @@ display: detailed   # quiet, normal (default), or detailed
 
 **Reasoning headline.** While the model reasons and its provider sends readable reasoning, the status row shows a short
 headline of it instead of `Reasoning · 3.0k chars`: the reasoning summary's title (`Planning the port fix · 12s`), or
-else its latest finished sentence, at most 60 characters, secrets hidden. It is in the status row only: never the
-transcript, the steps pane, the receipt, an export or `--json`, and not at `/details quiet`. A provider that sends no
+else its latest finished sentence, at most 60 characters, secrets hidden. It is in the status row only, and in an
+app's reasoning block over `casper acp` ([decision 87](adr/0002/87-an-acp-app-sees-casper-reasoning-headlines.md)):
+never Casper's transcript, the steps pane, the receipt, an export or `--json`, and not at `/details quiet`. A provider that sends no
 readable reasoning keeps `Reasoning · 3.0k chars`. `/settings` **Reasoning headline** turns it off (it writes
 `reasoning_headline: false`); a project file can't set it ([decision 24](adr/0002/24-reasoning-headline.md)).
 

@@ -23,3 +23,8 @@ export function withToolCall<T>(id: string, work: () => T): T {
 export function toolCallId(): string | undefined {
   return calls.getStore();
 }
+
+/** `work` outside any tool call: a long-lived thing it starts (the sandbox's proxy) keeps no call's id for later. */
+export function withoutToolCall<T>(work: () => T): T {
+  return calls.exit(work);
+}

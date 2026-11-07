@@ -67,7 +67,7 @@ import { waitLabel } from "../sandbox/waits";
 import { cacheRetentionFor, type PromptCacheSetting } from "./cache";
 import { LoopGuard } from "./loop-guard";
 import { ToolHistory, TOOL_HISTORY_ENTRY } from "./tool-history";
-import { SteeredLines, STEERED_LINE_ENTRY, steeredAt } from "./steered-lines";
+import { SteeredLines, STEERED_LINE_ENTRY, steeredAt, userText } from "./steered-lines";
 import { CASPER_SAID_ENTRY, conversationRecord, saidBy } from "../sessions/record";
 import { ELISION_NOTE, elisionTexts, newElisions } from "./elision";
 import { addsSecret } from "../secrets/files";
@@ -517,7 +517,11 @@ class PiRuntimeSession implements RuntimeSession {
       const overflow = this.overflowError; this.overflowError = undefined;
       if (overflow) this.emit(overflow);
       // A line steered in after the model's last step is not lost: it comes back through takeUnsent.
-      if (session.pendingMessageCount) { const left = session.clearQueue(); this.unsent.push(...left.steering, ...left.followUp); }
+      if (session.pendingMessageCount) {
+        const left = session.clearQueue();
+        this.unsent.push(...left.steering, ...left.followUp);
+        if (left.steering.length) this.emit({ type: "steer_unsent", lines: [...left.steering] });
+      }
       this.steeredPictures.clear();
       this.steeredLines.cleared();
       agent.streamFunction = stream;
@@ -617,6 +621,11 @@ class PiRuntimeSession implements RuntimeSession {
           if (event.message.role === "assistant") this.emit({
             type: "assistant_response_start", provider: session.model?.provider, model: session.model?.id,
           });
+          // A line steered in during this prompt goes into the conversation now, before the next request.
+          else if (event.message.role === "user" && this.promptActive) {
+            const text = userText(event.message);
+            if (this.steeredLines.has(text)) this.emit({ type: "steer_read", text });
+          }
           break;
         case "message_end":
           if (event.message.role === "assistant") {
@@ -1195,7 +1204,9 @@ export class PiRuntime implements AgentRuntime {
           // refusals above so a call refused anyway never asks.
           // Inside an app bundle (Iris.app), also when the bundle is the project: a write breaks the app's code signature.
           if ((event.toolName === "edit" || event.toolName === "write") && typeof event.input.path === "string" && options.shell?.bundleWrite) {
-            const reason = await options.shell.bundleWrite(realpathLongest(resolveToolPath(event.input.path, cwd, pathContext.home)));
+            const absolute = realpathLongest(resolveToolPath(event.input.path, cwd, pathContext.home));
+            // Inside the call's id, as every question a step raises is: an ACP box names its step (decision 85).
+            const reason = await withToolCall(event.toolCallId, () => options.shell?.bundleWrite?.(absolute));
             if (reason) return { block: true, reason };
           }
           if ((event.toolName === "edit" || event.toolName === "write") && typeof event.input.path === "string" && options.shell?.outsideWrite) {
@@ -1204,7 +1215,7 @@ export class PiRuntime implements AgentRuntime {
             // A link out of the project is asked about where it leads.
             const absolute = kind === "linksOut" ? realpathLongest(named) : named;
             if (kind === "outside" || kind === "linksOut") {
-              const reason = await options.shell.outsideWrite(absolute);
+              const reason = await withToolCall(event.toolCallId, () => options.shell?.outsideWrite?.(absolute));
               if (reason) return { block: true, reason };
               outside.set(event.toolCallId, absolute);
             }
@@ -1254,8 +1265,8 @@ export class PiRuntime implements AgentRuntime {
             operations: casperBashOperations(options.shell, undefined, checkChanges, agentShellGuard),
             spawnHook: (context) => ({ ...context, env: withoutProviderKeys(context.env, options.shell?.keepEnv ?? []) }),
           });
-          const execute: typeof bash.execute = (id, ...args) => withToolReason(reasons.get(id) ?? "", () =>
-            withBackgroundRequest(Boolean(args[0] && Reflect.get(args[0], "background") === true), () => bash.execute(id, ...args)));
+          const execute: typeof bash.execute = (id, ...args) => withToolCall(id, () => withToolReason(reasons.get(id) ?? "", () =>
+            withBackgroundRequest(Boolean(args[0] && Reflect.get(args[0], "background") === true), () => bash.execute(id, ...args))));
           pi.registerTool(repairing({ ...bash, parameters: withBackgroundOption(withStepTitle(bash.parameters)), execute }));
         }
         if (options.scrubToolOutput) pi.on("tool_result", async (event, ctx) => {

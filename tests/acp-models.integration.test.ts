@@ -1,4 +1,4 @@
-import { afterEach, expect, test } from "bun:test";
+import { afterEach, describe, expect, test } from "bun:test";
 import { chmod, readFile } from "node:fs/promises";
 import { startAcp, until, type AcpClient } from "./support/acp-client";
 import { childTestLimit } from "./support/limits";
@@ -31,8 +31,8 @@ test("new and load return the model and effort; a set switches the next request'
   const created = await client.request("session/new", { cwd: f.project, mcpServers: [] });
   const sessionId = created.sessionId as string;
   let options = created.configOptions as Option[];
-  // fixture/first has no effort levels to choose, so there is no effort option yet; the access mode is always last.
-  expect(options.map((option) => option.id)).toEqual(["model", "mode"]);
+  // fixture/first has no effort levels to choose, so there is no effort option yet; plan first, then the access mode last.
+  expect(options.map((option) => option.id)).toEqual(["model", "plan", "mode"]);
   expect(optionOf(options, "model")).toMatchObject({ name: "Model", category: "model", type: "select", currentValue: "fixture/first" });
   expect(values(optionOf(options, "model"))).toEqual(expect.arrayContaining(["fixture/first", "fixture/second", "fixture/sparse"]));
   // A provider you are not signed in to is never offered.
@@ -164,3 +164,36 @@ test("with two sessions, a set reaches only the session it names", async () => {
   // The other session keeps its model; its list may be sent again only in the new default's order.
   for (const update of configUpdates(client, two)) expect(optionOf(update.update.configOptions, "model")!.currentValue).toBe("fixture/first");
 }, childTestLimit(1));
+
+describe("a loaded conversation's model (decision 89)", () => {
+  test("Loading a conversation puts back its own model and effort for this session without changing the saved default", async () => {
+    const f = await fixture(() => ({ text: "Done." }));
+    const client = open(f);
+    await client.request("initialize", INIT);
+    const first = (await client.request("session/new", { cwd: f.project, mcpServers: [] })).sessionId as string;
+    await client.request("session/set_config_option", { sessionId: first, configId: "model", value: "fixture/second" });
+    await client.request("session/set_config_option", { sessionId: first, configId: "effort", value: "high" });
+    expect((await client.request("session/prompt", { sessionId: first, prompt: text("Say FIRST") })).stopReason).toBe("end_turn");
+    // Another conversation then picks low effort and fixture/first, which are saved as the default.
+    const other = (await client.request("session/new", { cwd: f.project, mcpServers: [] })).sessionId as string;
+    await client.request("session/set_config_option", { sessionId: other, configId: "effort", value: "low" });
+    await client.request("session/set_config_option", { sessionId: other, configId: "model", value: "fixture/first" });
+    expect(JSON.parse(await readFile(f.settings, "utf8"))).toMatchObject({ defaultProvider: "fixture", defaultModel: "first" });
+    const saved = await readFile(f.settings, "utf8");
+    expect(await client.close()).toBe(0);
+
+    // The app reopens Casper with its own start model, as it starts every Casper.
+    const again = open(f, ["--model", "fixture/first"]);
+    await again.request("initialize", INIT);
+    const loaded = await again.request("session/load", { sessionId: first, cwd: f.project, mcpServers: [] });
+    expect(optionOf(loaded.configOptions, "model")!.currentValue).toBe("fixture/second");
+    expect(optionOf(loaded.configOptions, "effort")!.currentValue).toBe("high");
+    expect((await again.request("session/prompt", { sessionId: first, prompt: text("Say LOADED") })).stopReason).toBe("end_turn");
+    expect(askedWith(f.payloads, "Say LOADED")).toMatchObject({ model: "second", reasoning_effort: "high" });
+    // The default is still the other conversation's pick: the load changed this session only.
+    expect(await readFile(f.settings, "utf8")).toBe(saved);
+    // A new session from the same process starts on the app's start model.
+    const fresh = await again.request("session/new", { cwd: f.project, mcpServers: [] });
+    expect(optionOf(fresh.configOptions, "model")!.currentValue).toBe("fixture/first");
+  }, childTestLimit(2));
+});

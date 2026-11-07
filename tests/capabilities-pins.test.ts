@@ -9,8 +9,9 @@ const cleanup: (() => Promise<unknown>)[] = [];
 afterEach(async () => { for (const close of cleanup.splice(0).reverse()) await close(); });
 const fixturePath = path.join(import.meta.dir, "fixtures/mcp-server.ts");
 const networkPath = path.join(import.meta.dir, "fixtures/mcp-network-server.ts");
+/** A server of `scope`; a client one is the app's own (casper/clientAsks), as only that one may pin (decision 89). */
 function definition(name: string, mode: string, scope: MCPServerDefinition["scope"]): MCPServerDefinition {
-  return { name, source: "fixture", scope, cwd: process.cwd(), disabled: false,
+  return { name, source: "fixture", scope, cwd: process.cwd(), disabled: false, ...(scope === "client" ? { clientOwned: true as const } : {}),
     transport: { type: "stdio", command: process.execPath, args: [fixturePath], env: { FIXTURE_MODE: mode, FIXTURE_ID: name } } };
 }
 async function brokerFor(...servers: MCPServerDefinition[]): Promise<CapabilityBroker> {

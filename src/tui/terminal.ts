@@ -99,7 +99,10 @@ export interface AwayQuestion {
   typed?: boolean;
   from?: AskOrigin;
   hint?: string;
+  /** The plan's Build box in an ACP app (decision 84): the plan as Markdown, and the labels of its yes and its change. */
+  review?: PlanReview;
 }
+export interface PlanReview { markdown: string; approve: string; change: string }
 export interface AwayAsker { ask(question: AwayQuestion, signal?: AbortSignal): Promise<string[] | undefined> }
 
 /** Terminal ownership boundary. Rich raw editor on a TTY; line input otherwise.
@@ -592,8 +595,8 @@ export class InteractiveTerminal {
    * a number or a label picks, Enter picks the first, other text comes back as typed. Lines typed before the question
    * appeared never answer it.
    */
-  async pick(question: string, options: { label: string; description?: string }[], signal?: AbortSignal, settings: PickRecord & { typed?: boolean } = {}): Promise<string | undefined> {
-    const away: AwayQuestion = { kind: "pick", question, choices: options, ...(settings.typed ? { typed: true } : {}), from: "casper" };
+  async pick(question: string, options: { label: string; description?: string }[], signal?: AbortSignal, settings: PickRecord & { typed?: boolean; review?: PlanReview } = {}): Promise<string | undefined> {
+    const away: AwayQuestion = { kind: "pick", question, choices: options, ...(settings.typed ? { typed: true } : {}), from: "casper", ...(settings.review ? { review: settings.review } : {}) };
     if (this.awayAsker) {
       const answer = (await this.awayAsker.ask(away, signal))?.[0];
       const picked = answer === undefined || settings.typed || options.some(option => option.label === answer) ? answer : undefined;
@@ -605,10 +608,11 @@ export class InteractiveTerminal {
     return this.plainPick(question, options, signal, false, settings.typed ?? false, settings.record);
   }
 
-  /** Ctrl+G is bound only while the accepted-plan picker is on screen. */
-  async pickPlan(question: string, options: { label: string; description?: string }[], signal?: AbortSignal): Promise<string | undefined> {
+  /** Ctrl+G is bound only while the accepted-plan picker is on screen. `review`: the plan for an ACP app's Build box,
+   * which only the asker that answers for a gone terminal reads; both terminals show the plan screen above. */
+  async pickPlan(question: string, options: { label: string; description?: string }[], signal?: AbortSignal, review?: PlanReview): Promise<string | undefined> {
     this.surface?.setPlanEdit("Edit Markdown");
-    try { return await this.pick(question, options, signal); }
+    try { return await this.pick(question, options, signal, review ? { review } : {}); }
     finally { this.surface?.setPlanEdit(undefined); }
   }
   /** Casper's full screen is here and free, so a command can have the whole terminal (see TerminalSurface.handOver). */

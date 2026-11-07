@@ -164,7 +164,7 @@ export interface MCPManagerOptions {
   /** My MCP servers (mcp_autoconnect): your own, profile and imported servers connect without /mcp connect, and those
    * that aren't a network product start with writes on. Project servers keep their review. */
   autoconnect?: boolean;
-  /** The `_meta` a call to a client server carries (casper acp: the ACP toolCallId of the step running it), if any. */
+  /** The `_meta` a call to the app's own client server carries (casper acp: the ACP toolCallId of the step running it). */
   clientCallMeta?: () => Record<string, unknown> | undefined;
 }
 
@@ -826,8 +826,9 @@ export class MCPManager {
     entry.inFlight++;
     if (running) entry.approvedCall = running;
     try {
-      // A call to the app's server says which of Casper's steps it is (ACP's toolCallId), so the app's own box joins it.
-      const meta = entry.definition.scope === "client" ? this.clientCallMeta?.() : undefined;
+      // A call to the app's own server says which of Casper's steps it is (ACP's toolCallId), so the app's box joins it.
+      // Another server the app forwards never hears it (decision 89).
+      const meta = entry.definition.scope === "client" && entry.definition.clientOwned ? this.clientCallMeta?.() : undefined;
       return await client.callTool({ name, arguments: args, ...(meta ? { _meta: meta } : {}) }, undefined, {
         signal: callSignal,
         timeout: SDK_REQUEST_TIMEOUT_MS,

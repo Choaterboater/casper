@@ -1,4 +1,4 @@
-import { expect, test } from "bun:test";
+import { describe, expect, test } from "bun:test";
 import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -25,9 +25,10 @@ test("An app's MCP server gets an acp- name and its header values are taken lite
     transport: { type: "http", url: "http://127.0.0.1:4321/mcp/abc", headers: { Authorization: "Bearer ${ANTHROPIC_API_KEY}" } } });
   expect(stdio).toMatchObject({ scope: "client", cwd: HOME, transport: { type: "stdio", command, args: ["--serve"], env: { APP_TOKEN: "${HOME}-literal" } } });
   // Every value is a secret as given: nothing is filled from Casper's environment.
-  // The credential after "Bearer" is hidden on its own too.
-  expect(found.secrets).toEqual(["Bearer ${ANTHROPIC_API_KEY}", "${ANTHROPIC_API_KEY}", "${HOME}-literal"]);
-  expect(resolvedSecrets(http)).toEqual(["Bearer ${ANTHROPIC_API_KEY}", "${ANTHROPIC_API_KEY}"]);
+  // The credential after "Bearer" is hidden on its own too, and each URL-encoded (decision 89).
+  const both = (value: string) => [value, encodeURIComponent(value)];
+  expect(found.secrets).toEqual([...both("Bearer ${ANTHROPIC_API_KEY}"), ...both("${ANTHROPIC_API_KEY}"), ...both("${HOME}-literal")]);
+  expect(resolvedSecrets(http)).toEqual([...both("Bearer ${ANTHROPIC_API_KEY}"), ...both("${ANTHROPIC_API_KEY}")]);
   expect(found.notes).toEqual([
     "[acp] The app's MCP server acp-app connects for this session.",
     "[acp] The app's MCP server acp-tools connects for this session.",
@@ -149,4 +150,67 @@ test("acp_mcp is read from ~/.casper/config.yaml only: on by default, and a proj
     await writeFile(path.join(home, ".casper/profiles/default/config.yaml"), "acp_mcp: off\n");
     await expect(loadConfiguration({ projectRoot: project, homeDir: home })).rejects.toThrow("acp_mcp is set in ~/.casper/config.yaml only");
   } finally { await removeTempDir(root); }
+});
+
+describe("servers the app forwards (decision 89)", () => {
+  test("An app's stdio server starts in the absolute folder its casper/cwd names, and a relative or project-root one is refused with a note and no value", () => {
+    const folder = path.resolve("/srv/app-tools");
+    const secret = "value-that-must-not-show-5678";
+    const at = (cwd: unknown) => ({ _meta: { "casper/cwd": cwd } });
+    const found = clientServers([
+      { name: "here", command, args: [], env: [], ...at(folder) },
+      { name: "plain", command, args: [], env: [] },
+      { name: "relative", command, args: [], env: [{ name: "APP_TOKEN", value: secret }], ...at("tools/app") },
+      { name: "root", command, args: [], env: [], ...at("${PROJECT_ROOT}") },
+      { name: "tilde", command, args: [], env: [], ...at("~/tools") },
+      { name: "number", command, args: [], env: [], ...at(42) },
+    ], on);
+    expect(found.definitions.map((definition) => [definition.name, definition.cwd])).toEqual([["acp-here", folder], ["acp-plain", HOME]]);
+    expect(found.notes.slice(2)).toEqual([
+      "[acp] The app's MCP server acp-relative is not connected: cwd must be an absolute path.",
+      "[acp] The app's MCP server acp-root is not connected: cwd must be an absolute path.",
+      "[acp] The app's MCP server acp-tilde is not connected: cwd must be an absolute path.",
+      "[acp] The app's MCP server acp-number is not connected: cwd must be an absolute path.",
+    ]);
+    expect(found.notes.join("\n")).not.toContain(secret);
+    expect(found.secrets).not.toContain(secret);
+  });
+
+  test("clientOwned follows casper/clientAsks also with acp_mcp ask, and never for a remote http server", () => {
+    const asks = { _meta: { "casper/clientAsks": true } };
+    const entries = [
+      { type: "http", name: "loop", url: "http://127.0.0.1:7/mcp", headers: [], ...asks },
+      { type: "http", name: "local", url: "http://localhost:7/mcp", headers: [], ...asks },
+      { type: "http", name: "lan", url: "http://192.0.2.20:7/mcp", headers: [], ...asks },
+      { type: "http", name: "far", url: "https://mcp.example.com/mcp", headers: [], ...asks },
+      { name: "program", command, args: [], env: [], ...asks },
+      { name: "other", command, args: [], env: [] },
+      { type: "http", name: "plain", url: "http://127.0.0.1:8/mcp", headers: [] },
+    ];
+    const owned = (setting: "on" | "ask") => clientServers(entries, { home: HOME, setting }).definitions.filter((definition) => definition.clientOwned).map((definition) => definition.name);
+    expect(owned("on")).toEqual(["acp-loop", "acp-local", "acp-program"]);
+    // ask brings Casper's change box back, but the server is still the app's own: it may pin and hear the step.
+    expect(owned("ask")).toEqual(["acp-loop", "acp-local", "acp-program"]);
+    expect(clientServers(entries, { home: HOME, setting: "ask" }).definitions.filter((definition) => definition.clientAsks)).toEqual([]);
+  });
+
+  test("A header value's URL-encoded form is also hidden", () => {
+    const token = "tok/en+=?&1234";
+    const found = clientServers([
+      { type: "http", name: "app", url: "http://127.0.0.1:9/mcp", headers: [{ name: "Authorization", value: `Bearer ${token}` }] },
+      { name: "tools", command, args: [], env: [{ name: "APP_TOKEN", value: "plain-value-5678" }] },
+    ], on);
+    expect(found.secrets).toEqual([`Bearer ${token}`, encodeURIComponent(`Bearer ${token}`), token, encodeURIComponent(token), "plain-value-5678"]);
+    // The server's results are hidden with the same values.
+    expect(resolvedSecrets(found.definitions[0]!)).toEqual([`Bearer ${token}`, encodeURIComponent(`Bearer ${token}`), token, encodeURIComponent(token)]);
+  });
+
+  test("A value with a lone surrogate, which cannot be URL-encoded, connects and is hidden as given", () => {
+    const value = "secret-abc-\ud800-xyz";
+    const found = clientServers([{ name: "tools", command, args: [], env: [{ name: "APP_TOKEN", value }] }], on);
+    expect(found.definitions.map((definition) => definition.name)).toEqual(["acp-tools"]);
+    expect(found.secrets).toEqual([value]);
+    expect(found.notes).toEqual(["[acp] The app's MCP server acp-tools connects for this session."]);
+    expect(resolvedSecrets(found.definitions[0]!)).toEqual([value]);
+  });
 });

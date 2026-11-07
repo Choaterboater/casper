@@ -197,3 +197,33 @@ test("an MCP call names its server and tool in _meta.casper.mcp", () => {
   const [start] = map.runtime({ type: "tool_start", toolName: "call_capability", toolCallId: "c", input: {}, args: { id: "mcp:acp-app:present", arguments: {} } });
   expect(start).toMatchObject({ title: "call_capability", kind: "other", _meta: { casper: { tool: "call_capability", mcp: { server: "acp-app", tool: "present" } } } });
 });
+
+test("A running edit gives a box its hidden diffs, bash and write give none, an ended step gives nothing, and an edit holding a secret gives none", () => {
+  const value = "my-own-secret-value-42";
+  const map = mapper([value]);
+  const file = path.join(CWD, "src/sum.js");
+  map.runtime({ type: "tool_start", toolName: "edit", toolCallId: "call_edit", input: { path: "src/sum.js" },
+    args: { path: "src/sum.js", edits: [{ oldText: "a - b", newText: `a + b // ${value}` }] } });
+  // The diffs as the start showed them: hidden, with the edit's file.
+  expect(map.step("call_edit")).toEqual({ id: "casper-tool-1", diffs: [{ type: "diff", path: file, oldText: "a - b", newText: "a + b // <secret hidden>" }], locations: [{ path: file }] });
+  // A copy: changing what a box got changes nothing the next box gets.
+  map.step("call_edit")!.diffs.length = 0;
+  expect(map.step("call_edit")!.diffs).toHaveLength(1);
+  // A shell step has no diff and no file; a write has its file but no diff.
+  map.runtime({ type: "tool_start", toolName: "bash", toolCallId: "call_bash", input: { command: "ls" }, args: { command: "ls" } });
+  expect(map.step("call_bash")).toEqual({ id: "casper-tool-2", diffs: [] });
+  map.runtime({ type: "tool_start", toolName: "write", toolCallId: "call_write", input: { path: "notes.txt" }, args: { path: "notes.txt", content: "new\n" } });
+  expect(map.step("call_write")).toEqual({ id: "casper-tool-3", diffs: [], locations: [{ path: path.join(CWD, "notes.txt") }] });
+  // The ask tool's step is still found by its tool.
+  map.runtime({ type: "tool_start", toolName: "ask", toolCallId: "call_ask", input: {}, args: {} });
+  expect(map.runningStep("ask")).toBe("casper-tool-4");
+  // An ended step gives nothing, and an id never seen gives nothing.
+  map.runtime({ type: "tool_end", toolName: "edit", toolCallId: "call_edit", isError: false, display: { text: "ok", truncated: false } });
+  expect(map.step("call_edit")).toBeUndefined();
+  expect(map.step("call_other")).toBeUndefined();
+  // An edit whose text holds a secret by the file's own rules starts with no diff, so its box gets none.
+  map.runtime({ type: "tool_start", toolName: "edit", toolCallId: "call_config", input: { path: "configs/r1.cfg" },
+    args: { path: "configs/r1.cfg", edits: [{ oldText: "hostname r1", newText: "snmp-server community s3cr3t-c0mmunity RO" }] } });
+  expect(map.step("call_config")).toEqual({ id: "casper-tool-5", diffs: [], locations: [{ path: path.join(CWD, "configs/r1.cfg") }] });
+  expect(JSON.stringify(map.step("call_config"))).not.toContain("s3cr3t-c0mmunity");
+});

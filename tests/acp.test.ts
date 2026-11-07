@@ -1,14 +1,20 @@
-import { expect, test } from "bun:test";
+import { describe, expect, test } from "bun:test";
 import path from "node:path";
 import { PassThrough } from "node:stream";
 import { pathToFileURL } from "node:url";
 import { parseCliArgs, UsageError } from "../src/cli-args";
-import { AcpAsker, optionKind } from "../src/acp/permission";
-import { RpcConnection } from "../src/acp/rpc";
-import { sessionArgs } from "../src/acp/server";
-import { askedWithout, promptText } from "../src/acp/session";
-import { hider, keptLines, UpdateMapper, type AcpReceipt } from "../src/acp/updates";
-import { NO, YES_ONCE, YES_SESSION } from "../src/app/safe-choices";
+import { AcpAsker, formAnswer, optionKind, questionSchema } from "../src/acp/permission";
+import { MAX_EMBEDDED_TEXT, promptContent } from "../src/acp/prompt";
+import { RpcConnection, RpcFailure } from "../src/acp/rpc";
+import { SESSION_REQUESTS, sessionArgs, sessionFor } from "../src/acp/server";
+import { askedWithout, initializeResult, promptText } from "../src/acp/session";
+import { acpReceipt, hider, keptLines, UpdateMapper, type AcpReceipt } from "../src/acp/updates";
+import type { ReceiptEvent } from "../src/app/json-events";
+import { retryWords } from "../src/app/events";
+import type { RuntimeEvent, RuntimeSession } from "../src/runtime/types";
+import { reasoningHeadline } from "../src/runtime/reasoning-headline";
+import { NO, PLAN_ANSWER_HINT, PLAN_CHANGE_HINT, PLAN_CHANGE_QUESTION, YES_ONCE, YES_SESSION } from "../src/app/safe-choices";
+import { until } from "./support/acp-client";
 import type { AwayQuestion } from "../src/tui/terminal";
 
 const box: AwayQuestion = { kind: "approve", question: "The AI wants to write to ~/notes. Allow it?", preview: "~/notes/todo.md\n", choices: [{ label: NO }, { label: YES_ONCE }, { label: YES_SESSION }], from: "approval" };
@@ -251,4 +257,595 @@ test("a pasted agent transcript is left out of what was asked; a prompt without 
   // A spec or a note with a bullet or two is no transcript.
   expect(ask(text("Fix sum.js\n● sum(1, 2) is 3\nThanks"))).toBeUndefined();
   expect(ask(text("Fix sum.js"))).toBeUndefined();
+});
+
+describe("the AI's questions reach an ACP app as forms (decision 83)", () => {
+  type Sent = Record<string, any>;
+  const AI: AwayQuestion = { kind: "ask", question: "Which database?", choices: [{ label: "Postgres", description: "a server" }, { label: "SQLite" }], typed: true, from: "ai" };
+  const OWN: AwayQuestion = { kind: "pick", question: "Which port?", choices: [{ label: "3000" }, { label: "8080" }], typed: true, from: "casper" };
+  /** A channel that answers forms with `reply`; `step` is the ask tool's running step, if any. */
+  const forms = (reply: (params: Sent, signal: AbortSignal) => Promise<unknown>, step?: string) => {
+    const base = channel(async () => ({ outcome: { outcome: "selected", optionId: "1" } }));
+    const asked: Sent[] = [];
+    return { ...base, asked, elicit: (params: Sent, signal: AbortSignal) => { asked.push(params); return reply(params, signal); },
+      stepFor: (question: AwayQuestion) => question.from === "ai" ? step : undefined };
+  };
+  const answering = (seen: ReturnType<typeof forms>, hide?: (text: string) => string, waitMs?: number) => {
+    const asker = new AcpAsker("s1", seen, hide, waitMs);
+    asker.questions = () => true;
+    return asker;
+  };
+
+  test("A typed question from the AI asks through elicitation/create on the ask tool's own step and sends no extra tool call", async () => {
+    // The ask tool's step is the one running under the model's own id.
+    const mapper = new UpdateMapper(hider(() => []));
+    const [start] = mapper.runtime({ type: "tool_start", toolName: "ask", toolCallId: "m1", args: { question: AI.question } } as never).slice(-1);
+    expect(mapper.runningStep("ask")).toBe(start!.toolCallId as string);
+    expect(mapper.runningStep("write")).toBeUndefined();
+    const seen = forms(async () => ({ action: "accept", content: { answer: "2" } }), mapper.runningStep("ask"));
+    expect(await answering(seen).ask(AI)).toEqual(["SQLite"]);
+    expect(seen.asked).toHaveLength(1);
+    expect(seen.asked[0]).toEqual({ sessionId: "s1", toolCallId: start!.toolCallId, mode: "form", message: AI.question,
+      requestedSchema: { type: "object", required: [], properties: {
+        answer: { type: "string", title: "Choose", oneOf: [{ const: "1", title: "Postgres", description: "a server" }, { const: "2", title: "SQLite" }] },
+        other: { type: "string", title: "Or type your answer" } } },
+      _meta: { casper: { question: { from: "ai", multi: false, typed: true } } } });
+    // The ask tool's step closes itself with the tool's result: the question sends no step of its own.
+    expect(seen.updates).toEqual([]);
+    expect(seen.sent).toEqual([]);
+  });
+
+  test("Casper's own typed pick opens a casper-question step and closes it with the answer", async () => {
+    const seen = forms(async () => ({ action: "accept", content: { answer: "1", other: "  4000 " } }));
+    expect(await answering(seen).ask(OWN)).toEqual(["4000"]);
+    expect(seen.asked[0]!.toolCallId).toBe("casper-question-1");
+    expect(seen.updates).toEqual([
+      { sessionUpdate: "tool_call", toolCallId: "casper-question-1", title: "Which port?", kind: "other", status: "pending",
+        _meta: { casper: { question: { question: "Which port?", options: [{ label: "3000" }, { label: "8080" }], multi: false, typed: true } } } },
+      { sessionUpdate: "tool_call_update", toolCallId: "casper-question-1", status: "completed", content: [{ type: "content", content: { type: "text", text: "→ 4000" } }] },
+    ]);
+    // A picked choice with no typed words is that choice's label; the next question is a step of its own.
+    const picked = forms(async () => ({ action: "accept", content: { answer: "2" } }));
+    const asker = answering(picked);
+    expect(await asker.ask(OWN)).toEqual(["8080"]);
+    expect(await asker.ask(OWN)).toEqual(["8080"]);
+    expect(picked.updates.map((update) => update.toolCallId)).toEqual(["casper-question-1", "casper-question-1", "casper-question-2", "casper-question-2"]);
+    // The AI's question with no ask step running (a runtime that sends no step) gets one, titled as the AI's.
+    const lone = forms(async () => ({ action: "accept", content: { answer: "1" } }));
+    expect(await answering(lone).ask(AI)).toEqual(["Postgres"]);
+    expect(lone.updates[0]).toMatchObject({ toolCallId: "casper-question-1", title: "The AI asks: Which database?" });
+  });
+
+  test("A multi pick gives its picks in order, drops unknown choices and puts typed words last", async () => {
+    const multi: AwayQuestion = { ...AI, multi: true, choices: [{ label: "Postgres" }, { label: "SQLite" }, { label: "Redis" }] };
+    const schema = questionSchema(multi, (text) => text);
+    expect(schema.properties.answer).toEqual({ type: "array", title: "Choose", items: { anyOf: [{ const: "1", title: "Postgres" }, { const: "2", title: "SQLite" }, { const: "3", title: "Redis" }] } });
+    expect(formAnswer({ action: "accept", content: { answer: ["3", "9", "1", "x"], other: " and a cache " } }, multi)).toEqual(["Postgres", "Redis", "and a cache"]);
+    expect(formAnswer({ action: "accept", content: { answer: ["2"] } }, multi)).toEqual(["SQLite"]);
+    expect(formAnswer({ action: "accept", content: { answer: [] } }, multi)).toBeUndefined();
+    // Typed words count only where the question takes them.
+    expect(formAnswer({ action: "accept", content: { answer: ["2"], other: "MySQL" } }, { ...multi, typed: false })).toEqual(["SQLite"]);
+    expect(questionSchema({ ...multi, typed: false }, (text) => text).properties.other).toBeUndefined();
+    // A single pick prefers the typed words; a line collapses its spaces and must not be empty.
+    expect(formAnswer({ action: "accept", content: { answer: "1", other: "MySQL" } }, AI)).toEqual(["MySQL"]);
+    expect(formAnswer({ action: "accept", content: { answer: "7" } }, AI)).toBeUndefined();
+    const line: AwayQuestion = { kind: "line", question: "What should change?", choices: [], typed: true, hint: "Type the change" };
+    expect(questionSchema(line, (text) => text)).toEqual({ type: "object", required: ["answer"], properties: { answer: { type: "string", title: "Type the change" } } });
+    expect(formAnswer({ action: "accept", content: { answer: "  drop\n step   3 " } }, line)).toEqual(["drop step 3"]);
+    expect(formAnswer({ action: "accept", content: { answer: "   " } }, line)).toBeUndefined();
+    expect(questionSchema({ ...line, hint: undefined }, (text) => text).properties.answer.title).toBe("Your answer");
+  });
+
+  test("A declined, cancelled, failed, aborted or timed-out form is skipped and its own step closes failed", async () => {
+    const replies: Array<(params: Sent, signal: AbortSignal) => Promise<unknown>> = [
+      async () => ({ action: "decline" }),
+      async () => ({ action: "cancel" }),
+      async () => { throw new Error("the client could not show it"); },
+      async () => null,
+    ];
+    for (const reply of replies) {
+      const seen = forms(reply);
+      expect(await answering(seen).ask(OWN)).toBeUndefined();
+      expect(seen.updates.at(-1)).toEqual({ sessionUpdate: "tool_call_update", toolCallId: "casper-question-1", status: "failed", content: [{ type: "content", content: { type: "text", text: "— skipped" } }] });
+    }
+    const never = forms((_params, signal) => new Promise((_resolve, reject) => signal.addEventListener("abort", () => reject(new Error("aborted")))));
+    // No answer in time.
+    const started = performance.now();
+    expect(await answering(never, undefined, 50).ask(OWN)).toBeUndefined();
+    expect(performance.now() - started).toBeLessThan(5_000);
+    expect(never.updates.at(-1)).toMatchObject({ status: "failed" });
+    // The task stopped while the form was open, and a task already stopped asks nothing.
+    const stop = new AbortController();
+    const waiting = answering(never).ask(OWN, stop.signal);
+    stop.abort();
+    expect(await waiting).toBeUndefined();
+    const before = never.asked.length;
+    expect(await answering(never).ask(OWN, stop.signal)).toBeUndefined();
+    expect(never.asked).toHaveLength(before);
+  });
+
+  test("Question words, labels, descriptions and the echoed answer are hidden, and a hidden label maps back by its index", async () => {
+    const secret = "value-from-the-env-1234";
+    const question: AwayQuestion = { kind: "pick", question: `Use ${secret}?`, choices: [{ label: "Keep it" }, { label: `Send ${secret}`, description: `as ${secret}` }], typed: true, from: "casper" };
+    const seen = forms(async (params) => ({ action: "accept", content: { answer: params.requestedSchema.properties.answer.oneOf[1].const } }));
+    expect(await answering(seen, hider(() => [secret])).ask(question)).toEqual([`Send ${secret}`]);
+    const out = JSON.stringify([seen.asked, seen.updates]);
+    expect(out).not.toContain(secret);
+    expect(seen.asked[0]!.requestedSchema.properties.answer.oneOf[1]).toEqual({ const: "2", title: "Send <secret hidden>", description: "as <secret hidden>" });
+    expect(seen.updates.at(-1)!.content[0].content.text).toBe("→ Send <secret hidden>");
+  });
+
+  test("Read only closes an open box but not an open question", async () => {
+    let answerForm!: (value: unknown) => void;
+    const seen = forms(() => new Promise((resolve) => { answerForm = resolve; }));
+    const pending = (_params: Sent, signal: AbortSignal) => new Promise((_resolve, reject) => signal.addEventListener("abort", () => reject(new Error("cancelled"))));
+    const asker = new AcpAsker("s1", { ...seen, request: pending }, undefined);
+    asker.questions = () => true;
+    const question = asker.ask(OWN);
+    const approval = asker.ask(box);
+    await until(() => seen.asked.length === 1 && seen.updates.some((update) => update.toolCallId === "casper-approval-1"), 5_000, "the form and the box");
+    asker.withdrawAll();
+    expect(await approval).toBeUndefined();
+    answerForm({ action: "accept", content: { answer: "2" } });
+    expect(await question).toEqual(["8080"]);
+  });
+
+  test("A client without form support gets no question update and the question is skipped at once", async () => {
+    const seen = forms(async () => ({ action: "accept", content: { answer: "1" } }), "casper-tool-1");
+    const asker = new AcpAsker("s1", seen);
+    for (const question of [AI, OWN, { ...AI, multi: true, typed: false, from: "casper" as const }, { kind: "line" as const, question: "What should change?", choices: [], typed: true }]) {
+      expect(await asker.ask(question)).toBeUndefined();
+    }
+    expect([seen.asked, seen.sent, seen.updates]).toEqual([[], [], []]);
+  });
+
+  test("Choice 1 of a Casper pick is reject_once", async () => {
+    const seen = forms(async () => undefined);
+    const asker = answering(seen);
+    seen.request = async (params: Sent) => { seen.sent.push(params); return { outcome: { outcome: "selected", optionId: "1" } }; };
+    const pick: AwayQuestion = { kind: "pick", question: "Run this command?", choices: [{ label: "Leave it" }, { label: YES_ONCE }, { label: YES_SESSION }], from: "casper" };
+    expect(await asker.ask(pick)).toEqual(["Leave it"]);
+    expect(seen.sent[0]!.options.map((option: Sent) => [option.name, option.kind])).toEqual([["Leave it", "reject_once"], [YES_ONCE, "allow_once"], [YES_SESSION, "allow_once"]]);
+    // Choice 1 is the safe one, so picking it closes the step as a No.
+    expect(seen.updates.at(-1)).toMatchObject({ status: "failed", content: [{ content: { text: "→ Leave it" } }] });
+    // An approval keeps its label's kind.
+    await asker.ask(box);
+    expect(seen.sent[1]!.options.map((option: Sent) => option.kind)).toEqual(["reject_once", "allow_once", "allow_always"]);
+    // A plain pick never goes to a form.
+    expect(seen.asked).toEqual([]);
+  });
+
+  test("Every question that can reach an app as typed words comes from the ask tool, the question round or the plan change line, and none asks for a secret", async () => {
+    // A typed question is the AI's ask (from "ai", or a held one's own from), a pick with typed: true, or a typed line. Each place that
+    // asks one is listed here, with whether an app can see it: the rest need Casper's own terminal (app.interactive).
+    const root = path.join(import.meta.dir, "../src");
+    const found: string[] = [];
+    for (const file of new Bun.Glob("**/*.ts").scanSync(root)) {
+      const name = file.split(path.sep).join("/");
+      // The terminal itself, which every one of them goes through.
+      if (name.startsWith("tui/")) continue;
+      const text = await Bun.file(path.join(root, file)).text();
+      for (const line of text.split("\n")) {
+        if (/\.askLine\(|\.(?:pick|ask)\([^\n]*(?:typed: true|"ai"\)|\.from\b)/.test(line)) found.push(`${name}: ${line.trim().slice(0, 60)}`);
+      }
+    }
+    const reachesApp = [
+      "app/approvals.ts: return app.terminal.ask(question, options, multi, signals.le", // the ask tool
+      "app/task-run.ts: const answer = await app.terminal.pick(q.question, q.options", // the plan's question round
+      "app/task-run.ts: const typed = await app.terminal.askLine(question, questions", // the plan's open questions
+      "app/task-run.ts: const typed = await app.terminal.askLine(PLAN_CHANGE_QUESTIO", // the plan change line
+    ];
+    const terminalOnly = [
+      "app/workspace.ts: pick: (question, options, signal) => app.terminal.pick(quest", // new project: app.interactive
+      "app/jobs.ts: const answer = await app.terminal.askLine(question.question,", // /jobs answer: app.interactive
+      "app/jobs.ts: picked = await app.terminal.ask(question.question, question.", // /jobs answer: app.interactive
+    ];
+    expect(found.sort()).toEqual([...reachesApp, ...terminalOnly].sort());
+    // None of them asks for a secret: a password, a token or a key has Casper's own hidden box, which never crosses.
+    for (const words of [PLAN_CHANGE_QUESTION, PLAN_CHANGE_HINT, PLAN_ANSWER_HINT]) expect(words).not.toMatch(/password|passphrase|secret|token|api key/i);
+    for (const file of ["app/secret-tool.ts", "app/wiring.ts"]) {
+      const text = await Bun.file(path.join(root, file)).text();
+      expect(text).toContain("password: true");
+      expect(text).not.toMatch(/\.askLine\(|\.ask\([^\n]*"ai"\)|typed: true/);
+    }
+    // The hidden box is only offered where Casper has its own terminal.
+    expect(await Bun.file(path.join(root, "app/secret-tool.ts")).text()).toContain("canAsk: () => app.interactive && app.terminal.canAsk");
+  });
+});
+
+describe("the plan's Build box, its steps and the plan option reach an ACP app (decision 84)", () => {
+  const review = { markdown: "# Add a greeting\n\n## Steps\n1. Write greeting.txt\n", approve: "Build", change: "Change the plan" };
+  const PLAN_BOX: AwayQuestion = { kind: "pick", question: "Build this plan?", choices: [{ label: "Stop", description: "nothing is built" },
+    { label: "Build", description: "the model builds these steps" }, { label: "Change the plan", description: "tell the model what to change" }], from: "casper", review };
+
+  test("The Build box carries the plan text and its labels, with Build allow_once and Stop and Change the plan reject_once", async () => {
+    const seen = channel(async (params) => ({ outcome: { outcome: "selected", optionId: params.options[1].optionId } }));
+    expect(await new AcpAsker("s1", seen).ask(PLAN_BOX)).toEqual(["Build"]);
+    const sent = seen.sent[0]!;
+    expect(sent.options.map((option: { name: string; kind: string }) => [option.name, option.kind]))
+      .toEqual([["Stop", "reject_once"], ["Build", "allow_once"], ["Change the plan", "reject_once"]]);
+    expect(sent.toolCall.content).toEqual([{ type: "content", content: { type: "text", text: review.markdown } }]);
+    expect(sent.toolCall._meta).toEqual({ casper: { plan: { approve: "Build", change: "Change the plan" } } });
+    // The tool_call the app saw start carries the same plan.
+    expect(seen.updates[0]).toMatchObject({ sessionUpdate: "tool_call", toolCallId: sent.toolCall.toolCallId, _meta: { casper: { plan: { approve: "Build", change: "Change the plan" } } } });
+    // Change the plan is a "no" to building: the step closes failed, and the answer is still its label.
+    const changing = channel(async (params) => ({ outcome: { outcome: "selected", optionId: params.options[2].optionId } }));
+    expect(await new AcpAsker("s1", changing).ask(PLAN_BOX)).toEqual(["Change the plan"]);
+    expect(changing.updates.at(-1)).toMatchObject({ sessionUpdate: "tool_call_update", status: "failed" });
+    // The plan's words and labels are hidden as every update is.
+    const secret = "PLUMPLUMPLUM42";
+    const hidden = channel(async () => ({ outcome: { outcome: "cancelled" } }));
+    expect(await new AcpAsker("s1", hidden, hider(() => [secret])).ask({ ...PLAN_BOX, review: { ...review, markdown: `# Use ${secret}\n` } })).toBeUndefined();
+    expect(JSON.stringify([hidden.sent, hidden.updates])).not.toContain(secret);
+    // A box without a plan has no plan meta.
+    const plain = channel(async () => ({ outcome: { outcome: "cancelled" } }));
+    await new AcpAsker("s1", plain).ask({ ...PLAN_BOX, review: undefined });
+    expect(plain.sent[0]!.toolCall._meta).toBeUndefined();
+  });
+
+  test("No answer to the Build box in time is Stop, the same answer as a cancel, and its step closes failed", async () => {
+    const silent = channel((_params, signal) => new Promise((_resolve, reject) => signal.addEventListener("abort", () => reject(new Error("aborted")))));
+    expect(await new AcpAsker("s1", silent, undefined, 20).ask(PLAN_BOX)).toBeUndefined();
+    expect(silent.updates.at(-1)).toMatchObject({ sessionUpdate: "tool_call_update", status: "failed",
+      content: [{ type: "content", content: { type: "text", text: "→ No (no answer)" } }] });
+    // A cancel gives the same answer, so the plan turn stops and keeps the plan for both (tests/acp-plan.integration.test.ts).
+    const cancelled = channel(async () => ({ outcome: { outcome: "cancelled" } }));
+    expect(await new AcpAsker("s1", cancelled).ask(PLAN_BOX)).toBeUndefined();
+  });
+
+  test("Plan steps replace the task stage as hidden entries", () => {
+    const secret = "PLUMPLUMPLUM42";
+    const mapper = new UpdateMapper(hider(() => [secret]));
+    const entries = (updates: Record<string, any>[]) => updates.at(-1)!.entries.map((entry: { content: string; status: string }) => [entry.content, entry.status]);
+    // Before the task stage starts, the steps are where it will be.
+    expect(entries(mapper.planSteps([{ title: "Write greeting.txt", status: "active" }, { title: `Use ${secret}`, status: "pending" }])))
+      .toEqual([["Write greeting.txt", "in_progress"], ["Use <secret hidden>", "pending"]]);
+    // The task stage does not show as a stage of its own while there are steps; the checks come after them.
+    expect(entries(mapper.map({ type: "phase", phase: "task", state: "start" } as never))).toEqual([["Write greeting.txt", "in_progress"], ["Use <secret hidden>", "pending"]]);
+    expect(entries(mapper.planSteps([{ title: "Write greeting.txt", status: "done" }, { title: `Use ${secret}`, status: "not-done", reason: "Waiting for the path" }])))
+      .toEqual([["Write greeting.txt", "completed"], ["Use <secret hidden> (not done: Waiting for the path)", "pending"]]);
+    expect(entries(mapper.map({ type: "phase", phase: "checks", state: "start" } as never)))
+      .toEqual([["Write greeting.txt", "completed"], ["Use <secret hidden> (not done: Waiting for the path)", "pending"], ["Run the project's checks", "in_progress"]]);
+    // A new prompt has no steps: the task stage is a stage again.
+    mapper.newPrompt();
+    expect(entries(mapper.map({ type: "phase", phase: "task", state: "start" } as never))[0]).toEqual(["Do the task", "in_progress"]);
+  });
+
+  test("While planning, the model's text is a thought, and an answer without a plan still arrives as a message", () => {
+    const secret = "PLUMPLUMPLUM42";
+    let planning = true;
+    const mapper = new UpdateMapper(hider(() => [secret]), { planning: () => planning });
+    const kinds = (updates: Record<string, any>[]) => updates.map((update) => [update.sessionUpdate, update.content.text]);
+    // A thought goes out a whole line at a time too, so a secret split across two deltas is hidden whole.
+    expect(kinds(mapper.map({ type: "assistant_delta", text: "Reading app.py; the key is PLUMPLUM" }))).toEqual([]);
+    expect(kinds(mapper.map({ type: "assistant_delta", text: "PLUM42\nSteps:" }))).toEqual([["agent_thought_chunk", "Reading app.py; the key is <secret hidden>\n"]]);
+    expect(kinds(mapper.map({ type: "assistant_message" } as never))).toEqual([["agent_thought_chunk", "Steps:"]]);
+    planning = false;
+    // The held words, when they were no plan, reach the app as a message of their own.
+    expect(kinds(mapper.words(`I could not plan this: ${secret} is unclear.\n`))).toEqual([["agent_message_chunk", "I could not plan this: <secret hidden> is unclear.\n"]]);
+    expect(kinds([...mapper.map({ type: "assistant_delta", text: "Next words\n" })])).toEqual([["agent_message_chunk", "\nNext words\n"]]);
+    // Not planning, the model's text is a message as before.
+    expect(kinds(new UpdateMapper(hider(() => [])).map({ type: "assistant_delta", text: "Hello\n" }))).toEqual([["agent_message_chunk", "Hello\n"]]);
+  });
+});
+
+describe("an ACP box names its step and carries its diff (decision 85)", () => {
+  const file = path.resolve("/work/project/notes/todo.md");
+  const edit = { id: "casper-tool-3", diffs: [{ type: "diff", path: file, oldText: "- [ ] one\n", newText: "- [x] one\n" }], locations: [{ path: file }] };
+  const cancelled = async () => ({ outcome: { outcome: "cancelled" } });
+
+  test("A box a running step raises names that step and repeats its diffs and file, and a box outside a step names none", async () => {
+    const seen = channel(cancelled);
+    const asker = new AcpAsker("s1", seen);
+    asker.stepOf = () => edit;
+    expect(await asker.ask(box)).toBeUndefined();
+    const sent = seen.sent[0]!.toolCall;
+    // The box's own words first, then the step's diffs; its file, and the step it belongs to.
+    expect(sent.content).toEqual([{ type: "content", content: { type: "text", text: "~/notes/todo.md" } }, edit.diffs[0]]);
+    expect(sent.locations).toEqual([{ path: file }]);
+    expect(sent._meta).toEqual({ casper: { step: "casper-tool-3" } });
+    // The tool_call the app saw start carries the same three fields.
+    expect(seen.updates[0]).toMatchObject({ sessionUpdate: "tool_call", toolCallId: sent.toolCallId, content: sent.content, locations: sent.locations, _meta: sent._meta });
+    // A shell step has no diff and no file: only its id, and a box with no words of its own has no content.
+    const shell = channel(cancelled);
+    const fromShell = new AcpAsker("s1", shell);
+    fromShell.stepOf = () => ({ id: "casper-tool-4", diffs: [] });
+    await fromShell.ask({ ...box, preview: undefined });
+    expect(shell.sent[0]!.toolCall).not.toHaveProperty("content");
+    expect(shell.sent[0]!.toolCall).not.toHaveProperty("locations");
+    expect(shell.sent[0]!.toolCall._meta).toEqual({ casper: { step: "casper-tool-4" } });
+    // The plan's labels and the step are merged, never one in place of the other.
+    const plan = channel(cancelled);
+    const fromPlan = new AcpAsker("s1", plan);
+    fromPlan.stepOf = () => edit;
+    await fromPlan.ask({ ...box, kind: "pick", choices: [{ label: "Stop" }, { label: "Build" }], review: { markdown: "# Plan\n", approve: "Build", change: "Change the plan" } });
+    expect(plan.sent[0]!.toolCall._meta).toEqual({ casper: { plan: { approve: "Build", change: "Change the plan" }, step: "casper-tool-3" } });
+    // Outside any step: no step, no file, only the box's words, as before.
+    const outside = channel(cancelled);
+    await new AcpAsker("s1", outside).ask(box);
+    expect(outside.sent[0]!.toolCall).not.toHaveProperty("_meta");
+    expect(outside.sent[0]!.toolCall).not.toHaveProperty("locations");
+    expect(outside.sent[0]!.toolCall.content).toEqual([{ type: "content", content: { type: "text", text: "~/notes/todo.md" } }]);
+    // Read only answers No at once, as before: that step names nothing either.
+    const readOnly = channel(cancelled);
+    const closed = new AcpAsker("s1", readOnly);
+    closed.readOnly = () => true;
+    closed.stepOf = () => edit;
+    expect(await closed.ask(box)).toBeUndefined();
+    expect(readOnly.sent).toEqual([]);
+    expect(readOnly.updates[0]).not.toHaveProperty("_meta");
+    expect(readOnly.updates[0]).not.toHaveProperty("locations");
+  });
+
+  test("A linked box is still No for cancelled, an error, an unknown option and no answer in time", async () => {
+    const outcomes: Array<(params: Record<string, any>, signal: AbortSignal) => Promise<unknown>> = [
+      cancelled,
+      async () => { throw new Error("the client could not ask"); },
+      async () => ({ outcome: { outcome: "selected", optionId: "9" } }),
+      (_params, signal) => new Promise((_resolve, reject) => signal.addEventListener("abort", () => reject(new Error("aborted")))),
+    ];
+    for (const reply of outcomes) {
+      const seen = channel(reply);
+      const asker = new AcpAsker("s1", seen, (text) => text, 30);
+      asker.stepOf = () => edit;
+      expect(await asker.ask(box)).toBeUndefined();
+      expect(seen.sent[0]!.toolCall._meta).toEqual({ casper: { step: "casper-tool-3" } });
+      expect(seen.updates.at(-1)).toMatchObject({ sessionUpdate: "tool_call_update", status: "failed" });
+    }
+    // A picked yes is still that label, with the same options in the same order.
+    const yes = channel(async (params) => ({ outcome: { outcome: "selected", optionId: params.options[1].optionId } }));
+    const asker = new AcpAsker("s1", yes);
+    asker.stepOf = () => edit;
+    expect(await asker.ask(box)).toEqual([YES_ONCE]);
+    expect(yes.sent[0]!.options.map((option: { name: string; kind: string }) => [option.name, option.kind]))
+      .toEqual([[NO, "reject_once"], [YES_ONCE, "allow_once"], [YES_SESSION, "allow_always"]]);
+  });
+});
+
+describe("an ACP app steers Casper mid-task (decision 86)", () => {
+  test("Initialize says Casper takes steering", () => {
+    for (const setting of ["on", "ask", "off"] as const) expect(initializeResult(setting)).toMatchObject({ agentCapabilities: { _meta: { casper: { steer: true } } } });
+  });
+
+  test("The router answers an unknown session with -32002 and routes a known one", () => {
+    const known = { name: "the session's process" };
+    const sessions = new Map([["s1", known]]);
+    expect(sessionFor(sessions, { sessionId: "s1" })).toBe(known);
+    for (const params of [{ sessionId: "s2" }, {}, { sessionId: 7 }]) {
+      let failure: unknown;
+      try { sessionFor(sessions, params); } catch (error) { failure = error; }
+      expect(failure).toBeInstanceOf(RpcFailure);
+      expect((failure as RpcFailure).code).toBe(-32002);
+    }
+    // A steer goes to its session as a prompt does.
+    expect(SESSION_REQUESTS).toEqual(["session/prompt", "session/set_config_option", "session/set_mode", "_casper/steer", "_casper/idle"]);
+  });
+});
+
+describe("an ACP app sees Casper's reasoning headlines and retries as thoughts (decision 87)", () => {
+  const thinking = (headline?: string): RuntimeEvent => ({ type: "assistant_progress", kind: "thinking", chars: 120, ...(headline ? { headline } : {}) });
+  const thought = (words: string) => ({ sessionUpdate: "agent_thought_chunk", content: { type: "text", text: words } });
+
+  test("A headline is one thought, a repeat sends nothing and a change sends one more", () => {
+    const mapper = new UpdateMapper(hider(() => []));
+    // The model's half-written line stays held: a headline does not flush it.
+    expect(mapper.map({ type: "assistant_delta", text: "Looking at" })).toEqual([]);
+    expect(mapper.runtime(thinking("Planning the port fix"))).toEqual([thought("Planning the port fix\n\n")]);
+    expect(mapper.runtime(thinking("Planning the port fix"))).toEqual([]);
+    expect(mapper.runtime(thinking("Checking which process holds the port"))).toEqual([thought("Checking which process holds the port\n\n")]);
+    expect(mapper.flush()).toEqual([{ sessionUpdate: "agent_message_chunk", content: { type: "text", text: "Looking at" } }]);
+    // A step, the end of a response and a new prompt each start afresh: the same headline is a new thought then.
+    const again = () => mapper.runtime(thinking("Checking which process holds the port"));
+    mapper.runtime({ type: "tool_start", toolName: "read", toolCallId: "t1", args: { path: "a.txt" } } as RuntimeEvent);
+    expect(again()).toHaveLength(1);
+    mapper.runtime({ type: "assistant_response_end", stopReason: "stop" } as RuntimeEvent);
+    expect(again()).toHaveLength(1);
+    mapper.newPrompt();
+    expect(again()).toHaveLength(1);
+    expect(again()).toEqual([]);
+  });
+
+  test("Headlines off or tool progress send nothing", () => {
+    let on = false;
+    const mapper = new UpdateMapper(hider(() => []), { headlines: () => on });
+    expect(mapper.runtime(thinking("Planning the port fix"))).toEqual([]);
+    on = true;
+    expect(mapper.runtime({ type: "assistant_progress", kind: "tool_call", toolName: "write", chars: 2048, headline: "Planning the port fix" })).toEqual([]);
+    expect(mapper.runtime(thinking())).toEqual([]);
+    expect(mapper.runtime(thinking("Planning the port fix"))).toEqual([thought("Planning the port fix\n\n")]);
+  });
+
+  test("A user secret in a headline is hidden, also when the 60-character cut falls inside it", () => {
+    const secret = "orchard-lantern-7431-quiet";
+    const mapper = new UpdateMapper(hider(() => [secret]), { values: () => [secret] });
+    const whole = reasoningHeadline(`Sign in with ${secret} now.`)!;
+    expect(mapper.runtime(thinking(whole))).toEqual([thought("Sign in with <secret hidden> now\n\n")]);
+    const cut = reasoningHeadline(`Now I will sign in to the lab with ${secret} and then check the port.`)!;
+    expect(cut).toEndWith("…");
+    expect(cut).not.toContain(secret);
+    expect(cut).toContain(secret.slice(0, 20));
+    expect(mapper.runtime(thinking(cut))).toEqual([thought("Now I will sign in to the lab with <secret hidden>…\n\n")]);
+    // Three letters before the cut are too few to tell a secret from a word.
+    const short = "Reading the lab notes before the sign in step with orc…";
+    expect(mapper.runtime(thinking(short))).toEqual([thought(`${short}\n\n`)]);
+  });
+
+  test("A user secret the headline took marks or a final full stop off is still hidden", () => {
+    const secrets = ["Kx9__mR4tQ2zLp", "orchard7431.", "Zq7`pw0rd-long", "**Vt3x9-Bold**"];
+    const mapper = new UpdateMapper(hider(() => secrets), { values: () => secrets });
+    const shown = (reasoning: string) => mapper.runtime(thinking(reasoningHeadline(reasoning)!));
+    expect(shown(`**Logging in with ${secrets[0]}**`)).toEqual([thought("Logging in with <secret hidden>\n\n")]);
+    expect(shown(`I will use the password ${secrets[1]}`)).toEqual([thought("I will use the password <secret hidden>\n\n")]);
+    expect(shown(`Use ${secrets[2]} here.`)).toEqual([thought("Use <secret hidden> here\n\n")]);
+    // A secret in bold is taken as the headline's title, its marks taken off.
+    expect(shown(`Then type ${secrets[3]} at the prompt.`)).toEqual([thought("<secret hidden>\n\n")]);
+    // The 60-character cut inside a secret the headline took marks off.
+    const cut = reasoningHeadline(`Now I will sign in to the core lab router using Kx9__mR4tQ2zLp__ab and check.`)!;
+    expect(cut).toEndWith("…");
+    const long = new UpdateMapper(hider(() => ["Kx9__mR4tQ2zLp__ab"]), { values: () => ["Kx9__mR4tQ2zLp__ab"] });
+    expect(long.runtime(thinking(cut))).toEqual([thought("Now I will sign in to the core lab router using <secret hidden>…\n\n")]);
+  });
+
+  test("A retry is one thought saying who is busy and when Casper tries again", () => {
+    const mapper = new UpdateMapper(hider(() => ["value-from-the-env-1234"]));
+    expect(mapper.map({ type: "assistant_delta", text: "Half a line" })).toEqual([]);
+    expect(mapper.runtime({ type: "retry", provider: "openrouter", attempt: 1, maxAttempts: 3, delayMs: 3500, errorMessage: "429 Provider returned error" }))
+      .toEqual([thought("openrouter is busy · trying again in 4s (1 of 3)\n\n")]);
+    expect(retryWords({ type: "retry", provider: "value-from-the-env-1234", attempt: 2, maxAttempts: 3, delayMs: 2000, errorMessage: "fetch failed" }))
+      .toBe("Can't reach value-from-the-env-1234 · trying again in 2s (2 of 3)");
+    expect(mapper.runtime({ type: "retry", provider: "value-from-the-env-1234", attempt: 2, maxAttempts: 3, delayMs: 2000, errorMessage: "fetch failed" }))
+      .toEqual([thought("Can't reach <secret hidden> · trying again in 2s (2 of 3)\n\n")]);
+  });
+});
+
+describe("an ACP app sees Casper's usage, its notes and the receipt's fields (decision 88)", () => {
+  type Usage = NonNullable<ReturnType<NonNullable<RuntimeSession["getUsage"]>>>;
+  type Status = NonNullable<ReturnType<NonNullable<RuntimeSession["getStatus"]>>>;
+  const end = (stopReason = "stop", usage: Record<string, number> | null = { tokens: 1300, estimatedCost: 0.002, input: 100, cacheRead: 1000, cacheWrite: 0, output: 200 }): RuntimeEvent =>
+    ({ type: "assistant_response_end", stopReason, ...(usage ? { usage } : {}) }) as RuntimeEvent;
+  const session = (context: Usage["context"], estimatedCost: number | null = 0.0123): Usage =>
+    ({ context, tokens: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 }, messages: 3, ...(estimatedCost === null ? {} : { estimatedCost }) });
+  const usageOf = (updates: Array<Record<string, any>>) => updates.filter((update) => update.sessionUpdate === "usage_update");
+
+  test("A model response's usage is one usage_update with the window, the session's cost and the response's tokens", () => {
+    const status: Status = { provider: "anthropic", model: "claude-model-value-from-env-9", auth: "configured", billing: "per-token" };
+    const mapper = new UpdateMapper(hider(() => ["value-from-env-9"]), { usage: () => session({ tokens: 5000, contextWindow: 200_000, percent: 2.5 }), status: () => status });
+    // The model's half-written line goes first: the usage follows its words.
+    expect(mapper.map({ type: "assistant_delta", text: "Half a line" })).toEqual([]);
+    expect(mapper.runtime(end())).toEqual([
+      { sessionUpdate: "agent_message_chunk", content: { type: "text", text: "Half a line" } },
+      // The context is what this response read and wrote; the cost is the session's so far with this response's.
+      { sessionUpdate: "usage_update", used: 1300, size: 200_000, cost: { amount: 0.0143, currency: "USD" },
+        _meta: { casper: { response: { input: 100, cacheRead: 1000, cacheWrite: 0, output: 200, tokens: 1300, toolUse: false },
+          model: { provider: "anthropic", model: "claude-model-<secret hidden>" }, cost: "estimate" } } },
+    ]);
+  });
+
+  test("No usage_update is sent without a window or reported usage, a subscription has no cost, OpenRouter is charged and toolUse follows the stop reason", () => {
+    let usage: Usage | undefined = session(undefined);
+    let status: Status = { provider: "openai", model: "gpt", auth: "configured" };
+    const mapper = new UpdateMapper(hider(() => []), { usage: () => usage, status: () => status });
+    expect(mapper.runtime(end())).toEqual([]);
+    usage = session({ tokens: 10, contextWindow: 0, percent: null });
+    expect(mapper.runtime(end())).toEqual([]);
+    usage = session({ tokens: 10, contextWindow: 128_000, percent: 0 });
+    expect(mapper.runtime(end("stop", null))).toEqual([]);
+    usage = session({ tokens: null, contextWindow: 128_000, percent: null });
+    status = { provider: "openai-codex", model: "gpt", auth: "configured", billing: "subscription" };
+    const [subscribed] = usageOf(mapper.runtime(end("toolUse")));
+    expect(subscribed).toMatchObject({ used: 1300, size: 128_000, _meta: { casper: { cost: "subscription", response: { toolUse: true } } } });
+    expect(subscribed).not.toHaveProperty("cost");
+    status = { provider: "openrouter", model: "m", auth: "configured", billing: "per-token" };
+    expect(usageOf(mapper.runtime(end()))[0]).toMatchObject({ cost: { amount: 0.0143, currency: "USD" }, _meta: { casper: { cost: "charged", response: { toolUse: false } } } });
+    // The first response of a session: its own cost is the session's.
+    usage = session({ tokens: 10, contextWindow: 128_000, percent: 0 }, null);
+    expect(usageOf(mapper.runtime(end()))[0].cost).toEqual({ amount: 0.002, currency: "USD" });
+    // A free model has no cost.
+    const [unpriced] = usageOf(mapper.runtime(end("stop", { tokens: 1300, estimatedCost: 0, input: 100, cacheRead: 1000, cacheWrite: 0, output: 200 })));
+    expect(unpriced).not.toHaveProperty("cost");
+    expect(unpriced._meta.casper.cost).toBeNull();
+    // A token count the provider left out is null, as in --json, and the context is the runtime's own count.
+    const [unsplit] = usageOf(mapper.runtime(end("stop", { tokens: 50, estimatedCost: 0 })));
+    expect(unsplit.used).toBe(10);
+    expect(unsplit._meta.casper.response).toEqual({ input: null, cacheRead: null, cacheWrite: null, output: null, tokens: 50, toolUse: false });
+    // A runtime that fails to say sends nothing.
+    const broken = new UpdateMapper(hider(() => []), { usage: () => { throw new Error("no session"); }, status: () => status });
+    expect(broken.runtime(end())).toEqual([]);
+  });
+
+  test("A response that was cancelled or failed sends no usage_update, so the app keeps the last context and cost", () => {
+    const zero = { tokens: 0, estimatedCost: 0, input: 0, cacheRead: 0, cacheWrite: 0, output: 0 };
+    const mapper = new UpdateMapper(hider(() => []), { usage: () => session({ tokens: 42_000, contextWindow: 200_000, percent: 21 }, 0.5),
+      status: () => ({ provider: "anthropic", model: "m", auth: "configured", billing: "per-token" }) });
+    expect(usageOf(mapper.runtime(end("aborted", zero)))).toEqual([]);
+    expect(usageOf(mapper.runtime(end("error", zero)))).toEqual([]);
+    // A held error Pi retries, with a partial stream's cost the session already holds.
+    expect(usageOf(mapper.runtime({ ...end("error", { ...zero, tokens: 30, estimatedCost: 0.01, input: 10, output: 20 }), retrying: true } as RuntimeEvent))).toEqual([]);
+    expect(usageOf(mapper.runtime(end()))[0]).toMatchObject({ used: 1300, size: 200_000 });
+  });
+
+  test("A helper's usage sends nothing", () => {
+    const mapper = new UpdateMapper(hider(() => []), { usage: () => session({ tokens: 10, contextWindow: 128_000, percent: 0 }) });
+    const usage = { type: "usage", input: 1, cacheRead: 0, cacheWrite: 0, output: 1, tokens: 2, estimatedCost: 0.01 } as const;
+    expect(mapper.map({ ...usage, helper: 2 })).toEqual([]);
+    expect(mapper.map(usage)).toEqual([]);
+  });
+
+  test("A note carries the note marker and model text does not", () => {
+    const mapper = new UpdateMapper(hider(() => []));
+    expect(mapper.map({ type: "assistant_delta", text: "The model's words.\n" })).toEqual([{ sessionUpdate: "agent_message_chunk", content: { type: "text", text: "The model's words.\n" } }]);
+    expect(mapper.note(" skills selected: network-mist-api")).toEqual([{ sessionUpdate: "agent_message_chunk", content: { type: "text", text: "\n skills selected: network-mist-api\n" }, _meta: { casper: { note: true } } }]);
+    expect(mapper.map({ type: "error", message: "the provider failed" }).at(-1)!._meta).toEqual({ casper: { note: true } });
+    for (const update of [...mapper.words("Words held while planning"), ...mapper.map({ type: "assistant_delta", text: "More words\n" })]) expect(update).not.toHaveProperty("_meta");
+  });
+
+  test("The receipt carries the task's usage, the cost kind and the workspace root, hidden", () => {
+    const usage = { turns: 2, tokens: 240, estimatedCost: 0.00028, input: 200, cacheRead: 0, cacheWrite: 0, output: 40 };
+    const event = { outcome: "unverified", verdict: "Not checked", exitCode: 0, changed: [], checks: [], text: "Not checked", usage } as unknown as ReceiptEvent;
+    const hide = hider(() => ["value-from-env-9"]);
+    expect(acpReceipt(event, undefined, hide, { status: { provider: "fixture", auth: "configured" }, root: "/work/value-from-env-9/app" }))
+      .toMatchObject({ usage, cost: "estimate", root: "/work/<secret hidden>/app" });
+    expect(acpReceipt(event, undefined, hide, { status: { provider: "openai-codex", auth: "configured", billing: "subscription" }, root: "/work" }).cost).toBe("subscription");
+    expect(acpReceipt({ ...event, usage: null }, undefined, hide, { root: "/work" })).toMatchObject({ usage: null, cost: null });
+  });
+});
+
+describe("embedded context is not the request (decision 90)", () => {
+  const words = (text: string) => ({ type: "text", text });
+  /** Another chat's text, as an app sends an @-mention of it. */
+  const SESSION = "app-session://chat-1";
+  const mention = (text: string) => ({ type: "resource", resource: { uri: SESSION, mimeType: "text/markdown", text } });
+  const OTHER_CHAT = "Fix the failing sum test and add tests for it.";
+  const asked = (blocks: unknown[]) => { const content = promptContent(blocks); return askedWithout(blocks, content.text, content.context); };
+
+  test("Words plus a session resource ask only for the words", () => {
+    const blocks = [words("Why did the other chat stop?"), mention(OTHER_CHAT)];
+    const content = promptContent(blocks);
+    // The model still reads the other chat; only what was asked leaves it out.
+    expect(content.text).toBe(`Why did the other chat stop?\n${SESSION}\n${OTHER_CHAT}`);
+    expect(content.context).toEqual([`${SESSION}\n${OTHER_CHAT}`]);
+    expect(asked(blocks)).toBe("Why did the other chat stop?");
+  });
+
+  test("A prompt that is only a session resource asks for nothing", () => {
+    expect(asked([mention(OTHER_CHAT)])).toBe("");
+    expect(asked([mention(`${OTHER_CHAT}\n`)])).toBe("");
+    // A cut one is context too: what went is what is left out.
+    const big = `${"fix the sum test\n".repeat(MAX_EMBEDDED_TEXT / 16)}and add tests\n`;
+    const cut = promptContent([mention(big)]);
+    expect(cut.context).toHaveLength(1);
+    expect(cut.text).toBe(cut.context[0]!);
+    expect(asked([mention(big)])).toBe("");
+  });
+
+  test("Words plus a file resource are classified as today", () => {
+    const file = { type: "resource", resource: { uri: pathToFileURL(path.resolve("/work/sum.js")).href, text: "// fix: sum is wrong\n" } };
+    const blocks = [words("Fix sum.js"), file];
+    const content = promptContent(blocks);
+    expect(content.context).toEqual([]);
+    expect(content.text).toBe(`Fix sum.js\n${file.resource.uri}\n// fix: sum is wrong\n`.trim());
+    expect(asked(blocks)).toBeUndefined();
+  });
+
+  test("A pasted screen transcript and plain text give today's results", () => {
+    const transcript = "❯ fix the failing sum test\n● I'll fix sum.js and add tests\n⎿ Edited sum.js\n● Done";
+    expect(asked([words(`Why did the other agent stop?\n${transcript}`)])).toBe("Why did the other agent stop?");
+    expect(asked([words("Why did it stop?"), words(transcript)])).toBe("Why did it stop?");
+    expect(asked([words(`${transcript}\nwhy?`)])).toBe("");
+    expect(asked([words("Fix sum.js\n● sum(1, 2) is 3\nThanks")])).toBeUndefined();
+    expect(asked([words("Fix sum.js")])).toBeUndefined();
+    // A transcript and a mention are both left out.
+    expect(asked([words(`Why did it stop?\n${transcript}`), mention(OTHER_CHAT)])).toBe("Why did it stop?");
+  });
+
+  test("A picture with a context resource is decoded once", () => {
+    const PNG = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==";
+    const blocks = [words("What is wrong here?"), { type: "image", mimeType: "image/png", data: PNG }, mention(OTHER_CHAT)];
+    const content = promptContent(blocks);
+    expect([...content.images.keys()]).toEqual([1]);
+    expect(content.text.match(/\[image \d+\]/g)).toEqual(["[image 1]"]);
+    expect(content.context).toEqual([`${SESSION}\n${OTHER_CHAT}`]);
+    // The picture stays part of what was asked.
+    expect(askedWithout(blocks, content.text, content.context)).toBe("What is wrong here?\n[image 1]");
+  });
 });

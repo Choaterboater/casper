@@ -51,7 +51,7 @@ test("the settings list shows each switch and where it stands", async () => {
   expect(settingRows(context).map((row) => `${row.label}: ${row.value}`)).toEqual([
     "Web lookups: off", "Browser tool: on", "Browser clicks: on", "Routine commands: on", "Auto mode: on", "Slow commands: on", "Stalled commands: on", "Keep going: on", "Starter templates: on", "Diagram tool: on", "Pages the AI makes: on", "Pictures the AI makes: on", "Open pages in the browser: on", "Updates: off", "Notifications: on", "Suggestions: on", "Side questions with ?: on", "Built-in skills: on", "GitHub tool: on", "Packs: on", "Spend notes: at $1 a task", "Spend pause: at $5 a task",
     "Prompt cache: auto", "Lean guidance: auto", "Compact at: auto", "Hide old tool output: on", "Local models: on", "Page checks: on", "Show the AI the pages: ask once a session",
-    "Work shown: normal", "Reasoning headline: on", "Theme: default", "Untrusted-text reader: on", "Helpers that build: off", "Playwright tests: on", "Compose files: on", "Send Casper's name to OpenRouter: on", "Sign-ins from other tools: on", "Network server updates: on", "My MCP servers: on", "Apps' MCP servers: on", "Apps' access modes: on", "My language servers: on", "Private ssh passwords: on",
+    "Work shown: normal", "Reasoning headline: on", "Theme: default", "Untrusted-text reader: on", "Helpers that build: off", "Playwright tests: on", "Compose files: on", "Send Casper's name to OpenRouter: on", "Sign-ins from other tools: on", "Network server updates: on", "My MCP servers: on", "Apps' MCP servers: on", "Apps' access modes: on", "Apps answer the AI's questions: on", "Apps close idle Casper: on", "My language servers: on", "Private ssh passwords: on",
   ]);
   expect(settingRows(context).find((row) => row.label === "Playwright tests")!.question).toBe("Casper runs a project's own Playwright tests (the e2e check) after each change, once they are installed. They are on.");
   const question = (label: string, rows = settingRows(context)) => rows.find((row) => row.label === label)!.question;
@@ -199,4 +199,18 @@ test("an MCP server in the sandbox gets its own line; turning it off goes throug
   expect(host.asked[1]).toContain("1 Keep it on\n2 Turn it off");
   expect(host.text()).toContain("[settings] Sandbox for MCP server network: off. Saved in ~/.casper/mcp-sandbox.json.");
   await expect(readFile(config, "utf8")).rejects.toThrow();
+});
+
+test("The settings list has Apps close idle Casper with key acp_idle_exit", async () => {
+  const { home, project, config } = await place();
+  let context = await loadProjectContext(await inspectProject(project), { homeDir: home });
+  let row = settingRows(context).find((entry) => entry.label === "Apps close idle Casper")!;
+  expect(row.value).toBe("on");
+  expect(row.question).toContain("Applies from the next idle check.");
+  expect(row.choices.map((choice) => [choice.label, choice.keys, choice.value])).toEqual([["Turn it off", ["acp_idle_exit"], false]]);
+  await writeFile(config, "acp_idle_exit: off\n");
+  context = await loadProjectContext(await inspectProject(project), { homeDir: home });
+  row = settingRows(context).find((entry) => entry.label === "Apps close idle Casper")!;
+  expect(row.value).toBe("off");
+  expect(row.choices.map((choice) => [choice.label, choice.keys, choice.value])).toEqual([["Turn it on", ["acp_idle_exit"], true]]);
 });

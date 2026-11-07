@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { CasperApp } from "../src/app";
 import { settleQueuedLines, steerOrQueue, takeBackNewest } from "../src/app/during-work";
-import { requestAsItStands } from "../src/app/steered-request";
+import { requestAsItStands, withLinesBeforeModel } from "../src/app/steered-request";
 import { loadProjectContext } from "../src/project/context";
 import type { AgentRuntime, RuntimeSession } from "../src/runtime/types";
 import { SkillRegistry } from "../src/skills/registry";
@@ -130,4 +130,18 @@ test("a line typed before the model starts can be taken back; if the task stops 
     expect(app.queuedLines).toEqual(["use port 8443"]);
     expect(app.beforeFirstModelTurn).toBe(false);
   } finally { await app.close(); }
+});
+
+test("onLinesJoined gets the joined lines", () => {
+  const app = new CasperApp({ output: { write() {} } });
+  const joined: string[][] = [];
+  app.onLinesJoined = (lines) => joined.push([...lines]);
+  app.beforeFirstModelTurn = true;
+  app.linesBeforeModel = ["use port 8443", "and the docker network"];
+  expect(withLinesBeforeModel(app, "set up the tunnel")).toBe("set up the tunnel\n\nLater instructions the user typed during this task, oldest first:\n- use port 8443\n- and the docker network");
+  expect(joined).toEqual([["use port 8443", "and the docker network"]]);
+  // A first turn with no line typed before it tells nobody.
+  app.beforeFirstModelTurn = true;
+  expect(withLinesBeforeModel(app, "next")).toBe("next");
+  expect(joined).toHaveLength(1);
 });

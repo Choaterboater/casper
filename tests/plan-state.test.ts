@@ -160,3 +160,20 @@ test("VISUAL/EDITOR Markdown edit round-trip, missing editor and nonzero exit", 
     await removeTempDir(root);
   }
 });
+
+test("Plan steps are reported at the start, on each step and at the finish", async () => {
+  const reports: Array<Array<{ title: string; status: string; reason?: string }>> = [];
+  const build = new PlanBuild(plan, () => {}, (steps) => reports.push(steps.map((step) => ({ ...step }))));
+  expect(reports).toEqual([[{ title: "Add the board", status: "active" }, { title: "Test it", status: "pending" }]]);
+  await build.tool().execute({ step: 1, status: "done" });
+  expect(reports.at(-1)).toEqual([{ title: "Add the board", status: "done" }, { title: "Test it", status: "pending" }]);
+  // A refused report changes nothing, so nothing is reported.
+  await build.tool().execute({ step: 9, status: "done" });
+  expect(reports).toHaveLength(2);
+  await build.tool().execute({ step: 2, status: "active" });
+  expect(reports.at(-1)![1]).toEqual({ title: "Test it", status: "active" });
+  const finished = build.finish("completed");
+  expect(reports.at(-1)).toEqual(finished);
+  expect(reports.at(-1)![1]).toEqual({ title: "Test it", status: "not-done", reason: "not reported done by the model" });
+  expect(reports).toHaveLength(4);
+});

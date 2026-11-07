@@ -19,6 +19,6 @@ export function requestAsItStands(app: CasperApp, request: string): string {
 export function withLinesBeforeModel(app: CasperApp, text: string): string {
   app.beforeFirstModelTurn = false;
   const lines = app.linesBeforeModel.splice(0);
-  if (lines.length) showWaiting(app);
+  if (lines.length) { showWaiting(app); app.onLinesJoined?.(lines); }
   return withLater(text, lines);
 }
