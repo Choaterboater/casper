@@ -618,7 +618,7 @@ describe("an ACP app steers Casper mid-task (decision 86)", () => {
       expect((failure as RpcFailure).code).toBe(-32002);
     }
     // A steer goes to its session as a prompt does.
-    expect(SESSION_REQUESTS).toEqual(["session/prompt", "session/set_config_option", "session/set_mode", "_casper/steer"]);
+    expect(SESSION_REQUESTS).toEqual(["session/prompt", "session/set_config_option", "session/set_mode", "_casper/steer", "_casper/idle"]);
   });
 });
 

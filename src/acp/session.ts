@@ -12,7 +12,8 @@
 // the app's plan, and the `plan` option is /plan on (decision 84). A line the app sends during a prompt
 // (`_casper/steer`) reaches the AI at its next step, as a line typed in the terminal does (decision 86). Each model
 // response is followed by a usage_update, and Casper's lines for the person are notes (decision 88). A session/load
-// goes on with the conversation's own model and effort (decision 89).
+// goes on with the conversation's own model and effort (decision 89). `_casper/idle` tells the app whether it may close
+// this process now, by kind only (decision 91).
 
 import os from "node:os";
 import path from "node:path";
@@ -29,7 +30,7 @@ import { promptWords } from "../app/rewind";
 import { taskExitCode } from "../task/result";
 import { CASPER_VERSION } from "../version";
 import type { AwayAsker } from "../tui/terminal";
-import { readAcpMcpSetting, type AcpMcpSetting } from "../config/load";
+import { readAcpIdleExitSetting, readAcpMcpSetting, type AcpMcpSetting } from "../config/load";
 import type { MCPServerDefinition } from "../mcp/config";
 import { toolCallId } from "../runtime/tool-reason";
 import type { RuntimeEvent, RuntimeStatus } from "../runtime/types";
@@ -92,6 +93,26 @@ export function promptText(blocks: unknown): string {
 export function answerThroughClient(app: CasperApp, asker: AwayAsker, write: (text: string) => void): void {
   app.remoteApprovals = true;
   app.terminal.leave({ isTTY: false, columns: 100, rows: 40, write }, asker);
+}
+
+/** What `_casper/idle` names as still running (decision 91): kinds only, in this order. The browser for page checks is
+ * not one: it holds nothing that closing would lose. */
+export const IDLE_KINDS = ["dev server", "command", "debugger", "helper", "checks"] as const;
+export type IdleKind = typeof IDLE_KINDS[number];
+export type IdleHost = Pick<CasperApp, "backgroundTasks"> & { backgroundCommands?: Pick<NonNullable<CasperApp["backgroundCommands"]>, "notifying">;
+  subagents: Pick<CasperApp["subagents"], "isBusy"> };
+
+/** The `_casper/idle` reply (decision 91): `idle` only with acp_idle_exit on (read again now, from your own file), no
+ * prompt or model change under way and nothing running, a command's note still being written and a helper still
+ * draining included. It never holds a name, a command's text, a path or a secret. */
+export async function idleReply(app: IdleHost, state: { busy: boolean; changing: boolean }, homeDir: string): Promise<Json> {
+  if (await readAcpIdleExitSetting(homeDir) === "off") return { idle: false, running: [], reason: "off" };
+  if (state.busy || state.changing) return { idle: false, running: [], reason: "busy" };
+  const kinds = new Set<string>(app.backgroundTasks().map((task) => task.kind));
+  if ((app.backgroundCommands?.notifying() ?? 0) > 0) kinds.add("command");
+  if (app.subagents.isBusy) kinds.add("helper");
+  const running = IDLE_KINDS.filter((kind) => kinds.has(kind));
+  return { idle: running.length === 0, running };
 }
 
 /** A line the app steered in during a prompt (decision 86), until the AI reads it: `text` as the app sent it, `sent`
@@ -518,6 +539,12 @@ export async function runAcpSession(options: SessionOptions): Promise<void> {
     } catch (error) {
       throw new RpcFailure(error instanceof RpcFailure ? error.code : RPC.internal, hide(error instanceof Error ? error.message : String(error)));
     }
+  });
+  // Whether the app may close this process now (decision 91). Asked between prompts; a prompt or a model change under
+  // way is busy.
+  connection.onRequest("_casper/idle", async (params) => {
+    if (!app || !sessionId || params.sessionId !== sessionId) throw new RpcFailure(RPC.notFound, "Unknown session");
+    return await idleReply(app, { busy, changing }, options.homeDir ?? os.homedir());
   });
   connection.onNotification("session/cancel", (params) => {
     if (!app || params.sessionId !== sessionId || !busy) return;

@@ -5,7 +5,7 @@ export const SETTINGS_AREAS = [
   { name: "Commands & checks", tab: "> Checks", labels: ["Routine commands", "Auto mode", "Slow commands", "Stalled commands", "Keep going", "Page checks", "Playwright tests", "Compose files", "Helpers that build"] },
   { name: "Models & cost", tab: "$ Models", labels: ["Spend notes", "Spend pause", "Prompt cache", "Lean guidance", "Compact at", "Hide old tool output", "Local models", "Side questions with ?"] },
   { name: "Display", tab: "◐ Display", labels: ["Work shown", "Reasoning headline", "Theme", "Updates", "Notifications", "Suggestions"] },
-  { name: "MCP & network", tab: "↔ MCP", labels: ["Network server updates", "My MCP servers", "Apps' MCP servers", "Apps' access modes", "Apps answer the AI's questions", "My language servers"] },
+  { name: "MCP & network", tab: "↔ MCP", labels: ["Network server updates", "My MCP servers", "Apps' MCP servers", "Apps' access modes", "Apps answer the AI's questions", "Apps close idle Casper", "My language servers"] },
   { name: "Privacy & sign-ins", tab: "* Privacy", labels: ["Send Casper's name to OpenRouter", "Sign-ins from other tools", "Private ssh passwords"] },
 ] as const;
 

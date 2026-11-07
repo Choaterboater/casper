@@ -178,6 +178,11 @@ what you asked: its "fix" or "add tests" makes no checklist, and a `/` command t
 says the text did not go with it.
 [Decision 90](docs/adr/0002/90-embedded-context-is-not-the-request.md).
 
+The app may close a Casper that sits idle and reopen the conversation on your next message, on its own model. Casper
+is idle only when nothing runs: no prompt, dev server, command, debugger, helper or checks, and no command's end note
+still being written. "Yes, for this session" and the access mode end with it. `acp_idle_exit: off` in
+`~/.casper/config.yaml` keeps Casper open. [Decision 91](docs/adr/0002/91-an-app-may-close-an-idle-casper.md).
+
 Type `/help` for the commands. Ctrl+C stops the current work but keeps changes already made;
 Ctrl+D on an empty prompt exits. [Keys and commands](docs/TERMINAL_UX.md#quick-reference).
 

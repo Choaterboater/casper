@@ -397,6 +397,12 @@ The app's reasoning block gets the model's reasoning headline (below) and each p
 ([decision 87](adr/0002/87-an-acp-app-sees-casper-reasoning-headlines.md)). `reasoning_headline: false` and
 `display: quiet` keep the headlines out of it too.
 
+An app may close a Casper that sits idle and reopen the conversation later
+([decision 91](adr/0002/91-an-app-may-close-an-idle-casper.md)). Casper says it is idle only when no prompt runs and no
+dev server, command, debugger, helper or checks are at work, a command's end note included. `acp_idle_exit: off` in
+`~/.casper/config.yaml` (only there) keeps it open; it is read again at each check. /settings shows it as **Apps close
+idle Casper**.
+
 ### Asking less: /permissions
 
 `/permissions` prints a short screen: whether Casper is asking, one line per kind (state · how to change it) and what stays protected, then the numbered box
@@ -552,7 +558,7 @@ loading.
 **Profile trust.** A repository's `profile:` may select one of your existing profiles, including
 its rules, MCP/LSP server definitions, reference sources and the settings a project file may set
 anyway. Your own settings (`sandbox`, `shell`, `web`, `lab`, `spend`, `cache`, `display`, `theme`,
-`showPages`, `hide_tool_output`, `reasoning_headline`, `lean_guidance`, `compact_at`, `suggestions`, `updates`, `sideQuestions`, `localModels`, `modelServers` (from `~/.casper/config.yaml` only), `telemetry`, `ssh_login`, `other_logins`, `network_updates`, `ai_pages`, `open_pages`, `tools.downloads`, `pages: off`, `browser`, `packs`, `skills.imports`, `skills.bundled`, `repair.bigModelLastTry`, `delegate.build`, `mcp_autoconnect`, `lsp_autostart`, `acp_mcp`, `acp_access`, `acp_questions`, `notifications`)
+`showPages`, `hide_tool_output`, `reasoning_headline`, `lean_guidance`, `compact_at`, `suggestions`, `updates`, `sideQuestions`, `localModels`, `modelServers` (from `~/.casper/config.yaml` only), `telemetry`, `ssh_login`, `other_logins`, `network_updates`, `ai_pages`, `open_pages`, `tools.downloads`, `pages: off`, `browser`, `packs`, `skills.imports`, `skills.bundled`, `repair.bigModelLastTry`, `delegate.build`, `mcp_autoconnect`, `lsp_autostart`, `acp_mcp`, `acp_access`, `acp_questions`, `acp_idle_exit`, `notifications`)
 stay those of the profile you chose yourself (or `~/.casper/config.yaml`), so a repository can't
 turn your sandbox off or your web lookups on by picking or naming a profile; the banner says
 `[config] .casper/project.yaml picked profile lab: …`. `CASPER_PROFILE=lab` (or `profile: lab` in

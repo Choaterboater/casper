@@ -103,6 +103,8 @@ export class BackgroundCommands {
   private readonly running = new Map<string, Running>();
   private next = 0;
   private closed = false;
+  /** Ended ones whose note is still being written into the conversation. */
+  private writing = 0;
   /** Casper ending without close (a crash, process.exit): each tree is still killed, synchronously. */
   private readonly onExit = () => { for (const entry of this.running.values()) { entry.stoppedBy = "close"; entry.stop(); } };
   /** The terminal closed: kill them too (they run in their own process group, so no hang-up reaches them), then
@@ -177,9 +179,14 @@ export class BackgroundCommands {
       : exitCode === null ? "ended without an exit code (a signal stopped it)" : `ended with exit code ${exitCode}`;
     const tail = outputTail(entry.tail);
     const note = `[Background command ${entry.id} ${how}: ${entry.command.slice(0, 200)}]${tail ? `\nLast output:\n${tail}` : ""}${entry.log ? `\nFull output: ${entry.log}` : ""}`;
+    this.writing++;
     try { await this.options.notify(note, entry.command, { id: entry.id, how, startedAt: entry.startedAt, byPerson: entry.stoppedBy === "person" }); }
     catch { /* the conversation is gone */ }
+    finally { this.writing--; }
   }
+
+  /** How many ended ones are still writing their note: an app must not close Casper before it is in (decision 91). */
+  notifying(): number { return this.writing; }
 
   list(): BackgroundCommandInfo[] {
     return [...this.running.values()].map(({ id, command, startedAt, log }) => ({ id, command, startedAt, ...(log ? { log } : {}) }));

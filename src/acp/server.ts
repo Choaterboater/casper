@@ -3,7 +3,8 @@
 // (src/acp/session.ts), started for session/new or session/load, so sessions run side by side without sharing a
 // folder or a sandbox. The client's messages go to the session they name; the session's updates, permission requests
 // and forms (elicitation/create) come back as they are. Each session is told the client's capabilities. A line the app
-// sends during a prompt (`_casper/steer`, decision 86) goes to its session as a prompt does.
+// sends during a prompt (`_casper/steer`, decision 86) goes to its session as a prompt does, and so does its question
+// whether it may close an idle Casper (`_casper/idle`, decision 91).
 
 import path from "node:path";
 import type { Subprocess } from "bun";
@@ -22,8 +23,9 @@ interface SessionProcess {
   held?: Json[];
 }
 
-/** The requests that name a session and go to its process as they are: a steer too (decision 86). */
-export const SESSION_REQUESTS = ["session/prompt", "session/set_config_option", "session/set_mode", "_casper/steer"] as const;
+/** The requests that name a session and go to its process as they are: a steer too (decision 86), and the idle check
+ * (decision 91). */
+export const SESSION_REQUESTS = ["session/prompt", "session/set_config_option", "session/set_mode", "_casper/steer", "_casper/idle"] as const;
 
 /** The session `params` names; an unknown one is not found (-32002). */
 export function sessionFor<T>(sessions: ReadonlyMap<string, T>, params: Json): T {

@@ -110,6 +110,8 @@ export interface ProjectContext {
   acpAccess?: LoadedConfiguration["acpAccess"];
   /** `acp_questions: on|off` in ~/.casper/config.yaml: whether a form app gets the AI's questions (decision 83). Unset: on. */
   acpQuestions?: LoadedConfiguration["acpQuestions"];
+  /** `acp_idle_exit: on|off` in ~/.casper/config.yaml: whether an app may close an idle Casper (decision 91). Unset: on. */
+  acpIdleExit?: LoadedConfiguration["acpIdleExit"];
   /** `lsp_autostart: off` in the user's config: their own language servers wait for /lsp connect. Unset: on. */
   lspAutostart?: boolean;
   /** `notifications: off` in the user's config: nothing rings when a long task ends or a question waits. Unset: on. */
@@ -242,6 +244,7 @@ export async function loadProjectContext(
     ...(configuration.acpMcp !== undefined ? { acpMcp: configuration.acpMcp } : {}),
     ...(configuration.acpAccess !== undefined ? { acpAccess: configuration.acpAccess } : {}),
     ...(configuration.acpQuestions !== undefined ? { acpQuestions: configuration.acpQuestions } : {}),
+    ...(configuration.acpIdleExit !== undefined ? { acpIdleExit: configuration.acpIdleExit } : {}),
     ...(configuration.lspAutostart !== undefined ? { lspAutostart: configuration.lspAutostart } : {}),
     ...(configuration.notifications !== undefined ? { notifications: configuration.notifications } : {}),
     ...(configuration.toolDownloads !== undefined ? { toolDownloads: configuration.toolDownloads } : {}),

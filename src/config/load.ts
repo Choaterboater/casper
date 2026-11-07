@@ -38,6 +38,10 @@ export type AcpAccessSetting = typeof ACP_ACCESS_SETTINGS[number];
  * Casper's typed ones (decision 83). Unset: on. */
 export const ACP_QUESTIONS_SETTINGS = ["on", "off"] as const;
 export type AcpQuestionsSetting = typeof ACP_QUESTIONS_SETTINGS[number];
+/** `acp_idle_exit:` (in ~/.casper/config.yaml only) whether an ACP app may close a Casper that sits idle and reopen the
+ * conversation later (decision 91). Unset: on. */
+export const ACP_IDLE_EXIT_SETTINGS = ["on", "off"] as const;
+export type AcpIdleExitSetting = typeof ACP_IDLE_EXIT_SETTINGS[number];
 
 /** `showPages:` whether the AI is shown page screenshots after a UI change: ask once a session, always, or never. */
 export const SHOW_PAGES_SETTINGS = ["ask", "on", "off"] as const;
@@ -179,6 +183,8 @@ export interface LoadedConfiguration {
   acpAccess?: AcpAccessSetting;
   /** `acp_questions: on|off` in ~/.casper/config.yaml: whether a form app gets the AI's questions (decision 83). Unset: on. */
   acpQuestions?: AcpQuestionsSetting;
+  /** `acp_idle_exit: on|off` in ~/.casper/config.yaml: whether an app may close an idle Casper (decision 91). Unset: on. */
+  acpIdleExit?: AcpIdleExitSetting;
   /** `lsp_autostart: off` in your own config: your own language servers wait for /lsp connect. Unset: on. */
   lspAutostart?: boolean;
   /** `notifications: off` in your own config: no bell or desktop notification when a long task ends or a question waits. Unset: on. */
@@ -339,7 +345,7 @@ const POLICY_KEYS = {
 } as const;
 const ISOLATE_KEYS = ["parallelAgents", "riskyRefactor", "experimentalBranch"];
 const TOP_LEVEL_KEYS = new Set(["profile", "project", "languages", "frameworks", "packageManager", "commands", "architecture",
-  "conventions", "verify", "verification", "repair", "skills", "visualize", "policy", "services", "smoke", "pages", "lab", "suggestions", "updates", "sideQuestions", "localModels", "modelServers", "cache", "display", "theme", "showPages", "spend", "sandbox", "shell", "web", "reader", "delegate", "browser", "templates", "packs", "github", "telemetry", "tools", "ssh_login", "other_logins", "network_updates", "ai_pages", "open_pages", "pictures", "browser_clicks", "routine_commands", "auto_mode", "hide_tool_output", "reasoning_headline", "lean_guidance", "compact_at", "slow_commands", "keep_going", "stalled_commands", "mcp_autoconnect", "acp_mcp", "acp_access", "acp_questions", "lsp_autostart", "notifications", ...Object.keys(POLICY_KEYS)]);
+  "conventions", "verify", "verification", "repair", "skills", "visualize", "policy", "services", "smoke", "pages", "lab", "suggestions", "updates", "sideQuestions", "localModels", "modelServers", "cache", "display", "theme", "showPages", "spend", "sandbox", "shell", "web", "reader", "delegate", "browser", "templates", "packs", "github", "telemetry", "tools", "ssh_login", "other_logins", "network_updates", "ai_pages", "open_pages", "pictures", "browser_clicks", "routine_commands", "auto_mode", "hide_tool_output", "reasoning_headline", "lean_guidance", "compact_at", "slow_commands", "keep_going", "stalled_commands", "mcp_autoconnect", "acp_mcp", "acp_access", "acp_questions", "acp_idle_exit", "lsp_autostart", "notifications", ...Object.keys(POLICY_KEYS)]);
 
 /** Typos used to fall back silently to the defaults; the loader names them instead. */
 function unknownKeys(document: Mapping, label: string): string[] {
@@ -664,6 +670,21 @@ function acpQuestionsValue(value: unknown, label: string): AcpQuestionsSetting |
   const setting = value === true ? "on" : value === false ? "off" : value;
   if (!ACP_QUESTIONS_SETTINGS.some((known) => known === setting)) throw new Error(`${label}: acp_questions must be ${alternatives(ACP_QUESTIONS_SETTINGS)}`);
   return setting as AcpQuestionsSetting;
+}
+
+/** `acp_idle_exit:` on or off (YAML's true and false too). */
+function acpIdleExitValue(value: unknown, label: string): AcpIdleExitSetting | undefined {
+  if (value === undefined || value === null) return undefined;
+  const setting = value === true ? "on" : value === false ? "off" : value;
+  if (!ACP_IDLE_EXIT_SETTINGS.some((known) => known === setting)) throw new Error(`${label}: acp_idle_exit must be ${alternatives(ACP_IDLE_EXIT_SETTINGS)}`);
+  return setting as AcpIdleExitSetting;
+}
+
+/** `acp_idle_exit` from ~/.casper/config.yaml, read again for each idle check, so a change reaches a running session. A
+ * file Casper can't read gives off: Casper stays open, and nothing is lost by staying. */
+export async function readAcpIdleExitSetting(homeDir = os.homedir()): Promise<AcpIdleExitSetting> {
+  try { return acpIdleExitValue((await readYaml(path.join(homeDir, ".casper", "config.yaml"))).acp_idle_exit, "~/.casper/config.yaml") ?? "on"; }
+  catch { return "off"; }
 }
 
 /** `acp_mcp` from ~/.casper/config.yaml, before any project is known (casper acp's initialize). A file Casper can't
@@ -1081,6 +1102,12 @@ export async function loadConfiguration(
     if (document.acp_questions !== undefined) throw new Error(`${label}: acp_questions is set in ~/.casper/config.yaml only`);
   }
   const acpQuestions = acpQuestionsValue(globalDocument.acp_questions, labels.global);
+  // Whether an app may close your idle Casper (and with it this session's yeses) is yours too.
+  if (projectDocument.acp_idle_exit !== undefined) throw new Error("acp_idle_exit is a user setting (~/.casper/config.yaml); a project cannot choose whether an app closes an idle Casper");
+  for (const [document, label] of [[profileDocument, labels.profile], [userProfileDocument, labels.userProfile]] as const) {
+    if (document.acp_idle_exit !== undefined) throw new Error(`${label}: acp_idle_exit is set in ~/.casper/config.yaml only`);
+  }
+  const acpIdleExit = acpIdleExitValue(globalDocument.acp_idle_exit, labels.global);
   // Whether your terminal rings or shows a notification is yours too.
   if (projectDocument.notifications !== undefined) throw new Error("notifications is a user setting (~/.casper/config.yaml); a project cannot turn Casper's notifications on or off");
   let notifications: boolean | undefined;
@@ -1179,6 +1206,7 @@ export async function loadConfiguration(
     ...(acpMcp !== undefined ? { acpMcp } : {}),
     ...(acpAccess !== undefined ? { acpAccess } : {}),
     ...(acpQuestions !== undefined ? { acpQuestions } : {}),
+    ...(acpIdleExit !== undefined ? { acpIdleExit } : {}),
     ...(lspAutostart !== undefined ? { lspAutostart } : {}),
     ...(notifications !== undefined ? { notifications } : {}),
     ...(pageChecks !== undefined ? { pageChecks } : {}),

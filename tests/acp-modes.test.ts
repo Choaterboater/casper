@@ -1,4 +1,4 @@
-import { expect, test } from "bun:test";
+import { describe, expect, test } from "bun:test";
 import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { PassThrough } from "node:stream";
 import os from "node:os";
@@ -9,7 +9,8 @@ import { AcpAsker, READ_ONLY_NO } from "../src/acp/permission";
 import { hider } from "../src/acp/updates";
 import { PLANNING_BLOCKED, planToolGate, READ_ONLY_BLOCKED } from "../src/flows/plan";
 import { NO, YES_ONCE, YES_SESSION } from "../src/app/safe-choices";
-import { loadConfiguration } from "../src/config/load";
+import { loadConfiguration, readAcpIdleExitSetting } from "../src/config/load";
+import { idleReply, type IdleHost } from "../src/acp/session";
 import { stopAsking } from "../src/app/commands";
 import { formatTaskPrompt, READ_ONLY_TYPED, classifyTask } from "../src/task/classify";
 import { describeChecksPlan } from "../src/verify/mode";
@@ -255,4 +256,55 @@ test("acp_questions is a user setting, on by default, and refused in a project o
     await writeFile(path.join(home, ".casper/profiles/default/config.yaml"), "acp_questions: off\n");
     await expect(loadConfiguration({ projectRoot: project, homeDir: home })).rejects.toThrow("acp_questions is set in ~/.casper/config.yaml only");
   } finally { await removeTempDir(root); }
+});
+
+describe("an app may close an idle Casper (decision 91)", () => {
+  test("acp_idle_exit is read from the user file only, on by default, rejects other values and is refused in a project or profile", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "casper-acp-idle-"));
+    try {
+      const home = path.join(root, "home");
+      const project = path.join(root, "project");
+      await mkdir(path.join(home, ".casper/profiles/default"), { recursive: true });
+      await mkdir(path.join(project, ".casper"), { recursive: true });
+      expect((await loadConfiguration({ projectRoot: project, homeDir: home })).acpIdleExit).toBeUndefined();
+      expect(await readAcpIdleExitSetting(home)).toBe("on");
+      await writeFile(path.join(home, ".casper/config.yaml"), "acp_idle_exit: off\n");
+      expect((await loadConfiguration({ projectRoot: project, homeDir: home })).acpIdleExit).toBe("off");
+      expect(await readAcpIdleExitSetting(home)).toBe("off");
+      await writeFile(path.join(home, ".casper/config.yaml"), "acp_idle_exit: false\n");
+      expect((await loadConfiguration({ projectRoot: project, homeDir: home })).acpIdleExit).toBe("off");
+      await writeFile(path.join(home, ".casper/config.yaml"), "acp_idle_exit: true\n");
+      expect((await loadConfiguration({ projectRoot: project, homeDir: home })).acpIdleExit).toBe("on");
+      expect(await readAcpIdleExitSetting(home)).toBe("on");
+      await writeFile(path.join(home, ".casper/config.yaml"), "acp_idle_exit: later\n");
+      await expect(loadConfiguration({ projectRoot: project, homeDir: home })).rejects.toThrow("acp_idle_exit must be");
+      // A file Casper can't read keeps Casper open: nothing is lost by staying.
+      expect(await readAcpIdleExitSetting(home)).toBe("off");
+      await writeFile(path.join(home, ".casper/config.yaml"), "");
+      await writeFile(path.join(project, ".casper/project.yaml"), "acp_idle_exit: off\n");
+      await expect(loadConfiguration({ projectRoot: project, homeDir: home })).rejects.toThrow("acp_idle_exit is a user setting");
+      await writeFile(path.join(project, ".casper/project.yaml"), "");
+      await writeFile(path.join(home, ".casper/profiles/default/config.yaml"), "acp_idle_exit: off\n");
+      await expect(loadConfiguration({ projectRoot: project, homeDir: home })).rejects.toThrow("acp_idle_exit is set in ~/.casper/config.yaml only");
+      // A profile or project value never reaches the fresh read either.
+      expect(await readAcpIdleExitSetting(home)).toBe("on");
+    } finally { await removeTempDir(root); }
+  });
+
+  test("Off answers not idle and a change applies to a running session", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "casper-acp-idle-off-"));
+    try {
+      await mkdir(path.join(root, ".casper"), { recursive: true });
+      const app = { backgroundTasks: () => [], backgroundCommands: undefined, subagents: { isBusy: false } } as unknown as IdleHost;
+      expect(await idleReply(app, { busy: false, changing: false }, root)).toEqual({ idle: true, running: [] });
+      // Read fresh on each check: the same session answers off once the file says so, and idle again after.
+      await writeFile(path.join(root, ".casper/config.yaml"), "acp_idle_exit: off\n");
+      expect(await idleReply(app, { busy: false, changing: false }, root)).toEqual({ idle: false, running: [], reason: "off" });
+      // Off is said before busy: the app need not ask again while it stays off.
+      expect(await idleReply(app, { busy: true, changing: false }, root)).toEqual({ idle: false, running: [], reason: "off" });
+      await writeFile(path.join(root, ".casper/config.yaml"), "acp_idle_exit: on\n");
+      expect(await idleReply(app, { busy: false, changing: false }, root)).toEqual({ idle: true, running: [] });
+      expect(await idleReply(app, { busy: false, changing: true }, root)).toEqual({ idle: false, running: [], reason: "busy" });
+    } finally { await removeTempDir(root); }
+  });
 });
