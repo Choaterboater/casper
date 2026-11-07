@@ -65,6 +65,14 @@ test("private places are refused by name for every file tool, reads and writes",
   expect(fileToolGate("bash", { command: "cat ~/.ssh/id_test" }, context)).toBeUndefined();
 });
 
+test("DeepSeek Harness's sign-in (~/.dsh/.credentials.yaml) is private, as Claude Code's and Codex's are; the rest of ~/.dsh is not", () => {
+  expect(fileToolGate("read", { path: "~/.dsh/.credentials.yaml" }, context)).toBe("Not read: ~/.dsh/.credentials.yaml is private (keys and logins). Casper keeps it from the AI.");
+  expect(privatePathCommand("cat ~/.dsh/.credentials.yaml", context)).toContain("is private");
+  // A search of the folder would read it too.
+  expect(fileToolGate("grep", { pattern: "x", path: "~/.dsh" }, context)).toContain("holds private files (~/.dsh/.credentials.yaml)");
+  expect(fileToolGate("read", { path: "~/.dsh/profiles/default.yaml" }, context)).toBeUndefined();
+});
+
 test("Casper's own MCP servers, profiles, saved conversations and records are private; browser pictures stay readable", () => {
   for (const entry of [".casper/mcp.json", ".casper/profiles/work/mcp.json", ".casper/agent/sessions/--p--/s.jsonl", ".casper/projects/p-1/sandbox.json",
     ".casper/mcp-consent.json", ".casper/skills-trust.json"]) {

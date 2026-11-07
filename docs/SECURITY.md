@@ -53,7 +53,7 @@ the operating system, not a list of words:
 - **Private places.** A command can't read `~/.ssh`, `~/.aws`, `~/.gnupg`, `~/.config/gh`,
   `~/.config/gcloud`, `~/.azure`, `~/.oci`, `~/.kube`, `~/.docker/config.json`, `~/.netrc`,
   `~/.git-credentials`, `~/.npmrc`, `~/.pypirc`, `~/.pgpass`, `~/.claude.json`, `~/.mcp.json`,
-  `~/.claude/.credentials.json`, `~/.codex/auth.json`, `~/.terraform.d/credentials.tfrc.json`, `~/.config/hub`,
+  `~/.claude/.credentials.json`, `~/.codex/auth.json`, `~/.dsh/.credentials.yaml`, `~/.terraform.d/credentials.tfrc.json`, `~/.config/hub`,
   `~/.password-store`, `~/.local/share/keyrings`, `~/Library/Keychains`, Casper's and Pi's login files
   (`~/.casper/agent/auth.json`, `~/.pi/agent/auth.json`), their provider settings, which may hold
   provider keys (`~/.casper/agent/models.json`, `~/.pi/agent/models.json`), `~/.casper/mcp-consent.key`, `~/.casper/packs.key`, your network logins
