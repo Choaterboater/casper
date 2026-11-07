@@ -1,5 +1,5 @@
 import { afterEach, expect, spyOn, test } from "bun:test";
-import { mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { mkdtemp, readdir, readFile, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { createBashToolDefinition } from "@earendil-works/pi-coding-agent";
@@ -51,6 +51,28 @@ test.skipIf(process.platform === "win32")("shell timeout kills real Bun workers 
     }, "shell left its Bun worker alive");
   } finally { await pending; }
 }, 25_000);
+
+test.skipIf(process.platform === "win32")("a Stop ends `sleep N; next` without running next", async () => {
+  // macOS signals a group's members one by one: the killed sleep could wake its shell before the shell
+  // was signalled, so the next command ran during the Stop. Many at once made it show in about 1 in 4.
+  const cwd = await mkdtemp(path.join(os.tmpdir(), "casper-shell-stop-"));
+  cleanup.push(() => removeTempDir(cwd));
+  const runs = await Promise.all(Array.from({ length: 20 }, async () => {
+    let output = "";
+    const controller = new AbortController();
+    const error = await casperBashOperations(undefined).exec("printf \"READY$$;\"; sleep 5; printf SHOULD_NOT_FINISH; : > \"finished-$$\"", cwd, {
+      signal: controller.signal, onData: chunk => { output += chunk; if (output.includes(";")) controller.abort(); },
+    }).then(() => "", (failure: unknown) => String(failure));
+    return { error, shell: Number(/READY(\d+);/.exec(output)?.[1]), output: () => output };
+  }));
+  for (const run of runs) {
+    expect(run.error).toContain("aborted");
+    // Wait until nothing in the shell's group is left that could still run the next command.
+    await until(async () => { try { process.kill(-run.shell, 0); return false; } catch { return true; } }, "the stopped shell's group is still running");
+    expect(run.output()).not.toContain("SHOULD_NOT_FINISH");
+  }
+  expect((await readdir(cwd)).filter(name => name.startsWith("finished-"))).toEqual([]);
+}, 30_000);
 
 test("owned shell preserves output and exit code and rejects pre-cancelled work", async () => {
   let output = "";

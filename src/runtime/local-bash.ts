@@ -49,6 +49,13 @@ export function createOwnedBashOperations(): BashOperations {
     let stopping: Promise<void> | undefined;
     let failExit: ((error: unknown) => void) | undefined;
     const cleanup = () => stopping ??= (async () => {
+      // macOS signals group members one by one, so a killed child can wake its shell first and
+      // `a; b` starts b during a Stop. Freeze the group first (only while the unreaped shell holds
+      // its ID). A stopped process keeps SIGTERM pending, so the SIGKILL round ends it: the grace
+      // before it is already brief, and SIGCONT would let the shell run again. Best effort, as in Pi.
+      if (process.platform === "darwin" && child.pid && alive()) {
+        try { process.kill(-child.pid, "SIGSTOP"); } catch { /* the kill below still runs */ }
+      }
       const first = await terminateTree(owner, child.pid, "SIGTERM", alive);
       if (!owner) await Bun.sleep(100);
       const last = await terminateTree(owner, child.pid, "SIGKILL", alive);
