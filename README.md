@@ -173,6 +173,11 @@ window and the session's cost, with no cost under a subscription. Casper's own l
 an app server it did not connect, show in the chat as notes, and the receipt's data names its tokens, its cost and
 the project folder. [Decision 88](docs/adr/0002/88-an-acp-app-shows-casper-usage-notes-and-receipt.md).
 
+Text the app sends with a request that is no file, such as another chat you mention, is read by the model but is not
+what you asked: its "fix" or "add tests" makes no checklist, and a `/` command takes only the words you typed and
+says the text did not go with it.
+[Decision 90](docs/adr/0002/90-embedded-context-is-not-the-request.md).
+
 Type `/help` for the commands. Ctrl+C stops the current work but keeps changes already made;
 Ctrl+D on an empty prompt exits. [Keys and commands](docs/TERMINAL_UX.md#quick-reference).
 

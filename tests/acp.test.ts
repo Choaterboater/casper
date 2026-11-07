@@ -4,6 +4,7 @@ import { PassThrough } from "node:stream";
 import { pathToFileURL } from "node:url";
 import { parseCliArgs, UsageError } from "../src/cli-args";
 import { AcpAsker, formAnswer, optionKind, questionSchema } from "../src/acp/permission";
+import { MAX_EMBEDDED_TEXT, promptContent } from "../src/acp/prompt";
 import { RpcConnection, RpcFailure } from "../src/acp/rpc";
 import { SESSION_REQUESTS, sessionArgs, sessionFor } from "../src/acp/server";
 import { askedWithout, initializeResult, promptText } from "../src/acp/session";
@@ -786,5 +787,65 @@ describe("an ACP app sees Casper's usage, its notes and the receipt's fields (de
       .toMatchObject({ usage, cost: "estimate", root: "/work/<secret hidden>/app" });
     expect(acpReceipt(event, undefined, hide, { status: { provider: "openai-codex", auth: "configured", billing: "subscription" }, root: "/work" }).cost).toBe("subscription");
     expect(acpReceipt({ ...event, usage: null }, undefined, hide, { root: "/work" })).toMatchObject({ usage: null, cost: null });
+  });
+});
+
+describe("embedded context is not the request (decision 90)", () => {
+  const words = (text: string) => ({ type: "text", text });
+  /** Another chat's text, as an app sends an @-mention of it. */
+  const SESSION = "app-session://chat-1";
+  const mention = (text: string) => ({ type: "resource", resource: { uri: SESSION, mimeType: "text/markdown", text } });
+  const OTHER_CHAT = "Fix the failing sum test and add tests for it.";
+  const asked = (blocks: unknown[]) => { const content = promptContent(blocks); return askedWithout(blocks, content.text, content.context); };
+
+  test("Words plus a session resource ask only for the words", () => {
+    const blocks = [words("Why did the other chat stop?"), mention(OTHER_CHAT)];
+    const content = promptContent(blocks);
+    // The model still reads the other chat; only what was asked leaves it out.
+    expect(content.text).toBe(`Why did the other chat stop?\n${SESSION}\n${OTHER_CHAT}`);
+    expect(content.context).toEqual([`${SESSION}\n${OTHER_CHAT}`]);
+    expect(asked(blocks)).toBe("Why did the other chat stop?");
+  });
+
+  test("A prompt that is only a session resource asks for nothing", () => {
+    expect(asked([mention(OTHER_CHAT)])).toBe("");
+    expect(asked([mention(`${OTHER_CHAT}\n`)])).toBe("");
+    // A cut one is context too: what went is what is left out.
+    const big = `${"fix the sum test\n".repeat(MAX_EMBEDDED_TEXT / 16)}and add tests\n`;
+    const cut = promptContent([mention(big)]);
+    expect(cut.context).toHaveLength(1);
+    expect(cut.text).toBe(cut.context[0]!);
+    expect(asked([mention(big)])).toBe("");
+  });
+
+  test("Words plus a file resource are classified as today", () => {
+    const file = { type: "resource", resource: { uri: pathToFileURL(path.resolve("/work/sum.js")).href, text: "// fix: sum is wrong\n" } };
+    const blocks = [words("Fix sum.js"), file];
+    const content = promptContent(blocks);
+    expect(content.context).toEqual([]);
+    expect(content.text).toBe(`Fix sum.js\n${file.resource.uri}\n// fix: sum is wrong\n`.trim());
+    expect(asked(blocks)).toBeUndefined();
+  });
+
+  test("A pasted screen transcript and plain text give today's results", () => {
+    const transcript = "❯ fix the failing sum test\n● I'll fix sum.js and add tests\n⎿ Edited sum.js\n● Done";
+    expect(asked([words(`Why did the other agent stop?\n${transcript}`)])).toBe("Why did the other agent stop?");
+    expect(asked([words("Why did it stop?"), words(transcript)])).toBe("Why did it stop?");
+    expect(asked([words(`${transcript}\nwhy?`)])).toBe("");
+    expect(asked([words("Fix sum.js\n● sum(1, 2) is 3\nThanks")])).toBeUndefined();
+    expect(asked([words("Fix sum.js")])).toBeUndefined();
+    // A transcript and a mention are both left out.
+    expect(asked([words(`Why did it stop?\n${transcript}`), mention(OTHER_CHAT)])).toBe("Why did it stop?");
+  });
+
+  test("A picture with a context resource is decoded once", () => {
+    const PNG = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==";
+    const blocks = [words("What is wrong here?"), { type: "image", mimeType: "image/png", data: PNG }, mention(OTHER_CHAT)];
+    const content = promptContent(blocks);
+    expect([...content.images.keys()]).toEqual([1]);
+    expect(content.text.match(/\[image \d+\]/g)).toEqual(["[image 1]"]);
+    expect(content.context).toEqual([`${SESSION}\n${OTHER_CHAT}`]);
+    // The picture stays part of what was asked.
+    expect(askedWithout(blocks, content.text, content.context)).toBe("What is wrong here?\n[image 1]");
   });
 });

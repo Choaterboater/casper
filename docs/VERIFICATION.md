@@ -736,7 +736,8 @@ so, and it gets no checklist or proof step, unless it also asks for a change ("d
 refactors and configuration, and off in one-shot runs unless set. A terminal transcript pasted into
 the request (an agent session copied off the screen) is left out of both choices: its "fix" or "add
 tests" is context, not what you asked, so a pasted transcript alone makes no checklist, and the cases
-come only from what you typed around it.
+come only from what you typed around it. In `casper acp`, text the app sends with the request that is no file
+(another chat you mention) is left out the same way ([decision 90](adr/0002/90-embedded-context-is-not-the-request.md)).
 
 ```yaml
 verification:

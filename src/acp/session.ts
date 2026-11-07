@@ -24,7 +24,7 @@ import { cancelCurrent } from "../app/command-loop";
 import { displayLevel } from "../app/footer";
 import { networkLoginFile, ownSecretValues } from "../app/network-host";
 import { ensureRuntime } from "../app/runtime-start";
-import { transcriptsIn, withoutTranscripts } from "../app/request-words";
+import { transcriptsIn, withoutPasted } from "../app/request-words";
 import { promptWords } from "../app/rewind";
 import { taskExitCode } from "../task/result";
 import { CASPER_VERSION } from "../version";
@@ -70,11 +70,13 @@ export async function sessionFolder(params: Json): Promise<string> {
   return folder;
 }
 
-/** The prompt without the agent transcripts pasted into its text blocks, or undefined when it has none: what such a
- * paste says ("fix", "add tests") is context, so the checklist rule reads only the rest, as for a typed line. */
-export function askedWithout(blocks: unknown, prompt: string): string | undefined {
+/** The prompt without the agent transcripts pasted into its text blocks and without `context`, the embedded text that
+ * is no file (another chat, an editor's buffer: src/acp/prompt.ts), or undefined when it has neither: what those say
+ * ("fix", "add tests") is context, so the checklist rule reads only the rest, as for a typed line (decision 90). */
+export function askedWithout(blocks: unknown, prompt: string, context: readonly string[] = []): string | undefined {
   const texts = Array.isArray(blocks) ? blocks.flatMap((block: Json) => block?.type === "text" && typeof block.text === "string" ? [block.text] : []) : [];
-  return withoutTranscripts(prompt, transcriptsIn(texts));
+  const pieces = [...transcriptsIn(texts), ...context];
+  return pieces.length ? withoutPasted(prompt, pieces) : undefined;
 }
 
 /** The prompt's words as Casper runs them (src/acp/prompt.ts): a picture as `[image N]`, a file as its quoted path. */
@@ -377,7 +379,8 @@ export async function runAcpSession(options: SessionOptions): Promise<void> {
     let isCommand = false;
     try {
       // A command as the terminal tells one (src/app/command-loop.ts): a leading "/" that is not a picture file's path.
-      const line = content.text.trim();
+      // It takes only the person's words: embedded context sent with it (another chat) is never its words (decision 90).
+      const line = content.context.length ? withoutPasted(content.text, content.context) : content.text.trim();
       isCommand = line.startsWith("/") && !(leadingImagePath(line) !== undefined && await startsWithImageFile(line, { cwd: app.activeWorkspaceRoot() }));
       const refusal = isCommand ? acpRefusal(line) : undefined;
       if (refusal) {
@@ -386,6 +389,9 @@ export async function runAcpSession(options: SessionOptions): Promise<void> {
       }
       // What was not sent (audio, a ninth picture, a HEIC photo) is said first, as the terminal says it.
       for (const note of content.notes) app.output.write(`[image] ${note}\n`);
+      if (isCommand && content.context.length) {
+        app.output.write(`[image] The text the app sent with ${terminalText(line.split(/\s/, 1)[0]!)} did not go with it: a / command takes only the words you typed. Send it without the / command for the AI to read it.\n`);
+      }
       commandRun = isCommand ? { spoke: false } : undefined;
       // From here until the model's first turn, a line the app steers in joins this request (decision 86).
       if (!isCommand) {
@@ -394,7 +400,7 @@ export async function runAcpSession(options: SessionOptions): Promise<void> {
         app.steeredInTask = [];
       }
       // A command's line is not written back: its output is the reply.
-      report = await app.runOnce(content.text, folder, askedWithout(params.prompt, content.text), { images: content.images, echo: !isCommand });
+      report = await app.runOnce(isCommand ? line : content.text, folder, askedWithout(params.prompt, content.text, content.context), { images: content.images, echo: !isCommand });
     } catch (error) {
       failure = { error };
     } finally {

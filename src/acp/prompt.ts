@@ -1,7 +1,8 @@
 // An ACP prompt's content blocks as the request Casper runs (decision 78). Words stay words; a picture becomes
 // `[image N]` and goes to the run as a Ctrl+V picture does in the terminal; a file goes as its quoted path, so Casper
 // reads it with its own file tools (and a picture file is attached by the terminal's quoted-path rule). Anything
-// Casper can't take gets one plain note for the person instead.
+// Casper can't take gets one plain note for the person instead. Embedded text that is no file (another chat, an
+// editor's buffer) is context the model reads, not what was asked (decision 90).
 
 import path from "node:path";
 import { imageLabel, imageMimeType, MAX_IMAGE_BYTES, MAX_IMAGES, PICTURE_PATH, promptPath, shareHost } from "../app/images";
@@ -18,6 +19,9 @@ export interface PromptContent {
   images: Map<number, RuntimeImage>;
   /** One line each for what was not sent, for the person (Casper sends them prefixed `[image] `). */
   notes: string[];
+  /** The pieces of `text` that came as embedded text with no file behind it (`${uri}\n${text}`, or its cut, trimmed
+   * as `text` is at its ends): what the model reads, never what the person asked for. */
+  context: string[];
 }
 
 /** A word or a name from the client, on one line and not too long for a note. */
@@ -81,6 +85,7 @@ export function promptContent(blocks: unknown, platform: NodeJS.Platform = proce
   const parts: string[] = [];
   const images = new Map<number, RuntimeImage>();
   const notes: string[] = [];
+  const context: string[] = [];
   let limited = false;
 
   /** A picture's base64, as an image block or a blob; false when it is not one (the caller decides then). */
@@ -131,13 +136,16 @@ export function promptContent(blocks: unknown, platform: NodeJS.Platform = proce
       const file = linkedFile(uri, platform);
       if (typeof resource.text === "string") {
         const size = Buffer.byteLength(resource.text);
-        if (size <= MAX_EMBEDDED_TEXT) parts.push(`${uri}\n${resource.text}`);
-        else if (file) parts.push(fileLine(file, undefined, size, platform));
+        if (size <= MAX_EMBEDDED_TEXT) {
+          parts.push(`${uri}\n${resource.text}`);
+          if (!file) context.push(parts.at(-1)!.trim());
+        } else if (file) parts.push(fileLine(file, undefined, size, platform));
         else {
           // Cut at a line, so the model never reads half of one.
           const head = Buffer.from(resource.text).subarray(0, MAX_EMBEDDED_TEXT).toString("utf8");
           const end = head.lastIndexOf("\n");
           parts.push(`${uri}\n${end > 0 ? head.slice(0, end) : head.replace(/\uFFFD$/, "")}`);
+          context.push(parts.at(-1)!.trim());
           notes.push(`The text sent as ${oneLine(uri)} is over ${MAX_EMBEDDED_TEXT / 1024} KB; only its first ${MAX_EMBEDDED_TEXT / 1024} KB went with the request.`);
         }
         continue;
@@ -158,5 +166,5 @@ export function promptContent(blocks: unknown, platform: NodeJS.Platform = proce
   if (limited) notes.push(`Only ${MAX_IMAGES} pictures go with one request; the rest were not attached.`);
   const text = parts.join("\n").trim();
   if (!text) throw new RpcFailure(RPC.invalidParams, ["Nothing in the prompt Casper can read.", ...notes].join("\n"));
-  return { text, images, notes };
+  return { text, images, notes, context };
 }
