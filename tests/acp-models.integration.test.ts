@@ -103,15 +103,29 @@ test("a prompt that comes while a model change is applied is refused; the one af
   const client = open(f);
   await client.request("initialize", INIT);
   const { sessionId } = await client.request("session/new", { cwd: f.project, mcpServers: [] });
-  // Read together: the prompt arrives while the change is being applied.
-  const [set, early] = client.requestTogether([["session/set_config_option", { sessionId, configId: "model", value: "fixture/second" }],
-    ["session/prompt", { sessionId, prompt: text("Too EARLY") }]]);
-  expect(await refusal(early!)).toEqual({ code: -32600, message: "Casper is changing its model or effort; send the prompt again when it is done" });
-  expect(optionOf((await set!).configOptions, "model")!.currentValue).toBe("fixture/second");
-  expect(askedWith(f.payloads, "Too EARLY")).toBeUndefined();
+  // The change and a prompt are written together. Casper refuses the prompt only if it reads it while the change is
+  // still being applied, and a busy runner can hand it the change first and finish it: then the prompt runs, on the new
+  // model. Each round checks whichever happened, until one refusal is seen.
+  let refused = 0;
+  let model = "first";
+  for (let round = 0; round < 10 && !refused; round++) {
+    model = round % 2 ? "first" : "second";
+    const [set, early] = client.requestTogether([["session/set_config_option", { sessionId, configId: "model", value: `fixture/${model}` }],
+      ["session/prompt", { sessionId, prompt: text(`Round ${round} EARLY`) }]]);
+    const refusedWith = await refusal(early!);
+    expect(optionOf((await set!).configOptions, "model")!.currentValue).toBe(`fixture/${model}`);
+    if (refusedWith) {
+      expect(refusedWith).toEqual({ code: -32600, message: "Casper is changing its model or effort; send the prompt again when it is done" });
+      expect(askedWith(f.payloads, `Round ${round} EARLY`)).toBeUndefined();
+      refused++;
+    } else {
+      expect(askedWith(f.payloads, `Round ${round} EARLY`)!.model).toBe(model);
+    }
+  }
+  expect(refused).toBe(1);
   expect((await client.request("session/prompt", { sessionId, prompt: text("In TIME") })).stopReason).toBe("end_turn");
-  expect(askedWith(f.payloads, "In TIME")!.model).toBe("second");
-}, childTestLimit(1));
+  expect(askedWith(f.payloads, "In TIME")!.model).toBe(model);
+}, childTestLimit(2));
 
 // A read-only settings file: Windows keeps letting its owner replace it, and root writes it anyway.
 test.skipIf(process.platform === "win32" || process.getuid?.() === 0)("a model the runtime took but could not save as the default is refused, and the app is told it first", async () => {
