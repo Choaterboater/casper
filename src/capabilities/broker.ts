@@ -50,7 +50,7 @@ interface Capability {
   hidden?: string;
   /** A docs tool of a recognised hpe-networking-mcp server: always offered to the model. */
   docs?: true;
-  /** A tool an ACP client's server asks to keep in front of the model (`_meta["casper/pin"]`, decision 77). */
+  /** A tool an ACP client's own server asks to keep in front of the model (`_meta["casper/pin"]`, decisions 77, 89). */
   clientPin?: true;
   policy: ServerPolicy;
 }
@@ -909,7 +909,8 @@ export class CapabilityBroker {
           descriptionWords: indexWords(descriptor.description),
           ...(hidden ? { hidden } : {}), policy,
           ...(docsServer && !hidden && safety === "read" && (DOCS_TOOL_NAMES as readonly string[]).includes(tool.name) ? { docs: true as const } : {}),
-          ...(definition?.scope === "client" && !hidden && listed._meta?.["casper/pin"] === true ? { clientPin: true as const } : {}),
+          // Only the app's own server pins (decision 89): another it forwards is ranked like any server.
+          ...(definition?.scope === "client" && definition.clientOwned && !hidden && listed._meta?.["casper/pin"] === true ? { clientPin: true as const } : {}),
         });
       }
     }

@@ -11,7 +11,8 @@
 // elicitation/create (src/acp/permission.ts, decision 83). /plan's Build box carries the plan, the build's checklist is
 // the app's plan, and the `plan` option is /plan on (decision 84). A line the app sends during a prompt
 // (`_casper/steer`) reaches the AI at its next step, as a line typed in the terminal does (decision 86). Each model
-// response is followed by a usage_update, and Casper's lines for the person are notes (decision 88).
+// response is followed by a usage_update, and Casper's lines for the person are notes (decision 88). A session/load
+// goes on with the conversation's own model and effort (decision 89).
 
 import os from "node:os";
 import path from "node:path";
@@ -38,7 +39,7 @@ import { terminalText } from "../tui/format";
 import { forgetSteered, settleAppSteers, steerFromApp } from "../app/during-work";
 import { clientServers } from "./client-servers";
 import { acpCommands, acpRefusal } from "./commands";
-import { offerOf, setOption } from "./config-options";
+import { offerOf, restoreSelection, setOption } from "./config-options";
 import { accessModeOf, modeState, setAccessMode, withModeTold } from "./modes";
 import { AcpAsker } from "./permission";
 import { promptContent } from "./prompt";
@@ -307,6 +308,8 @@ export async function runAcpSession(options: SessionOptions): Promise<void> {
       }
       if (!sessionId) throw new RpcFailure(RPC.internal, "This runtime keeps no conversations, so it has no session ID");
       if (load && sessionId !== params.sessionId) throw new RpcFailure(RPC.notFound, `No saved conversation ${params.sessionId as string} in ${folder}`);
+      // The conversation's own model and effort, over the ones the app started Casper with, for this session only.
+      if (load) await restoreSelection(created.session, created.resumedSelection, output.write);
     } catch (error) {
       // A session that did not open leaves nothing behind: its app closes (and the client's servers with it), so the
       // client's next session/new on this process starts clean.

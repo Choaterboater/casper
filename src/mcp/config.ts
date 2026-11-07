@@ -43,6 +43,9 @@ export interface MCPServerDefinition {
   importedFrom?: ImportedFrom;
   /** A client server whose app shows its own approval for every change (decision 77): no change box from Casper. */
   clientAsks?: true;
+  /** A client server the app says is its own (casper/clientAsks, a loopback or stdio one), whatever acp_mcp says: only
+   * it may pin tools and hear which step a call is (decision 89). */
+  clientOwned?: true;
   transport: { type: "stdio"; command: string; args: string[]; env: Record<string, string> }
     | { type: "http"; url: string; headers: Record<string, string> };
 }
@@ -361,6 +364,16 @@ export function secretParts(value: string): string[] {
   return credential ? [value, credential] : [value];
 }
 
+/** A client server's value to hide (decision 89): its secretParts, each also URL-encoded when that differs, as a server
+ * may echo it in a link. Never throws: a part that cannot be encoded (a lone surrogate) is kept as given. */
+export function clientSecretParts(value: string): string[] {
+  return secretParts(value).flatMap((part) => {
+    let encoded: string;
+    try { encoded = encodeURIComponent(part); } catch { return [part]; }
+    return encoded === part ? [part] : [part, encoded];
+  });
+}
+
 /** Only explicit ${ENV_NAME} (or ${ENV_NAME:-default}) references; never shell commands or config writes. */
 export function resolveEnvironment(value: string): string {
   return value.replace(REFERENCE, (_whole, name: string, fallback: string | undefined) => {
@@ -389,9 +402,10 @@ export function resolvedSecrets(definition: MCPServerDefinition, logins: readonl
     try { add(resolveEnvironment(value)); } catch { /* a missing variable has no value to hide */ }
   };
   const transport = definition.transport;
-  // A client server's values are used as given (no ${VAR}): each is hidden as it is, and a credential after its scheme.
+  // A client server's values are used as given (no ${VAR}): each is hidden as it is, a credential after its scheme, and
+  // the URL-encoded form of each.
   if (definition.scope === "client") {
-    for (const value of transport.type === "stdio" ? Object.values(transport.env) : Object.values(transport.headers)) for (const part of secretParts(value)) add(part);
+    for (const value of transport.type === "stdio" ? Object.values(transport.env) : Object.values(transport.headers)) for (const part of clientSecretParts(value)) add(part);
     return [...values];
   }
   if (transport.type === "stdio") {

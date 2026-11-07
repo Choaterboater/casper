@@ -576,3 +576,33 @@ describe("an ACP app sees Casper's usage and the receipt's fields (decision 88)"
     onlyProtocol(client);
   }, childTestLimit(1));
 });
+
+describe("servers an ACP app forwards (decision 89)", () => {
+  test("A server the app forwards without casper/clientAsks cannot pin tools and never sees the ACP tool call id", async () => {
+    const token = `acp-bearer-${crypto.randomUUID()}`;
+    const server = await httpFixture(token);
+    try {
+      const f = await fixture(callsInTurn({ id: "mcp:acp-app:set_site", arguments: { site: "lab" } }));
+      const client = open(f);
+      await client.request("initialize", INIT);
+      client.answerPermissions((params) => option(params, "allow_once"));
+      const pins = (meta?: Record<string, unknown>) => ({ name: "pins", command: process.execPath, args: [MCP_FIXTURE],
+        env: [{ name: "FIXTURE_MODE", value: "pins" }], ...(meta ? { _meta: meta } : {}) });
+      const http = { type: "http", name: "app", url: server.url, headers: [{ name: "Authorization", value: `Bearer ${token}` }] };
+      const { sessionId } = await client.request("session/new", { cwd: f.project, mcpServers: [http, pins()] });
+      expect((await client.request("session/prompt", { sessionId, prompt: text("Use the app's server to set site lab") })).stopReason).toBe("end_turn");
+      // The change asked in Casper's box and ran, with no step id sent to a server the app did not say is its own.
+      expect(client.permissions).toHaveLength(1);
+      expect(server.calls.map((call) => call.name)).toEqual(["set_site"]);
+      expect(server.calls[0]!.meta).toBeUndefined();
+      const offered = (from: number) => JSON.stringify(f.payloads.slice(from).map((payload) => (payload as Payload & { tools?: unknown }).tools ?? []));
+      expect(offered(0)).not.toContain("acp-pins:pin_one");
+      // The same server, said to be the app's own, keeps its pinned tools in front of the model.
+      const before = f.payloads.length;
+      const owned = await client.request("session/new", { cwd: f.project, mcpServers: [pins(ASKS)] });
+      expect((await client.request("session/prompt", { sessionId: owned.sessionId, prompt: text("hi") })).stopReason).toBe("end_turn");
+      expect(offered(before)).toContain("acp-pins:pin_one");
+      onlyProtocol(client);
+    } finally { await server.close(); }
+  }, childTestLimit(2));
+});

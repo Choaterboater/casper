@@ -184,7 +184,8 @@ test("A client server never gets saved logins or keys", async () => {
   expect(seen.env.HPE_MCP_KEY).toBeUndefined();
   // The app's values are passed as given: ${HOME} is not filled from Casper's environment.
   expect(seen.env.HPE_MCP_GIVEN).toBe("${HOME}");
-  expect(manager.loginValues("network")).toEqual(["${HOME}"]);
+  // Hidden as given and URL-encoded (decision 89).
+  expect(manager.loginValues("network")).toEqual(["${HOME}", encodeURIComponent("${HOME}")]);
 });
 
 test("a login the server prints on stderr is hidden in /mcp", async () => {

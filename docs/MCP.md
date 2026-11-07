@@ -675,9 +675,11 @@ An app or an editor that runs `casper acp` can list MCP servers in `session/new`
   `session/load` of a conversation Casper does not have), so the app can try `session/new` next.
 - **Is never kept.** It is never written to a file or remembered, gets no saved key or network
   login, and its values are used as the app sent them: no `${VAR}` is filled in. Every header and
-  env value is hidden in what the app sees, in Casper's stderr and in the server's results.
+  env value, URL-encoded too, is hidden in what the app sees, in Casper's stderr and in the server's
+  results.
 - **Follows the usual rules**: https, or plain http only to this computer or your network; no SSE; a
-  program at an absolute path, started in your home folder; no `PATH`, `NODE_OPTIONS`, `LD_*` or
+  program at an absolute path, started in your home folder or in the absolute folder its
+  `_meta: { "casper/cwd": ... }` names (any other is refused); no `PATH`, `NODE_OPTIONS`, `LD_*` or
   `DYLD_*`; at most 8. A name a file already uses is left out, so it never replaces your server.
 - **Asks as any server does.** A read tool runs without asking. A change asks in Casper's change
   box, which goes to the app as a permission request. When the app marks a server on this computer
@@ -688,7 +690,10 @@ An app or an editor that runs `casper acp` can list MCP servers in `session/new`
   ask in Casper's box first. A network product (a [preset](#presets), by its definition or its tool
   list) starts with writes off and its read-only settings, as everywhere, `casper/clientAsks` or not.
   `/mcp detail` says `From the app, this session only:` and how its writes stand.
-- **Can keep up to 4 tools in front of the AI** (`_meta: { "casper/pin": true }` on a tool), within
+- **The app's own server** (marked `casper/clientAsks`, with `acp_mcp: ask` too) **can keep up to 4
+  tools in front of the AI** (`_meta: { "casper/pin": true }` on a tool), and each call to it says
+  which of Casper's steps it is. Another server the app forwards does neither
+  ([decision 89](adr/0002/89-an-acp-app-forwards-its-own-mcp-servers.md)). The pins stay within
   the 8 direct tools, so a first prompt of "hi" does not leave them out for the session. They are
   taken in the order the server lists them. The first comes right after network routers, ahead of
   docs tools, so it stays in front even with both connected; the others come after docs tools.

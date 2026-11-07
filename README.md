@@ -117,7 +117,9 @@ and the screenshot question as a card. Run options such as `--model` go before o
 The MCP servers an app lists for a session connect for that session only, as `acp-<name>`: never saved or
 remembered. Reads run; a change asks in the app, unless a server on this computer says the app asks for itself, and
 then only deletes, firmware and admin changes ask in Casper's box. `acp_mcp: ask` or `off` in `~/.casper/config.yaml`
-takes that back. [Decision 77](docs/adr/0002/77-an-acp-client-hands-casper-its-tools.md).
+takes that back. [Decision 77](docs/adr/0002/77-an-acp-client-hands-casper-its-tools.md). Only the app's own server
+pins tools and hears which step a call is; others it forwards from its settings run as any server, a program in the
+folder the app names. [Decision 89](docs/adr/0002/89-an-acp-app-forwards-its-own-mcp-servers.md).
 
 A picture pasted or attached in the app goes to Casper's model as a Ctrl+V picture does in the terminal, and an
 attached file goes as its path, which Casper reads with its own tools. When the model can't see pictures, the app
@@ -136,6 +138,7 @@ Casper's reply, in a monospace block. The ones that would move Casper to another
 The app's model badge and picker show Casper's own models, the ones you're signed in to, with Casper's effort
 levels. A pick changes Casper's model for the next message and is saved as your default, as `/model` does; a
 `/model` typed into Casper moves the badge. [Decision 81](docs/adr/0002/81-an-acp-app-picks-casper-model-and-effort.md).
+A conversation the app reopens goes on with its own model and effort, without changing your default.
 
 The app's access chip reaches Casper. Read only stops Casper changing anything it can see and runs no checks; Ask
 first is Casper's usual boxes; Don't ask equals `/permissions all`, and then a change on the app's own server asks in

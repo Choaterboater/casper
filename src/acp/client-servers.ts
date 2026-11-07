@@ -1,15 +1,17 @@
 // The MCP servers an ACP client lists in session/new or session/load (decision 77). They connect for that session
 // only, as scope "client": in memory, never written to a file or remembered, with no saved keys or logins and no
-// ${VAR} expansion. Names start acp- and never replace a server from a file Casper reads.
+// ${VAR} expansion. Names start acp- and never replace a server from a file Casper reads. A stdio one starts in the
+// absolute folder its casper/cwd names, else in your home folder (decision 89).
 
 import path from "node:path";
 import { isIP } from "node:net";
-import { entryDefinition, entryReason, secretParts, type MCPConfiguration, type MCPServerDefinition } from "../mcp/config";
+import { clientSecretParts, entryDefinition, entryReason, type MCPConfiguration, type MCPServerDefinition } from "../mcp/config";
 import type { AcpMcpSetting } from "../config/load";
 
 // acp_mcp (~/.casper/config.yaml): on, the client's servers connect, and one the client says asks for itself
 // (casper/clientAsks) gets no Casper change box; ask, they connect and every change asks in Casper's box; off, none
-// connects, as before decision 77.
+// connects, as before decision 77. Either way only a server the client marks so (on this computer, or a program it
+// runs) is its own (clientOwned): it alone may pin tools and hear the step a call is (decision 89).
 
 /** At most this many servers from one client. */
 export const MAX_CLIENT_SERVERS = 8;
@@ -18,7 +20,8 @@ export const CLIENT_SOURCE = "the app (ACP)";
 
 export interface ClientServers {
   definitions: MCPServerDefinition[];
-  /** Every header and env value the client gave, for hiding them in updates, the receipt and results. */
+  /** Every header and env value the client gave (and its URL-encoded form), for hiding them in updates, the receipt
+   * and results. */
   secrets: string[];
   /** One line per server, never with a value. */
   notes: string[];
@@ -68,7 +71,9 @@ function headerName(name: string): string | undefined {
 
 function oneServer(entry: Json, name: string, home: string, setting: AcpMcpSetting): MCPServerDefinition {
   const type = entry.type;
-  const asks = (entry._meta as Json | undefined)?.["casper/clientAsks"] === true && setting === "on";
+  const meta = entry._meta && typeof entry._meta === "object" ? entry._meta as Json : {};
+  const owned = meta["casper/clientAsks"] === true;
+  const asks = owned && setting === "on";
   if (type === "sse") throw new Refused("SSE is not supported");
   if (type === "http") {
     if (typeof entry.url !== "string") throw new Refused("invalid URL");
@@ -76,17 +81,21 @@ function oneServer(entry: Json, name: string, home: string, setting: AcpMcpSetti
     let definition: MCPServerDefinition;
     try { definition = entryDefinition(name, { type: "http", url: entry.url, headers }, CLIENT_SOURCE, home); }
     catch (error) { throw new Refused(entryReason(error) ?? "invalid URL"); }
-    return { ...definition, scope: "client", ...(asks && definition.transport.type === "http" && loopback(definition.transport.url) ? { clientAsks: true as const } : {}) };
+    const here = definition.transport.type === "http" && loopback(definition.transport.url);
+    return { ...definition, scope: "client", ...(owned && here ? { clientOwned: true as const } : {}), ...(asks && here ? { clientAsks: true as const } : {}) };
   }
   if (type !== undefined && type !== "stdio") throw new Refused("unsupported transport");
   if (typeof entry.command !== "string" || !path.isAbsolute(entry.command)) throw new Refused("the command must be an absolute path");
   const args = entry.args ?? [];
   if (!Array.isArray(args) || args.some((arg) => typeof arg !== "string")) throw new Refused("invalid args");
   const env = pairs(entry.env, envName);
+  // The folder the app runs it in, as an absolute path only: never a project's or one read against Casper's own.
+  const cwd = meta["casper/cwd"];
+  if (cwd !== undefined && (typeof cwd !== "string" || !path.isAbsolute(cwd))) throw new Refused("cwd must be an absolute path");
   let definition: MCPServerDefinition;
-  try { definition = entryDefinition(name, { command: entry.command, args, env }, CLIENT_SOURCE, home); }
+  try { definition = entryDefinition(name, { command: entry.command, args, env }, CLIENT_SOURCE, cwd === undefined ? home : path.normalize(cwd)); }
   catch (error) { throw new Refused(entryReason(error) ?? "invalid definition"); }
-  return { ...definition, scope: "client", ...(asks ? { clientAsks: true as const } : {}) };
+  return { ...definition, scope: "client", ...(owned ? { clientOwned: true as const } : {}), ...(asks ? { clientAsks: true as const } : {}) };
 }
 
 /** The client's `mcpServers` list as definitions for this session, with a note for each (values never shown). */
@@ -107,9 +116,11 @@ export function clientServers(entries: unknown, options: { home: string; setting
     if (result.definitions.length >= MAX_CLIENT_SERVERS) return refuse(`at most ${MAX_CLIENT_SERVERS} servers`);
     try {
       const definition = oneServer(entry, name, options.home, options.setting);
-      result.definitions.push(definition);
       const transport = definition.transport;
-      result.secrets.push(...Object.values(transport.type === "http" ? transport.headers : transport.env).flatMap(secretParts).filter((value) => value.length > 0));
+      const secrets = Object.values(transport.type === "http" ? transport.headers : transport.env).flatMap(clientSecretParts).filter((value) => value.length > 0);
+      // Kept only once its secrets are known, so a refused server never stays in the list.
+      result.definitions.push(definition);
+      result.secrets.push(...secrets);
       result.notes.push(`[acp] The app's MCP server ${name} connects for this session.`);
     } catch (error) {
       refuse(error instanceof Refused ? error.message : "invalid definition");

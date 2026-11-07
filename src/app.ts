@@ -430,6 +430,9 @@ export class CasperApp {
   lastTaskRequest?: string;
   /** The conversation /continue, /resume or --continue/--resume opened: /continue in it stays, rather than going back to the one left. */
   continuedConversation?: string;
+  /** The model and effort the conversation --resume opened was on, before --model or --effort: a `session/load` puts
+   * them back for that session (decision 89). */
+  resumedSelection?: { provider: string; model: string; effort?: string };
   continueQuietly?: string;
   /** The other way to read the first request ("run test": the project's check, or the conversation offered at the
    * start): offered first on that task's Next row, then forgotten. */
