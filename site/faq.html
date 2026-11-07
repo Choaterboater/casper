@@ -344,6 +344,7 @@ Make this change? → No
             <li>connecting a project's MCP server, or turning a network server's writes on (your own servers connect with the session);</li>
             <li>a change through an MCP server an app hands Casper over <code>casper acp</code>, in the app, unless that app asks for itself (then only a firmware, delete or admin change asks);</li>
             <li>over <code>casper acp</code>, what the app's access chip leaves: nothing on Read only (Casper looks and answers, and changes are not run), the usual boxes on Ask first, and on Don't ask what <code>/permissions all</code> keeps, plus a change on the app's own server, in Casper's box;</li>
+            <li>the AI's questions, and Casper's own that take typed words, as forms in an app over <code>casper acp</code> that shows them (<code>acp_questions: off</code> skips them);</li>
             <li>setting up Casper's network server, and a product's login the first time the AI uses it;</li>
             <li>a device check, before anything is sent to a device;</li>
             <li>a check that timed out or could not start: stop, retry, have the model fix it anyway, or
@@ -351,7 +352,7 @@ Make this change? → No
             <li>a test that was <em>already</em> failing before the change, before paying to fix
             it;</li>
             <li>a model error that repeated, to retry or stop;</li>
-            <li>an optional plan you asked for with <code>/plan</code>: <code>1 Stop · 2 Build · 3 Change the plan</code> (Enter stops; an open question adds <code>2 Answer the question</code>, and several add <code>2 Answer the questions</code>, answered in one rewrite); choice 3 stays plain words. A clear request returns a plan directly, and only choices that change the build get up to 3 questions in one round, with 2-4 options and Type your own; answers lead to a plan, not more questions. New apps, sites and games get a first-version spec without forced steps. <kbd>Ctrl+T</kbd> shows Details; <kbd>Ctrl+G</kbd> opens saved Markdown using <code>VISUAL</code> or <code>EDITOR</code> and rereads it on return; <code>/plan</code> alone lists recent gitignored plans. Build gets the checklist; the receipt reports each item from Steps (or First version in a spec): completed items as done, not-done items with reasons, labelled model report, not check proof;</li>
+            <li>an optional plan you asked for with <code>/plan</code>: <code>1 Stop · 2 Build · 3 Change the plan</code> (Enter stops; an open question adds <code>2 Answer the question</code>, and several add <code>2 Answer the questions</code>, answered in one rewrite); choice 3 stays plain words. A clear request returns a plan directly, and only choices that change the build get up to 3 questions in one round, with 2-4 options and Type your own; answers lead to a plan, not more questions. New apps, sites and games get a first-version spec without forced steps. <kbd>Ctrl+T</kbd> shows Details; <kbd>Ctrl+G</kbd> opens saved Markdown using <code>VISUAL</code> or <code>EDITOR</code> and rereads it on return; <code>/plan</code> alone lists recent gitignored plans. Build gets the checklist; the receipt reports each item from Steps (or First version in a spec): completed items as done, not-done items with reasons, labelled model report, not check proof. In an app over <code>casper acp</code> the same choices are a card with the plan in it, and Change the plan asks in a form;</li>
             <li><code>Next: 1 Show diff · 2 Undo</code> after each task (Enter runs nothing; not in a folder too big to compare);</li>
             <li>before the AI's shell reaches another machine, or writes outside the project;</li>
             <li>a shell command to a host the sandbox does not know;</li>
@@ -369,6 +370,7 @@ Make this change? → No
             <li>building a request as a new project when you started in a folder that holds other things (an empty folder asks nothing).</li>
           </ul>
           <p>Answers are numbered: press the number. <kbd>Esc</kbd> skips. Choice 1 is always the one that does nothing risky.</p>
+          <p>You never need a box to add something: a line you send during a task reaches the AI at its next step, in the terminal and in an app over <code>casper acp</code>, which shows it in the chat when the AI reads it.</p>
           <figure class="capture">
             <pre class="term" tabindex="0" data-title="casper — ~/project"># on purpose)
 

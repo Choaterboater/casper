@@ -41,6 +41,7 @@ import { autoModeHandledHere, autoModeRequest, setAutoMode } from "./auto-mode";
 import { exportHandledHere, exportRequest, exportWordsLine } from "./export-words";
 import { stopAskingRequest } from "./stop-asking-words";
 import { reloadProject } from "./project-file";
+import { someoneAnswers } from "./approvals";
 import { pagesCommand } from "./pages";
 import { jobsCommand, jobStatusWords, leavingReply, leavingWords } from "./jobs";
 import { lookCommand, lookTyped } from "./look";
@@ -378,7 +379,8 @@ async function reopenPlan(app: CasperApp): Promise<VerificationReport | undefine
     app.output.write("Type /plan and then what you want, for example /plan add a --verbose flag to the CLI; the model plans first and nothing is built until you choose Build.\n"); return;
   }
   app.output.write("Recent plans\n");
-  if (!app.interactive || !app.terminal.canAsk) {
+  // An ACP app's person picks one too (decision 84): Stop is the box's no.
+  if (!someoneAnswers(app) || !app.terminal.canAsk) {
     plans.forEach((saved, i) => app.output.write(`${i + 1}. ${terminalText(saved.plan.title ?? saved.request)} · ${terminalText(saved.file.split(/[\\/]/).at(-1)!)}\n`));
     return;
   }

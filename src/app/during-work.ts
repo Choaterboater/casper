@@ -84,7 +84,7 @@ export function takeBackNewest(app: CasperApp): boolean {
 }
 
 /** Lines taken back out of the runtime: the AI never read them, so they are not part of the request. */
-function forgetSteered(app: CasperApp, lines: readonly string[]): void {
+export function forgetSteered(app: CasperApp, lines: readonly string[]): void {
   for (const line of lines) {
     const at = app.steeredInTask.lastIndexOf(line);
     if (at >= 0) app.steeredInTask.splice(at, 1);
@@ -274,6 +274,49 @@ export async function steerOrQueue(app: CasperApp, line: string): Promise<void> 
   showWaiting(app);
   const waiting = app.queuedLines.length;
   app.output.write(`  ↳ queued · runs when this task ends${waiting > 1 ? ` (${waiting} waiting)` : ""}${back || " · Esc stops the task and gives it back"}\n`);
+}
+
+/** A line an app sent during its prompt (`casper acp`, decision 86). The AI reads it at its next step ("steered"), or
+ * it joins the request when the model has not started ("joined"); otherwise Casper takes nothing ("not_taken") and the
+ * app keeps the line: nothing is queued here, and a picture never joins a request. */
+export async function steerFromApp(app: CasperApp, line: string, images: readonly RuntimeImage[] = []): Promise<"steered" | "joined" | "not_taken"> {
+  if (app.closing) return "not_taken";
+  try {
+    let pictures = images;
+    if (pictures.length) {
+      let sees = true;
+      try { sees = app.session?.getStatus?.().images !== false; } catch { sees = true; }
+      if (!sees) {
+        app.output.write(`[image] This model can't see pictures; the AI gets your line without ${pictures.length === 1 ? "it" : "them"}.\n`);
+        pictures = [];
+      }
+    }
+    if (await app.session?.steer?.(line, pictures.length ? pictures : undefined)) {
+      app.steeredInTask.push(line);
+      // The transcript (stderr) says so; the app is told when the AI reads it.
+      app.output.write("  ↳ sent to Casper · it reads this when its current step ends\n");
+      app.steerWaits.steered();
+      return "steered";
+    }
+    if (app.beforeFirstModelTurn && !pictures.length) {
+      app.linesBeforeModel.push(line);
+      app.steeredInTask.push(line);
+      return "joined";
+    }
+  } catch { /* the runtime could not take it: the app keeps the line */ }
+  return "not_taken";
+}
+
+/** After an app's prompt: lines the AI never read are dropped (the app saw no read notice, so it still has them), and
+ * the next prompt starts with nothing typed during this one. */
+export function settleAppSteers(app: CasperApp): void {
+  app.steering = [];
+  app.steeredInTask = [];
+  app.linesBeforeModel = [];
+  app.queuedLines.splice(0);
+  app.beforeFirstModelTurn = false;
+  try { app.session?.takeUnsent?.(); } catch { /* nothing left to take */ }
+  app.linePastes.clear();
 }
 
 /** /effort <level> during a task: the model's next step uses it; the step already running keeps its level. */

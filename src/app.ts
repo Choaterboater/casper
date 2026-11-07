@@ -274,6 +274,10 @@ export class CasperApp {
   /** `casper acp`: an ACP client's person answers the approval boxes (session/request_permission), so the run keeps the
    * terminal's checklist and screenshot-question defaults; it is otherwise one-shot. */
   remoteApprovals = false;
+  /** `casper acp` with an app that shows forms (and `acp_questions` on): the AI's questions and Casper's typed ones go to
+   * the app as elicitation/create, so the ask tool, the plan's question round and the before-changes gate work there
+   * (decision 83). */
+  remoteQuestions = false;
   /** `casper acp`: the ACP toolCallId of the step the model's tool call `id` is, sent with a call to the app's own MCP
    * server (decision 77). */
   acpToolCallId?: (id: string) => string | undefined;
@@ -426,6 +430,9 @@ export class CasperApp {
   lastTaskRequest?: string;
   /** The conversation /continue, /resume or --continue/--resume opened: /continue in it stays, rather than going back to the one left. */
   continuedConversation?: string;
+  /** The model and effort the conversation --resume opened was on, before --model or --effort: a `session/load` puts
+   * them back for that session (decision 89). */
+  resumedSelection?: { provider: string; model: string; effort?: string };
   continueQuietly?: string;
   /** The other way to read the first request ("run test": the project's check, or the conversation offered at the
    * start): offered first on that task's Next row, then forgotten. */
@@ -561,6 +568,17 @@ export class CasperApp {
   readonly mcpAddedThisSession = new Set<string>();
   /** `/plan on`: every request this session gets a plan first, until `/plan off`. */
   planMode = false;
+  /** `casper acp`: the accepted plan's checklist at the build's start, at each step the model reports and at its end,
+   * for the app's plan entries (decision 84). */
+  onPlanSteps?: (steps: readonly import("./flows/plan-build").PlanStepReport[]) => void;
+  /** `casper acp`: the model's planning words Casper held and prints itself because they were no plan, so the app gets
+   * them as a message (decision 84). */
+  onPlanWords?: (words: string) => void;
+  /** `casper acp`: the lines typed before the model started, as the first model turn takes them into the request, so
+   * the app hears they were read (decision 86). */
+  onLinesJoined?: (lines: readonly string[]) => void;
+  /** `casper acp`: a line Casper wrote for the person (personNote), so the app shows it as a note (decision 88). */
+  onPersonNote?: (line: string) => void;
   readonly allow?: RunAllowances;
   readonly sandboxSeams?: Partial<ShellSandboxOptions>;
   /** web_search and web_fetch for this workspace; unset when web: off. */

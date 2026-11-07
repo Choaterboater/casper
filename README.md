@@ -117,7 +117,9 @@ and the screenshot question as a card. Run options such as `--model` go before o
 The MCP servers an app lists for a session connect for that session only, as `acp-<name>`: never saved or
 remembered. Reads run; a change asks in the app, unless a server on this computer says the app asks for itself, and
 then only deletes, firmware and admin changes ask in Casper's box. `acp_mcp: ask` or `off` in `~/.casper/config.yaml`
-takes that back. [Decision 77](docs/adr/0002/77-an-acp-client-hands-casper-its-tools.md).
+takes that back. [Decision 77](docs/adr/0002/77-an-acp-client-hands-casper-its-tools.md). Only the app's own server
+pins tools and hears which step a call is; others it forwards from its settings run as any server, a program in the
+folder the app names. [Decision 89](docs/adr/0002/89-an-acp-app-forwards-its-own-mcp-servers.md).
 
 A picture pasted or attached in the app goes to Casper's model as a Ctrl+V picture does in the terminal, and an
 attached file goes as its path, which Casper reads with its own tools. When the model can't see pictures, the app
@@ -136,12 +138,50 @@ Casper's reply, in a monospace block. The ones that would move Casper to another
 The app's model badge and picker show Casper's own models, the ones you're signed in to, with Casper's effort
 levels. A pick changes Casper's model for the next message and is saved as your default, as `/model` does; a
 `/model` typed into Casper moves the badge. [Decision 81](docs/adr/0002/81-an-acp-app-picks-casper-model-and-effort.md).
+A conversation the app reopens goes on with its own model and effort, without changing your default.
 
 The app's access chip reaches Casper. Read only stops Casper changing anything it can see and runs no checks; Ask
 first is Casper's usual boxes; Don't ask equals `/permissions all`, and then a change on the app's own server asks in
 Casper's box instead of the app's. Picking Read only during a prompt closes its open boxes as No. A typed
 `/permissions all` or "Yes to everything this session" shows in the app. `acp_access: off` in `~/.casper/config.yaml`
 keeps Don't ask from apps. [Decision 82](docs/adr/0002/82-an-acp-app-sets-casper-access.md).
+
+An app that shows forms gets the AI's questions as forms: pick a choice, several, or type your own answer, and it
+goes back to the AI. The plan's questions and the `askQuestions: beforeChanges` question work there too. A question
+nobody answers is skipped. Passwords and other secrets still need Casper's own terminal. `acp_questions: off` in
+`~/.casper/config.yaml` skips them all. [Decision 83](docs/adr/0002/83-an-acp-app-answers-the-ais-questions.md).
+
+`/plan` works in the app: the plan comes as a card with Stop, Build and Change the plan, and only Build builds. Change
+the plan asks what to change in a form, and the new plan comes back in the same card. While Casper builds, the app's
+plan lists the steps as the model reports them. The app's **Plan first** option is `/plan on`.
+[Decision 84](docs/adr/0002/84-an-acp-app-reviews-and-builds-casper-plan.md).
+
+A box that a step raises names that step, so the app can show it on the step's row. An edit's box carries the edit's
+diff and file, so you see what you allow. The choices and the answers stay the same.
+[Decision 85](docs/adr/0002/85-an-acp-box-names-its-step.md).
+
+A line you send in the app while Casper works reaches the AI at its next step, as in the terminal, and shows in the
+chat when the AI reads it. Sent before the model starts, it joins your request. A line the AI never read stays in the
+app to send again. [Decision 86](docs/adr/0002/86-an-acp-app-steers-casper-mid-task.md).
+
+While the model reasons, the app's reasoning block shows the same short headline as the terminal's status row, and a
+provider retry says who is busy and when Casper tries again. **Reasoning headline** in `/settings` and `/details quiet`
+turn the headlines off. [Decision 87](docs/adr/0002/87-an-acp-app-sees-casper-reasoning-headlines.md).
+
+The app's context ring fills as in the terminal's footer: after each answer it gets the context used, the model's
+window and the session's cost, with no cost under a subscription. Casper's own lines, such as the skills it picked or
+an app server it did not connect, show in the chat as notes, and the receipt's data names its tokens, its cost and
+the project folder. [Decision 88](docs/adr/0002/88-an-acp-app-shows-casper-usage-notes-and-receipt.md).
+
+Text the app sends with a request that is no file, such as another chat you mention, is read by the model but is not
+what you asked: its "fix" or "add tests" makes no checklist, and a `/` command takes only the words you typed and
+says the text did not go with it.
+[Decision 90](docs/adr/0002/90-embedded-context-is-not-the-request.md).
+
+The app may close a Casper that sits idle and reopen the conversation on your next message, on its own model. Casper
+is idle only when nothing runs: no prompt, dev server, command, debugger, helper or checks, and no command's end note
+still being written. "Yes, for this session" and the access mode end with it. `acp_idle_exit: off` in
+`~/.casper/config.yaml` keeps Casper open. [Decision 91](docs/adr/0002/91-an-app-may-close-an-idle-casper.md).
 
 Type `/help` for the commands. Ctrl+C stops the current work but keeps changes already made;
 Ctrl+D on an empty prompt exits. [Keys and commands](docs/TERMINAL_UX.md#quick-reference).

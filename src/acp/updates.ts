@@ -1,16 +1,45 @@
 // Casper's events (the ones behind `casper --json`, src/app/json-events.ts) as ACP session/update notifications.
 // Everything that leaves goes through `hide` first: the --json redaction plus the exact values of the user's own secrets.
 
+import { retryWords } from "../app/events";
 import type { CasperEvent, PhaseEvent, ReceiptEvent } from "../app/json-events";
-import type { RuntimeEvent } from "../runtime/types";
+import type { PlanStepReport } from "../flows/plan-build";
+import { tokenFields } from "../runtime/model-usage";
+import type { RuntimeEvent, RuntimeStatus, RuntimeUsage } from "../runtime/types";
 import { fileTextHoldsSecret } from "../secrets/tool-output";
 import type { TaskResult } from "../task/result";
-import { redactPreview } from "../tui/format";
+import { lineText, redactPreview } from "../tui/format";
 import type { AcpCommand } from "./commands";
+import type { BoxStep } from "./permission";
 import type { Json } from "./rpc";
 import { endUpdate, startUpdate, stepFacts, type ShowRules, type StepFacts } from "./tool-content";
 
 const HIDDEN = "<secret hidden>";
+
+/** A headline cut at 60 characters (reasoningHeadline) may end inside a secret, which `hide` then cannot see whole:
+ * a run of 4 or more characters before the final `…` that starts one of `values` is hidden too. */
+export function hideCut(headline: string, values: readonly string[]): string {
+  if (!headline.endsWith("…")) return headline;
+  const body = headline.slice(0, -1);
+  for (const value of values) {
+    if (value.length < 6) continue;
+    for (let size = Math.min(value.length - 1, body.length); size >= 4; size--) {
+      if (body.endsWith(value.slice(0, size))) return `${body.slice(0, -size)}${HIDDEN}…`;
+    }
+  }
+  return headline;
+}
+
+/** Each of `values` as reasoningHeadline may have changed it, longest first: marks and a leading `#` taken off,
+ * spaces run together, and at the end of a sentence its final `.`, `:` or `;` gone; the value itself too. */
+export function headlineForms(values: readonly string[]): string[] {
+  const forms = new Set<string>();
+  for (const value of values) {
+    const plain = lineText(value).replace(/\*\*|__|`/g, "").replace(/^#+\s*/, "").replace(/\s+/g, " ").trim();
+    for (const form of [value, plain, plain.replace(/[\s.:;…]+$/, "")]) if (form.length >= 6) forms.add(form);
+  }
+  return [...forms].sort((a, b) => b.length - a.length);
+}
 
 /** The --json redaction, then each of `values` (the user's own secrets, longest first) replaced wherever it appears. */
 export function hider(values: () => readonly string[]): (text: string) => string {
@@ -96,7 +125,52 @@ export interface MapperOptions {
   holdsSecret?: ShowRules["holdsSecret"];
   /** A file whose text only netconan can check (onlyNetconanChecks); default none. */
   unchecked?: ShowRules["unchecked"];
+  /** Whether the model is writing a plan Casper holds its words for (decision 84): its text then goes out as thoughts,
+   * since the Build box carries the plan. */
+  planning?: () => boolean;
+  /** Whether the model's reasoning headlines go out as thoughts (decision 87): reasoning_headline, and not at display
+   * quiet. Default: yes. */
+  headlines?: () => boolean;
+  /** The user's own secrets, for a headline that changed one or was cut inside one (headlineForms, hideCut). */
+  values?: () => readonly string[];
+  /** The main runtime's usage and status, for the usage_update after each of its responses (decision 88). */
+  usage?: () => RuntimeUsage | undefined;
+  status?: () => RuntimeStatus | undefined;
 }
+
+/** How a cost is paid: OpenRouter's is what it charged, another provider's a catalog estimate, a subscription's
+ * no per-token price at all (formatCostLong); null when there is no cost. */
+export type CostKind = "charged" | "estimate" | "subscription" | null;
+
+export function costKind(status: RuntimeStatus | undefined, cost: number | null | undefined): CostKind {
+  if (status?.billing === "subscription") return "subscription";
+  if (cost === undefined || cost === null) return null;
+  return status?.provider === "openrouter" ? "charged" : "estimate";
+}
+
+/** ACP's usage_update after a main-runtime response (decision 88): the context the response left and its window, the
+ * session's cost (none under a subscription), and the response's own tokens in `_meta.casper`. None without a window
+ * or a reported usage, nor for a cancelled or failed response: its usage is a stream's start (Pi's context skips it)
+ * and a held error's cost is already the session's, so the app keeps the last figures. The runtime's figures do not hold the response yet (Pi records it after its listeners hear it),
+ * so the response's prompt and output are the context, and its cost is added to the session's. */
+export function usageUpdate(end: Extract<RuntimeEvent, { type: "assistant_response_end" }>, usage: RuntimeUsage | undefined, status: RuntimeStatus | undefined): Json | undefined {
+  const size = usage?.context?.contextWindow ?? 0;
+  const reported = end.usage;
+  if (!(size > 0) || !reported || end.stopReason === "aborted" || end.stopReason === "error") return undefined;
+  const tokens = tokenFields(reported);
+  const split = tokens.input !== null && tokens.output !== null;
+  const used = split ? tokens.input! + (tokens.cacheRead ?? 0) + (tokens.cacheWrite ?? 0) + tokens.output! : usage?.context?.tokens ?? reported.tokens;
+  const total = (usage?.estimatedCost ?? 0) + (Number.isFinite(reported.estimatedCost) ? reported.estimatedCost : 0);
+  const cost = total > 0 ? total : undefined;
+  const kind = costKind(status, cost);
+  return { sessionUpdate: "usage_update", used, size,
+    ...(cost !== undefined && kind !== "subscription" ? { cost: { amount: cost, currency: "USD" } } : {}),
+    _meta: { casper: { response: { ...tokens, tokens: reported.tokens, toolUse: end.stopReason === "toolUse" },
+      model: { provider: status?.provider ?? null, model: status?.model ?? null }, cost: kind } } };
+}
+
+/** A plan step's status as ACP's: one not done is still open, and says why. */
+const STEP_STATUS: Record<PlanStepReport["status"], "pending" | "in_progress" | "completed"> = { pending: "pending", active: "in_progress", done: "completed", "not-done": "pending" };
 
 /**
  * Stateful, one per session. The model's text goes out a line at a time, so a secret is hidden whole, never split
@@ -113,9 +187,16 @@ export class UpdateMapper {
   private commandPending = "";
   private fenceOpen = false;
   private readonly plan: Array<{ phase: PhaseEvent["phase"]; status: "in_progress" | "completed" }> = [];
+  /** The accepted plan's checklist in this prompt, shown where the task stage is (decision 84). */
+  private planned?: readonly PlanStepReport[];
+  /** The model's planning words not sent yet (a part line): thoughts, a whole line at a time as its text is. */
+  private thinking = "";
   private steps = 0;
-  /** The ACP id of each running tool, by the model's id: a model may use the same id again in a later turn. */
-  private readonly running = new Map<string, { id: string; facts: StepFacts }>();
+  /** The headline last sent as a thought, until a step, the end of a response or a new prompt (decision 87). */
+  private lastHeadline?: string;
+  /** The ACP id of each running tool, by the model's id: a model may use the same id again in a later turn. `box` is
+   * what a box the step raises repeats (decision 85): the diffs and files its start showed, already hidden. */
+  private readonly running = new Map<string, { id: string; facts: StepFacts; box: Omit<BoxStep, "id"> }>();
   private readonly cwd: () => string;
   private readonly rules: ShowRules;
 
@@ -129,17 +210,56 @@ export class UpdateMapper {
     return this.running.get(id)?.id;
   }
 
+  /** The running step the model calls `id`, as a box it raises names it: its ACP id, and a copy of the diffs and files
+   * its start showed (an edit's replacements; a write, a command or an edit holding a secret has none). */
+  step(id: string): BoxStep | undefined {
+    const step = this.running.get(id);
+    return step ? { id: step.id, ...structuredClone(step.box) } : undefined;
+  }
+
+  /** The ACP toolCallId of the running step of `tool` (the ask tool's, so the AI's question is asked on it). */
+  runningStep(tool: string): string | undefined {
+    let found: string | undefined;
+    for (const step of this.running.values()) if (step.facts.tool === tool) found = step.id;
+    return found;
+  }
+
   /** A runtime event as updates: a tool step's start and end (every other event comes through map()). */
   runtime(event: RuntimeEvent): Json[] {
+    if (event.type === "assistant_progress") {
+      if (event.kind !== "thinking" || !event.headline || this.options.headlines?.() === false) return [];
+      // A thought of its own, sent only when it changed: the model's text held so far stays held.
+      // The headline is made from the reasoning (reasoningHeadline), which can change a secret: each changed form too.
+      const forms = headlineForms(this.options.values?.() ?? []);
+      let shown = this.hide(event.headline);
+      for (const form of forms) if (shown.includes(form)) shown = shown.split(form).join(HIDDEN);
+      shown = hideCut(shown, forms);
+      if (!shown.trim() || shown === this.lastHeadline) return [];
+      this.lastHeadline = shown;
+      return [this.thoughtChunk(`${shown}\n\n`, false)];
+    }
+    if (event.type === "retry") return [this.thoughtChunk(`${retryWords(event)}\n\n`)];
+    if (event.type === "assistant_response_end") {
+      this.lastHeadline = undefined;
+      // The main runtime's only: a helper's usage comes as a `usage` event, which sends nothing (decision 88).
+      let update: Json | undefined;
+      try { update = usageUpdate(event, this.options.usage?.(), this.options.status?.()); } catch { update = undefined; }
+      return update ? [...this.flush(), hideDeep(update, this.hide)] : [];
+    }
     if (event.type === "tool_start") {
+      this.lastHeadline = undefined;
       const id = `casper-tool-${++this.steps}`;
       let mcp: { server: string; tool: string } | undefined;
       try { mcp = this.options.mcpTool?.(event.toolName, event.args ?? {}); } catch { mcp = undefined; }
       const facts = stepFacts(event, this.cwd(), mcp);
-      if (event.toolCallId) this.running.set(event.toolCallId, { id, facts });
+      const start = hideDeep(startUpdate(id, facts, this.rules), this.hide, { keys: true });
+      if (event.toolCallId) {
+        const diffs = Array.isArray(start.content) ? start.content.filter((item: Json) => item?.type === "diff") : [];
+        this.running.set(event.toolCallId, { id, facts, box: { diffs: structuredClone(diffs), ...(Array.isArray(start.locations) ? { locations: structuredClone(start.locations) } : {}) } });
+      }
       const before = this.flush();
       this.tail = "";
-      return [...before, hideDeep(startUpdate(id, facts, this.rules), this.hide, { keys: true })];
+      return [...before, start];
     }
     if (event.type === "tool_end") {
       const step = event.toolCallId ? this.running.get(event.toolCallId) : undefined;
@@ -153,6 +273,7 @@ export class UpdateMapper {
   map(event: CasperEvent): Json[] {
     switch (event.type) {
       case "assistant_delta": {
+        if (this.options.planning?.()) return this.thought(event.text);
         // The model speaking ends a command's block first.
         const closed = this.closeFence();
         // A model message after another one, or after Casper's own lines, is a paragraph of its own (two messages
@@ -179,18 +300,63 @@ export class UpdateMapper {
         let entry = this.plan.find((item) => item.phase === event.phase);
         if (!entry) this.plan.push(entry = { phase: event.phase, status: "in_progress" });
         entry.status = event.state === "start" ? "in_progress" : "completed";
-        return [{ sessionUpdate: "plan", entries: this.plan.map((item) => ({ content: PHASE_WORDS[item.phase], priority: "medium", status: item.status })) }];
+        return [this.planUpdate()];
       }
       case "error": return this.note(`[error] ${event.message}`);
       default: return [];
     }
   }
 
+  /** The accepted plan's checklist (PlanBuild) as the plan's entries: every step, each time. */
+  planSteps(steps: readonly PlanStepReport[]): Json[] {
+    this.planned = steps.map((step) => ({ ...step }));
+    return [this.planUpdate()];
+  }
+
+  /** The whole plan: Casper's stages, with the accepted plan's steps where the task stage is, or where it will be. */
+  private planEntries(): Json[] {
+    const stage = (content: string, status: string) => ({ content: this.hide(content), priority: "medium", status });
+    const steps = (this.planned ?? []).map((step) => stage(step.status === "not-done" ? `${step.title} (not done: ${step.reason ?? "no reason given"})` : step.title, STEP_STATUS[step.status]));
+    const entries = this.plan.flatMap((item) => item.phase === "task" && this.planned ? steps : [stage(PHASE_WORDS[item.phase], item.status)]);
+    return this.planned && !this.plan.some((item) => item.phase === "task") ? [...entries, ...steps] : entries;
+  }
+
+  private planUpdate(): Json {
+    return { sessionUpdate: "plan", entries: this.planEntries() };
+  }
+
+  /** The model's words Casper held while it planned (the plan screen's), when they were no plan: a message of their own
+   * after the text so far, as the terminal prints them. Never a note: they are the model's words, not Casper's. */
+  words(text: string): Json[] {
+    const before = this.flush();
+    const shown = text.replace(/^\n+|\s+$/g, "");
+    if (!shown) return before;
+    const update = this.message(`${paragraphAfter(this.tail)}${shown}\n`);
+    this.separate = true;
+    return [...before, update];
+  }
+
+  /** Planning words as thoughts, a whole line at a time. */
+  private thought(words: string): Json[] {
+    this.thinking += words;
+    const end = this.thinking.lastIndexOf("\n");
+    if (end < 0) return [];
+    const ready = this.thinking.slice(0, end + 1);
+    this.thinking = this.thinking.slice(end + 1);
+    return [this.thoughtChunk(ready)];
+  }
+
+  /** `hide` false: the words went through it already. */
+  private thoughtChunk(words: string, hide = true): Json {
+    return { sessionUpdate: "agent_thought_chunk", content: text(hide ? this.hide(words) : words) };
+  }
+
   /** A line for the person (an `[image] ` note: a picture that was not sent), after the model's text so far, so it
-   * reads where it happened: a paragraph of its own, its lines kept (keptLines). */
+   * reads where it happened: a paragraph of its own, its lines kept (keptLines). `_meta.casper.note` tells it from the
+   * model's words (decision 88). */
   note(line: string): Json[] {
     const before = this.flush();
-    const update = this.message(`${paragraphAfter(this.tail)}${keptLines(line)}`);
+    const update = { ...this.message(`${paragraphAfter(this.tail)}${keptLines(line)}`), _meta: { casper: { note: true } } };
     this.separate = true;
     return [...before, update];
   }
@@ -204,8 +370,16 @@ export class UpdateMapper {
     return [...before, update];
   }
 
-  /** A new prompt: its first words start the app's new message, so nothing goes before them. */
+  /** A new prompt: its first words start the app's new message, so nothing goes before them, and it has no plan steps. */
   newPrompt(): void {
+    this.newMessage();
+    this.planned = undefined;
+    this.lastHeadline = undefined;
+  }
+
+  /** The app was shown the person's line (a steer the AI read, decision 86): the model's next words start a new
+   * message. The prompt's plan steps stay. */
+  newMessage(): void {
     this.tail = "";
     this.separate = false;
   }
@@ -221,9 +395,11 @@ export class UpdateMapper {
     return [this.fenced(ready)];
   }
 
-  /** The model's text not sent yet, and the end of a command's block. */
+  /** The model's text not sent yet (its planning words too), and the end of a command's block. */
   flush(): Json[] {
-    const closed = this.closeFence();
+    const thought = this.thinking;
+    this.thinking = "";
+    const closed = [...thought ? [this.thoughtChunk(thought)] : [], ...this.closeFence()];
     const rest = this.pending;
     this.pending = "";
     return rest ? [...closed, this.message(rest)] : closed;
@@ -269,9 +445,16 @@ export interface AcpReceipt {
   text: string;
   /** Everything `casper --json` puts in its receipt event, for clients that want the rest. */
   json: ReceiptEvent;
+  /** The task's model use, as the receipt event's; null when no model task ran. */
+  usage: ReceiptEvent["usage"];
+  /** How its cost is paid (costKind); null when it has none. */
+  cost: CostKind;
+  /** The folder the changed files are in. */
+  root: string;
 }
 
-export function acpReceipt(receipt: ReceiptEvent, task: TaskResult | undefined, hide: (text: string) => string): AcpReceipt {
+export function acpReceipt(receipt: ReceiptEvent, task: TaskResult | undefined, hide: (text: string) => string,
+  context: { status?: RuntimeStatus; root: string }): AcpReceipt {
   const reasons = new Map((task?.verification?.results ?? []).map((result) => [result.name, result.reason ?? ""]));
   return hideDeep({
     outcome: receipt.outcome, verdict: receipt.verdict, exitCode: receipt.exitCode, changed: receipt.changed,
@@ -279,6 +462,7 @@ export function acpReceipt(receipt: ReceiptEvent, task: TaskResult | undefined, 
       command: check.command, exit: check.exit, ms: check.ms, fresh: check.fresh })),
     checksNotRun: receipt.checks.filter((check) => check.status === "skip").map((check) => ({ name: check.name, reason: reasons.get(check.name) || "not run" })),
     text: receipt.text, json: receipt,
+    usage: receipt.usage ? { ...receipt.usage } : null, cost: costKind(context.status, receipt.usage?.estimatedCost), root: context.root,
   }, hide);
 }
 

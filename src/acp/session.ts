@@ -7,7 +7,13 @@
 // but a picked choice is No), and the terminal's defaults hold: the checklist for a code change, and the screenshot
 // question once a session. A / command's output is its reply (src/acp/commands.ts lists the commands). The app's
 // model and effort picker shows Casper's own models (src/acp/config-options.ts), and its access chip sets Read only,
-// Ask first or Don't ask (src/acp/modes.ts).
+// Ask first or Don't ask (src/acp/modes.ts). An app that shows forms gets the AI's questions and Casper's typed ones as
+// elicitation/create (src/acp/permission.ts, decision 83). /plan's Build box carries the plan, the build's checklist is
+// the app's plan, and the `plan` option is /plan on (decision 84). A line the app sends during a prompt
+// (`_casper/steer`) reaches the AI at its next step, as a line typed in the terminal does (decision 86). Each model
+// response is followed by a usage_update, and Casper's lines for the person are notes (decision 88). A session/load
+// goes on with the conversation's own model and effort (decision 89). `_casper/idle` tells the app whether it may close
+// this process now, by kind only (decision 91).
 
 import os from "node:os";
 import path from "node:path";
@@ -16,21 +22,25 @@ import type { CliOptions } from "../cli-args";
 import type { CasperApp } from "../app";
 import { receiptEvent, type CasperEvent } from "../app/json-events";
 import { cancelCurrent } from "../app/command-loop";
+import { displayLevel } from "../app/footer";
 import { networkLoginFile, ownSecretValues } from "../app/network-host";
 import { ensureRuntime } from "../app/runtime-start";
-import { transcriptsIn, withoutTranscripts } from "../app/request-words";
+import { transcriptsIn, withoutPasted } from "../app/request-words";
 import { promptWords } from "../app/rewind";
 import { taskExitCode } from "../task/result";
 import { CASPER_VERSION } from "../version";
 import type { AwayAsker } from "../tui/terminal";
-import { readAcpMcpSetting, type AcpMcpSetting } from "../config/load";
+import { readAcpIdleExitSetting, readAcpMcpSetting, type AcpMcpSetting } from "../config/load";
 import type { MCPServerDefinition } from "../mcp/config";
-import type { RuntimeEvent } from "../runtime/types";
+import { toolCallId } from "../runtime/tool-reason";
+import type { RuntimeEvent, RuntimeStatus } from "../runtime/types";
 import { fileTextHoldsSecret, onlyNetconanChecks } from "../secrets/tool-output";
-import { leadingImagePath, startsWithImageFile } from "../app/images";
+import { attachImages, leadingImagePath, startsWithImageFile } from "../app/images";
+import { terminalText } from "../tui/format";
+import { forgetSteered, settleAppSteers, steerFromApp } from "../app/during-work";
 import { clientServers } from "./client-servers";
 import { acpCommands, acpRefusal } from "./commands";
-import { offerOf, setOption } from "./config-options";
+import { offerOf, restoreSelection, setOption } from "./config-options";
 import { accessModeOf, modeState, setAccessMode, withModeTold } from "./modes";
 import { AcpAsker } from "./permission";
 import { promptContent } from "./prompt";
@@ -41,11 +51,13 @@ import { acpReceipt, commandsUpdate, configUpdate, hider, UpdateMapper, valuesHi
 export const ACP_PROTOCOL_VERSION = 1;
 
 /** The initialize reply, the same from the router and from each session. `acp_mcp: off` says no http server is taken
- * (stdio ones are ACP's baseline; Casper connects none of them either). */
+ * (stdio ones are ACP's baseline; Casper connects none of them either). `_meta.casper.steer`: `_casper/steer` takes a
+ * line during a prompt (decision 86). */
 export function initializeResult(setting: AcpMcpSetting = "on"): Json {
   return {
     protocolVersion: ACP_PROTOCOL_VERSION,
-    agentCapabilities: { loadSession: true, promptCapabilities: { image: true, audio: false, embeddedContext: true }, mcpCapabilities: { http: setting !== "off", sse: false } },
+    agentCapabilities: { loadSession: true, promptCapabilities: { image: true, audio: false, embeddedContext: true }, mcpCapabilities: { http: setting !== "off", sse: false },
+      _meta: { casper: { steer: true } } },
     agentInfo: { name: "casper", title: "Casper", version: CASPER_VERSION },
     authMethods: [],
   };
@@ -59,11 +71,13 @@ export async function sessionFolder(params: Json): Promise<string> {
   return folder;
 }
 
-/** The prompt without the agent transcripts pasted into its text blocks, or undefined when it has none: what such a
- * paste says ("fix", "add tests") is context, so the checklist rule reads only the rest, as for a typed line. */
-export function askedWithout(blocks: unknown, prompt: string): string | undefined {
+/** The prompt without the agent transcripts pasted into its text blocks and without `context`, the embedded text that
+ * is no file (another chat, an editor's buffer: src/acp/prompt.ts), or undefined when it has neither: what those say
+ * ("fix", "add tests") is context, so the checklist rule reads only the rest, as for a typed line (decision 90). */
+export function askedWithout(blocks: unknown, prompt: string, context: readonly string[] = []): string | undefined {
   const texts = Array.isArray(blocks) ? blocks.flatMap((block: Json) => block?.type === "text" && typeof block.text === "string" ? [block.text] : []) : [];
-  return withoutTranscripts(prompt, transcriptsIn(texts));
+  const pieces = [...transcriptsIn(texts), ...context];
+  return pieces.length ? withoutPasted(prompt, pieces) : undefined;
 }
 
 /** The prompt's words as Casper runs them (src/acp/prompt.ts): a picture as `[image N]`, a file as its quoted path. */
@@ -80,6 +94,30 @@ export function answerThroughClient(app: CasperApp, asker: AwayAsker, write: (te
   app.remoteApprovals = true;
   app.terminal.leave({ isTTY: false, columns: 100, rows: 40, write }, asker);
 }
+
+/** What `_casper/idle` names as still running (decision 91): kinds only, in this order. The browser for page checks is
+ * not one: it holds nothing that closing would lose. */
+export const IDLE_KINDS = ["dev server", "command", "debugger", "helper", "checks"] as const;
+export type IdleKind = typeof IDLE_KINDS[number];
+export type IdleHost = Pick<CasperApp, "backgroundTasks"> & { backgroundCommands?: Pick<NonNullable<CasperApp["backgroundCommands"]>, "notifying">;
+  subagents: Pick<CasperApp["subagents"], "isBusy"> };
+
+/** The `_casper/idle` reply (decision 91): `idle` only with acp_idle_exit on (read again now, from your own file), no
+ * prompt or model change under way and nothing running, a command's note still being written and a helper still
+ * draining included. It never holds a name, a command's text, a path or a secret. */
+export async function idleReply(app: IdleHost, state: { busy: boolean; changing: boolean }, homeDir: string): Promise<Json> {
+  if (await readAcpIdleExitSetting(homeDir) === "off") return { idle: false, running: [], reason: "off" };
+  if (state.busy || state.changing) return { idle: false, running: [], reason: "busy" };
+  const kinds = new Set<string>(app.backgroundTasks().map((task) => task.kind));
+  if ((app.backgroundCommands?.notifying() ?? 0) > 0) kinds.add("command");
+  if (app.subagents.isBusy) kinds.add("helper");
+  const running = IDLE_KINDS.filter((kind) => kinds.has(kind));
+  return { idle: running.length === 0, running };
+}
+
+/** A line the app steered in during a prompt (decision 86), until the AI reads it: `text` as the app sent it, `sent`
+ * as the AI reads it (its pictures as `[image N]`). */
+interface AppSteer { text: string; sent: string; messageId: string; kind: "pending" | "steered" | "joined" }
 
 export interface SessionOptions {
   cli: CliOptions;
@@ -106,6 +144,15 @@ export async function runAcpSession(options: SessionOptions): Promise<void> {
   // A model or effort change the client asked for is being applied: no prompt starts meanwhile.
   let changing = false;
   let cancelled = false;
+  // The client said at initialize that it shows forms (elicitation/create): the AI's questions may go to it.
+  let formQuestions = false;
+  // The app's lines taken during this prompt (decision 86), oldest first, until the AI reads each: "joined" ones go with
+  // the first model turn's request, "steered" ones at the AI's next step; "pending" is still being handed over.
+  let steers: AppSteer[] = [];
+  // Steers are taken one at a time, in the order they arrived, and only for the prompt that was running then.
+  let steerChain: Promise<unknown> = Promise.resolve();
+  let promptGeneration = 0;
+  let steerN = 0;
   const sendUpdate = (update: Json) => { if (sessionId) connection.notify("session/update", { sessionId, update }); };
   // The user's own secrets (logins, keys, secret-looking variables), read again at each prompt, and every value the
   // client gave its MCP servers: never in an update.
@@ -122,9 +169,25 @@ export async function runAcpSession(options: SessionOptions): Promise<void> {
   // subfolder), so its locations and diffs name the file it really wrote.
   const mapper = new UpdateMapper(hide, { cwd: () => app?.projectContext ? app.activeWorkspaceRoot() : folder ?? process.cwd(), mcpTool: (name, args) => app?.broker?.named(name, args),
     holdsSecret: (file, text) => fileTextHoldsSecret(file, text, app ? { configs: app.scrubFiles, networkLoginFile: networkLoginFile(app) } : {}),
-    unchecked: (file) => onlyNetconanChecks(file, { configs: app?.scrubFiles, netconan: netconanInUse }) });
+    unchecked: (file) => onlyNetconanChecks(file, { configs: app?.scrubFiles, netconan: netconanInUse }),
+    // The words of a plan being written are thoughts: the Build box shows the plan (decision 84).
+    planning: () => app?.events.holdingText === true,
+    // The model's reasoning headline is a thought, under the status row's own switch and never at quiet (decision 87).
+    headlines: () => app?.projectContext?.reasoningHeadline !== false && (!app || displayLevel(app) !== "quiet"),
+    values: () => secrets,
+    // The main runtime's usage after each of its responses (decision 88).
+    usage: () => app?.session?.getUsage?.(), status: () => app?.session?.getStatus?.() });
   // A box is a step on the wire: the text so far, and a command's open block, end before it (and before its answer).
   const boxUpdate = (update: Json) => { for (const done of mapper.flush()) sendUpdate(done); sendUpdate(update); };
+  /** The app's line, as the AI reads it: after the model's words so far, and before its next ones (a message of their
+   * own). Its words are hidden like the rest. */
+  const readNotice = (entry: AppSteer) => {
+    const at = steers.indexOf(entry);
+    if (at >= 0) steers.splice(at, 1);
+    for (const done of mapper.flush()) sendUpdate(done);
+    sendUpdate({ sessionUpdate: "user_message_chunk", content: { type: "text", text: hide(entry.text) }, messageId: entry.messageId, _meta: { casper: { steered: true } } });
+    mapper.newMessage();
+  };
   // The / command a prompt runs (decision 80), until the model speaks in it: what the terminal shows for it then is its
   // output, Casper's reply.
   let commandRun: { spoke: boolean } | undefined;
@@ -158,6 +221,17 @@ export async function runAcpSession(options: SessionOptions): Promise<void> {
   const own = lineReader((line) => { if (forPerson(line)) for (const update of mapper.note(line)) sendUpdate(update); });
   const ownLines = (text: string) => own.write(text);
   const routeRest = () => { own.rest(); shown.rest(); };
+  // Casper's notes for the person written while no prompt runs (decision 88), at most 20: the next prompt sends them
+  // first.
+  let held: string[] = [];
+  const hold = (line: string) => { if (held.length < 20) held.push(line); };
+  /** A note for the person (personNote): sent at once during a prompt, held until the next one otherwise. A command's
+   * own output before its model speaks already carries it. */
+  const personNote = (line: string) => {
+    if (commandRun && !commandRun.spoke && !app?.modelTaskActive) return;
+    if (busy) for (const update of mapper.note(line)) sendUpdate(update);
+    else hold(line);
+  };
   // The commands the client lists, sent again only when they changed (your own command files are read each time).
   let offeredCommands = "";
   const sendCommands = () => {
@@ -211,7 +285,11 @@ export async function runAcpSession(options: SessionOptions): Promise<void> {
     const home = options.homeDir ?? os.homedir();
     const client = clientServers(params.mcpServers, { home, setting: await readAcpMcpSetting(home) });
     clientSecrets = [...client.secrets].sort((a, b) => b.length - a.length);
-    for (const note of client.notes) output.write(`${note}\n`);
+    for (const note of client.notes) {
+      output.write(`${note}\n`);
+      // A server the app asked for that Casper refused is said in the app too; one that connects only on stderr.
+      if (note.includes(" is not connected: ")) hold(note);
+    }
     const conversation = load ? { resume: params.sessionId as string } : options.cli.resume ? { resume: options.cli.resume } : options.cli.continueConversation ? { continue: true as const } : undefined;
     let created: CasperApp | undefined;
     try {
@@ -223,11 +301,25 @@ export async function runAcpSession(options: SessionOptions): Promise<void> {
         onRuntimeEvent: (event) => {
           // A response starts before the terminal writes any of its words, so none of them reads as the command's.
           if (event.type === "assistant_response_start" && commandRun) commandRun.spoke = true;
+          // The AI reads a line the app steered in; one the prompt ended before reading is forgotten, with no notice.
+          if (event.type === "steer_read") { const entry = steers.find((item) => item.kind !== "joined" && item.sent === event.text); if (entry) readNotice(entry); }
+          if (event.type === "steer_unsent" && app) {
+            forgetSteered(app, event.lines);
+            for (const line of event.lines) { const at = steers.findIndex((item) => item.kind !== "joined" && item.sent === line); if (at >= 0) steers.splice(at, 1); }
+          }
           for (const update of mapper.runtime(event)) sendUpdate(update);
         } });
       // A call to the app's server names the step it is, as the client saw it start.
       created.acpToolCallId = (id) => mapper.acpId(id);
       created.onOutput = ownLines;
+      created.onPersonNote = personNote;
+      // The accepted plan's checklist is the app's plan; planning words that were no plan are a message (decision 84).
+      created.onPlanSteps = (steps) => { for (const update of mapper.planSteps(steps)) sendUpdate(update); };
+      created.onPlanWords = (words) => { for (const update of mapper.words(words)) sendUpdate(update); };
+      // Lines the app sent before the model started go with its first request: each is read now.
+      created.onLinesJoined = (lines) => {
+        for (const line of lines) { const entry = steers.find((item) => item.kind !== "steered" && item.sent === line); if (entry) readNotice(entry); }
+      };
       learnSecrets();
       try {
         await created.start(folder);
@@ -239,20 +331,31 @@ export async function runAcpSession(options: SessionOptions): Promise<void> {
       }
       if (!sessionId) throw new RpcFailure(RPC.internal, "This runtime keeps no conversations, so it has no session ID");
       if (load && sessionId !== params.sessionId) throw new RpcFailure(RPC.notFound, `No saved conversation ${params.sessionId as string} in ${folder}`);
+      // The conversation's own model and effort, over the ones the app started Casper with, for this session only.
+      if (load) await restoreSelection(created.session, created.resumedSelection, output.write);
     } catch (error) {
       // A session that did not open leaves nothing behind: its app closes (and the client's servers with it), so the
       // client's next session/new on this process starts clean.
       await created?.close().catch(() => {});
       app = undefined;
       sessionId = undefined;
+      held = [];
       clientSecrets = [];
       secrets = [];
       throw error;
     }
     // Again now the session has started (its logins are read), so the options the reply carries are hidden with them.
     learnSecrets();
-    asker = new AcpAsker(sessionId, { request: (permission, signal) => connection.request("session/request_permission", permission, signal), update: boxUpdate }, hide);
+    asker = new AcpAsker(sessionId, { request: (permission, signal) => connection.request("session/request_permission", permission, signal), update: boxUpdate,
+      elicit: (form, signal) => connection.request("elicitation/create", form, signal),
+      // The AI's question is asked on the ask tool's step, as the client saw it start.
+      stepFor: (question) => question.from === "ai" ? mapper.runningStep("ask") : undefined }, hide);
     asker.readOnly = () => app?.readOnlyAccess === true;
+    // A box a running step raises names that step and repeats its diffs and file (decision 85).
+    asker.stepOf = () => { const id = toolCallId(); return id === undefined ? undefined : mapper.step(id); };
+    // acp_questions is read when the session opens: a change applies from the next one.
+    created.remoteQuestions = formQuestions && created.projectContext?.acpQuestions !== "off";
+    asker.questions = () => created.remoteQuestions;
     answerThroughClient(created, asker, output.write);
     // "Yes to everything this session", /permissions all or ask: the app's chip hears it at once, mid-prompt too.
     created.onAccessChange = announce;
@@ -268,7 +371,11 @@ export async function runAcpSession(options: SessionOptions): Promise<void> {
     return { sessionId, configOptions: configOptions(), modes: modeState(created, hide) };
   };
 
-  connection.onRequest("initialize", async () => initializeResult(await readAcpMcpSetting(options.homeDir ?? os.homedir())));
+  connection.onRequest("initialize", async (params) => {
+    const capabilities = params.clientCapabilities as { elicitation?: { form?: unknown } } | undefined;
+    formQuestions = Boolean(capabilities?.elicitation?.form);
+    return initializeResult(await readAcpMcpSetting(options.homeDir ?? os.homedir()));
+  });
   // The commands follow the reply, which names the session (a load's, after the conversation it replays).
   connection.onRequest("session/new", (params) => open(params, false), sendCommands);
   connection.onRequest("session/load", (params) => open(params, true), sendCommands);
@@ -282,15 +389,19 @@ export async function runAcpSession(options: SessionOptions): Promise<void> {
     catch (error) { throw error instanceof RpcFailure ? new RpcFailure(error.code, hide(error.message)) : error; }
     busy = true;
     cancelled = false;
+    promptGeneration++;
     mapper.newPrompt();
     // A part line left from before this prompt (the start's transcript) ends here, not inside this prompt's first line.
     routeRest();
+    // Notes written since the last prompt come first.
+    for (const line of held.splice(0)) for (const update of mapper.note(line)) sendUpdate(update);
     let report: Awaited<ReturnType<CasperApp["runOnce"]>>;
     let failure: { error: unknown } | undefined;
     let isCommand = false;
     try {
       // A command as the terminal tells one (src/app/command-loop.ts): a leading "/" that is not a picture file's path.
-      const line = content.text.trim();
+      // It takes only the person's words: embedded context sent with it (another chat) is never its words (decision 90).
+      const line = content.context.length ? withoutPasted(content.text, content.context) : content.text.trim();
       isCommand = line.startsWith("/") && !(leadingImagePath(line) !== undefined && await startsWithImageFile(line, { cwd: app.activeWorkspaceRoot() }));
       const refusal = isCommand ? acpRefusal(line) : undefined;
       if (refusal) {
@@ -299,15 +410,27 @@ export async function runAcpSession(options: SessionOptions): Promise<void> {
       }
       // What was not sent (audio, a ninth picture, a HEIC photo) is said first, as the terminal says it.
       for (const note of content.notes) app.output.write(`[image] ${note}\n`);
+      if (isCommand && content.context.length) {
+        app.output.write(`[image] The text the app sent with ${terminalText(line.split(/\s/, 1)[0]!)} did not go with it: a / command takes only the words you typed. Send it without the / command for the AI to read it.\n`);
+      }
       commandRun = isCommand ? { spoke: false } : undefined;
+      // From here until the model's first turn, a line the app steers in joins this request (decision 86).
+      if (!isCommand) {
+        app.beforeFirstModelTurn = true;
+        app.linesBeforeModel = [];
+        app.steeredInTask = [];
+      }
       // A command's line is not written back: its output is the reply.
-      report = await app.runOnce(content.text, folder, askedWithout(params.prompt, content.text), { images: content.images, echo: !isCommand });
+      report = await app.runOnce(isCommand ? line : content.text, folder, askedWithout(params.prompt, content.text, content.context), { images: content.images, echo: !isCommand });
     } catch (error) {
       failure = { error };
     } finally {
       busy = false;
       routeRest();
       commandRun = undefined;
+      // Lines the AI never read stay with the app: nothing typed during this prompt is kept for the next.
+      settleAppSteers(app);
+      steers = [];
     }
     // A cancelled task ends with the stop itself; its receipt still follows. A command's error (an unknown name, words
     // it does not take) is its reply, as in the terminal; anything else is an error reply.
@@ -328,7 +451,9 @@ export async function runAcpSession(options: SessionOptions): Promise<void> {
     for (const update of mapper.flush()) sendUpdate(update);
     // A typed /model, a failover or a model server found since: the picker follows, before the receipt.
     announce();
-    const receipt = acpReceipt(receiptEvent(report, task, exitCode, app.sandboxReceipt(), app.commandUsage()), task, hide);
+    let status: RuntimeStatus | undefined;
+    try { status = app.session?.getStatus?.(); } catch { status = undefined; }
+    const receipt = acpReceipt(receiptEvent(report, task, exitCode, app.sandboxReceipt(), app.commandUsage()), task, hide, { status, root: app.activeWorkspaceRoot() });
     // A command that is not a task (/status) has no receipt to show.
     if (receipt.text.trim()) for (const update of mapper.receipt(receipt)) sendUpdate(update);
     // Before the reply: a command may have changed the list (a new file in ~/.casper/commands).
@@ -340,10 +465,13 @@ export async function runAcpSession(options: SessionOptions): Promise<void> {
   // between prompts. The reply is the whole list after the change, so it is not sent again as an update.
   connection.onRequest("session/set_config_option", async (params) => {
     if (!app || !sessionId || params.sessionId !== sessionId) throw new RpcFailure(RPC.notFound, "Unknown session");
-    // The access chip is taken during a prompt too: Read only must stop work that is already running.
-    if (params.configId === "mode") {
-      try { setMode(params.value); }
-      catch (error) { throw new RpcFailure(error instanceof RpcFailure ? error.code : RPC.internal, hide(error instanceof Error ? error.message : String(error))); }
+    // The access chip is taken during a prompt too: Read only must stop work that is already running. So is plan, which
+    // applies from the next request, as a typed /plan on does.
+    if (params.configId === "mode" || params.configId === "plan") {
+      try {
+        if (params.configId === "mode") setMode(params.value);
+        else await setOption(app.session, offerNow(), "plan", params.value, output.write, app);
+      } catch (error) { throw new RpcFailure(error instanceof RpcFailure ? error.code : RPC.internal, hide(error instanceof Error ? error.message : String(error))); }
       return { configOptions: configOptions() };
     }
     if (busy || changing) throw new RpcFailure(RPC.invalidRequest, "Casper is working on a prompt; change the model or effort when it ends");
@@ -369,9 +497,60 @@ export async function runAcpSession(options: SessionOptions): Promise<void> {
     lastOffer = withModeTold(lastOffer, offerNow().wire);
     return {};
   });
+  // A line the app sends while a prompt runs (decision 86): the same rules as a line typed during a task in the
+  // terminal. Refused (steered: false) when no prompt runs or it is being stopped, while the model or effort changes,
+  // during a / command, for a / line and once the prompt it came for has ended; the app then keeps it. Nothing is
+  // queued here.
+  connection.onRequest("_casper/steer", async (params) => {
+    if (!app || !sessionId || params.sessionId !== sessionId) throw new RpcFailure(RPC.notFound, "Unknown session");
+    const current = app;
+    const generation = promptGeneration;
+    const messageId = typeof params.messageId === "string" && params.messageId ? params.messageId : `casper-steer-${++steerN}`;
+    const refused = { steered: false, messageId };
+    if (!busy || cancelled || changing || commandRun) return refused;
+    try {
+      learnSecrets();
+      const content = promptContent(params.prompt);
+      const line = content.text.trim();
+      if (line.startsWith("/") && !(leadingImagePath(line) !== undefined && await startsWithImageFile(line, { cwd: current.activeWorkspaceRoot() }))) return refused;
+      const taking = steerChain.then(async () => {
+        if (!busy || cancelled || generation !== promptGeneration || commandRun) return refused;
+        // Its pictures, and picture files it names or links, go with it, as a prompt's do (a share path is not opened:
+        // nothing can be asked during work).
+        const attached = await attachImages(line, { cwd: current.activeWorkspaceRoot(), pasted: content.images, saveTo: current.pastedImageFiles })
+          .catch(() => ({ text: line, images: [...content.images.values()], notes: [] }));
+        if (!busy || cancelled || generation !== promptGeneration || commandRun) return refused;
+        // Listed before the runtime has it, so a read that comes at once finds it.
+        const entry: AppSteer = { text: line, sent: attached.text, messageId, kind: "pending" };
+        steers.push(entry);
+        const taken = await steerFromApp(current, attached.text, attached.images);
+        if (taken === "not_taken") {
+          const at = steers.indexOf(entry);
+          if (at >= 0) steers.splice(at, 1);
+          return refused;
+        }
+        entry.kind = taken;
+        // What was not sent with it (audio, a ninth picture) is said, as for a prompt.
+        for (const note of [...content.notes, ...attached.notes.map(terminalText)]) current.output.write(`[image] ${note}\n`);
+        return { steered: true, messageId };
+      });
+      steerChain = taking.catch(() => {});
+      return await taking;
+    } catch (error) {
+      throw new RpcFailure(error instanceof RpcFailure ? error.code : RPC.internal, hide(error instanceof Error ? error.message : String(error)));
+    }
+  });
+  // Whether the app may close this process now (decision 91). Asked between prompts; a prompt or a model change under
+  // way is busy.
+  connection.onRequest("_casper/idle", async (params) => {
+    if (!app || !sessionId || params.sessionId !== sessionId) throw new RpcFailure(RPC.notFound, "Unknown session");
+    return await idleReply(app, { busy, changing }, options.homeDir ?? os.homedir());
+  });
   connection.onNotification("session/cancel", (params) => {
     if (!app || params.sessionId !== sessionId || !busy) return;
     cancelled = true;
+    // A stopped step never reads the app's lines: none gets a notice.
+    steers = [];
     // The same stop as Ctrl+C in a session: the model and the checks stop, and the changes made so far stay.
     cancelCurrent(app);
   });

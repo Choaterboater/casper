@@ -1,6 +1,8 @@
 import { afterAll, expect, test } from "bun:test";
 import { PassThrough } from "node:stream";
-import type { AgentRuntime, RuntimeStatus } from "../src/runtime/types";
+import { CasperApp } from "../src/app";
+import { settleAppSteers, steerFromApp } from "../src/app/during-work";
+import type { AgentRuntime, RuntimeImage, RuntimeSession, RuntimeStatus } from "../src/runtime/types";
 import { runsDuringWork } from "../src/tui/commands";
 import { duringTask } from "../src/tui/give-way";
 import { TerminalSurface } from "../src/tui/surface";
@@ -342,3 +344,83 @@ test("/mcp during a task prints the list with its command hints and no picker, s
     await app.until(text => text.slice(idleFrom).includes("Pick a server"), 15_000);
   } finally { gate.resolve(); await app.close(); }
 }, 30_000);
+
+/** An app with a runtime session that takes a steered line when `takes` says so, as `casper acp` holds one. */
+function steeringApp(takes: (line: string, images?: readonly RuntimeImage[]) => boolean | Promise<boolean>, sees = true) {
+  const written: string[] = [];
+  const steered: Array<{ line: string; images?: readonly RuntimeImage[] }> = [];
+  const app = new CasperApp({ output: { write(text) { written.push(text); } } });
+  app.session = {
+    setTools() {}, subscribe: () => () => {}, abort: async () => {}, prompt: async () => {},
+    getState: () => ({ cwd: "", isStreaming: true }),
+    getStatus: () => ({ provider: "fixture", model: "demo", auth: "configured" as const, images: sees }),
+    steer: async (line: string, images?: readonly RuntimeImage[]) => { steered.push({ line, ...(images ? { images } : {}) }); return takes(line, images); },
+  } satisfies RuntimeSession;
+  return { app, written, steered };
+}
+const picture: RuntimeImage = { data: "aGVsbG8=", mimeType: "image/png" };
+
+test("steerFromApp joins, steers or refuses without touching the queued lines", async () => {
+  let taking = true;
+  const { app, written, steered } = steeringApp(() => taking);
+  app.queuedLines.push("a line typed in the terminal");
+  let ended = 0;
+  app.steerWaits.listen(() => { ended++; });
+  // The model is working: the line goes to it, a step that only waits ends, and stderr says so.
+  expect(await steerFromApp(app, "use port 8443")).toBe("steered");
+  expect(app.steeredInTask).toEqual(["use port 8443"]);
+  expect(ended).toBe(1);
+  expect(written.join("")).toContain("↳ sent to Casper · it reads this when its current step ends");
+  // Before the model's first turn the runtime takes nothing: the line joins the request.
+  taking = false;
+  app.beforeFirstModelTurn = true;
+  expect(await steerFromApp(app, "and the docker network")).toBe("joined");
+  expect(app.linesBeforeModel).toEqual(["and the docker network"]);
+  expect(app.steeredInTask).toEqual(["use port 8443", "and the docker network"]);
+  // A picture cannot join a request that has started: refused, and nothing is kept.
+  expect(await steerFromApp(app, "look at [image 1]", [picture])).toBe("not_taken");
+  // After the first turn, a line the runtime refuses is refused, and so is one whose steer fails.
+  app.beforeFirstModelTurn = false;
+  expect(await steerFromApp(app, "too late")).toBe("not_taken");
+  const failing = steeringApp(() => { throw new Error("the runtime went away"); });
+  expect(await steerFromApp(failing.app, "fails")).toBe("not_taken");
+  expect(failing.app.steeredInTask).toEqual([]);
+  // A closing Casper takes nothing and asks the runtime nothing.
+  const closing = steeringApp(() => true);
+  closing.app.closing = true;
+  expect(await steerFromApp(closing.app, "late")).toBe("not_taken");
+  expect(closing.steered).toEqual([]);
+  expect(app.linesBeforeModel).toEqual(["and the docker network"]);
+  expect(app.steeredInTask).toEqual(["use port 8443", "and the docker network"]);
+  expect(app.queuedLines).toEqual(["a line typed in the terminal"]);
+  expect(steered.map((entry) => entry.line)).toEqual(["use port 8443", "and the docker network", "look at [image 1]", "too late"]);
+  expect(steered[2]!.images).toEqual([picture]);
+});
+
+test("steerFromApp sends a line without its pictures, with a note, to a model that can't see them", async () => {
+  const { app, written, steered } = steeringApp(() => true, false);
+  expect(await steerFromApp(app, "look at [image 1]", [picture])).toBe("steered");
+  expect(steered).toEqual([{ line: "look at [image 1]" }]);
+  expect(written.join("")).toContain("[image] This model can't see pictures; the AI gets your line without it.");
+});
+
+test("settleAppSteers resets the first-turn flag and drains unsent lines", () => {
+  const { app } = steeringApp(() => true);
+  let drained = 0;
+  app.session!.takeUnsent = () => { drained++; return ["never read"]; };
+  app.beforeFirstModelTurn = true;
+  app.steering = ["waiting"];
+  app.steeredInTask = ["waiting", "joined"];
+  app.linesBeforeModel = ["joined"];
+  app.queuedLines.push("held back");
+  app.linePastes.set("held back", ["pasted"]);
+  settleAppSteers(app);
+  expect(drained).toBe(1);
+  expect({ first: app.beforeFirstModelTurn, steering: app.steering, steered: app.steeredInTask, before: app.linesBeforeModel, queued: app.queuedLines, pastes: app.linePastes.size })
+    .toEqual({ first: false, steering: [], steered: [], before: [], queued: [], pastes: 0 });
+  // The next prompt starts clean even when the runtime has gone.
+  app.session = undefined;
+  app.queuedLines.push("again");
+  settleAppSteers(app);
+  expect(app.queuedLines).toEqual([]);
+});

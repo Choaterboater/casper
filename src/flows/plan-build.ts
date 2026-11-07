@@ -8,17 +8,23 @@ export interface PlanStepReport { title: string; status: "pending" | "active" | 
 export class PlanBuild {
   readonly steps: PlanStepReport[];
   private closed = false;
-  constructor(plan: ParsedPlan, private readonly show: (line?: string) => void) {
+  /** `onSteps`: the whole checklist at the start, after each step the model reports and at the finish (an ACP app's
+   * plan entries, decision 84). */
+  constructor(plan: ParsedPlan, private readonly show: (line?: string) => void, private readonly onSteps?: (steps: readonly PlanStepReport[]) => void) {
     this.steps = (plan.steps.length ? plan.steps : firstVersionSteps(plan.firstVersion)).map(title => ({ title, status: "pending" }));
     if (this.steps.length) { this.steps[0]!.status = "active"; this.progress(0); }
+    this.report(this.steps);
   }
+  private report(steps: readonly PlanStepReport[]): void { if (steps.length) this.onSteps?.(steps.map(step => ({ ...step }))); }
   private progress(index: number): void { this.show(`Step ${index + 1} of ${this.steps.length} · ${this.steps[index]!.title}`); }
   finish(execution: string): PlanStepReport[] {
     this.closed = true;
     this.show(undefined);
-    return this.steps.map(step => step.status === "done" || step.status === "not-done" ? { ...step } : {
+    const finished: PlanStepReport[] = this.steps.map(step => step.status === "done" || step.status === "not-done" ? { ...step } : {
       ...step, status: "not-done", reason: execution === "completed" ? NOT_REPORTED : `build ${execution}`,
     });
+    this.report(finished);
+    return finished;
   }
   /** The changed row, counts and the next open step: the whole checklist is already in the prompt. */
   private reply(index: number): Record<string, unknown> {
@@ -47,6 +53,7 @@ export class PlanBuild {
           const next = this.steps.findIndex(step => step.status === "pending" || step.status === "active");
           if (next >= 0) this.progress(next); else this.show("Plan checklist reported · checking the result");
         }
+        this.report(this.steps);
         return { text: JSON.stringify(this.reply(index)) };
       },
     };

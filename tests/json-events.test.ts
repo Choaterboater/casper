@@ -81,3 +81,8 @@ test("the JSON receipt carries every change sent through an MCP server, in plain
   expect(event.text).toContain("– Changed in Mist: site Lab-Site now uses RF template Standard-RF-80MHz (was Standard-RF). To undo: set it back to Standard-RF");
   expect(receiptEvent(undefined, { execution: "completed", changedPaths: [] }, 0)).not.toHaveProperty("mcpChanges");
 });
+
+test("A --json run with a steer shows no new event type", () => {
+  const mapper = new RuntimeEventMapper(() => 0);
+  expect([...mapper.map({ type: "steer_read", text: "use port 8443" }), ...mapper.map({ type: "steer_unsent", lines: ["never read"] })]).toEqual([]);
+});

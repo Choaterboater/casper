@@ -1,8 +1,9 @@
 // The model and effort an ACP app's picker shows and sets (decision 81), as ACP session config options: Casper's own
 // models (the ones you're signed in to, in /model's order) and /effort's choices. A pick does what `/model
 // provider/id` and `/effort <level>` do without --session: it changes this conversation and is saved as Casper's
-// default. Only a listed value is taken; nothing else in the request reaches the runtime. The access chip's `mode`
-// (decision 82, src/acp/modes.ts) is always last.
+// default. Only a listed value is taken; nothing else in the request reaches the runtime. A session/load puts back the
+// conversation's own model and effort for that session only (restoreSelection, decision 89). `plan` (decision 84,
+// src/acp/plan-option.ts) comes next, and the access chip's `mode` (decision 82, src/acp/modes.ts) is always last.
 
 import { modelSelectedText } from "../app/commands";
 import { providerName } from "../runtime/pi-models";
@@ -12,6 +13,7 @@ import { formatRuntimeStatus } from "../tui/format";
 import { RpcFailure, RPC, type Json } from "./rpc";
 import { hideDeep } from "./updates";
 import { modeOption, setAccessMode, type AccessHost } from "./modes";
+import { planOption, setPlanOption, type PlanHost } from "./plan-option";
 
 /** What one session offers now: the options as sent, and the values a set may take. */
 export interface Offer {
@@ -40,10 +42,11 @@ export function offeredEfforts(levels: readonly string[] | undefined): string[] 
 interface Entry { value: string; provider: string; name: string; efforts: string[]; description?: string; providerName?: string }
 
 /** The options this session offers now. `hide` is the session's hiding: an option whose value it would change is left
- * out, and every name and description goes through it. `access`: the app whose access mode is the last option. */
-export function offerOf(runtime: OfferRuntime | undefined, hide: (text: string) => string, access?: AccessHost): Offer {
+ * out, and every name and description goes through it. `access`: the app whose plan option and access mode are the
+ * last two. */
+export function offerOf(runtime: OfferRuntime | undefined, hide: (text: string) => string, access?: AccessHost & PlanHost): Offer {
   const offer = modelOffer(runtime, hide);
-  return access ? { ...offer, wire: [...offer.wire, modeOption(access, hide)] } : offer;
+  return access ? { ...offer, wire: [...offer.wire, planOption(access, hide), modeOption(access, hide)] } : offer;
 }
 
 function modelOffer(runtime: OfferRuntime | undefined, hide: (text: string) => string): Offer {
@@ -91,8 +94,9 @@ const words = (error: unknown) => error instanceof Error ? error.message : Strin
  * `write` gets the lines /model and /effort write (Casper's transcript on stderr).
  */
 export async function setOption(runtime: OfferRuntime | undefined, offer: Offer, configId: unknown, value: unknown, write: (text: string) => void,
-  access?: AccessHost): Promise<void> {
+  access?: AccessHost & PlanHost): Promise<void> {
   if (configId === "mode" && access) { setAccessMode(access, value, write); return; }
+  if (configId === "plan" && access) { setPlanOption(access, value, write); return; }
   if (configId !== "model" && configId !== "effort") throw new RpcFailure(RPC.invalidParams, `Unknown option: ${String(configId)}`);
   if (typeof value !== "string") throw new RpcFailure(RPC.invalidParams, `${configId} takes one of its listed values`);
   if (configId === "model") {
@@ -111,4 +115,32 @@ export async function setOption(runtime: OfferRuntime | undefined, offer: Offer,
   if (!runtime?.setEffort) throw new RpcFailure(RPC.internal, "This runtime does not support effort controls.");
   try { write(`${formatRuntimeStatus(await runtime.setEffort(value, true))}\n`); }
   catch (error) { throw new RpcFailure(RPC.internal, words(error)); }
+}
+
+/**
+ * On session/load (decision 89): the model and effort the conversation was on, before the run's --model or --effort
+ * (the app starts every Casper with its own), are put back for this session only, never saved as the default. Only
+ * what differs from the current ones is set, and only a model that is still offered; otherwise the current ones stay
+ * and `write` (stderr) gets why, in the runtime's words when it refused.
+ */
+export async function restoreSelection(runtime: OfferRuntime | undefined, wanted: { provider: string; model: string; effort?: string } | undefined,
+  write: (text: string) => void): Promise<void> {
+  const status = runtime?.getStatus?.();
+  if (!runtime || !wanted || !status) return;
+  const value = `${wanted.provider}/${wanted.model}`;
+  if (status.provider !== wanted.provider || status.model !== wanted.model) {
+    const offered = (runtime.offeredModels?.() ?? []).some((model) => model.provider === wanted.provider && model.id === wanted.model);
+    if (!offered || !runtime.selectModel) {
+      write(`[acp] This conversation was on ${value}, which is not one of your models now; it goes on with ${status.provider ?? "no model"}${status.model ? `/${status.model}` : ""}.\n`);
+      return;
+    }
+    try {
+      const result = await runtime.selectModel({ exact: { provider: wanted.provider, id: wanted.model }, persist: false });
+      if (!result.selected) { write(`[acp] This conversation was on ${value}, which Casper could not select; it goes on with the current model.\n`); return; }
+    } catch (error) { write(`${words(error)}\n`); return; }
+  }
+  const now = runtime.getStatus?.();
+  if (!wanted.effort || (now?.configuredEffort ?? now?.thinkingLevel) === wanted.effort || !runtime.setEffort) return;
+  try { await runtime.setEffort(wanted.effort, false); }
+  catch (error) { write(`${words(error)}\n`); }
 }

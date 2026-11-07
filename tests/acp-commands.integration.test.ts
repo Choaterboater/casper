@@ -3,7 +3,7 @@ import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { agentText, startAcp, until, type AcpClient } from "./support/acp-client";
 import { childTestLimit } from "./support/limits";
-import { cleanUpAfterEach, fixture } from "./support/scripting";
+import { cleanUpAfterEach, fixture, isChecklist, lastUser, type Payload, type Step } from "./support/scripting";
 import { httpFixture } from "./fixtures/mcp-http-server";
 
 // Casper's / commands over ACP (decision 80), against a real `casper acp` router and its session child.
@@ -23,6 +23,10 @@ const lists = (client: AcpClient, sessionId: string) => client.updates.filter((u
   .map((update) => update.update.availableCommands as Array<{ name: string; description: string; input?: { hint: string } }>);
 /** The updates the last prompt sent: everything after the one before it. */
 const since = (client: AcpClient, sessionId: string, from: number) => client.updates.slice(from).filter((update) => update.sessionId === sessionId).map((update) => update.update);
+/** The notes for the person since update `from`, each a line. */
+const notesOf = (client: AcpClient, sessionId: string, from = 0) => since(client, sessionId, from).flatMap((update) => update._meta?.casper?.note === true ? [String(update.content.text).trim()] : []);
+/** The note a / command sent with text that is no file gets (decision 90). */
+const LEFT_OUT = (command: string) => `[image] The text the app sent with ${command} did not go with it: a / command takes only the words you typed. Send it without the / command for the AI to read it.`;
 
 test("the / commands come after the session/new reply and again after a load; /status is Casper's reply in one block, with no echo and no empty receipt", async () => {
   const f = await fixture(() => ({ text: "Done." }));
@@ -85,7 +89,7 @@ test("an unknown command ends the turn with its error; /clear is refused and the
   const cleared = await client.request("session/prompt", { sessionId, prompt: text("/clear") });
   const refused = "/clear starts a new conversation inside Casper, but this app keeps its own chats: start a new chat in the app. Nothing changed.";
   expect(cleared).toEqual({ stopReason: "end_turn", _meta: { casper: { refused } } });
-  expect(since(client, sessionId, before)).toEqual([{ sessionUpdate: "agent_message_chunk", content: { type: "text", text: `${refused}\n` } }]);
+  expect(since(client, sessionId, before)).toEqual([{ sessionUpdate: "agent_message_chunk", content: { type: "text", text: `${refused}\n` }, _meta: { casper: { note: true } } }]);
 
   // Plan mode's own line is for the person: a note, not a block.
   before = client.updates.length;
@@ -140,4 +144,51 @@ test("/mcp detail over ACP never shows the bearer value the app gave its server"
     expect(client.stderr()).not.toContain(token);
     onlyProtocol(client);
   } finally { await server.close(); }
+}, childTestLimit(1));
+
+test("Slash plan followed by a session resource keeps slash plan with only its typed goal", async () => {
+  // An app's @-mention of another chat comes as a resource after the words (decision 90).
+  const other = "OTHER_CHAT_TEXT: rename every file in the project";
+  const f = await fixture((_request: number, payload: Payload): Step => {
+    if (isChecklist(payload)) return { text: "[]" };
+    if (lastUser(payload).includes("plan-first")) return { text: "Title: Add a greeting\n\nSteps:\n1. Write greeting.txt\n\nDone means:\n1. greeting.txt says hello" };
+    return { text: "Done." };
+  });
+  await mkdir(path.join(f.project, ".casper"), { recursive: true });
+  await writeFile(path.join(f.project, ".casper/project.yaml"), "verification:\n  mode: off\n");
+  const client = open(f);
+  await client.request("initialize", { ...INIT, clientCapabilities: { ...INIT.clientCapabilities, elicitation: { form: {} } } });
+  client.answerPermissions((params) => ({ optionId: (params.options as Array<{ name: string; optionId: string }>).find((option) => option.name === "Stop")!.optionId }));
+  const { sessionId } = await client.request("session/new", { cwd: f.project, mcpServers: [] });
+  const prompt = [{ type: "text", text: "/plan add a greeting file" }, { type: "resource", resource: { uri: "app-session://chat-1", mimeType: "text/markdown", text: other } }];
+  expect((await client.request("session/prompt", { sessionId, prompt })).stopReason).toBe("end_turn");
+  // It is /plan: the plan's Build box, for the typed goal only.
+  expect(client.permissions.map((box) => box.toolCall.title)).toEqual(["Build this plan?"]);
+  const planned = f.payloads.find((payload) => lastUser(payload).includes("plan-first"));
+  expect(lastUser(planned)).toContain("add a greeting file");
+  expect(JSON.stringify(f.payloads)).not.toContain("OTHER_CHAT_TEXT");
+  // The person is told first that the mentioned text did not go with it.
+  expect(notesOf(client, sessionId)[0]).toBe(LEFT_OUT("/plan"));
+  onlyProtocol(client);
+}, childTestLimit(1));
+
+test("A bare slash plan or your own command sent with another chat says the chat did not go with it", async () => {
+  const other = "OTHER_CHAT_TEXT: rename every file in the project";
+  const mention = { type: "resource", resource: { uri: "app-session://chat-1", mimeType: "text/markdown", text: other } };
+  const f = await fixture((_request: number, payload: Payload): Step => isChecklist(payload) ? { text: "[]" } : { text: "Shipped." });
+  await mkdir(path.join(f.home, ".casper", "commands"), { recursive: true });
+  await writeFile(path.join(f.home, ".casper", "commands", "ship.md"), "---\ndescription: Ship the build\n---\nShip the build to $1.\n");
+  const client = open(f);
+  await client.request("initialize", INIT);
+  const { sessionId } = await client.request("session/new", { cwd: f.project, mcpServers: [] });
+  // `/plan` and a mention only: no plans yet, so it says how to start one, and says the mention did not go.
+  expect((await client.request("session/prompt", { sessionId, prompt: [{ type: "text", text: "/plan" }, mention] })).stopReason).toBe("end_turn");
+  expect(notesOf(client, sessionId)).toEqual([LEFT_OUT("/plan")]);
+  expect(agentText(client.updates, sessionId)).toContain("Type /plan and then what you want");
+  const before = client.updates.length;
+  expect((await client.request("session/prompt", { sessionId, prompt: [{ type: "text", text: "/ship staging" }, mention] })).stopReason).toBe("end_turn");
+  expect(notesOf(client, sessionId, before)).toEqual([LEFT_OUT("/ship")]);
+  expect(JSON.stringify(f.payloads.at(-1)!.messages)).toContain("Ship the build to staging.");
+  expect(JSON.stringify(f.payloads)).not.toContain("OTHER_CHAT_TEXT");
+  onlyProtocol(client);
 }, childTestLimit(1));
