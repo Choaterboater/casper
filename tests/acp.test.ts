@@ -447,3 +447,79 @@ describe("the AI's questions reach an ACP app as forms (decision 83)", () => {
     expect(await Bun.file(path.join(root, "app/secret-tool.ts")).text()).toContain("canAsk: () => app.interactive && app.terminal.canAsk");
   });
 });
+
+describe("the plan's Build box, its steps and the plan option reach an ACP app (decision 84)", () => {
+  const review = { markdown: "# Add a greeting\n\n## Steps\n1. Write greeting.txt\n", approve: "Build", change: "Change the plan" };
+  const PLAN_BOX: AwayQuestion = { kind: "pick", question: "Build this plan?", choices: [{ label: "Stop", description: "nothing is built" },
+    { label: "Build", description: "the model builds these steps" }, { label: "Change the plan", description: "tell the model what to change" }], from: "casper", review };
+
+  test("The Build box carries the plan text and its labels, with Build allow_once and Stop and Change the plan reject_once", async () => {
+    const seen = channel(async (params) => ({ outcome: { outcome: "selected", optionId: params.options[1].optionId } }));
+    expect(await new AcpAsker("s1", seen).ask(PLAN_BOX)).toEqual(["Build"]);
+    const sent = seen.sent[0]!;
+    expect(sent.options.map((option: { name: string; kind: string }) => [option.name, option.kind]))
+      .toEqual([["Stop", "reject_once"], ["Build", "allow_once"], ["Change the plan", "reject_once"]]);
+    expect(sent.toolCall.content).toEqual([{ type: "content", content: { type: "text", text: review.markdown } }]);
+    expect(sent.toolCall._meta).toEqual({ casper: { plan: { approve: "Build", change: "Change the plan" } } });
+    // The tool_call the app saw start carries the same plan.
+    expect(seen.updates[0]).toMatchObject({ sessionUpdate: "tool_call", toolCallId: sent.toolCall.toolCallId, _meta: { casper: { plan: { approve: "Build", change: "Change the plan" } } } });
+    // Change the plan is a "no" to building: the step closes failed, and the answer is still its label.
+    const changing = channel(async (params) => ({ outcome: { outcome: "selected", optionId: params.options[2].optionId } }));
+    expect(await new AcpAsker("s1", changing).ask(PLAN_BOX)).toEqual(["Change the plan"]);
+    expect(changing.updates.at(-1)).toMatchObject({ sessionUpdate: "tool_call_update", status: "failed" });
+    // The plan's words and labels are hidden as every update is.
+    const secret = "PLUMPLUMPLUM42";
+    const hidden = channel(async () => ({ outcome: { outcome: "cancelled" } }));
+    expect(await new AcpAsker("s1", hidden, hider(() => [secret])).ask({ ...PLAN_BOX, review: { ...review, markdown: `# Use ${secret}\n` } })).toBeUndefined();
+    expect(JSON.stringify([hidden.sent, hidden.updates])).not.toContain(secret);
+    // A box without a plan has no plan meta.
+    const plain = channel(async () => ({ outcome: { outcome: "cancelled" } }));
+    await new AcpAsker("s1", plain).ask({ ...PLAN_BOX, review: undefined });
+    expect(plain.sent[0]!.toolCall._meta).toBeUndefined();
+  });
+
+  test("No answer to the Build box in time is Stop, the same answer as a cancel, and its step closes failed", async () => {
+    const silent = channel((_params, signal) => new Promise((_resolve, reject) => signal.addEventListener("abort", () => reject(new Error("aborted")))));
+    expect(await new AcpAsker("s1", silent, undefined, 20).ask(PLAN_BOX)).toBeUndefined();
+    expect(silent.updates.at(-1)).toMatchObject({ sessionUpdate: "tool_call_update", status: "failed",
+      content: [{ type: "content", content: { type: "text", text: "→ No (no answer)" } }] });
+    // A cancel gives the same answer, so the plan turn stops and keeps the plan for both (tests/acp-plan.integration.test.ts).
+    const cancelled = channel(async () => ({ outcome: { outcome: "cancelled" } }));
+    expect(await new AcpAsker("s1", cancelled).ask(PLAN_BOX)).toBeUndefined();
+  });
+
+  test("Plan steps replace the task stage as hidden entries", () => {
+    const secret = "PLUMPLUMPLUM42";
+    const mapper = new UpdateMapper(hider(() => [secret]));
+    const entries = (updates: Record<string, any>[]) => updates.at(-1)!.entries.map((entry: { content: string; status: string }) => [entry.content, entry.status]);
+    // Before the task stage starts, the steps are where it will be.
+    expect(entries(mapper.planSteps([{ title: "Write greeting.txt", status: "active" }, { title: `Use ${secret}`, status: "pending" }])))
+      .toEqual([["Write greeting.txt", "in_progress"], ["Use <secret hidden>", "pending"]]);
+    // The task stage does not show as a stage of its own while there are steps; the checks come after them.
+    expect(entries(mapper.map({ type: "phase", phase: "task", state: "start" } as never))).toEqual([["Write greeting.txt", "in_progress"], ["Use <secret hidden>", "pending"]]);
+    expect(entries(mapper.planSteps([{ title: "Write greeting.txt", status: "done" }, { title: `Use ${secret}`, status: "not-done", reason: "Waiting for the path" }])))
+      .toEqual([["Write greeting.txt", "completed"], ["Use <secret hidden> (not done: Waiting for the path)", "pending"]]);
+    expect(entries(mapper.map({ type: "phase", phase: "checks", state: "start" } as never)))
+      .toEqual([["Write greeting.txt", "completed"], ["Use <secret hidden> (not done: Waiting for the path)", "pending"], ["Run the project's checks", "in_progress"]]);
+    // A new prompt has no steps: the task stage is a stage again.
+    mapper.newPrompt();
+    expect(entries(mapper.map({ type: "phase", phase: "task", state: "start" } as never))[0]).toEqual(["Do the task", "in_progress"]);
+  });
+
+  test("While planning, the model's text is a thought, and an answer without a plan still arrives as a message", () => {
+    const secret = "PLUMPLUMPLUM42";
+    let planning = true;
+    const mapper = new UpdateMapper(hider(() => [secret]), { planning: () => planning });
+    const kinds = (updates: Record<string, any>[]) => updates.map((update) => [update.sessionUpdate, update.content.text]);
+    // A thought goes out a whole line at a time too, so a secret split across two deltas is hidden whole.
+    expect(kinds(mapper.map({ type: "assistant_delta", text: "Reading app.py; the key is PLUMPLUM" }))).toEqual([]);
+    expect(kinds(mapper.map({ type: "assistant_delta", text: "PLUM42\nSteps:" }))).toEqual([["agent_thought_chunk", "Reading app.py; the key is <secret hidden>\n"]]);
+    expect(kinds(mapper.map({ type: "assistant_message" } as never))).toEqual([["agent_thought_chunk", "Steps:"]]);
+    planning = false;
+    // The held words, when they were no plan, reach the app as a message of their own.
+    expect(kinds(mapper.words(`I could not plan this: ${secret} is unclear.\n`))).toEqual([["agent_message_chunk", "I could not plan this: <secret hidden> is unclear.\n"]]);
+    expect(kinds([...mapper.map({ type: "assistant_delta", text: "Next words\n" })])).toEqual([["agent_message_chunk", "\nNext words\n"]]);
+    // Not planning, the model's text is a message as before.
+    expect(kinds(new UpdateMapper(hider(() => [])).map({ type: "assistant_delta", text: "Hello\n" }))).toEqual([["agent_message_chunk", "Hello\n"]]);
+  });
+});

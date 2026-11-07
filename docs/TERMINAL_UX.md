@@ -573,6 +573,12 @@ calling the model; Esc stops without building. Choice 3 is not a raw multi-line 
 terminal, `4 Show the details` is offered when there are details; it lists them and asks again. A run that
 cannot ask lists everything and stops.
 
+In an app over `casper acp`, "Build this plan?" is the app's permission card, with the plan as its text and
+`Stop · Build · Change the plan` ([decision 84](adr/0002/84-an-acp-app-reviews-and-builds-casper-plan.md)). Change
+the plan asks "What should change?" in a form, and open questions are answered there too. The card comes back in the
+same prompt. No answer is Stop, and the app is told the plan is saved for `/plan`. The model's planning words are
+thoughts there, and the build's steps are the app's plan entries.
+
 Casper saves Markdown in `.casper/plans/date-slug.md`, gitignored. This host-owned save does not let the
 model write during planning. Because the save leaves `.casper` behind, a folder that held nothing else is no
 longer empty, and `git clone <url> .` refuses it. While a folder holds only Casper's own entries, each request

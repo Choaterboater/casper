@@ -606,6 +606,8 @@ export class RuntimeEventView {
   /** While set, the model's words are kept off the screen (Casper shows them its own way after the turn) and the
    * Working box says this instead. */
   holdText(activity: string | undefined): void { this.heldText = activity; if (activity) this.held = ""; }
+  /** Whether the model's words are held now (the plan being written): an ACP app gets them as thoughts (decision 84). */
+  get holdingText(): boolean { return this.heldText !== undefined; }
   private heldText?: string;
   private held = "";
   /** Everything the model wrote while its words were held, every response of the turn and a cut-off one included. */

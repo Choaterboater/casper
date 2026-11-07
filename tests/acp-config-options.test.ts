@@ -121,3 +121,38 @@ test("a listed model or effort is set as /model and /effort set it, saved; each 
   const error = await setOption(busy, offer, "effort", "low", write).catch((caught: { code: number; message: string }) => caught);
   expect(error).toMatchObject({ code: -32603, message: "Wait for active work before changing effort." });
 });
+
+test("The plan option comes before mode", () => {
+  const { runtime } = fakeRuntime({ provider: "openai-codex", model: "gpt-6.1-sol", configuredEffort: "auto", availableThinkingLevels: REASONING }, models);
+  const app = { readOnlyAccess: false, stopAsking: false, clientAccess: undefined, projectContext: undefined, planMode: false };
+  const wire = offerOf(runtime, plainHide, app).wire;
+  expect(wire.map((option) => option.id)).toEqual(["model", "effort", "plan", "mode"]);
+  // No category: it is not the access mode, and the app's own mode picker leaves it alone.
+  expect(wire[2]).toEqual({ id: "plan", name: "Plan first", type: "select", currentValue: "off", options: [{ value: "off", name: "Off" },
+    { value: "on", name: "Plan first", description: "every request gets a plan first; nothing is built until you choose Build" }] });
+  expect(offerOf(runtime, plainHide, { ...app, planMode: true }).wire[2]!.currentValue).toBe("on");
+  expect(offerOf(undefined, plainHide, app).wire.map((option) => option.id)).toEqual(["plan", "mode"]);
+});
+
+test("An unknown plan value is refused", async () => {
+  const { runtime, calls } = fakeRuntime({ provider: "openai-codex", model: "gpt-6.1-sol" }, models);
+  const app = { readOnlyAccess: false, stopAsking: false, clientAccess: undefined, projectContext: undefined, planMode: false, footer: 0, updateFooter() { app.footer++; } };
+  const offer = offerOf(runtime, plainHide, app);
+  const written: string[] = [];
+  const write = (text: string) => { written.push(text); };
+  for (const value of ["maybe", true, undefined]) {
+    const error = await setOption(runtime, offer, "plan", value, write, app).then(() => undefined, (caught: { code: number; message: string }) => ({ code: caught.code, message: caught.message }));
+    expect(error).toEqual({ code: -32602, message: "plan takes off or on" });
+  }
+  expect(app.planMode).toBe(false);
+  expect(written).toEqual([]);
+  // on and off set /plan on's switch, with /plan on's words on Casper's transcript; the footer follows.
+  await setOption(runtime, offer, "plan", "on", write, app);
+  expect(app.planMode).toBe(true);
+  expect(app.footer).toBe(1);
+  await setOption(runtime, offer, "plan", "on", write, app);
+  await setOption(runtime, offer, "plan", "off", write, app);
+  expect(app.planMode).toBe(false);
+  expect(written).toEqual(["[plan] The app set Plan first: every request gets a plan first. /plan off ends it.\n", "[plan] The app set Plan first off.\n"]);
+  expect(calls).toEqual([]);
+});

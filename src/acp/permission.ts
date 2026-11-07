@@ -1,7 +1,7 @@
 // Casper's approval boxes as ACP session/request_permission. The client's person answers; nothing here ever answers
 // yes. A refusal, an error, "cancelled", a cancelled prompt, a closed connection or no answer in time is No.
 // A question that takes typed words or several picks goes to a client that shows forms as elicitation/create
-// (decision 83); anything but an accepted form is skipped.
+// (decision 83); anything but an accepted form is skipped. The plan's Build box carries the plan (decision 84).
 
 import type { AwayAsker, AwayQuestion } from "../tui/terminal";
 import type { Json } from "./rpc";
@@ -98,14 +98,21 @@ export class AcpAsker implements AwayAsker {
         content: [{ type: "content", content: { type: "text", text: READ_ONLY_NO } }] });
       return undefined;
     }
-    // A pick's first choice is its safe one (nothing is done), whatever its label says; the rest are a yes this once.
-    const kindOf = (label: string, index: number) => question.kind === "pick" ? index === 0 ? "reject_once" as const : "allow_once" as const : optionKind(label);
+    // A pick's first choice is its safe one (nothing is done), whatever its label says; the rest are a yes this once. The
+    // Build box says it: only Build builds, and Change the plan is a no to building as Stop is.
+    const review = question.review;
+    const kindOf = (label: string, index: number) => review ? label === review.approve ? "allow_once" as const : "reject_once" as const
+      : question.kind === "pick" ? index === 0 ? "reject_once" as const : "allow_once" as const : optionKind(label);
     const options = question.choices.map((choice, index) => ({ optionId: String(index + 1), name: this.hide(choice.label), kind: kindOf(choice.label, index),
       ...(choice.description ? { _meta: { casper: { description: this.hide(choice.description) } } } : {}) }));
-    const preview = question.preview?.replace(/\n+$/, "");
+    // The box's text: the plan's Markdown for the Build box, else what the box shows above its question.
+    const preview = review ? review.markdown : question.preview?.replace(/\n+$/, "");
+    // What the app may read about the box, merged: the plan's labels, so an app can show its own plan review.
+    const casper = { ...(review ? { plan: { approve: this.hide(review.approve), change: this.hide(review.change) } } : {}) };
     const toolCallId = `casper-approval-${++this.boxes}`;
     const step = { toolCallId, title: this.hide(question.question), kind: "other", status: "pending",
-      ...(preview ? { content: [{ type: "content", content: { type: "text", text: this.hide(preview) } }] } : {}) };
+      ...(preview ? { content: [{ type: "content", content: { type: "text", text: this.hide(preview) } }] } : {}),
+      ...(Object.keys(casper).length ? { _meta: { casper } } : {}) };
     this.channel.update({ sessionUpdate: "tool_call", ...step });
     const params = { sessionId: this.sessionId, toolCall: step, options };
     const stop = new AbortController();

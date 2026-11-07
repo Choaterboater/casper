@@ -36,7 +36,7 @@ import { OutsideWork } from "../task/outside-work";
 import { headMoved, taskHead } from "../task/git-movement";
 import type { CheckName, VerificationReport } from "../verify/evidence";
 import { VerifierRegistry } from "../verify/registry";
-import { PLAN_ANSWER, PLAN_ANSWER_HINT, PLAN_ANSWERS, PLAN_CHANGE_HINT, PLAN_CHANGE_QUESTION, PLAN_QUESTION, planAnswerHint, planChoices } from "./safe-choices";
+import { PLAN_ANSWER, PLAN_ANSWER_HINT, PLAN_ANSWERS, PLAN_CHANGE_HINT, PLAN_CHANGE_QUESTION, PLAN_CHOICES, PLAN_QUESTION, planAnswerHint, planChoices } from "./safe-choices";
 import { DEFAULT_SPEND_LIMITS, SpendGuard, requestSpendLimit } from "../task/spend";
 import { VerificationTask } from "../verify/task";
 import { evidenceForModel } from "../verify/model-output";
@@ -60,7 +60,7 @@ import { buildNextRow, type NextItem } from "../tui/next-row";
 import { noteLookFixes } from "./look-fixes";
 import { findFlow, formatFlowPrompt, loadFlowCatalog, type Flow, type FlowRule } from "../flows/catalog";
 import { suggestBeforeWork } from "../flows/suggest";
-import { extractPlan, firstVersionSteps, formatPlanBlock, formatPlanChangePrompt, formatPlanQuestionPrompt, isSpecPlan, openQuestions, planDetailsText, planMarkdown, planScreenRows, type ParsedPlan } from "../flows/plan";
+import { extractPlan, firstVersionSteps, formatPlanBlock, formatPlanChangePrompt, formatPlanQuestionPrompt, isSpecPlan, openQuestions, planDetailsText, planMarkdown, planReviewMarkdown, planScreenRows, type ParsedPlan } from "../flows/plan";
 import { planChanges } from "../flows/plan-changes";
 import { emptyFolderNote, planQuestions, readPlan, savePlan, updatePlan, wantsSpec, type SavedPlan } from "../flows/plan-store";
 import { PlanBuild } from "../flows/plan-build";
@@ -303,7 +303,8 @@ export async function runModelTask(app: CasperApp, prompt: string, options: { fl
     checklist = planned.plan.tests.length ? planned.plan.tests : undefined;
     // The whole plan, the details the screen kept one key away included.
     planBlock = `${formatPlanBlock(planned.plan)}\n\nUse plan_step to keep this accepted checklist current: active before each step, done after it, or not-done with the reason. These reports are not verification evidence.`;
-    app.planBuild = new PlanBuild(planned.plan, line => app.events.setPlanProgress(line));
+    // An ACP app shows the checklist as its plan entries (decision 84).
+    app.planBuild = new PlanBuild(planned.plan, line => app.events.setPlanProgress(line), steps => app.onPlanSteps?.(steps));
     await prepareCapabilities(app, prompt, { plan: planBlock });
   }
   // A code change in auto mode is reviewed and proven: the tests must fail without it. Only requests
@@ -857,7 +858,8 @@ export async function runModelTask(app: CasperApp, prompt: string, options: { fl
 }
 
 /** Plan, or rewrite a plan from a plain-word change, under the same planning gate. Both terminals always
- * ask Stop / Build / Change the plan; a run that cannot ask stops after showing everything. */
+ * ask Stop / Build / Change the plan, and so does an ACP app, as a box with the plan in it (decision 84); a run that
+ * cannot ask stops after showing everything. */
 export async function runPlanTurn(app: CasperApp, session: RuntimeSession, request: string, cases: readonly string[] | undefined, root: string, reopened?: SavedPlan):
   Promise<{ plan: ParsedPlan; changed?: string[]; file?: string } | "stop"> {
   const signal = app.commandAbort?.signal;
@@ -882,6 +884,8 @@ export async function runPlanTurn(app: CasperApp, session: RuntimeSession, reque
     const showWritten = () => {
       if (!written.trim()) return;
       app.events.ensureLineBreak(); app.terminal.assistant(written.trimEnd()); app.terminal.endAssistant(); app.events.ensureLineBreak();
+      // An ACP app got them as thoughts: printed here, they are the model's message there too.
+      app.onPlanWords?.(written);
     };
     if (app.closing) return undefined;
     if (signal?.aborted || app.taskRuntimeCancelled) { showWritten(); return undefined; }
@@ -950,12 +954,20 @@ export async function runPlanTurn(app: CasperApp, session: RuntimeSession, reque
     return true;
   };
   app.events.ensureLineBreak();
-  if (!app.interactive || !app.terminal.canAsk) {
+  // An ACP app's person answers too (decision 84): the Build box goes to the app with the plan in it.
+  if (!someoneAnswers(app) || !app.terminal.canAsk) {
     app.terminal.writeRows((width) => planScreenRows(plan, width, { full: true }));
     app.output.write("[plan] This run can't ask you to build, so Casper stopped after the plan. Nothing was built.\n");
     return "stop";
   }
   const rich = app.terminal.rich;
+  // In an ACP app the plan is the box's own text, and the app's form takes each change or answer.
+  const inApp = app.remoteApprovals && !app.interactive;
+  // A plan saved but not built says so, where the app shows it: /plan reopens it.
+  const stopped = () => {
+    app.output.write("[plan] Stopped without building.\n");
+    if (inApp) app.output.write("[plan] The plan is saved: /plan reopens it.\n");
+  };
   const screenOptions = () => ({
     framed: rich && app.terminal.color,
     accent: (text: string) => tint(text, "accent", app.terminal.color),
@@ -991,9 +1003,11 @@ export async function runPlanTurn(app: CasperApp, session: RuntimeSession, reque
   let answer: string | undefined;
   for (;;) {
     const questions = openQuestions(plan);
-    const choices = planChoices(questions, !rich && Boolean(planDetailsText(plan)));
+    // The app's box: Stop, Build and Change the plan, whose form takes the answers to open questions too.
+    const choices = inApp ? PLAN_CHOICES.map((choice) => ({ ...choice })) : planChoices(questions, !rich && Boolean(planDetailsText(plan)));
     app.events.ensureLineBreak();
-    answer = await app.terminal.pickPlan(PLAN_QUESTION, choices, signal);
+    answer = await app.terminal.pickPlan(PLAN_QUESTION, choices, signal,
+      inApp ? { markdown: planReviewMarkdown(plan, request, saved?.file), approve: "Build", change: "Change the plan" } : undefined);
     if (app.closing || signal?.aborted) return "stop";
     if (answer === "Show the details") { app.output.write(`${terminalText(planDetailsText(plan) ?? "")}\n`); continue; }
     if (answer === "Build") {
@@ -1039,7 +1053,7 @@ export async function runPlanTurn(app: CasperApp, session: RuntimeSession, reque
     } else {
       const typed = await app.terminal.askLine(PLAN_CHANGE_QUESTION, PLAN_CHANGE_HINT, signal);
       if (app.closing || signal?.aborted) return "stop";
-      if (typed === undefined) { app.output.write("[plan] Stopped without building.\n"); return "stop"; }
+      if (typed === undefined) { stopped(); return "stop"; }
       change = typed;
       // A question about the plan ("why step 3?") is answered in words and the same choices come back; the plan stays.
       if (/[?？]\s*$/.test(change)) {
@@ -1057,7 +1071,7 @@ export async function runPlanTurn(app: CasperApp, session: RuntimeSession, reque
     }
     showAgain(plan === before ? undefined : before);
   }
-  if (answer !== "Build" || app.closing || signal?.aborted) { app.output.write("[plan] Stopped without building.\n"); return "stop"; }
+  if (answer !== "Build" || app.closing || signal?.aborted) { stopped(); return "stop"; }
   // A spec plan has no Steps: its First version items are the build's checklist (PlanBuild), so they are counted here too.
   const steps = (plan.steps.length ? plan.steps : firstVersionSteps(plan.firstVersion)).length;
   const counts = `${steps} ${steps === 1 ? "step" : "steps"}, ${plan.tests.length} ${plan.tests.length === 1 ? "case" : "cases"}`;

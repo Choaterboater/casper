@@ -34,14 +34,16 @@ test("the modes and the mode option list the same three, Ask first current; the 
   const modes = modeState(app, plainHide);
   expect(modes.currentModeId).toBe("ask");
   expect((modes.availableModes as Array<{ id: string }>).map((mode) => mode.id)).toEqual(["read", "ask", "full"]);
-  const option = offerOf(undefined, plainHide, app).wire;
+  // The plan option comes before it (decision 84).
+  const option = offerOf(undefined, plainHide, app).wire.filter((entry) => entry.id !== "plan");
+  expect(offerOf(undefined, plainHide, app).wire.map((entry) => entry.id)).toEqual(["plan", "mode"]);
   expect(option).toEqual([{ id: "mode", name: "Access", category: "mode", type: "select", currentValue: "ask",
     options: ACCESS_MODES.map((mode) => ({ value: mode.id, name: mode.name, description: mode.description })) }]);
   expect(modes.availableModes).toEqual((option[0]!.options as Array<{ value: string; name: string; description: string }>).map((entry) => ({ id: entry.value, name: entry.name, description: entry.description })));
   // With a model, model and effort come first and the mode stays last.
   const runtime = { getStatus: () => ({ auth: "configured" as const, provider: "p", model: "m", configuredEffort: "auto", availableThinkingLevels: ["off", "low", "high"] }),
     offeredModels: () => [{ provider: "p", id: "m", name: "M", levels: ["off", "low", "high"] }] };
-  expect(offerOf(runtime, plainHide, app).wire.map((entry) => entry.id)).toEqual(["model", "effort", "mode"]);
+  expect(offerOf(runtime, plainHide, app).wire.map((entry) => entry.id)).toEqual(["model", "effort", "plan", "mode"]);
   // Don't ask says what still asks: the app's own tools ask in Casper's box.
   expect(ACCESS_MODES.find((mode) => mode.id === "full")!.description).toContain("The app's own tools ask in Casper's box");
 });

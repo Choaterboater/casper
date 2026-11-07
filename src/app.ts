@@ -565,6 +565,12 @@ export class CasperApp {
   readonly mcpAddedThisSession = new Set<string>();
   /** `/plan on`: every request this session gets a plan first, until `/plan off`. */
   planMode = false;
+  /** `casper acp`: the accepted plan's checklist at the build's start, at each step the model reports and at its end,
+   * for the app's plan entries (decision 84). */
+  onPlanSteps?: (steps: readonly import("./flows/plan-build").PlanStepReport[]) => void;
+  /** `casper acp`: the model's planning words Casper held and prints itself because they were no plan, so the app gets
+   * them as a message (decision 84). */
+  onPlanWords?: (words: string) => void;
   readonly allow?: RunAllowances;
   readonly sandboxSeams?: Partial<ShellSandboxOptions>;
   /** web_search and web_fetch for this workspace; unset when web: off. */

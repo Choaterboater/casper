@@ -2,6 +2,7 @@
 // Everything that leaves goes through `hide` first: the --json redaction plus the exact values of the user's own secrets.
 
 import type { CasperEvent, PhaseEvent, ReceiptEvent } from "../app/json-events";
+import type { PlanStepReport } from "../flows/plan-build";
 import type { RuntimeEvent } from "../runtime/types";
 import { fileTextHoldsSecret } from "../secrets/tool-output";
 import type { TaskResult } from "../task/result";
@@ -96,7 +97,13 @@ export interface MapperOptions {
   holdsSecret?: ShowRules["holdsSecret"];
   /** A file whose text only netconan can check (onlyNetconanChecks); default none. */
   unchecked?: ShowRules["unchecked"];
+  /** Whether the model is writing a plan Casper holds its words for (decision 84): its text then goes out as thoughts,
+   * since the Build box carries the plan. */
+  planning?: () => boolean;
 }
+
+/** A plan step's status as ACP's: one not done is still open, and says why. */
+const STEP_STATUS: Record<PlanStepReport["status"], "pending" | "in_progress" | "completed"> = { pending: "pending", active: "in_progress", done: "completed", "not-done": "pending" };
 
 /**
  * Stateful, one per session. The model's text goes out a line at a time, so a secret is hidden whole, never split
@@ -113,6 +120,10 @@ export class UpdateMapper {
   private commandPending = "";
   private fenceOpen = false;
   private readonly plan: Array<{ phase: PhaseEvent["phase"]; status: "in_progress" | "completed" }> = [];
+  /** The accepted plan's checklist in this prompt, shown where the task stage is (decision 84). */
+  private planned?: readonly PlanStepReport[];
+  /** The model's planning words not sent yet (a part line): thoughts, a whole line at a time as its text is. */
+  private thinking = "";
   private steps = 0;
   /** The ACP id of each running tool, by the model's id: a model may use the same id again in a later turn. */
   private readonly running = new Map<string, { id: string; facts: StepFacts }>();
@@ -160,6 +171,7 @@ export class UpdateMapper {
   map(event: CasperEvent): Json[] {
     switch (event.type) {
       case "assistant_delta": {
+        if (this.options.planning?.()) return this.thought(event.text);
         // The model speaking ends a command's block first.
         const closed = this.closeFence();
         // A model message after another one, or after Casper's own lines, is a paragraph of its own (two messages
@@ -186,11 +198,54 @@ export class UpdateMapper {
         let entry = this.plan.find((item) => item.phase === event.phase);
         if (!entry) this.plan.push(entry = { phase: event.phase, status: "in_progress" });
         entry.status = event.state === "start" ? "in_progress" : "completed";
-        return [{ sessionUpdate: "plan", entries: this.plan.map((item) => ({ content: PHASE_WORDS[item.phase], priority: "medium", status: item.status })) }];
+        return [this.planUpdate()];
       }
       case "error": return this.note(`[error] ${event.message}`);
       default: return [];
     }
+  }
+
+  /** The accepted plan's checklist (PlanBuild) as the plan's entries: every step, each time. */
+  planSteps(steps: readonly PlanStepReport[]): Json[] {
+    this.planned = steps.map((step) => ({ ...step }));
+    return [this.planUpdate()];
+  }
+
+  /** The whole plan: Casper's stages, with the accepted plan's steps where the task stage is, or where it will be. */
+  private planEntries(): Json[] {
+    const stage = (content: string, status: string) => ({ content: this.hide(content), priority: "medium", status });
+    const steps = (this.planned ?? []).map((step) => stage(step.status === "not-done" ? `${step.title} (not done: ${step.reason ?? "no reason given"})` : step.title, STEP_STATUS[step.status]));
+    const entries = this.plan.flatMap((item) => item.phase === "task" && this.planned ? steps : [stage(PHASE_WORDS[item.phase], item.status)]);
+    return this.planned && !this.plan.some((item) => item.phase === "task") ? [...entries, ...steps] : entries;
+  }
+
+  private planUpdate(): Json {
+    return { sessionUpdate: "plan", entries: this.planEntries() };
+  }
+
+  /** The model's words Casper held while it planned (the plan screen's), when they were no plan: a message of their own
+   * after the text so far, as the terminal prints them. Never a note: they are the model's words, not Casper's. */
+  words(text: string): Json[] {
+    const before = this.flush();
+    const shown = text.replace(/^\n+|\s+$/g, "");
+    if (!shown) return before;
+    const update = this.message(`${paragraphAfter(this.tail)}${shown}\n`);
+    this.separate = true;
+    return [...before, update];
+  }
+
+  /** Planning words as thoughts, a whole line at a time. */
+  private thought(words: string): Json[] {
+    this.thinking += words;
+    const end = this.thinking.lastIndexOf("\n");
+    if (end < 0) return [];
+    const ready = this.thinking.slice(0, end + 1);
+    this.thinking = this.thinking.slice(end + 1);
+    return [this.thoughtChunk(ready)];
+  }
+
+  private thoughtChunk(words: string): Json {
+    return { sessionUpdate: "agent_thought_chunk", content: text(this.hide(words)) };
   }
 
   /** A line for the person (an `[image] ` note: a picture that was not sent), after the model's text so far, so it
@@ -211,10 +266,11 @@ export class UpdateMapper {
     return [...before, update];
   }
 
-  /** A new prompt: its first words start the app's new message, so nothing goes before them. */
+  /** A new prompt: its first words start the app's new message, so nothing goes before them, and it has no plan steps. */
   newPrompt(): void {
     this.tail = "";
     this.separate = false;
+    this.planned = undefined;
   }
 
   /** A command's output (/status), a whole line at a time, so a secret is hidden whole: Casper's reply in a fenced
@@ -228,9 +284,11 @@ export class UpdateMapper {
     return [this.fenced(ready)];
   }
 
-  /** The model's text not sent yet, and the end of a command's block. */
+  /** The model's text not sent yet (its planning words too), and the end of a command's block. */
   flush(): Json[] {
-    const closed = this.closeFence();
+    const thought = this.thinking;
+    this.thinking = "";
+    const closed = [...thought ? [this.thoughtChunk(thought)] : [], ...this.closeFence()];
     const rest = this.pending;
     this.pending = "";
     return rest ? [...closed, this.message(rest)] : closed;

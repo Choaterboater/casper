@@ -31,8 +31,8 @@ test("new and load return the model and effort; a set switches the next request'
   const created = await client.request("session/new", { cwd: f.project, mcpServers: [] });
   const sessionId = created.sessionId as string;
   let options = created.configOptions as Option[];
-  // fixture/first has no effort levels to choose, so there is no effort option yet; the access mode is always last.
-  expect(options.map((option) => option.id)).toEqual(["model", "mode"]);
+  // fixture/first has no effort levels to choose, so there is no effort option yet; plan first, then the access mode last.
+  expect(options.map((option) => option.id)).toEqual(["model", "plan", "mode"]);
   expect(optionOf(options, "model")).toMatchObject({ name: "Model", category: "model", type: "select", currentValue: "fixture/first" });
   expect(values(optionOf(options, "model"))).toEqual(expect.arrayContaining(["fixture/first", "fixture/second", "fixture/sparse"]));
   // A provider you are not signed in to is never offered.

@@ -8,7 +8,8 @@
 // question once a session. A / command's output is its reply (src/acp/commands.ts lists the commands). The app's
 // model and effort picker shows Casper's own models (src/acp/config-options.ts), and its access chip sets Read only,
 // Ask first or Don't ask (src/acp/modes.ts). An app that shows forms gets the AI's questions and Casper's typed ones as
-// elicitation/create (src/acp/permission.ts, decision 83).
+// elicitation/create (src/acp/permission.ts, decision 83). /plan's Build box carries the plan, the build's checklist is
+// the app's plan, and the `plan` option is /plan on (decision 84).
 
 import os from "node:os";
 import path from "node:path";
@@ -125,7 +126,9 @@ export async function runAcpSession(options: SessionOptions): Promise<void> {
   // subfolder), so its locations and diffs name the file it really wrote.
   const mapper = new UpdateMapper(hide, { cwd: () => app?.projectContext ? app.activeWorkspaceRoot() : folder ?? process.cwd(), mcpTool: (name, args) => app?.broker?.named(name, args),
     holdsSecret: (file, text) => fileTextHoldsSecret(file, text, app ? { configs: app.scrubFiles, networkLoginFile: networkLoginFile(app) } : {}),
-    unchecked: (file) => onlyNetconanChecks(file, { configs: app?.scrubFiles, netconan: netconanInUse }) });
+    unchecked: (file) => onlyNetconanChecks(file, { configs: app?.scrubFiles, netconan: netconanInUse }),
+    // The words of a plan being written are thoughts: the Build box shows the plan (decision 84).
+    planning: () => app?.events.holdingText === true });
   // A box is a step on the wire: the text so far, and a command's open block, end before it (and before its answer).
   const boxUpdate = (update: Json) => { for (const done of mapper.flush()) sendUpdate(done); sendUpdate(update); };
   // The / command a prompt runs (decision 80), until the model speaks in it: what the terminal shows for it then is its
@@ -231,6 +234,9 @@ export async function runAcpSession(options: SessionOptions): Promise<void> {
       // A call to the app's server names the step it is, as the client saw it start.
       created.acpToolCallId = (id) => mapper.acpId(id);
       created.onOutput = ownLines;
+      // The accepted plan's checklist is the app's plan; planning words that were no plan are a message (decision 84).
+      created.onPlanSteps = (steps) => { for (const update of mapper.planSteps(steps)) sendUpdate(update); };
+      created.onPlanWords = (words) => { for (const update of mapper.words(words)) sendUpdate(update); };
       learnSecrets();
       try {
         await created.start(folder);
@@ -353,10 +359,13 @@ export async function runAcpSession(options: SessionOptions): Promise<void> {
   // between prompts. The reply is the whole list after the change, so it is not sent again as an update.
   connection.onRequest("session/set_config_option", async (params) => {
     if (!app || !sessionId || params.sessionId !== sessionId) throw new RpcFailure(RPC.notFound, "Unknown session");
-    // The access chip is taken during a prompt too: Read only must stop work that is already running.
-    if (params.configId === "mode") {
-      try { setMode(params.value); }
-      catch (error) { throw new RpcFailure(error instanceof RpcFailure ? error.code : RPC.internal, hide(error instanceof Error ? error.message : String(error))); }
+    // The access chip is taken during a prompt too: Read only must stop work that is already running. So is plan, which
+    // applies from the next request, as a typed /plan on does.
+    if (params.configId === "mode" || params.configId === "plan") {
+      try {
+        if (params.configId === "mode") setMode(params.value);
+        else await setOption(app.session, offerNow(), "plan", params.value, output.write, app);
+      } catch (error) { throw new RpcFailure(error instanceof RpcFailure ? error.code : RPC.internal, hide(error instanceof Error ? error.message : String(error))); }
       return { configOptions: configOptions() };
     }
     if (busy || changing) throw new RpcFailure(RPC.invalidRequest, "Casper is working on a prompt; change the model or effort when it ends");

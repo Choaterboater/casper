@@ -148,6 +148,11 @@ goes back to the AI. The plan's questions and the `askQuestions: beforeChanges` 
 nobody answers is skipped. Passwords and other secrets still need Casper's own terminal. `acp_questions: off` in
 `~/.casper/config.yaml` skips them all. [Decision 83](docs/adr/0002/83-an-acp-app-answers-the-ais-questions.md).
 
+`/plan` works in the app: the plan comes as a card with Stop, Build and Change the plan, and only Build builds. Change
+the plan asks what to change in a form, and the new plan comes back in the same card. While Casper builds, the app's
+plan lists the steps as the model reports them. The app's **Plan first** option is `/plan on`.
+[Decision 84](docs/adr/0002/84-an-acp-app-reviews-and-builds-casper-plan.md).
+
 Type `/help` for the commands. Ctrl+C stops the current work but keeps changes already made;
 Ctrl+D on an empty prompt exits. [Keys and commands](docs/TERMINAL_UX.md#quick-reference).
 
