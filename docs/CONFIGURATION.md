@@ -392,6 +392,10 @@ A line the app sends while Casper works reaches the AI at its next step, or join
 as a line typed in the terminal does ([decision 86](adr/0002/86-an-acp-app-steers-casper-mid-task.md)). The app hears
 when the AI reads it. A line the AI never read stays with the app; Casper queues nothing. It has no setting.
 
+The app's reasoning block gets the model's reasoning headline (below) and each provider retry as thoughts
+([decision 87](adr/0002/87-an-acp-app-sees-casper-reasoning-headlines.md)). `reasoning_headline: false` and
+`display: quiet` keep the headlines out of it too.
+
 ### Asking less: /permissions
 
 `/permissions` prints a short screen: whether Casper is asking, one line per kind (state · how to change it) and what stays protected, then the numbered box
@@ -1423,8 +1427,9 @@ display: detailed   # quiet, normal (default), or detailed
 
 **Reasoning headline.** While the model reasons and its provider sends readable reasoning, the status row shows a short
 headline of it instead of `Reasoning · 3.0k chars`: the reasoning summary's title (`Planning the port fix · 12s`), or
-else its latest finished sentence, at most 60 characters, secrets hidden. It is in the status row only: never the
-transcript, the steps pane, the receipt, an export or `--json`, and not at `/details quiet`. A provider that sends no
+else its latest finished sentence, at most 60 characters, secrets hidden. It is in the status row only, and in an
+app's reasoning block over `casper acp` ([decision 87](adr/0002/87-an-acp-app-sees-casper-reasoning-headlines.md)):
+never Casper's transcript, the steps pane, the receipt, an export or `--json`, and not at `/details quiet`. A provider that sends no
 readable reasoning keeps `Reasoning · 3.0k chars`. `/settings` **Reasoning headline** turns it off (it writes
 `reasoning_headline: false`); a project file can't set it ([decision 24](adr/0002/24-reasoning-headline.md)).
 

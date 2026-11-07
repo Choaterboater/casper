@@ -8,6 +8,9 @@ import { RpcConnection, RpcFailure } from "../src/acp/rpc";
 import { SESSION_REQUESTS, sessionArgs, sessionFor } from "../src/acp/server";
 import { askedWithout, initializeResult, promptText } from "../src/acp/session";
 import { hider, keptLines, UpdateMapper, type AcpReceipt } from "../src/acp/updates";
+import { retryWords } from "../src/app/events";
+import type { RuntimeEvent } from "../src/runtime/types";
+import { reasoningHeadline } from "../src/runtime/reasoning-headline";
 import { NO, PLAN_ANSWER_HINT, PLAN_CHANGE_HINT, PLAN_CHANGE_QUESTION, YES_ONCE, YES_SESSION } from "../src/app/safe-choices";
 import { until } from "./support/acp-client";
 import type { AwayQuestion } from "../src/tui/terminal";
@@ -614,5 +617,81 @@ describe("an ACP app steers Casper mid-task (decision 86)", () => {
     }
     // A steer goes to its session as a prompt does.
     expect(SESSION_REQUESTS).toEqual(["session/prompt", "session/set_config_option", "session/set_mode", "_casper/steer"]);
+  });
+});
+
+describe("an ACP app sees Casper's reasoning headlines and retries as thoughts (decision 87)", () => {
+  const thinking = (headline?: string): RuntimeEvent => ({ type: "assistant_progress", kind: "thinking", chars: 120, ...(headline ? { headline } : {}) });
+  const thought = (words: string) => ({ sessionUpdate: "agent_thought_chunk", content: { type: "text", text: words } });
+
+  test("A headline is one thought, a repeat sends nothing and a change sends one more", () => {
+    const mapper = new UpdateMapper(hider(() => []));
+    // The model's half-written line stays held: a headline does not flush it.
+    expect(mapper.map({ type: "assistant_delta", text: "Looking at" })).toEqual([]);
+    expect(mapper.runtime(thinking("Planning the port fix"))).toEqual([thought("Planning the port fix\n\n")]);
+    expect(mapper.runtime(thinking("Planning the port fix"))).toEqual([]);
+    expect(mapper.runtime(thinking("Checking which process holds the port"))).toEqual([thought("Checking which process holds the port\n\n")]);
+    expect(mapper.flush()).toEqual([{ sessionUpdate: "agent_message_chunk", content: { type: "text", text: "Looking at" } }]);
+    // A step, the end of a response and a new prompt each start afresh: the same headline is a new thought then.
+    const again = () => mapper.runtime(thinking("Checking which process holds the port"));
+    mapper.runtime({ type: "tool_start", toolName: "read", toolCallId: "t1", args: { path: "a.txt" } } as RuntimeEvent);
+    expect(again()).toHaveLength(1);
+    mapper.runtime({ type: "assistant_response_end", stopReason: "stop" } as RuntimeEvent);
+    expect(again()).toHaveLength(1);
+    mapper.newPrompt();
+    expect(again()).toHaveLength(1);
+    expect(again()).toEqual([]);
+  });
+
+  test("Headlines off or tool progress send nothing", () => {
+    let on = false;
+    const mapper = new UpdateMapper(hider(() => []), { headlines: () => on });
+    expect(mapper.runtime(thinking("Planning the port fix"))).toEqual([]);
+    on = true;
+    expect(mapper.runtime({ type: "assistant_progress", kind: "tool_call", toolName: "write", chars: 2048, headline: "Planning the port fix" })).toEqual([]);
+    expect(mapper.runtime(thinking())).toEqual([]);
+    expect(mapper.runtime(thinking("Planning the port fix"))).toEqual([thought("Planning the port fix\n\n")]);
+  });
+
+  test("A user secret in a headline is hidden, also when the 60-character cut falls inside it", () => {
+    const secret = "orchard-lantern-7431-quiet";
+    const mapper = new UpdateMapper(hider(() => [secret]), { values: () => [secret] });
+    const whole = reasoningHeadline(`Sign in with ${secret} now.`)!;
+    expect(mapper.runtime(thinking(whole))).toEqual([thought("Sign in with <secret hidden> now\n\n")]);
+    const cut = reasoningHeadline(`Now I will sign in to the lab with ${secret} and then check the port.`)!;
+    expect(cut).toEndWith("…");
+    expect(cut).not.toContain(secret);
+    expect(cut).toContain(secret.slice(0, 20));
+    expect(mapper.runtime(thinking(cut))).toEqual([thought("Now I will sign in to the lab with <secret hidden>…\n\n")]);
+    // Three letters before the cut are too few to tell a secret from a word.
+    const short = "Reading the lab notes before the sign in step with orc…";
+    expect(mapper.runtime(thinking(short))).toEqual([thought(`${short}\n\n`)]);
+  });
+
+  test("A user secret the headline took marks or a final full stop off is still hidden", () => {
+    const secrets = ["Kx9__mR4tQ2zLp", "orchard7431.", "Zq7`pw0rd-long", "**Vt3x9-Bold**"];
+    const mapper = new UpdateMapper(hider(() => secrets), { values: () => secrets });
+    const shown = (reasoning: string) => mapper.runtime(thinking(reasoningHeadline(reasoning)!));
+    expect(shown(`**Logging in with ${secrets[0]}**`)).toEqual([thought("Logging in with <secret hidden>\n\n")]);
+    expect(shown(`I will use the password ${secrets[1]}`)).toEqual([thought("I will use the password <secret hidden>\n\n")]);
+    expect(shown(`Use ${secrets[2]} here.`)).toEqual([thought("Use <secret hidden> here\n\n")]);
+    // A secret in bold is taken as the headline's title, its marks taken off.
+    expect(shown(`Then type ${secrets[3]} at the prompt.`)).toEqual([thought("<secret hidden>\n\n")]);
+    // The 60-character cut inside a secret the headline took marks off.
+    const cut = reasoningHeadline(`Now I will sign in to the core lab router using Kx9__mR4tQ2zLp__ab and check.`)!;
+    expect(cut).toEndWith("…");
+    const long = new UpdateMapper(hider(() => ["Kx9__mR4tQ2zLp__ab"]), { values: () => ["Kx9__mR4tQ2zLp__ab"] });
+    expect(long.runtime(thinking(cut))).toEqual([thought("Now I will sign in to the core lab router using <secret hidden>…\n\n")]);
+  });
+
+  test("A retry is one thought saying who is busy and when Casper tries again", () => {
+    const mapper = new UpdateMapper(hider(() => ["value-from-the-env-1234"]));
+    expect(mapper.map({ type: "assistant_delta", text: "Half a line" })).toEqual([]);
+    expect(mapper.runtime({ type: "retry", provider: "openrouter", attempt: 1, maxAttempts: 3, delayMs: 3500, errorMessage: "429 Provider returned error" }))
+      .toEqual([thought("openrouter is busy · trying again in 4s (1 of 3)\n\n")]);
+    expect(retryWords({ type: "retry", provider: "value-from-the-env-1234", attempt: 2, maxAttempts: 3, delayMs: 2000, errorMessage: "fetch failed" }))
+      .toBe("Can't reach value-from-the-env-1234 · trying again in 2s (2 of 3)");
+    expect(mapper.runtime({ type: "retry", provider: "value-from-the-env-1234", attempt: 2, maxAttempts: 3, delayMs: 2000, errorMessage: "fetch failed" }))
+      .toEqual([thought("Can't reach <secret hidden> · trying again in 2s (2 of 3)\n\n")]);
   });
 });

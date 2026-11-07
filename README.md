@@ -161,6 +161,10 @@ A line you send in the app while Casper works reaches the AI at its next step, a
 chat when the AI reads it. Sent before the model starts, it joins your request. A line the AI never read stays in the
 app to send again. [Decision 86](docs/adr/0002/86-an-acp-app-steers-casper-mid-task.md).
 
+While the model reasons, the app's reasoning block shows the same short headline as the terminal's status row, and a
+provider retry says who is busy and when Casper tries again. **Reasoning headline** in `/settings` and `/details quiet`
+turn the headlines off. [Decision 87](docs/adr/0002/87-an-acp-app-sees-casper-reasoning-headlines.md).
+
 Type `/help` for the commands. Ctrl+C stops the current work but keeps changes already made;
 Ctrl+D on an empty prompt exits. [Keys and commands](docs/TERMINAL_UX.md#quick-reference).
 

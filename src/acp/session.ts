@@ -19,6 +19,7 @@ import type { CliOptions } from "../cli-args";
 import type { CasperApp } from "../app";
 import { receiptEvent, type CasperEvent } from "../app/json-events";
 import { cancelCurrent } from "../app/command-loop";
+import { displayLevel } from "../app/footer";
 import { networkLoginFile, ownSecretValues } from "../app/network-host";
 import { ensureRuntime } from "../app/runtime-start";
 import { transcriptsIn, withoutTranscripts } from "../app/request-words";
@@ -145,7 +146,10 @@ export async function runAcpSession(options: SessionOptions): Promise<void> {
     holdsSecret: (file, text) => fileTextHoldsSecret(file, text, app ? { configs: app.scrubFiles, networkLoginFile: networkLoginFile(app) } : {}),
     unchecked: (file) => onlyNetconanChecks(file, { configs: app?.scrubFiles, netconan: netconanInUse }),
     // The words of a plan being written are thoughts: the Build box shows the plan (decision 84).
-    planning: () => app?.events.holdingText === true });
+    planning: () => app?.events.holdingText === true,
+    // The model's reasoning headline is a thought, under the status row's own switch and never at quiet (decision 87).
+    headlines: () => app?.projectContext?.reasoningHeadline !== false && (!app || displayLevel(app) !== "quiet"),
+    values: () => secrets });
   // A box is a step on the wire: the text so far, and a command's open block, end before it (and before its answer).
   const boxUpdate = (update: Json) => { for (const done of mapper.flush()) sendUpdate(done); sendUpdate(update); };
   /** The app's line, as the AI reads it: after the model's words so far, and before its next ones (a message of their

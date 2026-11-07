@@ -1,18 +1,44 @@
 // Casper's events (the ones behind `casper --json`, src/app/json-events.ts) as ACP session/update notifications.
 // Everything that leaves goes through `hide` first: the --json redaction plus the exact values of the user's own secrets.
 
+import { retryWords } from "../app/events";
 import type { CasperEvent, PhaseEvent, ReceiptEvent } from "../app/json-events";
 import type { PlanStepReport } from "../flows/plan-build";
 import type { RuntimeEvent } from "../runtime/types";
 import { fileTextHoldsSecret } from "../secrets/tool-output";
 import type { TaskResult } from "../task/result";
-import { redactPreview } from "../tui/format";
+import { lineText, redactPreview } from "../tui/format";
 import type { AcpCommand } from "./commands";
 import type { BoxStep } from "./permission";
 import type { Json } from "./rpc";
 import { endUpdate, startUpdate, stepFacts, type ShowRules, type StepFacts } from "./tool-content";
 
 const HIDDEN = "<secret hidden>";
+
+/** A headline cut at 60 characters (reasoningHeadline) may end inside a secret, which `hide` then cannot see whole:
+ * a run of 4 or more characters before the final `…` that starts one of `values` is hidden too. */
+export function hideCut(headline: string, values: readonly string[]): string {
+  if (!headline.endsWith("…")) return headline;
+  const body = headline.slice(0, -1);
+  for (const value of values) {
+    if (value.length < 6) continue;
+    for (let size = Math.min(value.length - 1, body.length); size >= 4; size--) {
+      if (body.endsWith(value.slice(0, size))) return `${body.slice(0, -size)}${HIDDEN}…`;
+    }
+  }
+  return headline;
+}
+
+/** Each of `values` as reasoningHeadline may have changed it, longest first: marks and a leading `#` taken off,
+ * spaces run together, and at the end of a sentence its final `.`, `:` or `;` gone; the value itself too. */
+export function headlineForms(values: readonly string[]): string[] {
+  const forms = new Set<string>();
+  for (const value of values) {
+    const plain = lineText(value).replace(/\*\*|__|`/g, "").replace(/^#+\s*/, "").replace(/\s+/g, " ").trim();
+    for (const form of [value, plain, plain.replace(/[\s.:;…]+$/, "")]) if (form.length >= 6) forms.add(form);
+  }
+  return [...forms].sort((a, b) => b.length - a.length);
+}
 
 /** The --json redaction, then each of `values` (the user's own secrets, longest first) replaced wherever it appears. */
 export function hider(values: () => readonly string[]): (text: string) => string {
@@ -101,6 +127,11 @@ export interface MapperOptions {
   /** Whether the model is writing a plan Casper holds its words for (decision 84): its text then goes out as thoughts,
    * since the Build box carries the plan. */
   planning?: () => boolean;
+  /** Whether the model's reasoning headlines go out as thoughts (decision 87): reasoning_headline, and not at display
+   * quiet. Default: yes. */
+  headlines?: () => boolean;
+  /** The user's own secrets, for a headline that changed one or was cut inside one (headlineForms, hideCut). */
+  values?: () => readonly string[];
 }
 
 /** A plan step's status as ACP's: one not done is still open, and says why. */
@@ -126,6 +157,8 @@ export class UpdateMapper {
   /** The model's planning words not sent yet (a part line): thoughts, a whole line at a time as its text is. */
   private thinking = "";
   private steps = 0;
+  /** The headline last sent as a thought, until a step, the end of a response or a new prompt (decision 87). */
+  private lastHeadline?: string;
   /** The ACP id of each running tool, by the model's id: a model may use the same id again in a later turn. `box` is
    * what a box the step raises repeats (decision 85): the diffs and files its start showed, already hidden. */
   private readonly running = new Map<string, { id: string; facts: StepFacts; box: Omit<BoxStep, "id"> }>();
@@ -158,7 +191,22 @@ export class UpdateMapper {
 
   /** A runtime event as updates: a tool step's start and end (every other event comes through map()). */
   runtime(event: RuntimeEvent): Json[] {
+    if (event.type === "assistant_progress") {
+      if (event.kind !== "thinking" || !event.headline || this.options.headlines?.() === false) return [];
+      // A thought of its own, sent only when it changed: the model's text held so far stays held.
+      // The headline is made from the reasoning (reasoningHeadline), which can change a secret: each changed form too.
+      const forms = headlineForms(this.options.values?.() ?? []);
+      let shown = this.hide(event.headline);
+      for (const form of forms) if (shown.includes(form)) shown = shown.split(form).join(HIDDEN);
+      shown = hideCut(shown, forms);
+      if (!shown.trim() || shown === this.lastHeadline) return [];
+      this.lastHeadline = shown;
+      return [this.thoughtChunk(`${shown}\n\n`, false)];
+    }
+    if (event.type === "retry") return [this.thoughtChunk(`${retryWords(event)}\n\n`)];
+    if (event.type === "assistant_response_end") { this.lastHeadline = undefined; return []; }
     if (event.type === "tool_start") {
+      this.lastHeadline = undefined;
       const id = `casper-tool-${++this.steps}`;
       let mcp: { server: string; tool: string } | undefined;
       try { mcp = this.options.mcpTool?.(event.toolName, event.args ?? {}); } catch { mcp = undefined; }
@@ -257,8 +305,9 @@ export class UpdateMapper {
     return [this.thoughtChunk(ready)];
   }
 
-  private thoughtChunk(words: string): Json {
-    return { sessionUpdate: "agent_thought_chunk", content: text(this.hide(words)) };
+  /** `hide` false: the words went through it already. */
+  private thoughtChunk(words: string, hide = true): Json {
+    return { sessionUpdate: "agent_thought_chunk", content: text(hide ? this.hide(words) : words) };
   }
 
   /** A line for the person (an `[image] ` note: a picture that was not sent), after the model's text so far, so it
@@ -283,6 +332,7 @@ export class UpdateMapper {
   newPrompt(): void {
     this.newMessage();
     this.planned = undefined;
+    this.lastHeadline = undefined;
   }
 
   /** The app was shown the person's line (a steer the AI read, decision 86): the model's next words start a new

@@ -147,6 +147,14 @@ export function retryCause(provider: string, errorMessage = ""): string {
   return `${provider} answered with an error`;
 }
 
+/** A provider retry in words: its cause, and when and how often Casper tries again (the terminal's dim line, an ACP
+ * app's thought). */
+export function retryWords(event: Extract<RuntimeEvent, { type: "retry" }>): string {
+  const provider = terminalText(event.provider ?? "the model provider");
+  const wait = formatDuration(Math.max(1, Math.ceil(event.delayMs / 1000)) * 1000);
+  return `${retryCause(provider, event.errorMessage)} · trying again in ${wait} (${event.attempt} of ${event.maxAttempts})`;
+}
+
 /** Plain terminal: a command still running after this long prints its start line. */
 export const PLAIN_START_AFTER_MS = 2000;
 
@@ -689,9 +697,7 @@ export class RuntimeEventView {
         // Pi tries the provider again by itself: say so now, instead of an error that looks final and a blank pause.
         this.endSpeech();
         this.ensureLineBreak();
-        const provider = terminalText(event.provider ?? "the model provider");
-        const wait = formatDuration(Math.max(1, Math.ceil(event.delayMs / 1000)) * 1000);
-        this.output.write(`${NOTE_GLYPH} ${retryCause(provider, event.errorMessage)} · trying again in ${wait} (${event.attempt} of ${event.maxAttempts})${this.terminal.rich ? " · Esc stops" : ""}\n`);
+        this.output.write(`${NOTE_GLYPH} ${retryWords(event)}${this.terminal.rich ? " · Esc stops" : ""}\n`);
         // Said once, by that line (a dim note): the Working box drops what it showed instead of repeating it.
         this.setStaticActivity();
         this.endedWithNewline = true;
