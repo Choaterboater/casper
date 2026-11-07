@@ -1195,7 +1195,9 @@ export class PiRuntime implements AgentRuntime {
           // refusals above so a call refused anyway never asks.
           // Inside an app bundle (Iris.app), also when the bundle is the project: a write breaks the app's code signature.
           if ((event.toolName === "edit" || event.toolName === "write") && typeof event.input.path === "string" && options.shell?.bundleWrite) {
-            const reason = await options.shell.bundleWrite(realpathLongest(resolveToolPath(event.input.path, cwd, pathContext.home)));
+            const absolute = realpathLongest(resolveToolPath(event.input.path, cwd, pathContext.home));
+            // Inside the call's id, as every question a step raises is: an ACP box names its step (decision 85).
+            const reason = await withToolCall(event.toolCallId, () => options.shell?.bundleWrite?.(absolute));
             if (reason) return { block: true, reason };
           }
           if ((event.toolName === "edit" || event.toolName === "write") && typeof event.input.path === "string" && options.shell?.outsideWrite) {
@@ -1204,7 +1206,7 @@ export class PiRuntime implements AgentRuntime {
             // A link out of the project is asked about where it leads.
             const absolute = kind === "linksOut" ? realpathLongest(named) : named;
             if (kind === "outside" || kind === "linksOut") {
-              const reason = await options.shell.outsideWrite(absolute);
+              const reason = await withToolCall(event.toolCallId, () => options.shell?.outsideWrite?.(absolute));
               if (reason) return { block: true, reason };
               outside.set(event.toolCallId, absolute);
             }
@@ -1254,8 +1256,8 @@ export class PiRuntime implements AgentRuntime {
             operations: casperBashOperations(options.shell, undefined, checkChanges, agentShellGuard),
             spawnHook: (context) => ({ ...context, env: withoutProviderKeys(context.env, options.shell?.keepEnv ?? []) }),
           });
-          const execute: typeof bash.execute = (id, ...args) => withToolReason(reasons.get(id) ?? "", () =>
-            withBackgroundRequest(Boolean(args[0] && Reflect.get(args[0], "background") === true), () => bash.execute(id, ...args)));
+          const execute: typeof bash.execute = (id, ...args) => withToolCall(id, () => withToolReason(reasons.get(id) ?? "", () =>
+            withBackgroundRequest(Boolean(args[0] && Reflect.get(args[0], "background") === true), () => bash.execute(id, ...args))));
           pi.registerTool(repairing({ ...bash, parameters: withBackgroundOption(withStepTitle(bash.parameters)), execute }));
         }
         if (options.scrubToolOutput) pi.on("tool_result", async (event, ctx) => {

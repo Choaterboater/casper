@@ -8,6 +8,7 @@ import { fileTextHoldsSecret } from "../secrets/tool-output";
 import type { TaskResult } from "../task/result";
 import { redactPreview } from "../tui/format";
 import type { AcpCommand } from "./commands";
+import type { BoxStep } from "./permission";
 import type { Json } from "./rpc";
 import { endUpdate, startUpdate, stepFacts, type ShowRules, type StepFacts } from "./tool-content";
 
@@ -125,8 +126,9 @@ export class UpdateMapper {
   /** The model's planning words not sent yet (a part line): thoughts, a whole line at a time as its text is. */
   private thinking = "";
   private steps = 0;
-  /** The ACP id of each running tool, by the model's id: a model may use the same id again in a later turn. */
-  private readonly running = new Map<string, { id: string; facts: StepFacts }>();
+  /** The ACP id of each running tool, by the model's id: a model may use the same id again in a later turn. `box` is
+   * what a box the step raises repeats (decision 85): the diffs and files its start showed, already hidden. */
+  private readonly running = new Map<string, { id: string; facts: StepFacts; box: Omit<BoxStep, "id"> }>();
   private readonly cwd: () => string;
   private readonly rules: ShowRules;
 
@@ -138,6 +140,13 @@ export class UpdateMapper {
   /** The ACP toolCallId of the running tool the model calls `id`, if it is running. */
   acpId(id: string): string | undefined {
     return this.running.get(id)?.id;
+  }
+
+  /** The running step the model calls `id`, as a box it raises names it: its ACP id, and a copy of the diffs and files
+   * its start showed (an edit's replacements; a write, a command or an edit holding a secret has none). */
+  step(id: string): BoxStep | undefined {
+    const step = this.running.get(id);
+    return step ? { id: step.id, ...structuredClone(step.box) } : undefined;
   }
 
   /** The ACP toolCallId of the running step of `tool` (the ask tool's, so the AI's question is asked on it). */
@@ -154,10 +163,14 @@ export class UpdateMapper {
       let mcp: { server: string; tool: string } | undefined;
       try { mcp = this.options.mcpTool?.(event.toolName, event.args ?? {}); } catch { mcp = undefined; }
       const facts = stepFacts(event, this.cwd(), mcp);
-      if (event.toolCallId) this.running.set(event.toolCallId, { id, facts });
+      const start = hideDeep(startUpdate(id, facts, this.rules), this.hide, { keys: true });
+      if (event.toolCallId) {
+        const diffs = Array.isArray(start.content) ? start.content.filter((item: Json) => item?.type === "diff") : [];
+        this.running.set(event.toolCallId, { id, facts, box: { diffs: structuredClone(diffs), ...(Array.isArray(start.locations) ? { locations: structuredClone(start.locations) } : {}) } });
+      }
       const before = this.flush();
       this.tail = "";
-      return [...before, hideDeep(startUpdate(id, facts, this.rules), this.hide, { keys: true })];
+      return [...before, start];
     }
     if (event.type === "tool_end") {
       const step = event.toolCallId ? this.running.get(event.toolCallId) : undefined;

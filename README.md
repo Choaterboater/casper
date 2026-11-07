@@ -153,6 +153,10 @@ the plan asks what to change in a form, and the new plan comes back in the same 
 plan lists the steps as the model reports them. The app's **Plan first** option is `/plan on`.
 [Decision 84](docs/adr/0002/84-an-acp-app-reviews-and-builds-casper-plan.md).
 
+A box that a step raises names that step, so the app can show it on the step's row. An edit's box carries the edit's
+diff and file, so you see what you allow. The choices and the answers stay the same.
+[Decision 85](docs/adr/0002/85-an-acp-box-names-its-step.md).
+
 Type `/help` for the commands. Ctrl+C stops the current work but keeps changes already made;
 Ctrl+D on an empty prompt exits. [Keys and commands](docs/TERMINAL_UX.md#quick-reference).
 

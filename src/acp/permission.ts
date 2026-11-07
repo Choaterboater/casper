@@ -1,7 +1,8 @@
 // Casper's approval boxes as ACP session/request_permission. The client's person answers; nothing here ever answers
 // yes. A refusal, an error, "cancelled", a cancelled prompt, a closed connection or no answer in time is No.
 // A question that takes typed words or several picks goes to a client that shows forms as elicitation/create
-// (decision 83); anything but an accepted form is skipped. The plan's Build box carries the plan (decision 84).
+// (decision 83); anything but an accepted form is skipped. The plan's Build box carries the plan (decision 84). A box a
+// running step raises names that step and repeats its diffs and file (decision 85).
 
 import type { AwayAsker, AwayQuestion } from "../tui/terminal";
 import type { Json } from "./rpc";
@@ -19,6 +20,13 @@ export function optionKind(label: string): "reject_once" | "allow_once" | "allow
   if (/^no\b/i.test(label)) return "reject_once";
   if (/session|always|everything/i.test(label)) return "allow_always";
   return "allow_once";
+}
+
+/** The running step a box belongs to (UpdateMapper.step): its ACP id, and the diffs and files its start showed, hidden. */
+export interface BoxStep {
+  id: string;
+  diffs: Json[];
+  locations?: Json[];
 }
 
 export interface PermissionChannel {
@@ -83,6 +91,8 @@ export class AcpAsker implements AwayAsker {
   readOnly: () => boolean = () => false;
   /** Whether the client shows forms and acp_questions is on: then a typed or multi question goes to it (decision 83). */
   questions: () => boolean = () => false;
+  /** The running step that raised the box being asked, if any (decision 85). */
+  stepOf: () => BoxStep | undefined = () => undefined;
 
   /** `hide`: the session's secret hiding, for the box's words as for every update. */
   constructor(private readonly sessionId: string, private readonly channel: PermissionChannel, private readonly hide: (text: string) => string = (text) => text,
@@ -107,11 +117,14 @@ export class AcpAsker implements AwayAsker {
       ...(choice.description ? { _meta: { casper: { description: this.hide(choice.description) } } } : {}) }));
     // The box's text: the plan's Markdown for the Build box, else what the box shows above its question.
     const preview = review ? review.markdown : question.preview?.replace(/\n+$/, "");
-    // What the app may read about the box, merged: the plan's labels, so an app can show its own plan review.
-    const casper = { ...(review ? { plan: { approve: this.hide(review.approve), change: this.hide(review.change) } } : {}) };
+    // The step that raised the box: its diffs follow the box's text, and its files are the box's (decision 85).
+    const from = this.stepOf();
+    const content = [...(preview ? [{ type: "content", content: { type: "text", text: this.hide(preview) } }] : []), ...(from?.diffs ?? [])];
+    // What the app may read about the box, merged: the plan's labels, so an app can show its own plan review, and the step.
+    const casper = { ...(review ? { plan: { approve: this.hide(review.approve), change: this.hide(review.change) } } : {}), ...(from ? { step: from.id } : {}) };
     const toolCallId = `casper-approval-${++this.boxes}`;
     const step = { toolCallId, title: this.hide(question.question), kind: "other", status: "pending",
-      ...(preview ? { content: [{ type: "content", content: { type: "text", text: this.hide(preview) } }] } : {}),
+      ...(content.length ? { content } : {}), ...(from?.locations?.length ? { locations: from.locations } : {}),
       ...(Object.keys(casper).length ? { _meta: { casper } } : {}) };
     this.channel.update({ sessionUpdate: "tool_call", ...step });
     const params = { sessionId: this.sessionId, toolCall: step, options };

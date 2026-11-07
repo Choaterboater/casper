@@ -8,6 +8,7 @@ import { isOutside } from "../platform/inside";
 import { gitDirs, realpathLongest, within } from "../platform/project-paths";
 import { hostListed, hostName, makeHoldingFolders, sandboxPolicy, submoduleGitDirs, systemTempDirs, worktreeConfigFiles, writeFileToOffer, writeFolderToOffer, type SandboxPolicy, type SandboxProjectSettings, type SandboxUserSettings } from "./policy";
 import { runtimeEngine, type SandboxEngine } from "./runtime";
+import { withoutToolCall } from "../runtime/tool-reason";
 import type { SandboxStore } from "./store";
 
 /**
@@ -258,7 +259,8 @@ export class ShellSandbox {
   rememberedHosts(): string[] { return [...this.remembered]; }
 
   private start(): Promise<void> {
-    this.started ??= (async () => {
+    // Outside the tool call whose command starts it: the proxy lives on, and its questions belong to no one step.
+    this.started ??= withoutToolCall(async () => {
       const parent = this.parent;
       // A copy's commands go through the session's proxy: the runtime is one per process.
       if (parent) await parent.start();
@@ -273,7 +275,7 @@ export class ShellSandbox {
       if (this.platform === "linux") makeHoldingFolders(policy, this.home);
       await this.engine.initialize(policy, (host, port) => this.decideHost(host, port),
         { ...(this.user.allowUnixSockets ? { allowUnixSockets: this.user.allowUnixSockets } : {}), ...(seccompPath ? { seccompPath } : {}), ...(ripgrep ? { ripgrep } : {}) });
-    })();
+    });
     return this.started;
   }
 
@@ -557,7 +559,8 @@ export class ShellSandbox {
         }
         return false;
       }
-      const answer = this.options.askHost?.(name);
+      // The proxy can't tell whose command reached out, so its box names no step (decision 85).
+      const answer = withoutToolCall(() => this.options.askHost?.(name));
       if (!answer) {
         if (!this.blockedSaid.has(name)) {
           this.blockedSaid.add(name);

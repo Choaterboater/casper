@@ -523,3 +523,76 @@ describe("the plan's Build box, its steps and the plan option reach an ACP app (
     expect(kinds(new UpdateMapper(hider(() => [])).map({ type: "assistant_delta", text: "Hello\n" }))).toEqual([["agent_message_chunk", "Hello\n"]]);
   });
 });
+
+describe("an ACP box names its step and carries its diff (decision 85)", () => {
+  const file = path.resolve("/work/project/notes/todo.md");
+  const edit = { id: "casper-tool-3", diffs: [{ type: "diff", path: file, oldText: "- [ ] one\n", newText: "- [x] one\n" }], locations: [{ path: file }] };
+  const cancelled = async () => ({ outcome: { outcome: "cancelled" } });
+
+  test("A box a running step raises names that step and repeats its diffs and file, and a box outside a step names none", async () => {
+    const seen = channel(cancelled);
+    const asker = new AcpAsker("s1", seen);
+    asker.stepOf = () => edit;
+    expect(await asker.ask(box)).toBeUndefined();
+    const sent = seen.sent[0]!.toolCall;
+    // The box's own words first, then the step's diffs; its file, and the step it belongs to.
+    expect(sent.content).toEqual([{ type: "content", content: { type: "text", text: "~/notes/todo.md" } }, edit.diffs[0]]);
+    expect(sent.locations).toEqual([{ path: file }]);
+    expect(sent._meta).toEqual({ casper: { step: "casper-tool-3" } });
+    // The tool_call the app saw start carries the same three fields.
+    expect(seen.updates[0]).toMatchObject({ sessionUpdate: "tool_call", toolCallId: sent.toolCallId, content: sent.content, locations: sent.locations, _meta: sent._meta });
+    // A shell step has no diff and no file: only its id, and a box with no words of its own has no content.
+    const shell = channel(cancelled);
+    const fromShell = new AcpAsker("s1", shell);
+    fromShell.stepOf = () => ({ id: "casper-tool-4", diffs: [] });
+    await fromShell.ask({ ...box, preview: undefined });
+    expect(shell.sent[0]!.toolCall).not.toHaveProperty("content");
+    expect(shell.sent[0]!.toolCall).not.toHaveProperty("locations");
+    expect(shell.sent[0]!.toolCall._meta).toEqual({ casper: { step: "casper-tool-4" } });
+    // The plan's labels and the step are merged, never one in place of the other.
+    const plan = channel(cancelled);
+    const fromPlan = new AcpAsker("s1", plan);
+    fromPlan.stepOf = () => edit;
+    await fromPlan.ask({ ...box, kind: "pick", choices: [{ label: "Stop" }, { label: "Build" }], review: { markdown: "# Plan\n", approve: "Build", change: "Change the plan" } });
+    expect(plan.sent[0]!.toolCall._meta).toEqual({ casper: { plan: { approve: "Build", change: "Change the plan" }, step: "casper-tool-3" } });
+    // Outside any step: no step, no file, only the box's words, as before.
+    const outside = channel(cancelled);
+    await new AcpAsker("s1", outside).ask(box);
+    expect(outside.sent[0]!.toolCall).not.toHaveProperty("_meta");
+    expect(outside.sent[0]!.toolCall).not.toHaveProperty("locations");
+    expect(outside.sent[0]!.toolCall.content).toEqual([{ type: "content", content: { type: "text", text: "~/notes/todo.md" } }]);
+    // Read only answers No at once, as before: that step names nothing either.
+    const readOnly = channel(cancelled);
+    const closed = new AcpAsker("s1", readOnly);
+    closed.readOnly = () => true;
+    closed.stepOf = () => edit;
+    expect(await closed.ask(box)).toBeUndefined();
+    expect(readOnly.sent).toEqual([]);
+    expect(readOnly.updates[0]).not.toHaveProperty("_meta");
+    expect(readOnly.updates[0]).not.toHaveProperty("locations");
+  });
+
+  test("A linked box is still No for cancelled, an error, an unknown option and no answer in time", async () => {
+    const outcomes: Array<(params: Record<string, any>, signal: AbortSignal) => Promise<unknown>> = [
+      cancelled,
+      async () => { throw new Error("the client could not ask"); },
+      async () => ({ outcome: { outcome: "selected", optionId: "9" } }),
+      (_params, signal) => new Promise((_resolve, reject) => signal.addEventListener("abort", () => reject(new Error("aborted")))),
+    ];
+    for (const reply of outcomes) {
+      const seen = channel(reply);
+      const asker = new AcpAsker("s1", seen, (text) => text, 30);
+      asker.stepOf = () => edit;
+      expect(await asker.ask(box)).toBeUndefined();
+      expect(seen.sent[0]!.toolCall._meta).toEqual({ casper: { step: "casper-tool-3" } });
+      expect(seen.updates.at(-1)).toMatchObject({ sessionUpdate: "tool_call_update", status: "failed" });
+    }
+    // A picked yes is still that label, with the same options in the same order.
+    const yes = channel(async (params) => ({ outcome: { outcome: "selected", optionId: params.options[1].optionId } }));
+    const asker = new AcpAsker("s1", yes);
+    asker.stepOf = () => edit;
+    expect(await asker.ask(box)).toEqual([YES_ONCE]);
+    expect(yes.sent[0]!.options.map((option: { name: string; kind: string }) => [option.name, option.kind]))
+      .toEqual([[NO, "reject_once"], [YES_ONCE, "allow_once"], [YES_SESSION, "allow_always"]]);
+  });
+});

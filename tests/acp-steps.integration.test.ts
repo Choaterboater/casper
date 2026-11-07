@@ -1,15 +1,21 @@
 import { afterEach, expect } from "bun:test";
 import { execFileSync } from "node:child_process";
-import { chmod, mkdir, readFile, writeFile } from "node:fs/promises";
-import { existsSync } from "node:fs";
+import { chmod, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
+import { existsSync, realpathSync } from "node:fs";
 import path from "node:path";
+import { isOutside } from "../src/platform/inside";
+import { systemTempDirs } from "../src/sandbox/policy";
 import { startAcp, type AcpClient } from "./support/acp-client";
 import { childTestLimit } from "./support/limits";
 import { cleanUpAfterEach, fixture, shellCheckTest, type Payload, type Step } from "./support/scripting";
 
 // What an ACP client is shown of each tool step (decision 79), against a real `casper acp` child and the scripted provider.
 const clients: AcpClient[] = [];
-afterEach(async () => { for (const client of clients.splice(0)) await client.close().catch(() => {}); });
+const outsideFolders: string[] = [];
+afterEach(async () => {
+  for (const client of clients.splice(0)) await client.close().catch(() => {});
+  for (const folder of outsideFolders.splice(0)) await rm(folder, { recursive: true, force: true });
+});
 cleanUpAfterEach();
 const open = (...args: Parameters<typeof startAcp>) => { const client = startAcp(...args); clients.push(client); return client; };
 
@@ -131,5 +137,64 @@ shellCheckTest("with netconan installed, a device config the AI writes is not sh
   expect(write.start.rawInput).toEqual({ path: "configs/edge1.set", content: "<not shown: a device config netconan checks>" });
   expect(write.end.content).toEqual([{ type: "content", content: { type: "text", text: "Changed configs/edge1.set (+1 −0): not shown, netconan checks this device config only as the AI reads it" } }]);
   expect(client.lines.join("\n")).not.toContain("Zq8LeakyToken");
+  onlyProtocol(client);
+}, childTestLimit(1));
+
+// A box names the step that raised it and carries that step's diffs (decision 85).
+/** A folder outside the project that is no system temp folder (Casper writes in temp without asking). The checkout's
+ * .scratch is ignored by git; a checkout in a temp folder skips these tests. */
+const SCRATCH = path.resolve(import.meta.dir, "..", ".scratch");
+const scratchInTemp = systemTempDirs().some((temp) => !isOutside(path.relative(temp, realpathSync(path.dirname(SCRATCH)))));
+async function outsideFolder(): Promise<string> {
+  await mkdir(SCRATCH, { recursive: true });
+  const folder = await realpath(await mkdtemp(path.join(SCRATCH, "acp-box-step-")));
+  outsideFolders.push(folder);
+  return folder;
+}
+
+shellCheckTest.skipIf(scratchInTemp)("An edit outside the project asks with the edit's own diff and names its step", async () => {
+  const outside = await outsideFolder();
+  const notes = path.join(outside, "notes.txt");
+  await writeFile(notes, "one\ntwo\n");
+  const f = await fixture(byResults({ 0: { tools: [{ name: "edit", args: { path: notes, edits: [{ oldText: "two", newText: "TWO" }] } }] } }));
+  const client = open(f);
+  await client.request("initialize", INIT);
+  client.answerPermissions((params) => ({ optionId: (params.options as Array<{ kind: string; optionId: string }>).find((choice) => choice.kind === "allow_once")!.optionId }));
+  const { sessionId } = await client.request("session/new", { cwd: f.project, mcpServers: [] });
+  expect((await client.request("session/prompt", { sessionId, prompt: text("Fix the notes outside") })).stopReason).toBe("end_turn");
+  expect(await readFile(notes, "utf8")).toBe("one\nTWO\n");
+  const edit = step(client, sessionId, `edit ${notes}`);
+  expect(client.permissions).toHaveLength(1);
+  const box = client.permissions[0]!.toolCall;
+  // The box names the edit's step and shows its replacement and its file (the question itself names the folder).
+  expect(box._meta).toEqual({ casper: { step: edit.start.toolCallId } });
+  expect(box.content).toEqual([{ type: "diff", path: notes, oldText: "two", newText: "TWO" }]);
+  expect(box.locations).toEqual([{ path: notes }]);
+  // The box's own step, as the app saw it start, carries the same.
+  const updates = client.updates.filter((update) => update.sessionId === sessionId).map((update) => update.update);
+  expect(updates.find((update) => update.sessionUpdate === "tool_call" && update.toolCallId === box.toolCallId)).toMatchObject({ _meta: box._meta, locations: box.locations, content: box.content });
+  onlyProtocol(client);
+}, childTestLimit(1));
+
+shellCheckTest("Two parallel shell steps that each ask name their own step", async () => {
+  // Each command reaches another machine (documentation addresses), so each asks "Reach <host>?" first, sandbox or not.
+  const first = "ssh -o BatchMode=yes 192.0.2.10 true";
+  const second = "ssh -o BatchMode=yes 192.0.2.20 true";
+  const f = await fixture(byResults({ 0: { tools: [{ name: "bash", args: { command: first } }, { name: "bash", args: { command: second } }] } }));
+  const client = open(f);
+  await client.request("initialize", INIT);
+  // No: nothing reaches either machine.
+  client.answerPermissions((params) => ({ optionId: (params.options as Array<{ kind: string; optionId: string }>).find((choice) => choice.kind === "reject_once")!.optionId }));
+  const { sessionId } = await client.request("session/new", { cwd: f.project, mcpServers: [] });
+  expect((await client.request("session/prompt", { sessionId, prompt: text("Check both machines") })).stopReason).toBe("end_turn");
+  const steps = [first, second].map((command) => step(client, sessionId, `bash ${command}`).start.toolCallId);
+  // Each box names the step whose command it asks about; a shell step has no diff and no file.
+  expect(client.permissions).toHaveLength(2);
+  const named = client.permissions.map((params) => [JSON.stringify(params.toolCall).includes("192.0.2.10") ? first : second, params.toolCall._meta?.casper?.step]);
+  expect([...named].sort()).toEqual([[first, steps[0]], [second, steps[1]]]);
+  for (const params of client.permissions) {
+    expect(params.toolCall).not.toHaveProperty("locations");
+    expect((params.toolCall.content ?? []).filter((item: { type: string }) => item.type === "diff")).toEqual([]);
+  }
   onlyProtocol(client);
 }, childTestLimit(1));

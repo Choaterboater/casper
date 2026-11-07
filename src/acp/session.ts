@@ -27,6 +27,7 @@ import { CASPER_VERSION } from "../version";
 import type { AwayAsker } from "../tui/terminal";
 import { readAcpMcpSetting, type AcpMcpSetting } from "../config/load";
 import type { MCPServerDefinition } from "../mcp/config";
+import { toolCallId } from "../runtime/tool-reason";
 import type { RuntimeEvent } from "../runtime/types";
 import { fileTextHoldsSecret, onlyNetconanChecks } from "../secrets/tool-output";
 import { leadingImagePath, startsWithImageFile } from "../app/images";
@@ -265,6 +266,8 @@ export async function runAcpSession(options: SessionOptions): Promise<void> {
       // The AI's question is asked on the ask tool's step, as the client saw it start.
       stepFor: (question) => question.from === "ai" ? mapper.runningStep("ask") : undefined }, hide);
     asker.readOnly = () => app?.readOnlyAccess === true;
+    // A box a running step raises names that step and repeats its diffs and file (decision 85).
+    asker.stepOf = () => { const id = toolCallId(); return id === undefined ? undefined : mapper.step(id); };
     // acp_questions is read when the session opens: a change applies from the next one.
     created.remoteQuestions = formQuestions && created.projectContext?.acpQuestions !== "off";
     asker.questions = () => created.remoteQuestions;
