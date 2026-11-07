@@ -23,7 +23,7 @@ below, then run the rebuilt Bun executable with `run build:release` in Casper's
 source checkout. Casper's complete application source and dependency lock are public.
 
 ==============================================================================
-@anthropic-ai/claude-agent-sdk 0.3.316
+@anthropic-ai/claude-agent-sdk 0.3.319
 Source: https://github.com/anthropics/claude-agent-sdk-typescript
 License notice (from LICENSE.md):
 © Anthropic PBC. All rights reserved. Use is subject to the Legal Agreements outlined here: https://code.claude.com/docs/en/legal-and-compliance.
@@ -2293,16 +2293,17 @@ OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
 WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 ==============================================================================
-@earendil-works/pi-agent-core@1.4.0 — declared MIT
-@earendil-works/pi-ai@1.4.0 — declared MIT
-@earendil-works/pi-codemode@1.4.0 — declared MIT
-@earendil-works/pi-coding-agent@1.4.0 — declared MIT
-@earendil-works/pi-mcp@1.4.0 — declared MIT (its OAuth code is adapted from the
+@earendil-works/pi-agent-core@1.5.0 — declared MIT
+@earendil-works/pi-ai@1.5.0 — declared MIT
+@earendil-works/pi-codemode@1.5.0 — declared MIT
+@earendil-works/pi-coding-agent@1.5.0 — declared MIT
+@earendil-works/pi-mcp@1.5.0 — declared MIT (its OAuth code is adapted from the
   MCP TypeScript SDK; that MIT notice appears under @modelcontextprotocol/sdk)
-@earendil-works/pi-telemetry@1.4.0 — declared MIT
-@earendil-works/pi-tui@1.4.0 — declared MIT
+@earendil-works/pi-schema@1.5.0 — declared MIT
+@earendil-works/pi-telemetry@1.5.0 — declared MIT
+@earendil-works/pi-tui@1.5.0 — declared MIT
 Sources:
-https://raw.githubusercontent.com/earendil-works/pi/v1.4.0/LICENSE
+https://raw.githubusercontent.com/earendil-works/pi/v1.5.0/LICENSE
 
 MIT License
 
@@ -2407,7 +2408,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 ==============================================================================
-@modelcontextprotocol/sdk@1.30.0 — declared MIT
+@modelcontextprotocol/sdk@1.32.2 — declared MIT
 Sources:
 node_modules/@modelcontextprotocol/sdk/LICENSE
 
@@ -3378,7 +3379,7 @@ THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND 
 ==============================================================================
 undici-types@8.9.0 — declared MIT
 undici-types@8.9.0 — declared MIT
-undici@8.9.0 — declared MIT
+undici@8.12.3 — declared MIT
 undici-types@6.21.0 — declared MIT
 Sources:
 node_modules/bun-types/node_modules/@types/node/node_modules/undici-types/LICENSE
@@ -5636,8 +5637,10 @@ TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
 SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 ==============================================================================
-minimatch@10.2.5 — declared BlueOak-1.0.0
+@isaacs/nonrecursive-glob-match@1.1.0 — declared BlueOak-1.0.0
+minimatch@11.0.3 — declared BlueOak-1.0.0
 Sources:
+node_modules/@isaacs/nonrecursive-glob-match/LICENSE.md
 node_modules/minimatch/LICENSE.md
 
 # Blue Oak Model License

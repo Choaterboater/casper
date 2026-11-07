@@ -1,7 +1,8 @@
 import { afterEach, expect, test } from "bun:test";
 import { complete } from "@earendil-works/pi-ai/compat";
 
-/** Pi (patched, see patches/) takes the charge OpenRouter reports in usage.cost over the catalog price. */
+/** Pi (since 1.5.0, which took over Casper's old patch) takes the charge OpenRouter reports in usage.cost over the catalog
+ * price. OpenRouter sends is_byok with every charge; without it Pi keeps the catalog estimate. */
 const servers: Array<{ stop(force?: boolean): void }> = [];
 afterEach(() => { for (const server of servers.splice(0)) server.stop(true); });
 
@@ -25,7 +26,7 @@ async function costFor(usage: Record<string, unknown>): Promise<number> {
 const tokens = { prompt_tokens: 1_000_000, completion_tokens: 0, total_tokens: 1_000_000, prompt_tokens_details: { cached_tokens: 1_000_000 } };
 
 test("the reported charge replaces the catalog estimate", async () => {
-  expect(await costFor({ ...tokens, cost: 0.0421 })).toBeCloseTo(0.0421, 10);
+  expect(await costFor({ ...tokens, cost: 0.0421, is_byok: false })).toBeCloseTo(0.0421, 10);
 });
 
 test("with your own provider key, the provider's charge is added to OpenRouter's fee", async () => {
@@ -35,5 +36,5 @@ test("with your own provider key, the provider's charge is added to OpenRouter's
 test("no reported charge, or one that is not a number, keeps the catalog estimate", async () => {
   expect(await costFor(tokens)).toBeCloseTo(1, 10);
   expect(await costFor({ ...tokens, cost: null })).toBeCloseTo(1, 10);
-  expect(await costFor({ ...tokens, cost: "0.5" })).toBeCloseTo(1, 10);
+  expect(await costFor({ ...tokens, cost: "0.5", is_byok: false })).toBeCloseTo(1, 10);
 });
