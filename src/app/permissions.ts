@@ -26,6 +26,10 @@ const PERMISSIONS_WORDS = ["all", "ask", "details", "write", "forget"];
 export interface PermissionsView {
   /** The app that runs casper acp set Read only (decision 82). */
   readOnly?: boolean;
+  /** Commands while planning (plan_commands, decision 95): unset is on. */
+  planCommands?: boolean;
+  /** Commands that read private places (private_commands, decision 95): unset is on. */
+  privateCommands?: boolean;
   /** The shell's own paragraph and the last line of /permissions as it was (permissionsText). */
   shell: string;
   /** Whether you trust the open folder, in a sentence (folderTrustText): its checks and project commands depend on it. */
@@ -79,16 +83,42 @@ function blockedWords(view: Pick<PermissionsView, "commands" | "asking">): strin
 }
 
 /** What stays protected whatever you pick: private places can't be read; protected ones can be read, not changed. */
-function protectedWords(view: Pick<PermissionsView, "commands" | "asking" | "sandboxOn">, opens: string): string {
-  return `~/.ssh, cloud logins and Casper's own logins and records are private: the AI's file tools and a command naming one are refused, sandbox or not, unless ${opens} opens one; `
+function protectedWords(view: Pick<PermissionsView, "commands" | "asking" | "sandboxOn" | "privateCommands">, opens: string, detail = false): string {
+  // Decision 95: with private_commands on they ask first, naming the place; off, they are refused as before.
+  const asked = view.privateCommands !== false
+    ? `the AI's file tools${view.sandboxOn ? "" : " and a command naming one"} ask first, naming the place${detail ? ", also with /permissions all; where nobody can answer they are refused" : ""}${view.sandboxOn ? ", and the sandbox hides them from commands" : ""} (Commands that read private places in /settings)`
+    : "the AI's file tools and a command naming one are refused, sandbox or not (Commands that read private places is off in /settings)";
+  return `~/.ssh, cloud logins and Casper's own logins and records are private: ${asked}, unless ${opens} opens one; `
     + "~/.casper, shell start-up files and git's own files can be read, but the AI's edit and write can't change them"
     + (view.sandboxOn ? `, and the sandbox blocks a command that does (${blockedWords(view)})` : ", and a command that does is like any other command (Run this command?)");
 }
 
 const plural = (count: number, word: string) => `${count} ${word}${count === 1 ? "" : "s"}`;
 
-/** What Read only means, first on /permissions while the app has it set. */
-export const READ_ONLY_LINE = "Read only (set by the app): Casper looks and answers. Edits, writes, changing commands, checks and MCP changes are not run, and nothing asks except the box to run a blocked look command once outside the sandbox. Pick another access in the app to change it.";
+/** "A", "A and B", "A, B and C". */
+const and = (items: readonly string[]) => items.length > 1 ? `${items.slice(0, -1).join(", ")} and ${items.at(-1)}` : items[0] ?? "";
+
+/** What Read only means, first on /permissions while the app has it set: what it refuses and the boxes it still asks
+ * (decisions 94 and 95), following plan_commands, private_commands and sandbox.commands as the app's own words do
+ * (src/acp/modes.ts). */
+export function readOnlyLine(view: Pick<PermissionsView, "planCommands" | "privateCommands" | "sandboxOn" | "commands">): string {
+  const privatePlace = view.privateCommands !== false ? ["a private place"] : [];
+  const outsideLook = view.sandboxOn ? [] : ["a look command reading outside the project"];
+  // Decision 94: a look command the sandbox blocked asks to run once outside it, on sandbox.commands: ask.
+  const blocked = view.sandboxOn && (view.commands ?? "ask") === "ask" ? ["a look command the sandbox blocked (to run it once outside)"] : [];
+  const end = "Pick another access in the app to change it.";
+  // With plan_commands off only look commands run, and ssh, scp, git push or gh are not look commands: they are refused
+  // before another machine or the GitHub login could ask.
+  if (view.planCommands === false) {
+    const asks = [...privatePlace, ...outsideLook, ...blocked];
+    const still = asks.length ? `; ${and(asks)} still ${asks.length > 1 ? "ask" : "asks"}` : "";
+    return `Read only (set by the app): Casper looks and answers. Edits, writes, changing commands, checks and MCP changes are not run${still}. ${end}`;
+  }
+  const asks = [...privatePlace, "another machine", ...(view.sandboxOn ? ["the GitHub login"] : outsideLook), ...blocked];
+  // A new host or write of a command you said yes to asks only where the sandbox holds them (its proxy and write hold).
+  const held = view.sandboxOn ? ", and a new host or write of a command you said yes to" : "";
+  return `Read only (set by the app): Casper looks and answers. Edits, writes, checks and MCP changes are not run. A command that may change files asks first, and so do ${and(asks)}${held}. ${end}`;
+}
 
 /** Plain /permissions: the state first, then one line per kind (state · how to change it), what stays protected and
  * where the rest is. The box that stops asking follows it in a terminal. */
@@ -103,7 +133,7 @@ export function permissionsSummary(view: PermissionsView): string {
     : [view.shellAsks ? "shell commands" : "", view.outsideWritesAsk ? "writes outside the project" : "", "other machines"].filter(Boolean).join(", ").replace(/, ([^,]*)$/, " and $1");
   const writes = view.outsideWritesAsk ? asks : "doesn't ask (no sandbox)";
   return [
-    ...(view.readOnly ? [READ_ONLY_LINE] : []),
+    ...(view.readOnly ? [readOnlyLine(view)] : []),
     view.asking
       ? `Asking is on: Casper asks before ${before}.`
       : "Asking is OFF until you quit: shell commands, hosts, writes outside the project and other machines are answered Yes. /permissions ask turns it back on.",
@@ -123,7 +153,7 @@ export function permissionsSummary(view: PermissionsView): string {
 export function permissionsScreen(view: PermissionsView): string {
   const lines = [
     `What Casper may do here, and how to change it. Asking is ${view.asking ? "on" : "OFF until you quit (/permissions ask turns it back on)"}.`,
-    ...(view.readOnly ? [READ_ONLY_LINE] : []),
+    ...(view.readOnly ? [readOnlyLine(view)] : []),
     "",
     ...(view.folder ? [view.folder, ""] : []),
     view.shell,
@@ -158,7 +188,7 @@ export function permissionsScreen(view: PermissionsView): string {
     `Switches (/settings): web lookups ${view.web ? "on" : "off"}, GitHub tool ${view.github ? "on" : "off"}. Fetching ripgrep ${view.downloads ? "on" : "off"} (tools: downloads: off in config).`,
     "",
     "To turn everything on: there is no single switch, on purpose. The closest is /permissions all (or type 'stop asking'), or 4 Yes to everything this session in the Run this command? box: until you quit, shell commands, hosts, writes outside the project and other machines are answered Yes for this session (--no-sandbox for one run, or sandbox: off in ~/.casper/config.yaml, takes the shell sandbox away too).",
-    `Protected: ${protectedWords(view, "sandbox: allowRead in ~/.casper/config.yaml (Readable private places in /settings)")}; secrets are hidden from the AI; device writes still need the product's own login to allow them and their own box; the spend pause stays; the AI can't answer a box for you.`,
+    `Protected: ${protectedWords(view, "sandbox: allowRead in ~/.casper/config.yaml (Readable private places in /settings)", true)}; secrets are hidden from the AI; device writes still need the product's own login to allow them and their own box; the spend pause stays; the AI can't answer a box for you.`,
     view.scripts,
   ];
   return lines.join("\n");

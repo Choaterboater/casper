@@ -551,6 +551,13 @@ export class ShellSandbox {
     if (once >= 0) this.onceTargets.splice(once, 1);
   }
 
+  /** Another box (the private box, decision 95) allowed the AI's edit or write of `absolute` outside the project: once it
+   * lands, noteOutsideWrite names the file on the receipt, as for a write box's Yes, this once. Allows nothing itself. */
+  noteAskedWrite(absolute: string): void {
+    const real = realpathLongest(absolute);
+    if (!this.writeTargetAllowed(real) && !this.onceTargets.includes(real)) this.onceTargets.push(real);
+  }
+
   /** You allowed a shell command to write `folder`: the receipt says allowed, not written (the sandbox can't tell). */
   noteOutsideAllow(folder: string): void { this.allowedOutside.add(folder); }
 

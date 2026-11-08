@@ -114,6 +114,26 @@ test("Yes, this once lets the AI's write tool write that file once; the next wri
   await s.sandbox.close();
 });
 
+test("the AI's write into ~/.aws after a yes in the private box asks nothing more, and the receipt still names the file (decision 95)", async () => {
+  for (const options of [{ seams: { platform: "win32" as const } }, { noSandbox: true }, {}]) {
+    const s = await session([], options);
+    const file = path.join(s.home, ".aws", "config");
+    // Without the private box's yes, ~/.aws is not a place the write box offers (--no-sandbox asks no write box at all).
+    if (!("noSandbox" in options)) expect(await s.shell.outsideWrite!(file)).toMatch(/^Not done: /);
+    expect(await s.shell.outsideWrite!(file, { asked: true })).toBeUndefined();
+    expect(s.terminal.asked).toEqual([]);
+    s.shell.wroteOutside!(file);
+    const receipt = outsideWritesReceipt(s.sandbox);
+    expect(receipt).toEqual({ outsideWrites: ["~/.aws/config"] });
+    expect(formatReceipt({ execution: "completed", ...receipt })).toContain("– Wrote outside the project: ~/.aws/config (you allowed it; no undo copy)");
+    // It allowed that one write, nothing more: a second write there is not on the next receipt unless asked again.
+    s.shell.wroteOutside!(file);
+    expect(outsideWritesReceipt(s.sandbox)).toEqual({});
+    expect(s.sandbox.writeAllowed(file)).toBe(false);
+    await s.sandbox.close();
+  }
+});
+
 posixOnly("No (or Enter) keeps the shell write blocked and tells the AI not to work around it", async () => {
   for (const answer of ["No", undefined]) {
     const s = await session([answer], { refuse: () => [`deny(1) file-write-create ${path.join(s.app, "config.json")}`] });

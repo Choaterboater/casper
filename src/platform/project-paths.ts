@@ -65,7 +65,8 @@ export const CASPER_PRIVATE_PATHS: readonly string[] = [".casper/projects", ".ca
  * them, whatever folder it names (/settings doesn't offer them either). */
 export const CASPER_OWN_PRIVATE_PATHS: readonly string[] = [...PRIVATE_PATHS.filter((entry) => entry.startsWith(".casper/")), ...CASPER_PRIVATE_PATHS];
 
-/** Home files the AI may read but never change: Casper's and Pi's own state, shell start-up files, git's settings. */
+/** Home files the AI may read but never change: Casper's and Pi's own state, shell start-up files, git's settings. The
+ * sandbox keeps commands from writing ~/.ssh too; the AI's own edit or write there asks in the private box (ASKED_PROTECTED). */
 export const PROTECTED_WRITE_PATHS: readonly string[] = [
   ".casper", ".pi", ".bashrc", ".bash_profile", ".bash_login", ".bash_logout", ".profile", ".zshrc", ".zshenv", ".zprofile", ".zlogin",
   ".config/fish", ".gitconfig", ".config/git", ".ssh",
@@ -232,8 +233,20 @@ function whyPrivate(shown: string, context: PathContext): string {
 
 /** A private place inside the folder `absolute` (grep over ~ would read ~/.ssh). */
 export function privatePlaceBelow(absolute: string, context: PathContext): string | undefined {
+  return privatePlacesBelow(absolute, context)[0]?.shown;
+}
+
+/** Every private place inside the folder `absolute`: a yes to grep or find there opens them all. */
+function privatePlacesBelow(absolute: string, context: PathContext): PrivatePlace[] {
   const candidates = variants(absolute);
-  return privatePlaces(context).find((place) => place.below && place.paths.some((entry) => candidates.some((candidate) => within(candidate, entry))))?.shown;
+  return privatePlaces(context).filter((place) => place.below && place.paths.some((entry) => candidates.some((candidate) => within(candidate, entry))));
+}
+
+/** "~/.ssh", "~/.ssh and ~/.aws", "~/.ssh, ~/.aws and ~/.gnupg", "~/.ssh, ~/.aws, ~/.gnupg and 38 other private places". */
+function namedPlaces(places: readonly PrivatePlace[]): string {
+  const names = places.map((place) => place.shown);
+  if (names.length > 3) return `${names.slice(0, 3).join(", ")} and ${names.length - 3} other private places`;
+  return names.length > 1 ? `${names.slice(0, -1).join(", ")} and ${names.at(-1)}` : names[0] ?? "";
 }
 
 function readText(file: string): string | undefined {
@@ -306,8 +319,17 @@ export function displayPath(absolute: string, root: string, home = os.homedir())
  * - inside or outside otherwise.
  */
 export function classifyPath(absolute: string, context: PathContext, write: boolean): PathClass {
+  return privatePlace(absolute, context) ? "private" : classifyNotPrivate(absolute, context, write);
+}
+
+/** Protected places that are private too, where the AI's edit or write asks in the private box instead of being
+ * refused (decision 95). */
+const ASKED_PROTECTED: readonly string[] = [".ssh"];
+
+/** classifyPath for a place that is not checked for being private: a write into a private place still refused where
+ * it is git's own or protected (~/.casper). `asked` names protected places left out (~/.ssh, which asks). */
+function classifyNotPrivate(absolute: string, context: PathContext, write: boolean, asked: readonly string[] = []): Exclude<PathClass, "private"> {
   const home = context.home ?? os.homedir();
-  if (privatePlace(absolute, context)) return "private";
   const real = realpathLongest(absolute);
   if (write && gitInternalPart(absolute, context.root, home)) return "gitInternal";
   const roots = variants(context.root);
@@ -317,7 +339,7 @@ export function classifyPath(absolute: string, context: PathContext, write: bool
   // Where the write lands decides; a name under ~/.pi that is a link into the project is the project.
   // A project that itself lives in one of these places (Casper's own worktrees are in ~/.casper/worktrees)
   // is still the project: only the parts outside it are protected.
-  if (write && PROTECTED_WRITE_PATHS.some((entry) => variants(path.join(home, entry))
+  if (write && PROTECTED_WRITE_PATHS.some((entry) => !asked.includes(entry) && variants(path.join(home, entry))
     .some((place) => !(realInside && roots.some((root) => within(place, root)))
       && (within(place, real) || (!realInside && within(place, absolute)))))) return "protected";
   return realInside ? "inside" : "outside";
@@ -340,12 +362,50 @@ const WRITE_TOOLS = new Set(["edit", "write"]);
  * the AI sees, or undefined to let the call run.
  */
 export function fileToolGate(toolName: string, input: Record<string, unknown> | undefined, context: PathContext): string | undefined {
+  return fileToolCheck(toolName, input, context)?.reason;
+}
+
+/** Where the AI's edit or write of a private place lands, once the private box said yes to it (decision 95): "inside",
+ * "outside" or "linksOut" as classifyPath says of any other place, so one outside the project is still recorded. */
+export function privateWriteKind(absolute: string, context: PathContext): Exclude<PathClass, "private"> {
+  return classifyNotPrivate(absolute, context, true, ASKED_PROTECTED);
+}
+
+/** The private place a read, grep, find, ls, lsp, edit or write call opens, when that is why fileToolGate refuses it: it
+ * asks first while someone can answer, unless private_commands is off (decision 95). `refusal` is fileToolGate's text,
+ * word for word. An edit or write where the place is also Casper's own or git's (~/.casper, a .git folder) has none, and
+ * nor has an lsp call outside the project (the LSP layer refuses it anyway): those stay refused. ~/.ssh asks, as the
+ * shell's `>> ~/.ssh/config` does. */
+export function privateFilePlace(toolName: string, input: Record<string, unknown> | undefined, context: PathContext): PrivateCommandPlace | undefined {
+  return fileToolCheck(toolName, input, context)?.place;
+}
+
+/** How a file tool's box and its No name what it does. */
+const FILE_VERBS: Record<string, [ask: string, not: string, doing: string]> = {
+  read: ["Read", "Not read", "reading"], ls: ["List", "Not listed", "listing"], grep: ["Search", "Not searched", "searching"], find: ["Search", "Not searched", "searching"],
+  lsp: ["Read", "Not read", "reading"], edit: ["Change", "Not done", "changing"], write: ["Change", "Not done", "changing"],
+};
+
+/** The box for a call into a private place, with the AI's text for a No; an edit and a write share a session yes. */
+function privateCall(toolName: string, shown: string, place: string, why: string, refusal: string, hosts?: string): PrivateCommandPlace {
+  const [ask, not, doing] = FILE_VERBS[toolName] ?? ["Read", "Not read", "reading"];
+  return { shown: place, why, refusal, key: `${WRITE_TOOLS.has(toolName) ? "change" : toolName} ${shown}`, question: `${ask} ${shown}? ${place} is private (${why}).`,
+    declined: `${not}: the user said no to ${doing} ${shown}.${hosts ? ` ${hosts}` : ""} Don't try it another way; ask the user instead.` };
+}
+
+function fileToolCheck(toolName: string, input: Record<string, unknown> | undefined, context: PathContext): { reason: string; place?: PrivateCommandPlace } | undefined {
   const home = context.home ?? os.homedir();
   // The lsp tool sends the file's text to the language server and returns its symbols: a private file is refused as
-  // read refuses it. (It never leaves the project; the LSP layer checks that.)
+  // read refuses it. It never leaves the project (the LSP layer checks that), so only a private file inside the project
+  // asks: a yes for ~/.ssh/config would fail there anyway.
   if (toolName === "lsp" && input && typeof input.path === "string" && input.path) {
-    const place = privatePlace(resolveToolPath(input.path, context.root, home), context);
-    return place ? `Not read: ${place} is private (${whyPrivate(place, context)}). Casper keeps it from the AI.` : undefined;
+    const absolute = resolveToolPath(input.path, context.root, home);
+    const place = privatePlace(absolute, context);
+    if (!place) return undefined;
+    const why = whyPrivate(place, context);
+    const reason = `Not read: ${place} is private (${why}). Casper keeps it from the AI.`;
+    if (classifyNotPrivate(absolute, context, false) !== "inside") return { reason };
+    return { reason, place: privateCall(toolName, displayPath(absolute, context.root, home), place, why, reason) };
   }
   if (!input || (!READ_TOOLS.has(toolName) && !WRITE_TOOLS.has(toolName))) return undefined;
   const given = typeof input.path === "string" && input.path ? input.path : toolName === "read" || WRITE_TOOLS.has(toolName) ? undefined : ".";
@@ -353,24 +413,45 @@ export function fileToolGate(toolName: string, input: Record<string, unknown> | 
   const absolute = resolveToolPath(given, context.root, home);
   const write = WRITE_TOOLS.has(toolName);
   const verb = write ? "Not done" : "Not read";
+  const ssh = (place: string) => !write && /^~\/\.ssh(?:\/|$)/.test(place) ? sshHostsLine(home) : undefined;
   for (const candidate of toolName === "read" ? readVariants(absolute) : [absolute]) {
     const place = privatePlace(candidate, context);
     if (place) {
-      const ssh = !write && /^~\/\.ssh(?:\/|$)/.test(place) ? sshHostsLine(home) : undefined;
-      return `${verb}: ${place} is private (${whyPrivate(place, context)}). Casper keeps it from the AI.${ssh ? ` ${ssh}` : ""}`;
+      const why = whyPrivate(place, context);
+      const hosts = ssh(place);
+      const reason = `${verb}: ${place} is private (${why}). Casper keeps it from the AI.${hosts ? ` ${hosts}` : ""}`;
+      // A write where the place is also protected or git's own (~/.casper, a .git folder) stays refused, in these words.
+      // ~/.ssh asks instead, as the shell's write there does (the owner's call, decision 95).
+      if (write) {
+        const named = classifyNotPrivate(candidate, context, true, ASKED_PROTECTED);
+        const kind = named === "linksOut" ? classifyNotPrivate(realpathLongest(candidate), context, true, ASKED_PROTECTED) : named;
+        if (kind === "protected" || kind === "gitInternal") return { reason };
+      }
+      return { reason, place: privateCall(toolName, displayPath(candidate, context.root, home), place, why, reason, hosts) };
     }
     // A link out of the project counts as the place it leads to: read like any outside file, written after the
     // outside-write question (src/runtime/pi.ts), and refused where that place is git's own or protected.
     let target = candidate;
     let kind = classifyPath(candidate, context, write);
     if (kind === "linksOut") { target = realpathLongest(candidate); kind = classifyPath(target, context, write); }
-    if (kind === "gitInternal") return `Not done: ${gitInternalPart(target, context.root, home)} belongs to git itself. Casper doesn't let the AI change it.`;
-    if (kind === "protected") return `Not done: ${displayPath(target, context.root, home)} holds your shell, git or Casper settings. Casper doesn't let the AI change it.`;
+    if (kind === "gitInternal") return { reason: `Not done: ${gitInternalPart(target, context.root, home)} belongs to git itself. Casper doesn't let the AI change it.` };
+    if (kind === "protected") return { reason: `Not done: ${displayPath(target, context.root, home)} holds your shell, git or Casper settings. Casper doesn't let the AI change it.` };
   }
   // grep reads every file under its folder, hidden ones too; find lists their names (fd --hidden).
   if (toolName === "grep" || toolName === "find") {
-    const below = privatePlaceBelow(absolute, context);
-    if (below) return `Not searched: ${displayPath(absolute, context.root, home)} holds private files (${below}). Search a narrower folder.`;
+    const places = privatePlacesBelow(absolute, context);
+    const below = places[0]?.shown;
+    if (below) {
+      const shown = displayPath(absolute, context.root, home);
+      const why = whyPrivate(below, context);
+      const reason = `Not searched: ${shown} holds private files (${below}). Search a narrower folder.`;
+      // The box names every private place the search would read, not only the first: a yes opens them all.
+      const named = namedPlaces(places);
+      const whys = [...new Set(places.map((place) => place.why))].join("; ");
+      const which = places.length > 3 ? ` (${whys})` : `, which ${places.length > 1 ? "are" : "is"} private (${whys})`;
+      return { reason, place: { shown: below, why, refusal: reason, key: `${toolName} ${shown}`, question: `Search ${shown}? It holds ${named}${which}.`,
+        declined: `Not searched: the user said no to searching ${shown}, which holds ${named}. Search a narrower folder or ask the user.` } };
+    }
   }
   return undefined;
 }
@@ -484,7 +565,18 @@ export function gitInternalsCommand(command: string, root: string, home = os.hom
  * read by the AI, so that one is allowed.
  */
 export function privatePathCommand(command: string, context: PathContext): string | undefined {
+  return privateCommandPlace(command, context)?.refusal;
+}
+
+/** The private place a shell command (or one of the AI's file tools) names, how it is shown and why it is private, and
+ * today's refusal (decision 95: with the sandbox off it asks first, unless private_commands is off). A file tool's call
+ * also has its own box (`question`), the AI's text for a No (`declined`) and what a yes for this session covers (`key`). */
+export interface PrivateCommandPlace { shown: string; why: string; refusal: string; question?: string; declined?: string; key?: string }
+
+/** privatePathCommand's place, for the box that asks first. */
+export function privateCommandPlace(command: string, context: PathContext): PrivateCommandPlace | undefined {
   const home = context.home ?? os.homedir();
+  const privateRefusal = (shown: string, why: string): PrivateCommandPlace => ({ shown, why, refusal: refusalText(shown, why, home) });
   // Only ssh's own -i: `diff -i ~/.ssh/config` or `grep -i x ~/.ssh/config` reads the file.
   let text = command;
   for (let guard = 0; guard < 8; guard++) {
@@ -502,24 +594,30 @@ export function privatePathCommand(command: string, context: PathContext): strin
     const names = entry ? homes.map((prefix) => `${prefix}[\\\\/]+${entry.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/\//g, "[\\\\/]+")}`) : [];
     for (const absolute of place.paths) names.push(pathPattern(absolute));
     const pattern = new RegExp(`(?:^|[\\s'"=:(<>|;&])(?:${names.join("|")})(?=$|[\\\\/\\s'";&|)<>*?])`, flags);
-    if (pattern.test(text)) return privateRefusal(place.shown, place.why, home);
+    if (pattern.test(text)) return privateRefusal(place.shown, place.why);
   }
   // `cd ~/.ssh`, `cd $HOME` then a relative name: a command that goes home and names a private place by itself.
   if (/(?:^|[\s;&|(])cd\s+(?:~|\$HOME|\$\{HOME\}|"\$HOME")\/?(?=$|[\s;&|)])/.test(text)) {
     const bare = PRIVATE_PATHS.filter((entry) => privatePlace(path.join(home, entry), context)).find((entry) => new RegExp(`(?:^|[\\s'"=:(<>|;&])(?:\\./)?${entry.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?=$|[\\\\/\\s'";&|)])`).test(text));
-    if (bare) return privateRefusal(`~/${bare}`, privateReason(bare), home);
+    if (bare) return privateRefusal(`~/${bare}`, privateReason(bare));
   }
   // PowerShell and cmd separate folders with \, which the shell reading below takes as an escape: read those once more with /.
   const shown = privateWord(text, context, home) ?? (process.platform === "win32" && text.includes("\\") ? privateWord(text.replaceAll("\\", "/"), context, home) : undefined);
-  if (shown) return privateRefusal(shown, whyPrivate(shown, context), home);
+  if (shown) return privateRefusal(shown, whyPrivate(shown, context));
   return undefined;
 }
 
 /** A look into ~/.ssh is usually for the machine to reach: the machines the ssh config names (never keys or key paths)
  * come with the refusal, so the AI can use `ssh <name>` instead of asking. */
-function privateRefusal(shown: string, why: string, home: string): string {
+function refusalText(shown: string, why: string, home: string): string {
   const ssh = /^~\/\.ssh(?:\/|$)/.test(shown) ? sshHostsLine(home) : undefined;
   return `Not run: this command reads ${shown}, which is private (${why}). Casper keeps it from the AI.${ssh ? ` ${ssh} Otherwise ask the user.` : " Ask the user instead."}`;
+}
+
+/** What the AI reads when the person said no to a command that reads a private place, with the machines for ~/.ssh. */
+export function privateDeclined(shown: string, home = os.homedir()): string {
+  const ssh = /^~\/\.ssh(?:\/|$)/.test(shown) ? sshHostsLine(home) : undefined;
+  return `Not run: the user said no to reading ${shown}.${ssh ? ` ${ssh}` : ""} Don't try it another way; ask the user instead.`;
 }
 
 /** An absolute path as a regex. On Windows either slash separates folders, and the drive may be named the Git Bash,

@@ -231,7 +231,7 @@ export const HOST_CHOICES = APPROVAL_ROWS;
 export const PERMISSIONS_ALL_QUESTION = "Stop asking until you quit?";
 export const PERMISSIONS_ALL_CHOICES = [
   { label: "Keep asking", description: "nothing changes" },
-  { label: "Stop asking until I quit", description: "shell commands, hosts, writes outside the project and other machines are answered Yes for this session; protected places, secrets, device writes and the spend pause stay as they are" },
+  { label: "Stop asking until I quit", description: "shell commands, hosts, writes outside the project and other machines are answered Yes for this session; private places such as ~/.ssh and, while planning, commands that may change files still ask; protected places, secrets, device writes and the spend pause stay as they are" },
 ] as const satisfies readonly Choice[];
 
 /** "test failed because the sandbox blocked something." Enter keeps the sandbox. */

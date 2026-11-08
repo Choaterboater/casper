@@ -78,7 +78,7 @@ export async function prepareCapabilities(app: CasperApp, task: string, options:
 export function taskServiceTool(app: CasperApp): RuntimeTool {
   const tool = serviceTool(() => serviceManager(app), app.commandAbort?.signal, () => app.smokeTask,
     app.shell?.approve ? (command, signal, options) => app.shell!.approve!(command, signal, options) : undefined, () => app.backgroundCommands,
-    app.steerWaits.listen, () => userReadablePaths(app));
+    app.steerWaits.listen, () => userReadablePaths(app), app.shell?.askPrivate ? (command, place, signal) => app.shell!.askPrivate!(command, place, signal) : undefined);
   return { ...tool, async execute(args, signal, context) {
     const running = new Set(app.services?.status().filter(service => service.state === "ready" || service.state === "starting").map(service => service.name));
     const result = await tool.execute(args, signal, context);

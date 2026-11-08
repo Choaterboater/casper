@@ -125,7 +125,8 @@ test("the flow specifies existing-project plans and first-version specs without 
 
 test("the terminal doc retains the planning gate and separates editing from choice 3", () => {
   const text = words(read("docs/TERMINAL_UX.md"));
-  expect(text).toContain("every other tool, MCP and Casper's own tools included, is refused");
+  expect(text).toContain("every other tool, MCP changes and Casper's own tools included, is refused");
+  expect(text).toContain("Another bash command asks first");
   expect(text).toContain("This is Casper's gate, not a sandbox");
   expect(text).toContain("Changed while planning");
   expect(text).toContain("This host-owned save does not let the model write during planning");

@@ -76,7 +76,7 @@ import { runCrewCommand } from "../crew/command";
 import { crewShell } from "../crew/shell";
 import { allowedCommand } from "./allowed";
 import { allowFolder, forgetFolder, parsePermissions, permissionsScreen, permissionsSummary, type PermissionsView } from "./permissions";
-import { sandboxReport, sandboxStatusLine } from "./sandbox";
+import { sandboxReport, sandboxStatusLine, type SandboxHost } from "./sandbox";
 import type { SessionYes } from "./session-yes";
 import { webStatusLine } from "../web/tools";
 import { readerStatusLine } from "./reader";
@@ -1902,14 +1902,14 @@ async function handlePermissions(host: CommandHost, prompt: string, duringWork =
   await sandbox?.loadRemembered();
   const all = await sandbox?.store?.allowed() ?? [];
   const entries = all.filter((entry) => entry.kind !== "checks" && entry.kind !== "github");
-  const basics = permissionsText(sandbox, host.projectContext?.routineCommands !== false).split("\n");
   const context = host.projectContext;
+  const basics = permissionsText(sandbox, context?.routineCommands !== false, context?.privateCommands !== false).split("\n");
   const reach = await sandbox?.store?.reachHosts() ?? [];
   const forGood = sandbox?.rememberedWriteFolders() ?? [];
   // Your own servers that started with writes on are listed apart: their changes don't ask (My MCP servers).
   const asked = host.mcp?.writesOn({ own: false }) ?? [];
   const view: PermissionsView = {
-    ...(host.readOnlyAccess ? { readOnly: true } : {}), shell: basics[0]!, scripts: basics.at(-1)!, ...(host.folderTrust ? { folder: folderTrustText(host.folderTrust) } : {}),
+    ...(host.readOnlyAccess ? { readOnly: true } : {}), planCommands: context?.planCommands !== false, privateCommands: context?.privateCommands !== false, shell: basics[0]!, scripts: basics.at(-1)!, ...(host.folderTrust ? { folder: folderTrustText(host.folderTrust) } : {}),
     sandboxReason: sandbox?.failure ?? sandbox?.state.reason, shellAsks: Boolean(sandbox?.asksFirst), routine: context?.routineCommands !== false,
     asking: !host.stopAsking, sandboxOn: Boolean(sandbox?.on), outsideWritesAsk: sandbox?.asksOutsideWrites !== false,
     commandsSession: entries.filter((entry) => entry.session).length, commandsSaved: entries.filter((entry) => !entry.session).length,
@@ -1940,7 +1940,7 @@ async function stopAskingBox(host: CommandHost, sayStill = true, task = "\n"): P
 export function stopAsking(host: Pick<CommandHost, "stopAsking" | "updateFooter" | "output" | "onAccessChange">, task = "\n"): void {
   host.stopAsking = true;
   host.updateFooter();
-  host.output.write(`[permissions] Not asking until you quit: shell commands, hosts, writes outside the project and other machines are answered Yes for this session. Protected places, secrets, device writes and the spend pause stay as they are. /permissions ask turns asking back on.${task}`);
+  host.output.write(`[permissions] Not asking until you quit: shell commands, hosts, writes outside the project and other machines are answered Yes for this session. Private places such as ~/.ssh and, while planning, commands that may change files still ask. Protected places, secrets, device writes and the spend pause stay as they are. /permissions ask turns asking back on.${task}`);
   host.onAccessChange?.();
 }
 
@@ -1951,13 +1951,15 @@ export function folderTrustText(trust: import("../project/trust").FolderTrust): 
 }
 
 /** The lines /permissions shows about the shell, from the state it is in now. */
-export function permissionsText(sandbox: ShellSandbox | undefined, routine = true): string {
+export function permissionsText(sandbox: ShellSandbox | undefined, routine = true, privateAsks = true): string {
   const shell = sandbox?.on
     ? "Shell commands and checks run in a sandbox: they can write only in this project, temp and package caches (other folders ask), can't read your private folders, and reach only listed hosts (others ask). They don't see your AI provider keys. MCP servers, language servers, the debugger and the browser are not in the sandbox."
     : `Shell commands and checks are not sandboxed here (${sandbox?.failure ?? sandbox?.state.reason ?? "no sandbox"}): they run with your permissions, files and network, without your AI provider keys.${sandbox?.asksFirst ? ` Casper asks before each shell command the AI runs, except plain reads like ls or git status${routine ? " and routine work like npm test or git commit (Routine commands in /settings)" : ""}.` : ""}`;
   return [
     shell,
-    `The AI's file tools (read, edit, write, grep, find, ls) stay out of private places and git's own files; a link out of the project counts as the place it leads to. ${sandbox && !sandbox.asksOutsideWrites
+    `${privateAsks
+      ? "The AI's file tools (read, edit, write, grep, find, ls) ask first in a private place such as ~/.ssh, naming it (Commands that read private places in /settings; where nobody can answer, refused), and never change ~/.casper, shell start-up files or git's own files"
+      : "The AI's file tools (read, edit, write, grep, find, ls) stay out of private places and git's own files"}; a link out of the project counts as the place it leads to. ${sandbox && !sandbox.asksOutsideWrites
       ? "With the sandbox off, an edit or write outside the project doesn't ask." : "An edit or write outside the project asks first (temp and caches don't; --no-sandbox turns this off)."}`,
     "Web lookups (web_search, web_fetch) read public pages without asking. Private and local addresses and a search or address holding a secret are refused; what comes back has its secrets hidden. /settings turns them off.",
     "The untrusted-text reader (casper_read_untrusted) reads a file, a read-only command or an MCP tool through a separate model call with no tools; the AI gets only JSON that matches its schema, never the text. It changes nothing; an MCP tool keeps its own approval. /settings turns it off.",
@@ -2010,14 +2012,23 @@ async function runCrew(host: CommandHost, argument: string): Promise<void> {
     runBuilder: (options) => host.subagents.runBuilder(options),
     // Its commands that need a yes come to your box, named for it, and /permissions all counts as for yours.
     shell: (copy, note) => sandbox ? crewShell(sandbox, copy, note, { label: "Builder 1",
-      onWait: (waiting) => host.terminal.setCrewWaiting("Builder 1", waiting), host: {
-      onCleanupFailure: host.blockOnCleanupFailure,
-      canAsk: () => host.interactive && host.terminal.canAsk && !host.closing,
-      pick: (question, options, signal, settings) => host.terminal.pick(question, options, signal ?? host.commandAbort?.signal, settings?.record ? { record: settings.record } : {}),
-      write: (text) => { if (!host.closing) host.output.write(text); },
-      planning: () => false,
-      stopAsking: () => host.stopAsking && host.interactive && host.terminal.canAsk && !host.closing,
-      routineCommands: () => host.projectContext?.routineCommands !== false,
-    } }) : undefined,
+      onWait: (waiting) => host.terminal.setCrewWaiting("Builder 1", waiting), host: crewBuilderHost(host) }) : undefined,
   }, argument);
+}
+
+/** The session's box a /crew builder's commands ask in (src/crew/shell.ts names them for it). */
+export function crewBuilderHost(host: Pick<CommandHost, "blockOnCleanupFailure" | "interactive" | "remoteApprovals" | "terminal" | "closing" | "commandAbort" | "output" | "stopAsking"
+  | "projectContext">): SandboxHost {
+  // You at the terminal, or an app over casper acp that answers its boxes (as the AI's own builders ask, src/app/wiring.ts).
+  return {
+    onCleanupFailure: host.blockOnCleanupFailure,
+    canAsk: () => someoneAnswers(host) && host.terminal.canAsk && !host.closing,
+    pick: (question, options, signal, settings) => host.terminal.pick(question, options, signal ?? host.commandAbort?.signal, settings?.record ? { record: settings.record } : {}),
+    write: (text) => { if (!host.closing) host.output.write(text); },
+    planning: () => false,
+    stopAsking: () => host.stopAsking && someoneAnswers(host) && host.terminal.canAsk && !host.closing,
+    routineCommands: () => host.projectContext?.routineCommands !== false,
+    // A command or read naming a private place asks in your box under the builder's name, as in the AI's own crew (decision 95).
+    privateCommands: () => host.projectContext?.privateCommands !== false,
+  };
 }

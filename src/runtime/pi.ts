@@ -56,7 +56,7 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import { Type, type TObject, type TProperties } from "typebox";
 import { gitGuardReason } from "./git-guard";
-import { classifyPath, displayPath, fileToolGate, gitInternalsCommand, privatePathCommand, realpathLongest, resolveToolPath, shellTempPath } from "../platform/project-paths";
+import { classifyPath, displayPath, fileToolGate, gitInternalsCommand, privateCommandPlace, privateFilePlace, privateWriteKind, realpathLongest, resolveToolPath, shellTempPath } from "../platform/project-paths";
 /** The AI's tools that take a file or folder `path`. */
 const FILE_PATH_TOOLS = new Set(["read", "edit", "write", "grep", "find", "ls", "lsp"]);
 import { withoutProviderKeys } from "../platform/environment";
@@ -1208,7 +1208,7 @@ export class PiRuntime implements AgentRuntime {
           // A Claude plan sign-in names a Claude Code version; Anthropic refuses newer models to an old one.
           if (ctx.model?.provider === "anthropic" && ctx.modelRegistry.isUsingOAuth(ctx.model)) applyClaudeCodeVersion(event.headers);
         });
-        if (bounded) pi.on("tool_call", (event) => {
+        if (bounded) pi.on("tool_call", async (event, ctx) => {
           if (bounded.signal.aborted) {
             limitReason = "Subagent cancelled";
             return { block: true, reason: limitReason, terminate: true };
@@ -1224,10 +1224,17 @@ export class PiRuntime implements AgentRuntime {
           }
           // A builder's own gates run in the writable handler below.
           if (!readOnly) return;
-          const pathReason = fileToolGate(event.toolName, event.input, pathContext);
+          // A read of a private place asks in the session's box while it can (private_commands, decision 95), after the
+          // helper's own gate so a call refused anyway never asks.
+          const privateFile = readOnly.privateAsk?.asksPrivateFile?.() ? privateFilePlace(event.toolName, event.input, pathContext) : undefined;
+          const pathReason = privateFile ? undefined : fileToolGate(event.toolName, event.input, pathContext);
           if (pathReason) return { block: true, reason: pathReason };
           const gateReason = readOnly.beforeToolGate?.(event.toolName, event.input, cwd);
           if (gateReason) return { block: true, reason: gateReason };
+          if (privateFile) {
+            const reason = await withToolCall(event.toolCallId, () => readOnly.privateAsk?.askPrivate?.(privateFile.key ?? event.toolName, privateFile, ctx.signal) ?? privateFile.refusal);
+            if (reason) return { block: true, reason };
+          }
         });
         /** Allowed edits and writes outside the project, by tool call, for the receipt. */
         const outside = new Map<string, string>();
@@ -1240,18 +1247,32 @@ export class PiRuntime implements AgentRuntime {
           const risky = event.toolName === "bash" && typeof event.input.command === "string" ? gitGuardReason(event.input.command) : undefined;
           if (risky) return { block: true, reason: risky };
           // Private files, git's own files and protected places, also where a link out of the project leads (see src/platform/project-paths.ts).
-          const pathReason = fileToolGate(event.toolName, event.input, pathContext);
+          // A read, grep, find, ls, lsp, edit or write into a private place asks first while someone can answer, sandbox on
+          // or off: these tools run in Casper's own process (private_commands, decision 95). An edit or write where it is
+          // also Casper's own or git's (~/.casper, .git) stays refused.
+          const privateFile = options.shell?.asksPrivateFile?.() ? privateFilePlace(event.toolName, event.input, pathContext) : undefined;
+          const pathReason = privateFile ? undefined : fileToolGate(event.toolName, event.input, pathContext);
           if (pathReason) return { block: true, reason: pathReason };
           const gitInternals = (event.toolName === "bash" || event.toolName === "powershell") && typeof event.input.command === "string"
             ? gitInternalsCommand(event.input.command, cwd, pathContext.home) : undefined;
           if (gitInternals) return { block: true, reason: gitInternals };
-          // ~/.ssh, ~/.aws ... named in a shell command: refused even with the sandbox off.
+          // ~/.ssh, ~/.aws ... named in a shell command: with the sandbox off it asks first (private_commands, decision 95);
+          // refused when it can't ask, when you turned that off, and with the sandbox on.
           const privateRead = (event.toolName === "bash" || event.toolName === "powershell") && typeof event.input.command === "string"
-            ? privatePathCommand(event.input.command, pathContext) : undefined;
-          if (privateRead) return { block: true, reason: privateRead };
+            ? privateCommandPlace(event.input.command, pathContext) : undefined;
+          if (privateRead && !options.shell?.asksPrivate?.()) return { block: true, reason: privateRead.refusal };
           // Every tool, Casper's own and MCP tools too, so a plan turn can refuse anything that changes state.
           if (options.beforeToolGate) {
             const reason = options.beforeToolGate(event.toolName, event.input, cwd);
+            if (reason) return { block: true, reason };
+          }
+          if (privateRead) {
+            const command = String((event.input as Record<string, unknown>).command);
+            const reason = await withToolCall(event.toolCallId, () => options.shell?.askPrivate?.(command, privateRead, ctx.signal) ?? privateRead.refusal);
+            if (reason) return { block: true, reason };
+          }
+          if (privateFile) {
+            const reason = await withToolCall(event.toolCallId, () => options.shell?.askPrivate?.(privateFile.key ?? event.toolName, privateFile, ctx.signal) ?? privateFile.refusal);
             if (reason) return { block: true, reason };
           }
           // An edit or write outside the project asks first (temp, caches and your allowWrite don't), after the
@@ -1263,13 +1284,15 @@ export class PiRuntime implements AgentRuntime {
             const reason = await withToolCall(event.toolCallId, () => options.shell?.bundleWrite?.(absolute));
             if (reason) return { block: true, reason };
           }
+          // The private box above named this file and you said yes: the outside-write box doesn't ask about it again, but
+          // the write is still recorded (the receipt's outside-writes line, the outside-change snapshot).
           if ((event.toolName === "edit" || event.toolName === "write") && typeof event.input.path === "string" && options.shell?.outsideWrite) {
             const named = resolveToolPath(event.input.path, cwd, pathContext.home);
-            const kind = classifyPath(named, pathContext, true);
+            const kind = privateFile ? privateWriteKind(named, pathContext) : classifyPath(named, pathContext, true);
             // A link out of the project is asked about where it leads.
             const absolute = kind === "linksOut" ? realpathLongest(named) : named;
             if (kind === "outside" || kind === "linksOut") {
-              const reason = await withToolCall(event.toolCallId, () => options.shell?.outsideWrite?.(absolute));
+              const reason = await withToolCall(event.toolCallId, () => options.shell?.outsideWrite?.(absolute, privateFile ? { asked: true } : undefined));
               if (reason) return { block: true, reason };
               outside.set(event.toolCallId, absolute);
             }

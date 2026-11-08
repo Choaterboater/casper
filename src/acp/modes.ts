@@ -12,10 +12,15 @@ export interface AccessMode { id: AccessModeId; name: string; description: strin
 
 /** The three modes, in the chip's order. */
 export const ACCESS_MODES: readonly AccessMode[] = [
-  { id: "read", name: "Read only", description: "Casper looks and answers. It blocks every change it can see: only reads, look commands and MCP reads run." },
+  { id: "read", name: "Read only", description: "Casper looks and answers. It blocks edits and other changes it can see; reads, look commands and MCP reads run, and another command asks first." },
   { id: "ask", name: "Ask first", description: "Casper's usual boxes: it asks before a command that changes things, a write outside the project, a new host or another machine." },
-  { id: "full", name: "Don't ask", description: "Like /permissions all: commands, hosts, writes outside the project and other machines are Yes. The app's own tools ask in Casper's box; MCP changes, risky kinds, the AI's own edits to protected places and secrets keep their boxes." },
+  { id: "full", name: "Don't ask", description: "Like /permissions all: commands, hosts, writes outside the project and other machines are Yes. The app's own tools ask in Casper's box; private places such as ~/.ssh, MCP changes, risky kinds, the AI's own edits to protected places and secrets keep their boxes." },
 ];
+
+/** Read only's words with plan_commands off (decision 95): a command that is not a look command is refused, no box. */
+const READ_REFUSES = "Casper looks and answers. It blocks every change it can see: only reads, look commands and MCP reads run.";
+const READ_SET_REFUSES = "Read only: Casper looks and answers, and blocks every change it can see.";
+const refusesCommands = (app: Pick<CasperApp, "projectContext">) => app.projectContext?.planCommands === false;
 
 /** `acp_access: off` in ~/.casper/config.yaml: the app may set Read only or Ask first, never Don't ask. */
 export const FULL_REFUSED = "Casper's acp_access setting is off, so an app can't turn its asking off. Pick Read only or Ask first, or type /permissions all in the chat.";
@@ -37,7 +42,8 @@ export function fullOffered(app: Pick<CasperApp, "projectContext">): boolean {
  * listed (a typed /permissions all with acp_access off). */
 export function offeredModes(app: Pick<CasperApp, "projectContext" | "readOnlyAccess" | "stopAsking">): AccessMode[] {
   const current = accessModeOf(app);
-  return ACCESS_MODES.filter((mode) => mode.id !== "full" || fullOffered(app) || current === "full");
+  return ACCESS_MODES.filter((mode) => mode.id !== "full" || fullOffered(app) || current === "full")
+    .map((mode) => mode.id === "read" && refusesCommands(app) ? { ...mode, description: READ_REFUSES } : mode);
 }
 
 /** ACP's `modes` object for a session/new or session/load reply. */
@@ -53,9 +59,9 @@ export function modeOption(app: Pick<CasperApp, "projectContext" | "readOnlyAcce
 
 /** Plain words for a mode the app set, on Casper's transcript (stderr). */
 const SET_WORDS: Record<AccessModeId, string> = {
-  read: "Read only: Casper looks and answers, and blocks every change it can see.",
+  read: "Read only: Casper looks and answers, blocks edits, and asks before a command that may change files.",
   ask: "Ask first: Casper's usual boxes.",
-  full: "Don't ask: shell commands, hosts, writes outside the project and other machines are answered Yes for this session. The app's own tools, MCP changes, risky kinds, the AI's own edits to protected places and secrets keep their boxes.",
+  full: "Don't ask: shell commands, hosts, writes outside the project and other machines are answered Yes for this session. The app's own tools, private places such as ~/.ssh, MCP changes, risky kinds, the AI's own edits to protected places and secrets keep their boxes.",
 };
 
 /**
@@ -72,7 +78,7 @@ export function setAccessMode(app: AccessHost, id: unknown, write: (text: string
   app.stopAsking = mode === "full";
   app.clientAccess = mode;
   app.updateFooter?.();
-  if (before !== mode) write(`[permissions] The app set ${SET_WORDS[mode]}\n`);
+  if (before !== mode) write(`[permissions] The app set ${mode === "read" && refusesCommands(app) ? READ_SET_REFUSES : SET_WORDS[mode]}\n`);
   return before;
 }
 

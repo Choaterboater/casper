@@ -35,6 +35,8 @@ export function crewShell(sandbox: ShellSandbox, copy: string, note: (line: stri
     planning: () => false,
     ...(ask?.host.stopAsking ? { stopAsking: () => ask.host.stopAsking!() } : {}),
     ...(ask?.host.routineCommands ? { routineCommands: () => ask.host.routineCommands!() } : {}),
+    // A command or read that names a private place asks in the session's box too, under the builder's name (decision 95).
+    ...(ask?.host.privateCommands ? { privateCommands: () => ask.host.privateCommands!() } : {}),
   }, held, sandbox.store);
   return { ...shell, onCleanupFailure: ask?.host.onCleanupFailure, close: async () => { await shell.close(); await held.close(); } };
 }

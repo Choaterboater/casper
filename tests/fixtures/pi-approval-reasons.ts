@@ -13,6 +13,7 @@ const [cwd] = process.argv.slice(2);
 if (!cwd) throw new Error("Missing fixture cwd");
 const questions: string[] = [];
 const app = { interactive: true, closing: false, planning: false, approvalQueue: Promise.resolve(), responseText: "",
+  changesBlocked: () => undefined, blockedCommandsAsk: () => false,
   terminal: { canAsk: true, pick: async (question: string) => { questions.push(question); return NO; } },
   projectContext: { routineCommands: false }, output: { write() {} } } as unknown as CasperApp;
 const store = new SandboxStore(path.join(os.homedir(), "state"));

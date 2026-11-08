@@ -35,10 +35,12 @@ const writer = Object.assign(new EventEmitter(), { isTTY: true, columns: 120, ro
   return true;
 } });
 // As in the test preload: the folder counts as one you trusted (no "Trust this folder?" box), and the scenario
-// exercises host approvals and redaction, not this machine's OS sandbox tools.
+// exercises host approvals and redaction, not this machine's OS sandbox tools. SCENARIO_SANDBOX_PROBLEM plays a
+// machine where the sandbox can't start (Linux without bubblewrap).
 folderTrustDefaults.lookup = async (info) => ({ trusted: true, from: info.root });
+const sandboxProblem = process.env.SCENARIO_SANDBOX_PROBLEM || undefined;
 const app = new CasperApp({ input, output: writer, verificationMode: "auto",
-  sandboxSeams: { engine: passThroughEngine(), problem: () => undefined } });
+  sandboxSeams: { engine: passThroughEngine(), problem: () => sandboxProblem } });
 const watchdog = setTimeout(() => { console.log("SCENARIO_SCREEN=" + JSON.stringify(Bun.stripANSI(screen).replace(/\r\n?/g, "\n"))); console.log("SCENARIO_STUCK waiting for " + JSON.stringify(answers[0])); process.exit(3); }, 60_000);
 try {
   await app.runInteractive(cwd);
