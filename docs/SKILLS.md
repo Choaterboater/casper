@@ -241,7 +241,10 @@ don't count toward a skill's name, tags or description: a repository named `casp
 skill tagged `mcp`. A long request (a build spec of a few pages) shares words with any long description by chance, so
 there a skill counts only when the request names it, or its name, tags and description share at least 8% of the
 request's words; words of any English text or request (`any`, `not`, `into`, `my`, `check`, `changes`, `working`)
-never count. A skill is named only by its whole name as a phrase ("find skills", "mcp builder"): one word of a longer
+and words about the exchange itself (`question`, `answer`, `options`, `one line`, `earlier`, `chat`, `session`) never
+count, and a word said twice, once as a plural ("count the tests in sum.test.js"), counts once. A chat you mention
+or a transcript you paste goes to the AI but picks no skill: only your own words do
+([decision 93](adr/0002/93-skills-fit-what-was-asked.md)). A skill is named only by its whole name as a phrase ("find skills", "mcp builder"): one word of a longer
 name (`mcp` of `mcp-builder`) is only a word of its description, so "add another mcp central server to network mcp",
 "what is pac mcp" and "can find some … hpe skills" pick no skill by name. A request of more than six words needs three
 of a description's words, not two ("fixed" and "two" don't pick a review skill about "a fixed point … two axes"). Keep tags specific; a word as broad as `mcp` matches more requests than you mean. To use the stricter network picking rule, copy the
