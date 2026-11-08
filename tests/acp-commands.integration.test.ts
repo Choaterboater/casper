@@ -5,6 +5,7 @@ import { agentText, startAcp, until, type AcpClient } from "./support/acp-client
 import { childTestLimit } from "./support/limits";
 import { cleanUpAfterEach, fixture, isChecklist, lastUser, type Payload, type Step } from "./support/scripting";
 import { httpFixture } from "./fixtures/mcp-http-server";
+import { CONTEXT_END, CONTEXT_START } from "../src/acp/prompt";
 
 // Casper's / commands over ACP (decision 80), against a real `casper acp` router and its session child.
 const clients: AcpClient[] = [];
@@ -190,5 +191,23 @@ test("A bare slash plan or your own command sent with another chat says the chat
   expect(notesOf(client, sessionId, before)).toEqual([LEFT_OUT("/ship")]);
   expect(JSON.stringify(f.payloads.at(-1)!.messages)).toContain("Ship the build to staging.");
   expect(JSON.stringify(f.payloads)).not.toContain("OTHER_CHAT_TEXT");
+  onlyProtocol(client);
+}, childTestLimit(1));
+
+test("A question sent with another chat gives the model that chat as a labelled record and makes no checklist from it", async () => {
+  // The other chat's own request (decisions 90 and 92): a record to read, not a request to the AI now.
+  const other = "Before you change anything, ask me one question. Then fix the failing sum test and add tests for it.";
+  const mine = "Why did that chat stop?";
+  const f = await fixture((_request: number, payload: Payload): Step => isChecklist(payload) ? { text: "[]" } : { text: "It stopped after sum.js." });
+  const client = open(f);
+  await client.request("initialize", INIT);
+  const { sessionId } = await client.request("session/new", { cwd: f.project, mcpServers: [] });
+  const prompt = [{ type: "text", text: mine }, { type: "resource", resource: { uri: "app-session://chat-1", mimeType: "text/markdown", text: other } }];
+  expect((await client.request("session/prompt", { sessionId, prompt })).stopReason).toBe("end_turn");
+  expect(f.payloads.some(isChecklist)).toBe(false);
+  // The model reads the person's words, then the other chat between its fixed lines.
+  const sent = `${mine}\n${CONTEXT_START}\napp-session://chat-1\n${other}\n${CONTEXT_END}`;
+  expect(lastUser(f.payloads.at(-1))).toContain(JSON.stringify(sent).slice(1, -1));
+  expect(agentText(client.updates, sessionId)).toContain("It stopped after sum.js.");
   onlyProtocol(client);
 }, childTestLimit(1));
