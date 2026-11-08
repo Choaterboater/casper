@@ -28,6 +28,8 @@ export interface AppReaderSource {
   /** Casper's state folder: its login and saved conversations are private wherever it is. */
   agentDir?: string;
   privatePaths: readonly string[];
+  /** Your sandbox.allowRead (absolute). */
+  allowRead?: readonly string[];
   onUsage: (usage: { tokens: number; estimatedCost: number } | null) => void;
   signal?: AbortSignal;
 }
@@ -39,7 +41,7 @@ export function appReaderTool(source: AppReaderSource): RuntimeTool | undefined 
   if (!settings.enabled) return undefined;
   const shell = source.shell;
   return readerTool({
-    root: source.root, home: source.home, ...(source.agentDir ? { agentDir: source.agentDir } : {}), privatePaths: source.privatePaths, untrusted: settings.untrusted, onUsage: source.onUsage,
+    root: source.root, home: source.home, ...(source.agentDir ? { agentDir: source.agentDir } : {}), privatePaths: source.privatePaths, ...(source.allowRead?.length ? { allowRead: source.allowRead } : {}), untrusted: settings.untrusted, onUsage: source.onUsage,
     ...(source.signal ? { signal: source.signal } : {}),
     complete: async (input) => {
       const complete = source.session()?.complete;

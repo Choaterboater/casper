@@ -3,9 +3,10 @@ import { mkdir, mkdtemp, realpath, stat, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { loadConfiguration } from "../src/config/load";
-import { PRIVATE_PATHS, PROTECTED_WRITE_PATHS } from "../src/platform/project-paths";
+import { PRIVATE_PATHS, privatePathCommand, privatePlace, PROTECTED_WRITE_PATHS } from "../src/platform/project-paths";
 import { within } from "../src/platform/project-paths";
 import { cachePaths, clangModuleCache, hostListed, REGISTRY_HOSTS, sandboxPolicy, writeFileToOffer, writeFolderToOffer } from "../src/sandbox/policy";
+import { readOnlyCommand } from "../src/sandbox/read-only";
 import { SandboxStore } from "../src/sandbox/store";
 import { posixOnly } from "./support/platform";
 import { waitUntil } from "./support/wait";
@@ -135,6 +136,51 @@ test("your own settings add hosts and write folders; a project's settings only a
   expect(policy.allowWrite).not.toContain("/");
   expect(policy.denyRead).toContain(path.join(root, "secrets"));
   expect(policy.denyWrite).toContain(path.join(root, "docs", "locked.md"));
+});
+
+test("your sandbox.allowRead opens a built-in private place to commands and the file tools; a project's denyRead stays, and a project can't set it", async () => {
+  const { home, root } = await fixture();
+  await writeFile(path.join(home, ".casper", "config.yaml"), "sandbox:\n  allowRead: [~/.aws]\n  commands: inside\n");
+  await mkdir(path.join(root, ".casper"), { recursive: true });
+  await writeFile(path.join(root, ".casper", "project.yaml"), "sandbox:\n  allowRead: [~/.ssh]\n  commands: outside\n  denyRead: [~/.aws/prod]\n");
+  const loaded = await loadConfiguration({ projectRoot: root, homeDir: home });
+  expect(loaded.sandbox.user).toEqual({ allowRead: ["~/.aws"], ownAllowRead: ["~/.aws"], commands: "inside" });
+  expect(loaded.warnings).toEqual(expect.arrayContaining([
+    ".casper/project.yaml: sandbox.allowRead is ignored; a project can only add denyRead and denyWrite",
+    ".casper/project.yaml: sandbox.commands is ignored; a project can only add denyRead and denyWrite",
+  ]));
+  const policy = sandboxPolicy({ root, home, tempDirs: [], platform: "linux", user: loaded.sandbox.user, project: loaded.sandbox.project });
+  expect(policy.denyRead).not.toContain(path.join(home, ".aws"));
+  expect(policy.denyRead).toContain(path.join(home, ".ssh"));
+  expect(policy.denyRead).toContain(path.join(home, ".aws", "prod"));
+  // Still not writable: allowRead opens reading only.
+  expect(policy.denyWrite).toContain(path.join(home, ".aws"));
+  // The AI's file tools and the command check read the same list.
+  const context = { root, home, allowRead: [path.join(home, ".aws")] };
+  expect(privatePlace(path.join(home, ".aws", "config"), context)).toBeUndefined();
+  expect(privatePlace(path.join(home, ".ssh", "id_ed25519"), context)).toBe("~/.ssh");
+  expect(privatePathCommand("cat ~/.aws/config", context)).toBeUndefined();
+  expect(privatePathCommand("cd ~ && cat .aws/config", context)).toBeUndefined();
+  expect(privatePathCommand("cat ~/.aws/config", { root, home })).toContain("~/.aws");
+  // The look-command check reads it too (a project that is your home folder reads .aws/config as its own file).
+  expect(readOnlyCommand("cat .aws/config", { root: home, home })).toBe(false);
+  expect(readOnlyCommand("cat .aws/config", { root: home, home, allowRead: [path.join(home, ".aws")] })).toBe(true);
+  await writeFile(path.join(home, ".casper", "config.yaml"), "sandbox:\n  commands: sometimes\n");
+  await expect(loadConfiguration({ projectRoot: root, homeDir: home })).rejects.toThrow("sandbox.commands must be ask, outside or inside");
+});
+
+test("a sandbox.allowRead entry inside a private place opens nothing, and loading your config says so", async () => {
+  const { home, root } = await fixture();
+  await writeFile(path.join(home, ".casper", "config.yaml"), `sandbox:\n  allowRead: [~/.ssh/config, ${JSON.stringify(path.join(home, ".aws", "config"))}, ~/.kube, ~/notes]\n`);
+  const loaded = await loadConfiguration({ projectRoot: root, homeDir: home });
+  const said = loaded.warnings.filter((line) => line.includes("sandbox.allowRead"));
+  expect(said).toEqual([
+    "~/.casper/config.yaml: sandbox.allowRead ~/.ssh/config is inside the private place ~/.ssh, so it opens nothing; name ~/.ssh (or a folder holding it) to open it",
+    `~/.casper/config.yaml: sandbox.allowRead ${path.join(home, ".aws", "config")} is inside the private place ~/.aws, so it opens nothing; name ~/.aws (or a folder holding it) to open it`,
+  ]);
+  const context = { root, home, allowRead: loaded.sandbox.user.allowRead!.map((entry) => entry.replace(/^~/, home)) };
+  expect(privatePathCommand("cat ~/.ssh/config", context)).toContain("~/.ssh");
+  expect(privatePlace(path.join(home, ".kube", "config"), context)).toBeUndefined();
 });
 
 test("a project can't turn the sandbox off; you can", async () => {

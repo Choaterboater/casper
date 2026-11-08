@@ -51,6 +51,8 @@ export interface PermissionsView {
   /** `sandbox.checks` (your config) and whether you said "always for this project" to running its checks outside the sandbox. */
   checks: "ask" | "outside" | "inside";
   checksRemembered: boolean;
+  /** `sandbox.commands` (your config): what a shell command the sandbox blocked does (decision 94). Unset: ask. */
+  commands?: "ask" | "outside" | "inside";
   /** Kinds of git and gh command that use your GitHub login outside the sandbox without asking (`git push`, `gh pr create (this session)`). */
   githubLogin?: readonly string[];
   writesForGood: readonly string[];
@@ -68,10 +70,25 @@ export interface PermissionsView {
 
 const list = (items: readonly string[], none = "none") => (items.length ? items.join(", ") : none);
 
+/** What a command the sandbox blocks does now (decision 94, sandbox.commands). */
+function blockedWords(view: Pick<PermissionsView, "commands" | "asking">): string {
+  const mode = view.commands ?? "ask";
+  if (mode === "inside") return "a command the sandbox blocks stays blocked: sandbox: commands: inside";
+  if (mode === "outside") return "a command the sandbox blocks runs once outside it without a box: sandbox: commands: outside";
+  return `a command the sandbox blocks can run once outside it: ${view.asking ? "it asks" : "Don't ask runs it without a box"}`;
+}
+
+/** What stays protected whatever you pick: private places can't be read; protected ones can be read, not changed. */
+function protectedWords(view: Pick<PermissionsView, "commands" | "asking" | "sandboxOn">, opens: string): string {
+  return `~/.ssh, cloud logins and Casper's own logins and records are private: the AI's file tools and a command naming one are refused, sandbox or not, unless ${opens} opens one; `
+    + "~/.casper, shell start-up files and git's own files can be read, but the AI's edit and write can't change them"
+    + (view.sandboxOn ? `, and the sandbox blocks a command that does (${blockedWords(view)})` : ", and a command that does is like any other command (Run this command?)");
+}
+
 const plural = (count: number, word: string) => `${count} ${word}${count === 1 ? "" : "s"}`;
 
 /** What Read only means, first on /permissions while the app has it set. */
-export const READ_ONLY_LINE = "Read only (set by the app): Casper looks and answers. Edits, writes, changing commands, checks and MCP changes are not run, and nothing asks. Pick another access in the app to change it.";
+export const READ_ONLY_LINE = "Read only (set by the app): Casper looks and answers. Edits, writes, changing commands, checks and MCP changes are not run, and nothing asks except the box to run a blocked look command once outside the sandbox. Pick another access in the app to change it.";
 
 /** Plain /permissions: the state first, then one line per kind (state · how to change it), what stays protected and
  * where the rest is. The box that stops asking follows it in a terminal. */
@@ -97,7 +114,7 @@ export function permissionsSummary(view: PermissionsView): string {
     `  Writes outside the project: ${writes} · allowed: ${list([...view.writesForGood, ...view.writesSession].map(view.show))} · /permissions write <folder>`,
     `  Network devices (MCP): ${view.mcpWritesOn.length ? `writes on: ${list(view.mcpWritesOn)}` : "writes off"} · ${view.mcpAllowAll.length ? `Yes to everything: ${list(view.mcpAllowAll)}; other changes ask` : "each change asks"}${view.mcpOwnWrites?.length ? ` · your own, changes don't ask: ${list(view.mcpOwnWrites)}` : ""} · /mcp writes <server>`,
     ...(view.sandboxOn ? [`  GitHub login: asks · allowed: ${list(view.githubLogin ?? [])} · /allowed forget <n>`] : []),
-    "Protected whatever you pick: ~/.ssh, ~/.casper, cloud logins, shell start-up files and secrets; device writes and the spend pause keep their own boxes; the AI can't answer a box for you.",
+    `Protected: ${protectedWords(view, "sandbox.allowRead")}; secrets stay hidden; device writes and the spend pause keep their own boxes; the AI can't answer a box for you.`,
     "/permissions details shows everything, with every way to change it.",
   ].join("\n");
 }
@@ -117,7 +134,7 @@ export function permissionsScreen(view: PermissionsView): string {
     "  To stop being asked: answer 4 at the box, or --allow-reach <host> for one run. A password ssh asks for goes in Casper's own hidden box"
       + `${view.sshLogin ? "" : " (off now)"}; ssh_login: off in ~/.casper/config.yaml turns that box off.`,
     view.sandboxOn
-      ? `GitHub login: the sandbox hides it; a plain git push/pull/fetch/clone/ls-remote or gh pr/issue/run/repo/api/auth status asks 'Run outside the sandbox with your GitHub login?' (not answered by /permissions all; a merge, close, reopen, ready, review, checkout, rerun or cancel asks every time). Allowed: ${list(view.githubLogin ?? [])} (/allowed forget <n>).`
+      ? `GitHub login: the sandbox hides it; a plain git push/pull/fetch/clone/ls-remote or gh pr/issue/run/repo/api/auth status asks 'Run outside the sandbox with your GitHub login?' (not answered by /permissions all; a merge, close, reopen, ready, review, checkout, rerun or cancel asks every time; a blocked command you let run outside the sandbox uses your login as typed). Allowed: ${list(view.githubLogin ?? [])} (/allowed forget <n>).`
       : "GitHub login: not sandboxed here, so git and gh use it as they always do.",
     "",
     view.sandboxOn
@@ -133,6 +150,7 @@ export function permissionsScreen(view: PermissionsView): string {
     "",
     `Your project's checks (tests, typecheck, lint) run ${view.sandboxOn ? "in the sandbox" : "without a sandbox here"}. Outside the sandbox: ${view.checks === "outside" ? "always (sandbox: checks: outside in ~/.casper/config.yaml)" : view.checks === "inside" ? "never, and never asked (sandbox: checks: inside in ~/.casper/config.yaml)" : view.checksRemembered ? "yes, remembered for this project" : "only if you say so when a check is blocked"}.`,
     "  A check the sandbox blocks asks 'Run this project's checks outside the sandbox?' (not answered by /permissions all). To undo \"always\": /allowed forget <n>.",
+    ...(view.sandboxOn ? [`An AI shell command: ${blockedWords(view)}, as Claude Code and DeepSeek Harness do. Blocked commands in /settings (sandbox: commands: ask | outside | inside) changes it.`] : []),
     "",
     `Network devices (MCP): a network product's server starts with writes off and each change asks; your own other servers start with writes on (My MCP servers in /settings), and firmware, delete and admin changes still ask. Writes on now: ${list(view.mcpWritesOn)}. Your own with writes on: ${list(view.mcpOwnWrites ?? [])}. Yes to everything on a product: ${list(view.mcpAllowAll)}.`,
     "  To allow changes: answer 2, 3 or 4 in the change box, or /mcp writes <server> and /mcp allow <server> ahead of time. Ctrl+X turns writes off everywhere.",
@@ -140,7 +158,7 @@ export function permissionsScreen(view: PermissionsView): string {
     `Switches (/settings): web lookups ${view.web ? "on" : "off"}, GitHub tool ${view.github ? "on" : "off"}. Fetching ripgrep ${view.downloads ? "on" : "off"} (tools: downloads: off in config).`,
     "",
     "To turn everything on: there is no single switch, on purpose. The closest is /permissions all (or type 'stop asking'), or 4 Yes to everything this session in the Run this command? box: until you quit, shell commands, hosts, writes outside the project and other machines are answered Yes for this session (--no-sandbox for one run, or sandbox: off in ~/.casper/config.yaml, takes the shell sandbox away too).",
-    "Protected whatever you pick: ~/.ssh, ~/.casper, cloud logins and shell start-up files stay out of the AI's reach; secrets are hidden from the AI; device writes still need the product's own login to allow them and their own box; the spend pause stays; the AI can't answer a box for you.",
+    `Protected: ${protectedWords(view, "sandbox: allowRead in ~/.casper/config.yaml (Readable private places in /settings)")}; secrets are hidden from the AI; device writes still need the product's own login to allow them and their own box; the spend pause stays; the AI can't answer a box for you.`,
     view.scripts,
   ];
   return lines.join("\n");

@@ -20,7 +20,8 @@ import { isOutside } from "../platform/inside";
 /** `homeReads`: a plain read in your own folders under `home` (Documents, Projects…: not hidden ones, app data or home
  * itself) counts as a read too, as the AI's read tool reads there. Only the no-sandbox shell box sets it
  * (docs/adr/0002/46-home-reads.md); the reader, checks and routine work keep to the project. */
-export interface ReadPlace { root: string; home?: string; denyRead?: readonly string[]; homeReads?: boolean }
+/** `allowRead`: your sandbox.allowRead (absolute): a built-in private place there is not private. */
+export interface ReadPlace { root: string; home?: string; denyRead?: readonly string[]; allowRead?: readonly string[]; homeReads?: boolean }
 
 interface Spec {
   /** Option letters with no value; they may be grouped (-la). */
@@ -240,7 +241,7 @@ function placeOf(where: ReadPlace | string | undefined): Place {
   const crewCopies = path.join(home, ".casper", "worktrees");
   const inCrewCopy = within(crewCopies, root) && root !== crewCopies && within(realpathLongest(crewCopies), realpathLongest(root));
   const deny = [...(given?.denyRead ?? []), ...(inCrewCopy ? [] : [path.join(home, ".casper")])];
-  const places = privatePlaces({ root, home, denyRead: deny }).flatMap((place) => place.paths);
+  const places = privatePlaces({ root, home, denyRead: deny, ...(given?.allowRead?.length ? { allowRead: given.allowRead } : {}) }).flatMap((place) => place.paths);
   return { root, realRoot: realpathLongest(root), private: [...new Set(places)], cwd: root,
     ...(given && typeof given === "object" && given.homeReads ? { home: path.resolve(home), realHome: realpathLongest(path.resolve(home)) } : {}) };
 }

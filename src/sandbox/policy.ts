@@ -28,6 +28,22 @@ export interface SandboxUserSettings {
    * sandbox, and when one fails because the sandbox blocked something Casper asks whether to run the checks outside
    * it; `outside`: always outside; `inside`: always in the sandbox, never asks. Only your own files can set it. */
   checks?: "ask" | "outside" | "inside";
+  /** `sandbox.commands`: what happens to one of the AI's shell commands the sandbox blocked (decision 94). `ask` (the
+   * default): "Run this command outside the sandbox?" (Don't ask runs it without the box); `outside`: it runs once
+   * more outside the sandbox without asking; `inside`: it stays blocked, never run outside, as Claude Code's
+   * `allowUnsandboxedCommands: false`. Only your own files can set it. */
+  commands?: "ask" | "outside" | "inside";
+  /** `sandbox.allowRead`: private places you want commands and the AI's file tools to read anyway (`~/.aws`), as
+   * Claude Code's `sandbox.filesystem.allowRead`: a built-in private place at or inside one of these is no longer
+   * hidden. An entry inside a private place (`~/.ssh/config`) opens nothing; loading the config says so. Sandboxed
+   * commands still can't write an opened place, nor can the AI's edit and write while the sandbox is on or in its
+   * default off-until-you-turn-it-on state; with `sandbox: off` (or --no-sandbox) they treat it like any place outside
+   * the project (protected ones, ~/.ssh, stay unchangeable). Only your own files can set it; a project's own denyRead
+   * stays. */
+  allowRead?: string[];
+  /** `sandbox.allowRead` as written in ~/.casper/config.yaml itself, before a profile's entries are added: the ones
+   * /settings can change (it writes that file only). */
+  ownAllowRead?: string[];
 }
 
 /** A project's settings (.casper/project.yaml): only more denies. */
@@ -319,12 +335,16 @@ export function sandboxPolicy(input: SandboxPolicyInput): SandboxPolicy {
   const denyWrite = input.platform === "darwin"
     ? unique([...denyAround(denied, openFolders(input, root)), ...inHome([".casper/agent", ".casper/config.yaml", ...CASPER_PRIVATE_PATHS])])
     : denied;
+  // Your sandbox.allowRead takes a built-in private place off the list (never the project's own denyRead).
+  const readable = (input.user?.allowRead ?? []).map((entry) => resolveEntry(entry, root, home)).flatMap(spellings);
   const denyRead = unique([
-    ...inHome(PRIVATE_PATHS),
-    // Other tools' sign-ins a folder setting moved (CODEX_HOME, GH_CONFIG_DIR...) or Windows keeps in %APPDATA%.
-    ...otherLogins,
-    ...inHome(CASPER_PRIVATE_PATHS),
-    ...["auth.json", "models.json", "sessions"].flatMap((name) => input.agentDir ? spellings(path.join(input.agentDir, name)) : []),
+    ...[
+      ...inHome(PRIVATE_PATHS),
+      // Other tools' sign-ins a folder setting moved (CODEX_HOME, GH_CONFIG_DIR...) or Windows keeps in %APPDATA%.
+      ...otherLogins,
+      ...inHome(CASPER_PRIVATE_PATHS),
+      ...["auth.json", "models.json", "sessions"].flatMap((name) => input.agentDir ? spellings(path.join(input.agentDir, name)) : []),
+    ].filter((entry) => !readable.some((place) => within(place, entry))),
     ...(input.project?.denyRead ?? []).map((entry) => resolveEntry(entry, root, home)).flatMap(spellings),
     ...(input.denyRead ?? []).flatMap(spellings),
   ]);

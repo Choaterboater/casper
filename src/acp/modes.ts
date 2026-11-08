@@ -14,7 +14,7 @@ export interface AccessMode { id: AccessModeId; name: string; description: strin
 export const ACCESS_MODES: readonly AccessMode[] = [
   { id: "read", name: "Read only", description: "Casper looks and answers. It blocks every change it can see: only reads, look commands and MCP reads run." },
   { id: "ask", name: "Ask first", description: "Casper's usual boxes: it asks before a command that changes things, a write outside the project, a new host or another machine." },
-  { id: "full", name: "Don't ask", description: "Like /permissions all: commands, hosts, writes outside the project and other machines are Yes. The app's own tools ask in Casper's box; MCP changes, risky kinds, protected places and secrets keep their boxes." },
+  { id: "full", name: "Don't ask", description: "Like /permissions all: commands, hosts, writes outside the project and other machines are Yes. The app's own tools ask in Casper's box; MCP changes, risky kinds, the AI's own edits to protected places and secrets keep their boxes." },
 ];
 
 /** `acp_access: off` in ~/.casper/config.yaml: the app may set Read only or Ask first, never Don't ask. */
@@ -55,7 +55,7 @@ export function modeOption(app: Pick<CasperApp, "projectContext" | "readOnlyAcce
 const SET_WORDS: Record<AccessModeId, string> = {
   read: "Read only: Casper looks and answers, and blocks every change it can see.",
   ask: "Ask first: Casper's usual boxes.",
-  full: "Don't ask: shell commands, hosts, writes outside the project and other machines are answered Yes for this session. The app's own tools, MCP changes, risky kinds, protected places and secrets keep their boxes.",
+  full: "Don't ask: shell commands, hosts, writes outside the project and other machines are answered Yes for this session. The app's own tools, MCP changes, risky kinds, the AI's own edits to protected places and secrets keep their boxes.",
 };
 
 /**

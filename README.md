@@ -272,7 +272,12 @@ Ctrl+D on an empty prompt exits. [Keys and commands](docs/TERMINAL_UX.md#quick-r
   for a session) turns it on, on macOS and Linux: then the AI's shell and your checks write only the project, temp and
   package caches, can't read `~/.ssh` or cloud logins, and reach only listed hosts. Casper's network server runs in a
   sandbox of its own either way, reaching only your login hosts. A one-shot or `--json` run, which can't ask, keeps the
-  sandbox where one can run (Linux needs `sudo apt install bubblewrap socat`). [Sandbox](docs/SECURITY.md)
+  sandbox where one can run (Linux needs `sudo apt install bubblewrap socat`). A command the sandbox blocks asks to
+  run once outside it (No · Yes, this once), in the terminal and in an app, as Claude Code and DeepSeek Harness do;
+  Don't ask runs it outside without asking, and **Blocked commands** in `/settings` (`sandbox.commands: ask | outside
+  | inside`) changes that; **Readable private places** in `/settings` (`sandbox.allowRead`) opens a private place
+  you name (the place itself, such as `~/.aws`, or a folder holding it). [Sandbox](docs/SECURITY.md) ·
+  [Decision 94](docs/adr/0002/94-a-blocked-command-asks-to-run-outside-the-sandbox.md)
 - **Private ssh passwords.** When an `ssh` or `scp` you allowed asks for a password or a key's passphrase, Casper
   shows its own hidden box (1 No · 2 Yes, this once · 3 Yes, for this session) and the password goes to ssh only,
   never to the AI, and is hidden wherever the AI reads. Nothing is saved; `ssh_login: off` turns it off.

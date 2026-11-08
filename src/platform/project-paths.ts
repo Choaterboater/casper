@@ -77,6 +77,8 @@ export interface PathContext {
   agentDir?: string;
   /** The project's sandbox.denyRead, as absolute paths: private to the file tools as well as to shell commands. */
   denyRead?: readonly string[];
+  /** Your sandbox.allowRead, as absolute paths: a built-in private place at or inside one is not private. */
+  allowRead?: readonly string[];
 }
 
 const UNICODE_SPACES = /[  -   　]/g;
@@ -176,20 +178,23 @@ function browserPictures(inside: string): boolean {
 export function privatePlaces(context: PathContext): PrivatePlace[] {
   const home = context.home ?? os.homedir();
   const why = "keys and logins";
-  const places: PrivatePlace[] = PRIVATE_PATHS.map((entry) => ({ shown: `~/${entry}`, paths: variants(path.join(home, entry)), why: privateReason(entry), below: true }));
+  const builtIn: PrivatePlace[] = PRIVATE_PATHS.map((entry) => ({ shown: `~/${entry}`, paths: variants(path.join(home, entry)), why: privateReason(entry), below: true }));
   for (const entry of CASPER_PRIVATE_PATHS) {
     const absolute = path.join(home, entry);
-    places.push({ shown: `~/${entry}`, paths: variants(absolute), why: "Casper's own records", below: true,
+    builtIn.push({ shown: `~/${entry}`, paths: variants(absolute), why: "Casper's own records", below: true,
       ...(entry === ".casper/projects" ? { open: browserPictures } : {}) });
   }
   for (const file of otherLoginFiles(home)) {
-    places.push({ shown: within(home, file) ? `~/${path.relative(home, file).split(path.sep).join("/")}` : file, paths: variants(file), why, below: true });
+    builtIn.push({ shown: within(home, file) ? `~/${path.relative(home, file).split(path.sep).join("/")}` : file, paths: variants(file), why, below: true });
   }
   if (context.agentDir) {
-    places.push({ shown: "Casper's login file (auth.json)", paths: variants(path.join(context.agentDir, "auth.json")), why, below: true });
-    places.push({ shown: "Casper's provider settings (models.json)", paths: variants(path.join(context.agentDir, "models.json")), why, below: true });
-    places.push({ shown: "Casper's saved conversations folder", paths: variants(path.join(context.agentDir, "sessions")), why: "Casper's own records", below: true });
+    builtIn.push({ shown: "Casper's login file (auth.json)", paths: variants(path.join(context.agentDir, "auth.json")), why, below: true });
+    builtIn.push({ shown: "Casper's provider settings (models.json)", paths: variants(path.join(context.agentDir, "models.json")), why, below: true });
+    builtIn.push({ shown: "Casper's saved conversations folder", paths: variants(path.join(context.agentDir, "sessions")), why: "Casper's own records", below: true });
   }
+  // Your sandbox.allowRead opens a built-in place (never the project's own denyRead, added below).
+  const readable = (context.allowRead ?? []).flatMap(variants);
+  const places = builtIn.filter((place) => !place.paths.some((entry) => readable.some((allowed) => within(allowed, entry))));
   for (const entry of context.denyRead ?? []) {
     const inside = within(context.root, entry);
     const relative = (from: string) => path.relative(from, entry).split(path.sep).join("/");
@@ -491,7 +496,7 @@ export function privatePathCommand(command: string, context: PathContext): strin
   }
   // `cd ~/.ssh`, `cd $HOME` then a relative name: a command that goes home and names a private place by itself.
   if (/(?:^|[\s;&|(])cd\s+(?:~|\$HOME|\$\{HOME\}|"\$HOME")\/?(?=$|[\s;&|)])/.test(text)) {
-    const bare = PRIVATE_PATHS.find((entry) => new RegExp(`(?:^|[\\s'"=:(<>|;&])(?:\\./)?${entry.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?=$|[\\\\/\\s'";&|)])`).test(text));
+    const bare = PRIVATE_PATHS.filter((entry) => privatePlace(path.join(home, entry), context)).find((entry) => new RegExp(`(?:^|[\\s'"=:(<>|;&])(?:\\./)?${entry.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?=$|[\\\\/\\s'";&|)])`).test(text));
     if (bare) return privateRefusal(`~/${bare}`, privateReason(bare), home);
   }
   // PowerShell and cmd separate folders with \, which the shell reading below takes as an escape: read those once more with /.

@@ -97,7 +97,9 @@ function showBody(bytes: Buffer, complete: boolean, contentType: string): string
 /** `whenSteered`: a line the person sends the AI ends a start's wait for readiness (src/app/steer-waits.ts). */
 export function serviceTool(manager: () => ServiceManager, lifetime?: AbortSignal, smoke?: () => SmokeChecks | undefined,
   approve?: (command: string, signal: AbortSignal, options?: { reached?: boolean }) => Promise<string | undefined>,
-  commands?: () => BackgroundCommands | undefined, whenSteered?: (end: () => void) => () => void): RuntimeTool {
+  commands?: () => BackgroundCommands | undefined, whenSteered?: (end: () => void) => () => void,
+  /** Your sandbox.allowRead (absolute): an ad-hoc command may name a private place you opened. */
+  allowRead?: () => readonly string[]): RuntimeTool {
   const describe = (services: ServiceManager, name: string) => services.status().find(service => service.name === name)!;
   /** The /preview app and public link start only after the person asks (and, for the link, says yes). */
   const allowed = (services: ServiceManager, name: string) => {
@@ -258,7 +260,7 @@ export function serviceTool(manager: () => ServiceManager, lifetime?: AbortSigna
       const timeoutMs = args.timeoutMs === undefined ? undefined : Number(args.timeoutMs);
       const command = string(args.command, "command");
       // An ad-hoc command is the AI's shell too: the same git guard as bash, and the same question when no sandbox runs.
-      const refused = gitGuardReason(command) ?? gitInternalsCommand(command, services.root) ?? privatePathCommand(command, { root: services.root }) ?? await approve?.(command, signal);
+      const refused = gitGuardReason(command) ?? gitInternalsCommand(command, services.root) ?? privatePathCommand(command, { root: services.root, allowRead: allowRead?.() ?? [] }) ?? await approve?.(command, signal);
       if (refused) throw new Error(refused);
       // Joining the same command then takes the declared start's path, so a stale one restarts.
       // The sandbox may fail to start on this very command: then it asks too, before it runs not sandboxed.

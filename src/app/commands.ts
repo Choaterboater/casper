@@ -1915,7 +1915,7 @@ async function handlePermissions(host: CommandHost, prompt: string, duringWork =
     commandsSession: entries.filter((entry) => entry.session).length, commandsSaved: entries.filter((entry) => !entry.session).length,
     listedHosts: sandbox?.on ? sandbox.allowedHosts().length : 0, rememberedHosts: sandbox?.rememberedHosts() ?? [], reachHosts: reach,
     labDevices: context?.lab?.hosts?.length ?? 0, labAsks: sandbox?.store ? !(await sandbox.store.labReach()) : undefined,
-    checks: sandbox?.user.checks ?? "ask", checksRemembered: all.some((entry) => entry.kind === "checks"),
+    checks: sandbox?.user.checks ?? "ask", checksRemembered: all.some((entry) => entry.kind === "checks"), commands: sandbox?.user.commands ?? "ask",
     githubLogin: all.filter((entry) => entry.kind === "github").map((entry) => `${entry.value}${entry.session ? " (this session)" : ""}`),
     writesForGood: forGood, writesSession: (sandbox?.allowedWriteFolders() ?? []).filter((folder) => !forGood.includes(folder)),
     mcpWritesOn: asked, mcpOwnWrites: (host.mcp?.writesOn() ?? []).filter((server) => !asked.includes(server)), mcpAllowAll: host.allowances?.allowAllServers() ?? [],

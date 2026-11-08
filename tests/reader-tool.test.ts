@@ -86,6 +86,14 @@ test("private places are refused like the read tool, before any model call", asy
   expect(sent).toHaveLength(0);
 });
 
+test("a private place you opened with sandbox.allowRead is read like the read tool reads it", async () => {
+  const { home, repo } = await project();
+  const { complete } = fake("{}");
+  const opened = tool({ root: repo, home, complete, allowRead: [path.join(home, ".ssh")] });
+  const result = await opened.execute({ path: "~/.ssh/id_rsa", schema });
+  expect(result.text).not.toContain("private");
+});
+
 test("a missing file, a folder and a binary file are plain errors", async () => {
   const { home, repo } = await project();
   await writeFile(path.join(repo, "bin.dat"), Buffer.from([1, 0, 2]));

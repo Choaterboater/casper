@@ -674,8 +674,10 @@ keeps its own sandbox either way.
 sandbox:
   allowedDomains: [api.mist.com, "*.central.arubanetworks.com"]  # reached without asking
   allowWrite: [~/shared-build-cache]                              # more folders commands may write
+  allowRead: [~/.aws]                                             # private places commands and the AI may read
   allowUnixSockets: [/var/run/docker.sock]                        # macOS only; Linux can't filter by path
   checks: ask                                                     # ask (default) | outside | inside
+  commands: ask                                                   # a blocked AI command: ask (default) | outside | inside
 shell:
   keepEnv: [OPENAI_API_KEY]   # an AI provider key your own tests need
 ```
@@ -685,8 +687,26 @@ sandbox and, when one fails because the sandbox blocked something (`EPERM`), ask
 (`/allowed` lists and forgets a saved "always for this project"); `outside` always runs them outside; `inside` never does
 and never asks. A project file cannot set it.
 
-Your GitHub login (`~/.config/gh`, `~/.git-credentials` and the like) stays hidden from sandboxed commands, and there is no
-setting that opens it. Instead the AI's plain `git push`, `pull`, `fetch`, `clone` or `ls-remote`, or `gh pr`, `issue`,
+`sandbox.commands` (**Blocked commands** in `/settings`) says what happens to one of the AI's shell commands the sandbox
+blocked ([decision 94](adr/0002/94-a-blocked-command-asks-to-run-outside-the-sandbox.md)). `ask` (the default) asks
+`Run this command outside the sandbox?` (No · Yes, this once), as Claude Code and DeepSeek Harness do, and Don't ask
+runs it outside without the box; `outside` runs it once more outside the sandbox without asking, also where nobody can
+answer and before any write box; `inside` keeps it blocked, like Claude Code's `allowUnsandboxedCommands: false` (the
+box to allow writes to a folder still asks). A change applies from the next start.
+
+`sandbox.allowRead` (**Readable private places** in `/settings`) takes a built-in private place (`~/.ssh`, `~/.aws`,
+another tool's sign-in) off the hidden list for shell commands and the AI's file tools (helpers', the untrusted-text
+reader's and dev services' too), as Claude Code's `sandbox.filesystem.allowRead`. Name the place itself or a folder
+holding it (`~/.ssh`, not `~/.ssh/config`): an entry inside a private place opens nothing, and loading your config
+says so. It opens reading only: sandboxed commands, and the AI's `edit` and `write` while the sandbox is on or in its
+default "off unless you turn it on" state, still can't change an opened place. With `sandbox: off` (or
+`--no-sandbox`), `edit` and `write` treat it like any other place outside the project and change it without asking,
+except `~/.ssh`, which they never change. `/settings` changes only the entries in `~/.casper/config.yaml`; a profile's
+own entries are shown and stay. A project's own `denyRead` stays.
+`/sandbox` lists it. A project file cannot set either.
+
+Your GitHub login (`~/.config/gh`, `~/.git-credentials` and the like) stays hidden from sandboxed commands unless your
+`sandbox.allowRead` names it. Without that, the AI's plain `git push`, `pull`, `fetch`, `clone` or `ls-remote`, or `gh pr`, `issue`,
 `run`, `repo view|clone`, `api` (GET) or `auth status`, asks `Run outside the sandbox with your GitHub login?` and, after
 your yes, runs as typed outside the sandbox with your own login; the AI reads only its output. 3 at that box covers
 that kind of command (`git push`) for the session, and the Next row after the task offers to keep it for this project; `/allowed` lists a saved one and

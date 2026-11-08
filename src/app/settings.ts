@@ -13,6 +13,10 @@ import type { MCPManager } from "../mcp/manager";
 import type { RuntimeModelPickerHost } from "../runtime/types";
 import { showSettings } from "../tui/settings-screen";
 import { groupedSettings, SETTINGS_AREAS, settingsArea } from "./settings-areas";
+import os from "node:os";
+import path from "node:path";
+import { PRIVATE_PATHS, within } from "../platform/project-paths";
+import { resolveEntry } from "../sandbox/policy";
 
 /** What /settings needs from the app: a numbered question only the person answers, and the project read again. */
 export interface SettingsHost {
@@ -80,6 +84,54 @@ function onOffRow(label: string, on: boolean, question: string, keys: Choice["ke
   const it = them ? "them" : "it";
   return { label, value: now, ...(applies ? { applies } : {}), question: `${question} ${them ? "They are" : "It is"} ${now}.`, keep: `Keep ${it} ${now}`,
     choices: [{ label: on ? `Turn ${it} off` : `Turn ${it} on`, keys, value: !on, shown: on ? "off" : "on" }] };
+}
+
+type CommandsSetting = "ask" | "outside" | "inside";
+const COMMANDS_WORDS: Record<CommandsSetting, { choice: string; description: string }> = {
+  ask: { choice: "Ask", description: "No · Yes, this once; Don't ask runs it outside without the box" },
+  outside: { choice: "Run it outside", description: "runs it once more outside the sandbox, without asking" },
+  inside: { choice: "Keep it blocked", description: "it stays blocked, never run outside" },
+};
+
+/** sandbox.commands and sandbox.allowRead go beside `sandbox: on` (or off): that line becomes a mapping that keeps it. */
+const sandboxKeys = (key: "commands" | "allowRead") => async (home: string): Promise<string[]> => {
+  const now = await userConfigValue(home, ["sandbox"]);
+  if (now !== undefined && now !== null && !isMap(now)) await editUserConfig(home, ["sandbox"], { enabled: now === true || now === "on" });
+  return ["sandbox", key];
+};
+const sandboxCommandsKeys = sandboxKeys("commands");
+
+/** The built-in private places /settings offers to open: other tools' keys and sign-ins, not Casper's own. */
+const OPENABLE_PLACES = PRIVATE_PATHS.filter((entry) => !entry.startsWith(".casper/")).map((entry) => `~/${entry}`);
+
+/** sandbox.allowRead, as Claude Code's sandbox.filesystem.allowRead: the private places you opened to shell commands
+ * and the AI's file tools. Each one can be made private again; each built-in place not open yet can be opened. */
+function readablePlacesRow(own: readonly string[], all: readonly string[], home: string): Setting {
+  const shown = (list: readonly string[]) => list.length ? list.join(", ") : "none";
+  // Entries as the sandbox reads them: ~, $HOME and full paths alike.
+  const opened = all.map((entry) => resolveEntry(entry.replace(/^(?:\$HOME|\$\{HOME\})(?=\/|$)/, "~"), home, home));
+  const open = (place: string) => opened.some((entry) => within(entry, path.join(home, place.slice(2))));
+  const profile = all.filter((entry) => !own.includes(entry));
+  const value = shown([...own, ...profile.map((entry) => `${entry} (profile)`)]);
+  const keys = sandboxKeys("allowRead");
+  return { label: "Readable private places", value,
+    question: `Readable private places: ${value}. Private places (~/.ssh, ~/.aws, other tools' sign-ins) are hidden from shell commands and refused to the AI's file tools; one you open here they can read, as Claude Code's sandbox.filesystem.allowRead does. Commands in the sandbox still can't change it, and nor can the AI's edit and write unless the sandbox is off (sandbox: off; ~/.ssh never). Name the place or a folder holding it. Changes go to ~/.casper/config.yaml; a profile's own entries stay. A project's own denyRead stays. A change applies from the next start.`,
+    keep: "Keep them as they are",
+    choices: [
+      ...own.map((entry) => { const rest = own.filter((other) => other !== entry);
+        return { label: `Make ${entry} private again`, keys, value: rest, shown: shown(rest) }; }),
+      ...OPENABLE_PLACES.filter((place) => !open(place)).map((place) =>
+        ({ label: `Open ${place}`, description: "commands and the AI's file tools can read it", keys, value: [...own, place], shown: shown([...own, place]) })),
+    ] };
+}
+
+/** What a shell command the sandbox blocked does (sandbox.commands, decision 94), as Claude Code's allowUnsandboxedCommands. */
+function blockedCommandsRow(now: CommandsSetting): Setting {
+  return { label: "Blocked commands", value: now,
+    question: `Blocked commands: ${now}. When the sandbox blocks one of the AI's shell commands, ${now === "ask" ? "Casper asks to run it once outside the sandbox (No · Yes, this once), as Claude Code and DeepSeek Harness do; Don't ask runs it without the box" : now === "outside" ? "Casper runs it once more outside the sandbox without asking" : "it stays blocked, never run outside the sandbox"}. A change applies from the next start.`,
+    keep: `Keep ${now}`,
+    choices: (["ask", "outside", "inside"] as const).filter((mode) => mode !== now)
+      .map((mode) => ({ label: COMMANDS_WORDS[mode].choice, description: COMMANDS_WORDS[mode].description, keys: sandboxCommandsKeys, value: mode, shown: mode })) };
 }
 
 const CACHE_WORDS: Record<PromptCacheSetting, string> = {
@@ -189,7 +241,8 @@ function themeRow(name: string | undefined): Setting {
 }
 
 /** Each off switch Casper has, where it stands now, and the numbered answers for it (1 keeps it as it is). */
-export function settingRows(context: ProjectContext): Setting[] {
+/** The rows /settings shows; `home` is where your own ~ entries resolve (the host's home folder). */
+export function settingRows(context: ProjectContext, home = os.homedir()): Setting[] {
   const web = context.web ?? DEFAULT_WEB;
   const reader = context.reader ?? DEFAULT_READER;
   const spend = context.spend ?? DEFAULT_SPEND_LIMITS;
@@ -220,6 +273,7 @@ export function settingRows(context: ProjectContext): Setting[] {
     onOffRow("Auto mode", context.autoMode !== false,
       "With the sandbox off, in a folder you trust, a model judge (your current model, at low effort) looks at each command that would ask \"Run this command?\": ordinary build work runs with a dim ✓ judge line, and anything doubtful asks you with its reason. It never refuses on its own, and if it fails it asks. MCP changes and Casper's other boxes still ask. Off: those commands ask, as before.",
       ["auto_mode"], false, "step"),
+    blockedCommandsRow(context.sandbox?.user.commands ?? "ask"),
     onOffRow("Slow commands", context.slowCommands !== false,
       "A command the AI runs without its own time limit that is still running after 2 minutes moves to the background instead of being stopped: /tasks lists it, the AI gets a note when it ends, and it stops when Casper exits. Off: it is stopped at 2 minutes.",
       ["slow_commands"], true, "step"),
@@ -314,6 +368,7 @@ export function settingRows(context: ProjectContext): Setting[] {
     onOffRow("Sign-ins from other tools", context.otherLogins !== false,
       "/login offers a sign-in Claude Code, Codex CLI or GitHub CLI left on this computer (1 use it, 2 sign in separately, 3 not now). Nothing is taken without your pick. Off: /login only shows its own list.",
       ["other_logins"]),
+    readablePlacesRow(context.sandbox?.user.ownAllowRead ?? [], context.sandbox?.user.allowRead ?? [], home),
     onOffRow("Network server updates", context.networkUpdates !== false,
       "Once a day Casper asks GitHub whether casper-network-mcp has a release newer than the one installed, and offers it (1 Not now, 2 Update it), installed from that release's hash lock after a check. Only the server Casper set up is updated. Off: only a new Casper brings a new version.",
       ["network_updates"]),
@@ -378,7 +433,7 @@ async function saveSetting(host: SettingsHost, row: Setting, choice: Choice): Pr
 export async function runSettings(host: SettingsHost, signal?: AbortSignal, only?: string): Promise<void> {
   const readRows = async () => {
     const context = await host.context();
-    return context ? [...settingRows(context), ...mcpSandboxRows(host.mcp?.())] : [];
+    return context ? [...settingRows(context, host.homeDir()), ...mcpSandboxRows(host.mcp?.())] : [];
   };
   const picker = host.canAsk && !only ? host.picker?.() : undefined;
   if (picker) {
@@ -397,7 +452,7 @@ export async function runSettings(host: SettingsHost, signal?: AbortSignal, only
   for (;;) {
     const context = await host.context();
     if (!context) return;
-    const rows = [...settingRows(context), ...mcpSandboxRows(host.mcp?.())].filter((row) => !only || row.label.toLowerCase() === only.toLowerCase());
+    const rows = [...settingRows(context, host.homeDir()), ...mcpSandboxRows(host.mcp?.())].filter((row) => !only || row.label.toLowerCase() === only.toLowerCase());
     if (only && !rows.length) {
       host.output.write(`[settings] No setting named ${only}. Run /settings to find one.\n`);
       return;
