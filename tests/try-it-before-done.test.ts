@@ -14,7 +14,7 @@ import { hostProcessPlatform, type ProcessRecord } from "../src/platform/process
 import { freePort } from "../src/platform/managed-process";
 import { loadProjectContext } from "../src/project/context";
 import { SkillRegistry } from "../src/skills/registry";
-import type { AgentRuntime, RuntimeSession, RuntimeStartOptions, RuntimeTool } from "../src/runtime/types";
+import type { AgentRuntime, RuntimeEvent, RuntimeEventListener, RuntimeSession, RuntimeStartOptions, RuntimeTool } from "../src/runtime/types";
 import { ReceiptStore } from "../src/task/receipts";
 import { checksPassed, formatReceipt, formatTaskResult, taskOutcome, type TaskResult } from "../src/task/result";
 import { removeTempDir } from "./support/temp-dir";
@@ -34,16 +34,25 @@ class ScriptedRuntime implements AgentRuntime {
   options?: RuntimeStartOptions;
   tools: RuntimeTool[] = [];
   prompts = 0;
+  edits = 0;
+  listeners = new Set<RuntimeEventListener>();
   turn: () => Promise<void> = async () => {};
   async start(options: RuntimeStartOptions): Promise<RuntimeSession> {
     this.options = options; this.tools = options.tools ?? [];
     const info = () => ({ cwd: options.cwd, sessionId: "fixture", sessionFile: path.join(options.cwd, "..", "session.jsonl") });
     return { prompt: async () => { this.prompts++; await this.turn(); }, setTools: tools => { this.tools = tools; },
-      abort: async () => {}, subscribe: () => () => {}, getState: () => ({ cwd: options.cwd, isStreaming: false }),
+      abort: async () => {}, subscribe: listener => { this.listeners.add(listener); return () => { this.listeners.delete(listener); }; }, getState: () => ({ cwd: options.cwd, isStreaming: false }),
       clearConversation: async () => {}, getSessionInfo: info, resumeConversation: async () => {}, forkSession: async () => info(), switchSession: async () => info() };
   }
   async dispose() {}
-  async write(file: string, text: string) { await mkdir(path.dirname(file), { recursive: true }); await writeFile(file, text); await this.options!.afterFileEdit!(file); }
+  emit(event: RuntimeEvent) { for (const listener of this.listeners) listener(event); }
+  async write(file: string, text: string) {
+    // The fixture's writes are its model's tool: a real model changes files only through its tools.
+    const toolCallId = `edit-${++this.edits}`;
+    this.emit({ type: "tool_start", toolName: "fixture_edit", toolCallId });
+    await mkdir(path.dirname(file), { recursive: true }); await writeFile(file, text); await this.options!.afterFileEdit!(file);
+    this.emit({ type: "tool_end", toolName: "fixture_edit", toolCallId, isError: false });
+  }
 }
 
 async function fixture(options: { mode?: "auto" | "offer" | "off"; config?: Record<string, unknown>; manifest?: Record<string, unknown>; status?: number; port?: number; homeConfig?: string; opener?: PageOpener } = {}) {

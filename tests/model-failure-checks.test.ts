@@ -134,7 +134,10 @@ test("a provider failure that clears on the automatic retry finishes the task no
         abort: async () => {}, setTools: () => {},
         prompt: async () => {
           if (++prompts === 1) { for (const listener of listeners) listener({ type: "error", message: "Provider returned an empty response" }); return; }
+          // The fixture's writes are its model's tool: a real model changes files only through its tools.
+          for (const listener of listeners) listener({ type: "tool_start", toolName: "fixture_edit", toolCallId: `edit-${prompts}` });
           await writeFile(path.join(project, "notes.md"), "done\n");
+          for (const listener of listeners) listener({ type: "tool_end", toolName: "fixture_edit", toolCallId: `edit-${prompts}`, isError: false });
         },
       };
     },
@@ -273,14 +276,22 @@ test("a check that was already failing before the change is named as such; in th
   await writeFile(path.join(project, "calc.py"), "def add(a, b):\n    return a - b\n");
   // Inline failure is portable to the proof copy; an outside fixture script cannot be imported there.
   await writeFile(path.join(project, ".casper/project.yaml"), `verify:\n  test: ${JSON.stringify(`"${process.execPath}" -e "process.exit(1)" -- fixture`)}\nverification:\n  mode: auto\n`);
+  const listeners = new Set<RuntimeEventListener>();
   let prompts = 0;
   const runtime: AgentRuntime = {
     async start() {
       return {
         getStatus: () => ({ provider: "fixture", model: "demo", auth: "configured" }),
         getState: () => ({ cwd: project, isStreaming: false }),
-        subscribe: () => () => {}, abort: async () => {}, setTools: () => {},
-        prompt: async () => { prompts++; await writeFile(path.join(project, "calc.py"), `def add(a, b):\n    return a + b  # ${prompts}\n`); },
+        subscribe: (listener: RuntimeEventListener) => { listeners.add(listener); return () => listeners.delete(listener); },
+        abort: async () => {}, setTools: () => {},
+        prompt: async () => {
+          prompts++;
+          // The fixture's writes are its model's tool: a real model changes files only through its tools.
+          for (const listener of listeners) listener({ type: "tool_start", toolName: "fixture_edit", toolCallId: `edit-${prompts}` });
+          await writeFile(path.join(project, "calc.py"), `def add(a, b):\n    return a + b  # ${prompts}\n`);
+          for (const listener of listeners) listener({ type: "tool_end", toolName: "fixture_edit", toolCallId: `edit-${prompts}`, isError: false });
+        },
       };
     },
     async dispose() {},

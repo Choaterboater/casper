@@ -93,7 +93,11 @@ async function fixture(tty = true, setup: { planWrites?: boolean; planCode?: boo
               await Bun.sleep(80); // Give the real renderer a frame during this model/tool round-trip.
               await tool.execute({ step: 2, status: "not-done", reason: "Needs an API decision" });
             }
-            await writeFile(path.join(project, "limiter.py"), `# ${prompts.length}\n`); emit({ type: "assistant_text_delta", delta: "Built.\n" });
+            // The fixture's writes are its model's tool: a real model changes files only through its tools.
+            emit({ type: "tool_start", toolName: "fixture_edit", toolCallId: `edit-${prompts.length}` });
+            await writeFile(path.join(project, "limiter.py"), `# ${prompts.length}\n`);
+            emit({ type: "tool_end", toolName: "fixture_edit", toolCallId: `edit-${prompts.length}`, isError: false });
+            emit({ type: "assistant_text_delta", delta: "Built.\n" });
           }
           emit({ type: "assistant_response_end", stopReason: "stop" });
         },

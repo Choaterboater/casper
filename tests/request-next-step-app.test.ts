@@ -47,7 +47,10 @@ async function fixture() {
         prompt: async (text) => {
           prompts.push(text);
           emit({ type: "assistant_response_start", provider: "fixture", model: "demo" });
+          // The fixture's writes are its model's tool: a real model changes files only through its tools.
+          emit({ type: "tool_start", toolName: "fixture_edit", toolCallId: `edit-${prompts.length}` });
           await writeFile(path.join(project, "docker-compose.yml"), `services:\n  cloudflared:\n    image: cloudflare/cloudflared  # ${prompts.length}\n`);
+          emit({ type: "tool_end", toolName: "fixture_edit", toolCallId: `edit-${prompts.length}`, isError: false });
           // The model's own last words: what it did, nothing open, no question, no "next".
           emit({ type: "assistant_text_delta", delta: "The tunnel is created and cloudflared is in docker-compose.yml.\n" });
           emit({ type: "assistant_response_end", stopReason: "stop" });

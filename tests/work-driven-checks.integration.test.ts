@@ -101,6 +101,14 @@ async function check(tool: RuntimeTool, name = "test", signal?: AbortSignal): Pr
   return JSON.parse((await tool.execute({ check: name }, signal)).text);
 }
 
+let fixtureEdits = 0;
+// The fixture's writes are its model's tool: a real model changes files only through its tools.
+async function modelEdit(emit: RuntimeEventListener, edit: () => Promise<unknown>): Promise<void> {
+  const toolCallId = `edit-${++fixtureEdits}`;
+  emit({ type: "tool_start", toolName: "fixture_edit", toolCallId });
+  try { await edit(); } finally { emit({ type: "tool_end", toolName: "fixture_edit", toolCallId, isError: false }); }
+}
+
 async function waitForFile(file: string): Promise<void> {
   expect(await fileAppears(file)).toBe(true);
 }
@@ -485,13 +493,15 @@ for (const destination of ["excluded", "outside"]) for (const outcome of ["succe
     const tool = checkTool(tools);
     expect(await check(tool)).toMatchObject({ status: "pass", freshness: "fresh" });
     expect((await check(tool, "build")).freshness).toBe("fresh");
-    await symlink(destination === "excluded" ? "generated" : "../outside", path.join(root, "src/link"), "dir");
-    await writeFile(path.join(root, "src/link/transient"), "temporary output\n");
-    if (outcome === "success") await options.afterFileEdit?.("src/link/transient");
-    await rm(path.join(root, "src/link/transient"));
-    // Partial-write observations can arrive after the target is already absent.
-    if (outcome === "partial-failure") emit({ type: "tool_end", toolName: "write", isError: true, input: { path: "src/link/transient" } });
-    await rm(path.join(root, "src/link"));
+    await modelEdit(emit, async () => {
+      await symlink(destination === "excluded" ? "generated" : "../outside", path.join(root, "src/link"), "dir");
+      await writeFile(path.join(root, "src/link/transient"), "temporary output\n");
+      if (outcome === "success") await options.afterFileEdit?.("src/link/transient");
+      await rm(path.join(root, "src/link/transient"));
+      // Partial-write observations can arrive after the target is already absent.
+      if (outcome === "partial-failure") emit({ type: "tool_end", toolName: "write", isError: true, input: { path: "src/link/transient" } });
+      await rm(path.join(root, "src/link"));
+    });
     expect((await check(tool)).reused).not.toBe(true);
     expect(await check(tool)).toMatchObject({ status: "pass", freshness: "fresh", reused: true });
     expect((await check(tool, "build")).reused).toBe(true);
@@ -728,23 +738,27 @@ test("a selected pass is rechecked after a later partial edit, before any repair
 
 test("a vague request follows edit → selected check → scoped reuse → invalidation → failure → one repair owner", async () => {
   const root = await fixture();
-  const { app, prompts } = createApp(root, async (prompt, tools, options) => {
+  const { app, prompts } = createApp(root, async (prompt, tools, options, emit) => {
     const tool = checkTool(tools);
     if (prompt.startsWith("Casper verification repair")) {
       expect(prompt).toContain("Original request:\nContinue");
       expect(prompt).toContain(`"command": ${JSON.stringify(command)}`);
       expect(prompt).toContain('"exitCode": 1');
-      await writeFile(path.join(root, "src/value"), "good\n");
+      await modelEdit(emit, () => writeFile(path.join(root, "src/value"), "good\n"));
       expect(await check(tool)).toMatchObject({ status: "pass", exitCode: 0, freshness: "fresh" });
       return;
     }
-    await writeFile(path.join(root, "src/value"), "good\n");
-    await options.afterFileEdit?.("src/value");
+    await modelEdit(emit, async () => {
+      await writeFile(path.join(root, "src/value"), "good\n");
+      await options.afterFileEdit?.("src/value");
+    });
     expect(await check(tool)).toMatchObject({ status: "pass", exitCode: 0, command, freshness: "fresh" });
     expect(await check(tool)).toMatchObject({ status: "pass", reused: true });
     expect(await readFile(path.join(root, "test-runs"), "utf8")).toBe("x");
-    await writeFile(path.join(root, "src/value"), "bad\n");
-    await options.afterFileEdit?.("src/value");
+    await modelEdit(emit, async () => {
+      await writeFile(path.join(root, "src/value"), "bad\n");
+      await options.afterFileEdit?.("src/value");
+    });
     const failed = await tool.execute({ check: "test" });
     expect(failed.isError).toBe(true);
     expect(JSON.parse(failed.text)).toMatchObject({ status: "fail", exitCode: 1 });
@@ -766,9 +780,9 @@ test("a vague request follows edit → selected check → scoped reuse → inval
 
 test("auto mode: Casper runs the configured checks after the model's edits, whatever tool it used", async () => {
   const root = await fixture();
-  const created = createApp(root, async (_prompt, tools) => {
+  const created = createApp(root, async (_prompt, tools, _options, emit) => {
     expect(tools.map((tool) => tool.name)).toContain("casper_check");
-    await writeFile(path.join(root, "src/value"), "good\n");
+    await modelEdit(emit, () => writeFile(path.join(root, "src/value"), "good\n"));
   }, "auto");
   const { app, prompts } = created;
   const { reviews } = created;
@@ -793,7 +807,7 @@ test("auto mode skips checks when the model changed no files", async () => {
 
 test("auto mode runs only the checks whose declared inputs cover a changed file", async () => {
   const root = await fixture();
-  const { app } = createApp(root, async () => { await writeFile(path.join(root, "settings.cfg"), "notes\n"); }, "auto");
+  const { app } = createApp(root, async (_prompt, _tools, _options, emit) => { await modelEdit(emit, () => writeFile(path.join(root, "settings.cfg"), "notes\n")); }, "auto");
   const report = await app.runOnce("Document the value", root);
   expect(report?.results.map((result) => result.name)).toEqual(["build"]);
   expect(await Bun.file(path.join(root, "test-runs")).exists()).toBe(false);
@@ -801,7 +815,7 @@ test("auto mode runs only the checks whose declared inputs cover a changed file"
 
 test("auto mode runs no unscoped check when only documentation changed, and says so", async () => {
   const root = await fixture();
-  const { app } = createApp(root, async () => { await writeFile(path.join(root, "README.md"), "notes\n"); }, "auto");
+  const { app } = createApp(root, async (_prompt, _tools, _options, emit) => { await modelEdit(emit, () => writeFile(path.join(root, "README.md"), "notes\n")); }, "auto");
   const report = await app.runOnce("Document the value", root);
   expect(report?.results ?? []).toEqual([]);
   expect(await Bun.file(path.join(root, "build-runs")).exists()).toBe(false);
@@ -822,8 +836,8 @@ test("auto mode reuses a fresh pass the model recorded instead of rerunning it",
 
 test("auto mode hands a failing check to one bounded repair, then exits by the final result", async () => {
   const root = await fixture({ verify: { test: command }, repair: { maxAttempts: 1 } });
-  const { app, prompts } = createApp(root, async (prompt) => {
-    await writeFile(path.join(root, "src/value"), prompt.startsWith("Casper verification repair 1/1") ? "good\n" : "still bad\n");
+  const { app, prompts } = createApp(root, async (prompt, _tools, _options, emit) => {
+    await modelEdit(emit, () => writeFile(path.join(root, "src/value"), prompt.startsWith("Casper verification repair 1/1") ? "good\n" : "still bad\n"));
   }, "auto");
   const report = await app.runOnce("Fix the value", root);
   expect(report).toMatchObject({ status: "pass", repairAttempts: 1 });
@@ -831,7 +845,7 @@ test("auto mode hands a failing check to one bounded repair, then exits by the f
   expect(taskExitCode(report, app.getLastTaskResult())).toBe(0);
 
   const unfixed = await fixture({ verify: { test: command }, repair: { maxAttempts: 1 } });
-  const second = createApp(unfixed, async () => { await writeFile(path.join(unfixed, "src/value"), "still bad\n"); }, "auto");
+  const second = createApp(unfixed, async (_prompt, _tools, _options, emit) => { await modelEdit(emit, () => writeFile(path.join(unfixed, "src/value"), "still bad\n")); }, "auto");
   const failed = await second.app.runOnce("Fix the value", unfixed);
   expect(failed).toMatchObject({ status: "fail", repairAttempts: 1 });
   expect(second.prompts).toHaveLength(2);
@@ -840,12 +854,12 @@ test("auto mode hands a failing check to one bounded repair, then exits by the f
 
 test("auto mode with changes but no configured checks is incomplete (exit 2); cancellation exits 130", async () => {
   const root = await fixture({});
-  const { app } = createApp(root, async () => { await writeFile(path.join(root, "src/value"), "good\n"); }, "auto");
+  const { app } = createApp(root, async (_prompt, _tools, _options, emit) => { await modelEdit(emit, () => writeFile(path.join(root, "src/value"), "good\n")); }, "auto");
   const report = await app.runOnce("Fix the value", root);
   expect(taskExitCode(report, app.getLastTaskResult())).toBe(2);
 
   const slow = await fixture({ verify: { test: checkCommand("touch:started", "sleep:10000") }, verification: { timeoutMs: 5000 } });
-  const second = createApp(slow, async () => { await writeFile(path.join(slow, "src/value"), "good\n"); }, "auto");
+  const second = createApp(slow, async (_prompt, _tools, _options, emit) => { await modelEdit(emit, () => writeFile(path.join(slow, "src/value"), "good\n")); }, "auto");
   const pending = second.app.runOnce("Fix the value", slow);
   await waitForFile(path.join(slow, "started"));
   await second.app.close(); // One-shot SIGINT/SIGTERM close the app.
@@ -856,7 +870,7 @@ test("auto mode with changes but no configured checks is incomplete (exit 2); ca
 
 test("unconfigured sessions check the first change themselves, with no command, interactive and one-shot alike", async () => {
   const root = await fixture({ verify: { test: command } });
-  const { app } = createApp(root, async () => { await writeFile(path.join(root, "src/value"), "good\n"); }, "default");
+  const { app } = createApp(root, async (_prompt, _tools, _options, emit) => { await modelEdit(emit, () => writeFile(path.join(root, "src/value"), "good\n")); }, "default");
   // Behaves as the interactive prompt loop would; no terminal is driven here.
   app.interactive = true;
   expect((await app.runOnce("Fix the value", root))?.status).toBe("pass");
@@ -864,7 +878,7 @@ test("unconfigured sessions check the first change themselves, with no command, 
   expect(await readFile(path.join(root, "test-runs"), "utf8")).toBe("x");
 
   const oneShot = await fixture({ verify: { test: command } });
-  const { app: script } = createApp(oneShot, async () => { await writeFile(path.join(oneShot, "src/value"), "good\n"); }, "default");
+  const { app: script } = createApp(oneShot, async (_prompt, _tools, _options, emit) => { await modelEdit(emit, () => writeFile(path.join(oneShot, "src/value"), "good\n")); }, "default");
   expect((await script.runOnce("Fix the value", oneShot))?.status).toBe("pass");
   expect(script.getLastTaskResult()?.verificationMode).toBe("auto");
   expect(await readFile(path.join(oneShot, "test-runs"), "utf8")).toBe("x");
@@ -872,7 +886,7 @@ test("unconfigured sessions check the first change themselves, with no command, 
 
 test("the task ends with the plain receipt; /receipt and verbose output keep the detailed evidence", async () => {
   const root = await fixture({ verify: { test: command } });
-  const { app, output } = createApp(root, async () => { await writeFile(path.join(root, "src/value"), "good\n"); }, "auto");
+  const { app, output } = createApp(root, async (_prompt, _tools, _options, emit) => { await modelEdit(emit, () => writeFile(path.join(root, "src/value"), "good\n")); }, "auto");
   await app.runOnce("Fix the value", root);
   expect(output()).toContain("• Casper checking: test\n");
   // What went well shares one line under the verdict.
@@ -885,9 +899,11 @@ test("the task ends with the plain receipt; /receipt and verbose output keep the
 
   const verbose = await fixture({ verify: { test: command } });
   let text = "";
+  let verboseListener: RuntimeEventListener | undefined;
   const detailed = new CasperApp({ verificationMode: "auto", verbose: true, output: { write(chunk) { text += chunk; } },
-    runtimeFactory: () => ({ async start() { return { async prompt() { await writeFile(path.join(verbose, "src/value"), "good\n"); },
-      async abort() {}, setTools() {}, subscribe: () => () => {}, getState: () => ({ cwd: verbose, isStreaming: false }) }; }, async dispose() {} }),
+    runtimeFactory: () => ({ async start() { return { async prompt() { await modelEdit((event) => verboseListener?.(event), () => writeFile(path.join(verbose, "src/value"), "good\n")); },
+      async abort() {}, setTools() {}, subscribe: (next) => { verboseListener = next; return () => { verboseListener = undefined; }; },
+      getState: () => ({ cwd: verbose, isStreaming: false }) }; }, async dispose() {} }),
     loadProjectContext: (project) => loadProjectContext(project, { homeDir: path.join(verbose, "home") }),
     loadSkillRegistry: (context) => SkillRegistry.discover({ projectRoot: context.info.root, homeDir: path.join(verbose, "home") }) });
   cleanup.push(() => detailed.close());

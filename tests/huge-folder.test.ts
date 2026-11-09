@@ -5,7 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { CasperApp } from "../src/app";
 import { loadProjectContext, type ProjectContext } from "../src/project/context";
-import type { AgentRuntime, RuntimeSession } from "../src/runtime/types";
+import type { AgentRuntime, RuntimeEventListener, RuntimeSession } from "../src/runtime/types";
 import { SkillRegistry } from "../src/skills/registry";
 import { snapshotFailureReason, SNAPSHOT_FILE_LIMIT } from "../src/task/changes";
 import { TaskObservations } from "../src/task/observations";
@@ -14,6 +14,23 @@ import { removeTempDir } from "./support/temp-dir";
 
 const dirs: string[] = [];
 afterEach(async () => { for (const dir of dirs.splice(0)) await removeTempDir(dir); });
+
+/** A fixture runtime's listeners, and `asTool` to run the fixture model's own writes inside one tool call. */
+function fixtureTool() {
+  const listeners = new Set<RuntimeEventListener>();
+  const emit = (event: Parameters<RuntimeEventListener>[0]) => { for (const listener of listeners) listener(event); };
+  let calls = 0;
+  return {
+    subscribe: (listener: RuntimeEventListener) => { listeners.add(listener); return () => { listeners.delete(listener); }; },
+    asTool: async (write: () => Promise<void>) => {
+      const toolCallId = `edit-${++calls}`;
+      // The fixture's writes are its model's tool: a real model changes files only through its tools.
+      emit({ type: "tool_start", toolName: "fixture_edit", toolCallId });
+      await write();
+      emit({ type: "tool_end", toolName: "fixture_edit", toolCallId, isError: false });
+    },
+  };
+}
 
 const bash = (command: string) => ({ type: "tool_end" as const, toolName: "bash", toolCallId: "call", input: { command }, isError: false,
   output: { text: "ok", truncated: false } });
@@ -59,14 +76,15 @@ test("a task in a folder of over 20,000 files says why changes are unknown and n
     await mkdir(folder);
     await Promise.all(Array.from({ length: 1000 }, (_, index) => writeFile(path.join(folder, `${index}.txt`), "")));
   }
+  const tool = fixtureTool();
   const runtime: AgentRuntime = {
     async start(options): Promise<RuntimeSession> {
       return { getStatus: () => ({ provider: "fixture", model: "demo", auth: "configured" }), getState: () => ({ cwd: docs, isStreaming: false }),
-        subscribe: () => () => {}, abort: async () => {}, setTools: () => {},
-        prompt: async () => {
+        subscribe: tool.subscribe, abort: async () => {}, setTools: () => {},
+        prompt: () => tool.asTool(async () => {
           await writeFile(path.join(docs, "lab.md"), "# lab\n");
           await options.afterFileEdit?.(path.join(docs, "lab.md"), new AbortController().signal);
-        } };
+        }) };
     },
     async dispose() {},
   };
@@ -98,15 +116,16 @@ test("a project over 20,000 files because of its pictures lists its code without
     await mkdir(folder, { recursive: true });
     await Promise.all(Array.from({ length: 1000 }, (_, index) => writeFile(path.join(folder, `${index}.jpg`), "")));
   }
+  const tool = fixtureTool();
   const runtime: AgentRuntime = {
     async start(options): Promise<RuntimeSession> {
       return { getStatus: () => ({ provider: "fixture", model: "demo", auth: "configured" }), getState: () => ({ cwd: project, isStreaming: false }),
-        subscribe: () => () => {}, abort: async () => {}, setTools: () => {},
-        prompt: async () => {
+        subscribe: tool.subscribe, abort: async () => {}, setTools: () => {},
+        prompt: () => tool.asTool(async () => {
           await writeFile(path.join(project, "app.py"), "print('v2')\n");
           await options.afterFileEdit?.(path.join(project, "app.py"), new AbortController().signal);
           await writeFile(path.join(project, "data", "photos", "batch-0", "new.jpg"), "");
-        } };
+        }) };
     },
     async dispose() {},
   };
@@ -146,14 +165,17 @@ async function nestedRepoTask(before: number, added: number) {
     }
   };
   await photos(0, before);
+  const tool = fixtureTool();
   const runtime: AgentRuntime = {
     async start(options): Promise<RuntimeSession> {
       return { getStatus: () => ({ provider: "fixture", model: "demo", auth: "configured" }), getState: () => ({ cwd: docs, isStreaming: false }),
-        subscribe: () => () => {}, abort: async () => {}, setTools: () => {},
+        subscribe: tool.subscribe, abort: async () => {}, setTools: () => {},
         prompt: async () => {
-          await writeFile(path.join(repo, "site", "index.html"), "<h1>new</h1>\n");
-          await options.afterFileEdit?.(path.join(repo, "site", "index.html"), new AbortController().signal);
-          await photos(before, before + added);
+          await tool.asTool(async () => {
+            await writeFile(path.join(repo, "site", "index.html"), "<h1>new</h1>\n");
+            await options.afterFileEdit?.(path.join(repo, "site", "index.html"), new AbortController().signal);
+            await photos(before, before + added);
+          });
           // Another program saves this file while the task runs.
           await writeFile(path.join(docs, "notes.txt"), "v2\n");
         } };

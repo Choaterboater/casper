@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { CasperApp } from "../src/app";
 import { loadProjectContext } from "../src/project/context";
-import type { AgentRuntime, RuntimeStartOptions, RuntimeTool } from "../src/runtime/types";
+import type { AgentRuntime, RuntimeEventListener, RuntimeStartOptions, RuntimeTool } from "../src/runtime/types";
 import { SkillRegistry } from "../src/skills/registry";
 import { taskExitCode } from "../src/task/result";
 import { removeTempDir } from "./support/temp-dir";
@@ -28,14 +28,21 @@ async function fixture(options: { finalExit?: number; target?: number; modelChec
   let tools: RuntimeTool[] = [];
   let start: RuntimeStartOptions;
   const modelResults: unknown[] = [];
+  const listeners = new Set<RuntimeEventListener>();
+  const emit = (event: Parameters<RuntimeEventListener>[0]) => { for (const listener of listeners) listener(event); };
+  let turn = 0;
   const runtime: AgentRuntime = {
     async start(given) {
       start = given; tools = given.tools ?? [];
       return {
         async prompt() {
           if (options.edit !== false) {
+            // The fixture's writes are its model's tool: a real model changes files only through its tools.
+            const toolCallId = `edit-${++turn}`;
+            emit({ type: "tool_start", toolName: "fixture_edit", toolCallId });
             await writeFile(path.join(root, "src/value.ts"), "export const value = 2;");
             await start.afterFileEdit?.("src/value.ts");
+            emit({ type: "tool_end", toolName: "fixture_edit", toolCallId, isError: false });
           }
           if (options.modelCheck) {
             modelResults.push(JSON.parse((await tools.find(tool => tool.name === "casper_check")!.execute({ check: "test" })).text));
@@ -43,7 +50,8 @@ async function fixture(options: { finalExit?: number; target?: number; modelChec
           }
           if (options.stop) app.commandAbort?.abort();
         },
-        setTools(next) { tools = next; }, abort: async () => {}, subscribe: () => () => {},
+        setTools(next) { tools = next; }, abort: async () => {},
+        subscribe: listener => { listeners.add(listener); return () => listeners.delete(listener); },
         getState: () => ({ cwd: root, isStreaming: false }),
       };
     }, dispose: async () => {},

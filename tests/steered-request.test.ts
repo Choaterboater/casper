@@ -6,7 +6,7 @@ import { CasperApp } from "../src/app";
 import { settleQueuedLines, steerOrQueue, takeBackNewest } from "../src/app/during-work";
 import { requestAsItStands, withLinesBeforeModel } from "../src/app/steered-request";
 import { loadProjectContext } from "../src/project/context";
-import type { AgentRuntime, RuntimeSession } from "../src/runtime/types";
+import type { AgentRuntime, RuntimeEventListener, RuntimeSession } from "../src/runtime/types";
 import { SkillRegistry } from "../src/skills/registry";
 import { posixOnly } from "./support/platform";
 import { removeTempDir } from "./support/temp-dir";
@@ -27,15 +27,26 @@ async function setup(respond: (prompt: string, app: CasperApp) => Promise<void>,
   // A real runtime takes a line only while the model is working (src/runtime/pi.ts steer).
   let streaming = !options.streamsOnlyInPrompt;
   let app!: CasperApp;
+  const listeners = new Set<RuntimeEventListener>();
+  const emit = (event: Parameters<RuntimeEventListener>[0]) => { for (const listener of listeners) listener(event); };
   const runtime: AgentRuntime = {
     async start(): Promise<RuntimeSession> {
       return {
         setTools() {},
         getStatus: () => ({ provider: "fixture", model: "demo", auth: "configured" as const }),
-        async prompt(text) { prompts.push(text); streaming = true; try { await respond(text, app); } finally { streaming = !options.streamsOnlyInPrompt; } },
+        async prompt(text) {
+          prompts.push(text); streaming = true;
+          const toolCallId = `edit-${prompts.length}`;
+          try {
+            // The fixture's writes are its model's tool: a real model changes files only through its tools.
+            emit({ type: "tool_start", toolName: "fixture_edit", toolCallId });
+            await respond(text, app);
+            emit({ type: "tool_end", toolName: "fixture_edit", toolCallId, isError: false });
+          } finally { streaming = !options.streamsOnlyInPrompt; }
+        },
         async steer(text) { if (!streaming) return false; steered.push(text); return true; },
         unsteer(newest) { return newest ? steered.splice(-1) : steered.splice(0); },
-        async abort() {}, subscribe: () => () => {},
+        async abort() {}, subscribe: (listener: RuntimeEventListener) => { listeners.add(listener); return () => listeners.delete(listener); },
         getState: () => ({ cwd: root, isStreaming: false }),
       };
     },

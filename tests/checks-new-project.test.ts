@@ -43,12 +43,15 @@ async function run(files: Record<string, string> | ((turn: number) => Record<str
           }
           const now = turn++;
           const written = typeof files === "function" ? files(now) : files;
+          // The fixture's writes are its model's tool: a real model changes files only through its tools.
+          emit({ type: "tool_start", toolName: "fixture_edit", toolCallId: `edit-${now}` });
           for (const [name, text] of Object.entries(written)) {
             // The AI's own write tool, as a model writes; otherwise a program writing the file.
             await mkdir(path.dirname(path.join(project, name)), { recursive: true }); await writeFile(path.join(project, name), text);
             // Written with the AI's own write tool, which reports each file it writes; otherwise a program wrote it.
             if (options.viaWriteTool?.includes(name)) await afterFileEdit?.(path.join(project, name));
           }
+          emit({ type: "tool_end", toolName: "fixture_edit", toolCallId: `edit-${now}`, isError: false });
           emit({ type: "assistant_response_start", provider: "fixture", model: "demo" });
           emit({ type: "assistant_text_delta", delta: "Set up the project.\n" });
           emit({ type: "assistant_response_end", stopReason: "stop" });
