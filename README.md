@@ -190,6 +190,11 @@ The app's chat gets Casper's own title for it, the same short name from your fir
 gets its saved name, and a typed `/rename` sends the new one.
 [Decision 96](docs/adr/0002/96-an-acp-app-gets-casper-chat-title.md).
 
+The app can fork a conversation to try another way from an earlier message: the copy goes on with all of it, or
+only up to the message the app picks, on the same model and effort and with the app's servers, and keeps its chat's
+name. The conversation it came from stays exactly as it was, also while it is still answering.
+[Decision 97](docs/adr/0002/97-an-acp-app-forks-a-casper-conversation.md).
+
 Type `/help` for the commands. Ctrl+C stops the current work but keeps changes already made;
 Ctrl+D on an empty prompt exits. [Keys and commands](docs/TERMINAL_UX.md#quick-reference).
 
