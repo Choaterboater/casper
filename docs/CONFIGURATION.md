@@ -316,8 +316,19 @@ the hideable output fills a fifth of the model's context window (and eight round
 last time), or the prompt passes 60% of the window, and it is more than the cache has to re-read after the
 first stub. So a short task never pays a cache rebuild, and one rebuild takes several old reads at once.
 The last four rounds, errors, unfinished or stopped commands and recently referenced output stay visible.
-Browser check text stays; only its old pictures can be hidden. User pictures, writes, MCP responses
-and verification results are not hidden. References are conservatively detected from the latest
+Browser check text stays; only its old pictures can be hidden. User pictures, MCP responses
+and verification results are not hidden.
+
+The same goes for the file bodies the AI sent: the content of an old `write`, the text of an old `edit`, and
+the body of an old `cat > file <<'EOF'` command, from 2,000 characters. The call keeps its tool, its path
+and its command line; only the body becomes a stub such as `[content of write public/app.js (640 lines)
+hidden, read the file before editing it]`, since the file on disk has it. A body stays while the latest rounds
+or request name its file, quote one of its lines or point back at an earlier write, and when the call failed.
+
+When Casper starts a round itself (a check repair, the requirements review and self-review, a proof repair,
+finishing browser checks, keep going), hiding does not wait for the fifth-of-the-window or 60% mark: at that
+round's first request it hides what has aged, if that is at least 5% of the window and more than the rebuild
+re-reads. These rounds re-read the whole build, so they gain the most, and the prompt changes there anyway. References are conservatively detected from the latest
 user request and recent model text, thinking and tool arguments (paths, call IDs, quoted lines,
 source symbols and vague mentions of earlier output); semantic references can still be missed.
 

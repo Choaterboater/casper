@@ -3,6 +3,7 @@ import { readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { answer, calls, cleanUpAfterEach, fixture, type Payload } from "./support/phase8-pi";
 import { childTestLimit } from "./support/limits";
+import { ELISION_NOTE } from "../src/runtime/elision";
 
 cleanUpAfterEach();
 
@@ -68,4 +69,47 @@ for (const mode of ["on", "off"]) test(`Pi sends the history projection (${mode}
   expect(extends_(f.payloads[18]!, f.payloads[16]!)).toBe(true);
   // Rewinding before the checkpoint does not inherit masks from a different branch.
   expect(JSON.stringify(tool(20))).toContain("SYNTHETIC_HISTORY_LINE");
+}, childTestLimit(3));
+for (const mode of ["follow-up", "plain"]) test(`Pi hides an old file body at the first request of a round Casper starts (${mode})`, async () => {
+  let requests = 0;
+  // About 2,000 tokens of body: under a fifth of the 12k window, over the 5% a follow-up round needs.
+  const f = await fixture(() => requests++ === 0
+    ? calls([{ name: "write", args: { path: "built.txt", content: "SYNTHETIC_BODY_LINE\n".repeat(400) } }]) : answer("Continue the task."));
+  await smallWindow(f.agent, { enabled: false });
+  const run = await f.run([path.join(import.meta.dir, "fixtures/pi-tool-history-follow-up.ts"), f.project, mode]);
+  expect({ exit: run.exit, stderr: run.stderr }).toEqual({ exit: 0, stderr: "" });
+  expect(await readFile(path.join(f.project, "built.txt"), "utf8")).toContain("SYNTHETIC_BODY_LINE");
+  const sent = (index: number) => JSON.stringify(f.payloads[index]!.messages);
+  // Requests 0-6 build; 7 is the review round's first request; 8 comes after it.
+  expect(f.payloads).toHaveLength(9);
+  expect(sent(6)).toContain("SYNTHETIC_BODY_LINE");
+  for (const index of [7, 8]) {
+    if (mode === "follow-up") {
+      expect(sent(index)).not.toContain("SYNTHETIC_BODY_LINE");
+      expect(sent(index)).toContain("[content of write built.txt (400 lines) hidden, read the file before editing it]");
+    } else expect(sent(index)).toContain("SYNTHETIC_BODY_LINE");
+  }
+  // The cache is rebuilt once, at the round's first request, and never again.
+  expect(prefixBreaks(f.payloads)).toEqual(mode === "follow-up" ? [7] : []);
+}, childTestLimit(3));
+test("after its body is hidden, an edit made from the stub is refused and a stub written back gets the placeholder note", async () => {
+  let requests = 0;
+  const stub = "[content of write built.txt (400 lines) hidden, read the file before editing it]";
+  const f = await fixture(() => {
+    const step = requests++;
+    if (step === 0) return calls([{ name: "write", args: { path: "built.txt", content: "SYNTHETIC_BODY_LINE\n".repeat(400) } }]);
+    // The review round's first request sees only the stub; the model edits from it, then writes it back.
+    if (step === 7) return calls([{ name: "edit", args: { path: "built.txt", edits: [{ oldText: "[hidden]", newText: "changed" }] } }]);
+    if (step === 8) return calls([{ name: "write", args: { path: "built.txt", content: `${stub}\n` } }]);
+    return answer("Continue the task.");
+  });
+  await smallWindow(f.agent, { enabled: false });
+  const run = await f.run([path.join(import.meta.dir, "fixtures/pi-tool-history-follow-up.ts"), f.project, "imitate"]);
+  expect({ exit: run.exit, stderr: run.stderr }).toEqual({ exit: 0, stderr: "" });
+  const lastTool = (index: number) => JSON.stringify(f.payloads[index]!.messages.filter((message) => message.role === "tool").at(-1));
+  expect(JSON.stringify(f.payloads[7]!.messages)).toContain(stub);
+  // The edit's old text is not in the file: refused, nothing changed, and the model reads that it failed.
+  expect(lastTool(8)).toMatch(/could not find|not found/i);
+  expect(lastTool(8)).not.toContain(ELISION_NOTE);
+  expect(lastTool(9)).toContain(ELISION_NOTE);
 }, childTestLimit(3));

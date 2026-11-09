@@ -1360,14 +1360,14 @@ async function keepGoing(app: CasperApp, session: RuntimeSession, request: strin
     app.events.ensureLineBreak();
     app.output.write(`↻ keep going ${round}/${KEEP_GOING_ROUNDS}: ${why} carries on (Esc stops it)\n`);
     app.lastAnswer = "";
-    await session.prompt(keepGoingPrompt(need, steps), app.commandAbort?.signal, { request, maxTurns: app.maxTurns });
+    await session.prompt(keepGoingPrompt(need, steps), app.commandAbort?.signal, { request, maxTurns: app.maxTurns, followUp: true });
     await retryModelFailure(app, session, request);
   }
 }
 
 export async function promptRound(app: CasperApp, session: RuntimeSession, text: string, request: string, images?: RuntimeImage[], turns = ROUND_MAX_TURNS): Promise<boolean> {
   const roundBudget = app.maxTurns === undefined || turns < app.maxTurns;
-  try { await session.prompt(text, app.commandAbort?.signal, { request, maxTurns: roundBudget ? turns : app.maxTurns, ...(images?.length ? { images } : {}) }); }
+  try { await session.prompt(text, app.commandAbort?.signal, { request, maxTurns: roundBudget ? turns : app.maxTurns, followUp: true, ...(images?.length ? { images } : {}) }); }
   // A picture the round made is there before the checks and the proof look again.
   finally { await settlePictures(app); }
   if (!roundBudget || app.taskTurnLimit === undefined) return false;

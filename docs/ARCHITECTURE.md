@@ -46,9 +46,10 @@ From the prompt to the receipt, in `src/app/task-run.ts` (`runModelTask`) unless
    places, git's own files, the plan turn's gate, writes outside the project). Every shell command goes through
    `casperBashOperations`, which asks first when no sandbox runs and wraps the command when one does. Every tool
    result is scrubbed before the model reads it. MCP calls go through the broker and its approval box.
-   The provider seam projects old bulky tool results to permanent stubs once they fill a fifth of the model's
-   window, or the prompt passes 60% of it, and they outweigh what the rebuild re-reads
-   (`src/runtime/tool-history.ts`), retaining the latest four rounds and observable recent references. The original
+   The provider seam projects old bulky tool results, and the file bodies of old write, edit and heredoc calls, to
+   permanent stubs once they fill a fifth of the model's window, or the prompt passes 60% of it, or Casper starts its
+   own repair, review or proof round, and they outweigh what the rebuild re-reads
+   (`src/runtime/tool-history.ts`, decision 100), retaining the latest four rounds and observable recent references. The original
    transcript stays intact; branch-local custom entries persist mask decisions and compaction epochs.
    Each checkpoint changes the prefix once, then subsequent requests reuse identical earlier messages.
    `/settings` **Hide old tool output** stops new masks from the next step, without restoring old ones.
