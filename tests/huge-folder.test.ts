@@ -13,7 +13,9 @@ import { formatReceipt } from "../src/task/result";
 import { removeTempDir } from "./support/temp-dir";
 
 const dirs: string[] = [];
-afterEach(async () => { for (const dir of dirs.splice(0)) await removeTempDir(dir); });
+// Each folder here holds over 21,000 files. Removing one takes about 2.5 s on a fast machine, but a Windows CI
+// runner once took over Bun's 30 s hook limit (deflake run 42704590956: 1 of 10), so cleanup gets 120 s.
+afterEach(async () => { for (const dir of dirs.splice(0)) await removeTempDir(dir); }, 120_000);
 
 const bash = (command: string) => ({ type: "tool_end" as const, toolName: "bash", toolCallId: "call", input: { command }, isError: false,
   output: { text: "ok", truncated: false } });
