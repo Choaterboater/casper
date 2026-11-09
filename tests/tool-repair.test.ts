@@ -140,3 +140,18 @@ describe("Pi's file tools refuse a field that must be text but is not", () => {
     expect(repair.take("call_2")).toBeUndefined();
   });
 });
+
+describe("schema refusals", () => {
+  test("a call that fails the schema after repair says each field and what was wrong, without a copy of the call", () => {
+    const repair = new ToolArgumentRepair();
+    const steps = { type: "object", required: ["steps"], properties: { steps: { type: "array", maxItems: 2, items: { type: "string" } } } };
+    const long = "x".repeat(2_000);
+    let message = "";
+    try { repair.hook("browser", steps)({ steps: [long, long, long] }); } catch (error) { message = (error as Error).message; }
+    expect(message).toStartWith('Validation failed for tool "browser":\n  - steps: ');
+    expect(message).not.toContain("Received arguments");
+    expect(message).not.toContain(long);
+    // A repaired call that is then valid runs, with its note, as before.
+    expect(repair.hook("browser", steps)({ steps: "one" })).toEqual({ steps: ["one"] });
+  });
+});

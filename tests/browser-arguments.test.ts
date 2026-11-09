@@ -6,6 +6,7 @@ import { BROWSER_ACTION_FIELDS, BROWSER_ACTIONS, BROWSER_FIELDS, browserArgument
 import { parseScenario } from "../src/browser/scenario";
 import { BrowserSession } from "../src/browser/session";
 import { browserTool } from "../src/browser/tools";
+import { ToolArgumentRepair } from "../src/runtime/tool-repair";
 import { removeTempDir } from "./support/temp-dir";
 
 // The shape a model sent seven times in a row: every schema field filled, most with placeholders.
@@ -115,11 +116,13 @@ test("the schema lists exactly the fields the validator reads, and each field na
   const schema = tool.inputSchema as { properties: Record<string, { enum?: string[]; description?: string }> };
   expect(Object.keys(schema.properties).sort()).toEqual(["action", ...BROWSER_FIELDS].sort());
   expect(schema.properties.action!.enum).toEqual(BROWSER_ACTIONS);
-  for (const field of BROWSER_FIELDS.filter((name) => !["selector", "value", "impact", "reason"].includes(name))) {
+  // replaces is named in the description too ("check its fix with replaces: its id"): a note of its own would grow every request.
+  for (const field of BROWSER_FIELDS.filter((name) => !["selector", "value", "impact", "reason", "replaces"].includes(name))) {
     const takers = BROWSER_ACTIONS.filter((action) => (BROWSER_ACTION_FIELDS[action] as readonly string[]).includes(field));
     expect({ field, note: schema.properties[field]!.description?.startsWith(`${takers.join(", ")}`) }).toEqual({ field, note: true });
   }
-  expect(tool.description).toContain("Send only the fields your action takes");
+  expect(tool.description).toContain("Send only your action's fields");
+  expect(tool.description).toContain("check its fix with replaces: its id or withdraw (reason)");
   // The four fields shared by click, fill, press and serve are named in the description instead.
   expect(tool.description).toContain("click, fill, press and select take a CSS selector (all but click a value too); these and serve take impact (reason optional)");
   // The policy the model needs before it acts stays; the rest is said when an action is refused.
@@ -134,4 +137,28 @@ test("one check may list up to eight assertions; the tool schema and the parser 
   expect(() => parseScenario(scenario(0))).toThrow("1–8 assertions");
   const schema = browserTool({} as BrowserSession).inputSchema as { properties: { scenario: { properties: { assertions: { maxItems: number } } } } };
   expect(schema.properties.scenario.properties.assertions.maxItems).toBe(8);
+});
+
+test("one check may take up to 30 steps, so a long form fits in one check; the tool schema and the parser agree", () => {
+  const steps = (n: number) => Array.from({ length: n }, (_, i) => ({ action: "fill", selector: `#field-${i}`, value: `value ${i}`, impact: "local-test" }));
+  const scenario = (n: number) => ({ name: "Long form", url: "http://127.0.0.1:3000", steps: steps(n), assertions: [{ kind: "text", expected: "Saved" }] });
+  expect(parseScenario(scenario(30)).steps).toHaveLength(30);
+  expect(() => parseScenario(scenario(31))).toThrow("0–30 click/fill/press/select steps");
+  const schema = browserTool({} as BrowserSession).inputSchema as { properties: { scenario: { properties: { steps: { maxItems: number } } } } };
+  expect(schema.properties.scenario.properties.steps.maxItems).toBe(30);
+});
+
+test("a browser call that breaks the schema is still refused, only without a copy of the call", () => {
+  const schema = browserTool({} as BrowserSession).inputSchema;
+  const hook = new ToolArgumentRepair().hook("browser", schema);
+  const step = { action: "fill", selector: "#name", value: "x".repeat(200), impact: "local-test" };
+  const call = (steps: number, extra: Record<string, unknown> = {}) => hook({ action: "check", scenario: { name: "Form", url: "http://127.0.0.1:3000", steps: Array.from({ length: steps }, () => step),
+    assertions: [{ kind: "text", expected: "Saved" }], ...extra } });
+  const refusal = (run: () => unknown) => { try { run(); } catch (error) { return (error as Error).message; } throw new Error("the call was accepted"); };
+  for (const message of [refusal(() => call(31)), refusal(() => call(1, { assertions: [] })), refusal(() => call(1, { extra: true }))]) {
+    expect(message).toStartWith('Validation failed for tool "browser":\n  - scenario');
+    expect(message).not.toContain("Received arguments");
+    expect(message).not.toContain("x".repeat(200));
+  }
+  expect(call(30)).toMatchObject({ action: "check" });
 });
