@@ -1,6 +1,6 @@
-import { keepLiterally, KIND_ORDER, replaceSpans, windowedSpans, type SecretKind } from "./patterns";
+import { keepLiterally, KIND_ORDER, replaceSpans, TRUNCATED_MARK, windowedSpans, type SecretKind } from "./patterns";
 import { isSecretName } from "./assignments";
-import { SECRET_MARKER, type ScrubTextResult } from "./scrub";
+import { mayBeLineEnd, SECRET_MARKER, type LiveScrub, type ScrubTextResult } from "./scrub";
 
 /**
  * Secrets written the way people write them in notes, docs and commands, not as KEY=VALUE:
@@ -229,25 +229,37 @@ function keyValueSpans(row: Cell[], tokenTable: boolean, named: (key: string, at
 }
 
 /** The cells of a row under the secret columns. */
-function columnSpans(row: Cell[], columns: number[] | undefined): Span[] {
+function columnSpans(row: Cell[], columns: number[] | "all" | undefined): Span[] {
   const spans: Span[] = [];
-  for (const column of columns ?? []) {
+  for (const column of columns === "all" ? row.keys() : columns ?? []) {
     const cell = row[column];
     if (cell && anyValue(cellText(cell.text)) && !cell.text.includes(SECRET_MARKER)) spans.push({ start: cell.start, end: cell.end, kind: "password" });
   }
   return spans;
 }
 
+/** A row from its first cell to its last, when a cell holds a value: live (decision 98), with its header out of view,
+ * any of it may be a secret column's, and a bar inside a value may have moved the cells after it. */
+function wholeRow(row: Cell[]): Span[] {
+  const filled = row.filter((cell) => cell.text);
+  // Any cell, short or a placeholder too: the final's rest-of-row span (a row under a header with no last bar) checks none.
+  return filled.length ? [{ start: filled[0]!.start, end: filled.at(-1)!.end, kind: "password" }] : [];
+}
+
 /**
  * The first way of reading tables, kept as it was: a row of bars with a secret word names the secret columns, and any
  * line that is not a row (a rule such as +---+ or ├──┼──┤ too) ends the table. What it hides stays hidden.
  */
-function plainTableSpans(lines: string[], tokenTable: boolean): Span[][] {
+function plainTableSpans(lines: string[], tokenTable: boolean, live?: LiveScrub): Span[][] {
   const out: Span[][] = lines.map(() => []);
-  let columns: number[] | undefined;
+  // Live (decision 98): after a break (the start when cut, or a truncated mark) the header may be gone, so every cell
+  // of a row is read as a secret column's.
+  let columns: number[] | "all" | undefined = live?.cut ? "all" : undefined;
   for (let index = 0; index < lines.length; index++) {
     const line = lines[index]!;
-    if (!/^\s*[|│┃]/.test(line)) { columns = undefined; continue; }
+    if (live && TRUNCATED_MARK.test(line)) { columns = "all"; continue; }
+    // A cut text's first line, or the line after a truncated mark, may be the end of a table row.
+    if (!/^\s*[|│┃]/.test(line)) { if (!mayBeLineEnd(lines, index, live)) columns = undefined; continue; }
     const row = cellsAt(line, marks(line, /[|│┃]/g));
     if (/^[\s|│┃:\-─═╞╪╡├┼┤+]+$/.test(line)) continue;
     if (!columns && secretHeader(row)) { columns = row.flatMap((cell, at) => SECRET_HEADER.test(cellText(cell.text)) ? [at] : []); continue; }
@@ -260,8 +272,13 @@ function plainTableSpans(lines: string[], tokenTable: boolean): Span[][] {
  * Tables read through their rule lines: mysql's, psql's, rich's and tabulate's grids, a key and value table, a bar
  * inside a value, and a table printed straight after another.
  */
-function ruledTableSpans(lines: string[], tokenTable: boolean): Span[][] {
+function ruledTableSpans(lines: string[], tokenTable: boolean, live?: LiveScrub): Span[][] {
   const out: Span[][] = lines.map(() => []);
+  // Live (decision 98): after a break (the start when cut, or a truncated mark) the lines may be a table's rows under a
+  // header that is gone, past rule lines too, and psql's have no bar at their start. Until a line with no bar, every row
+  // and every line with a bar after its start is held whole (wholeRow): one that reads as a header too, since it may be
+  // a key and value table's row (║ password ║ x ║).
+  let maybe = live?.cut === true;
   let columns: number[] | undefined;
   // How many cells the header has: a row with more holds a bar inside a value (psql does not escape one).
   let width = 0;
@@ -299,6 +316,7 @@ function ruledTableSpans(lines: string[], tokenTable: boolean): Span[][] {
   for (let index = 0; index < lines.length; index++) {
     const line = lines[index]!;
     const before = lines[index - 1] ?? "";
+    if (live && TRUNCATED_MARK.test(line)) { end(); maybe = true; continue; }
     // The bars of psql's header sit right above the crosses of its rule.
     const psql: Cell[] = !columns && OPEN_RULE.test(line) && marks(before, BAR).join() === marks(line, /[+┼]/g).join() ? cells(before, true) : [];
     if (secretHeader(psql) || keyValueHeader(psql)) header(psql, index - 1, true);
@@ -310,6 +328,7 @@ function ruledTableSpans(lines: string[], tokenTable: boolean): Span[][] {
       if ((edge(line) && edge(before)) || (BARE_RULE.test(line) && !under) || (barRules && !under && edge(line))) end();
     } else if (open ? line.search(BAR) >= 0 : TABLE_ROW.test(line)) {
       const row = cells(line, open);
+      if (maybe) { out[index]!.push(...wholeRow(row)); continue; }
       if ((!columns || (!open && startsTable(lines[index + 1] ?? "", before))) && (secretHeader(row) || keyValueHeader(row))) { header(row, index, false); continue; }
       // A row longer than its header: the bar inside a value moved the cells after it, so the row goes from its first
       // secret cell to its end. So does a row with no last bar (Markdown may leave it out): a bar inside a value need
@@ -321,21 +340,28 @@ function ruledTableSpans(lines: string[], tokenTable: boolean): Span[][] {
       // Under a key and value header any secret name counts: api_key, db_password, "Secret Key", unless it holds a
       // setting (OFF, 1440).
       out[index]!.push(...keyValueSpans(row, tokenTable, (key, at, value) => keyValue && at === 0 && isSecretName(key) && !SETTING.test(value), rest));
-    } else end();
+    } else if (maybe && line.search(BAR) > 0) out[index]!.push(...wholeRow(cells(line, true)));
+    else {
+      end();
+      // A cut text's first line, or the line after a truncated mark, may be the end of a row.
+      if (!mayBeLineEnd(lines, index, live)) maybe = false;
+    }
   }
   return out;
 }
 
 /**
  * Hide the prose, table and token forms above. A table is read two ways, the first way Casper read tables and the way
- * that follows their rule lines, and a cell either way hides stays hidden.
+ * that follows their rule lines, and a cell either way hides stays hidden. `live`: a running command's latest lines
+ * (decision 98), read in the strictest state a line out of view could set: "value" rows and keys read as a token's
+ * (pveum's output says "tokenid" somewhere), and after a break a table's header read as gone (both readings above).
  */
-export function scrubProseSecrets(text: string): ScrubTextResult {
+export function scrubProseSecrets(text: string, options: { live?: LiveScrub } = {}): ScrubTextResult {
   const lines = text.split("\n");
   const kinds = new Set<SecretKind>();
-  const tokenTable = /tokenid/i.test(text);
-  const plain = plainTableSpans(lines, tokenTable);
-  const ruled = ruledTableSpans(lines, tokenTable);
+  const tokenTable = options.live !== undefined || /tokenid/i.test(text);
+  const plain = plainTableSpans(lines, tokenTable, options.live);
+  const ruled = ruledTableSpans(lines, tokenTable, options.live);
   let hidden = 0;
   const shown = lines.map((line, index) => {
     const spans: Span[] = [...windowedSpans(line, ruleSpans), ...plain[index]!, ...ruled[index]!];

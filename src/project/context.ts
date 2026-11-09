@@ -118,6 +118,8 @@ export interface ProjectContext {
   acpIdleExit?: LoadedConfiguration["acpIdleExit"];
   /** `mcp_pictures: on|off` in ~/.casper/config.yaml: whether MCP pictures reach a model that sees images (decision 99). Unset: on. */
   mcpPictures?: LoadedConfiguration["mcpPictures"];
+  /** `acp_live_output: on|off` in ~/.casper/config.yaml: whether an app sees a running command's output (decision 98). Unset: on. */
+  acpLiveOutput?: LoadedConfiguration["acpLiveOutput"];
   /** `lsp_autostart: off` in the user's config: their own language servers wait for /lsp connect. Unset: on. */
   lspAutostart?: boolean;
   /** `notifications: off` in the user's config: nothing rings when a long task ends or a question waits. Unset: on. */
@@ -254,6 +256,7 @@ export async function loadProjectContext(
     ...(configuration.acpQuestions !== undefined ? { acpQuestions: configuration.acpQuestions } : {}),
     ...(configuration.acpIdleExit !== undefined ? { acpIdleExit: configuration.acpIdleExit } : {}),
     ...(configuration.mcpPictures !== undefined ? { mcpPictures: configuration.mcpPictures } : {}),
+    ...(configuration.acpLiveOutput !== undefined ? { acpLiveOutput: configuration.acpLiveOutput } : {}),
     ...(configuration.lspAutostart !== undefined ? { lspAutostart: configuration.lspAutostart } : {}),
     ...(configuration.notifications !== undefined ? { notifications: configuration.notifications } : {}),
     ...(configuration.toolDownloads !== undefined ? { toolDownloads: configuration.toolDownloads } : {}),

@@ -427,8 +427,10 @@ export type RuntimeEvent =
    * the model's own arguments, for `casper acp`'s steps only (src/acp/tool-content.ts hides them): never on the screen,
    * in --json or in a receipt. */
   | { type: "tool_start"; toolName: string; toolCallId?: string; input?: ToolObservationInput; description?: string; args?: Record<string, unknown> }
-  /** A running bash command printed more: the tail of its output so far (screen only, throttled; never in --json). */
-  | { type: "tool_progress"; toolName: string; toolCallId?: string; text: string }
+  /** A running bash or PowerShell command printed more: its output so far as Pi keeps it (at most 64 KB), `cut` when
+   * there was more before it (the screen's bash line and `casper acp`'s live output, decision 98; throttled; never in
+   * --json). */
+  | { type: "tool_progress"; toolName: string; toolCallId?: string; text: string; cut?: true }
   /** Diagnostic tool status only: isError=false is not process-exit evidence. */
   | { type: "tool_end"; toolName: string; toolCallId?: string; input?: ToolObservationInput; output?: ToolObservationOutput; isError: boolean;
       /** The AI's title for a shell step, as on its tool_start. */

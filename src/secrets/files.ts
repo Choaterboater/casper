@@ -3,7 +3,7 @@ import path from "node:path";
 import { isSecretName, scrubAssignments, scrubExactValues, scrubUrlPasswords } from "./assignments";
 import { KIND_ORDER, keepLiterally, PEM_BEGIN, PEM_END, type SecretKind } from "./patterns";
 import { scrubProseSecrets } from "./prose";
-import { SECRET_MARKER, scrubText, snakeKey, type ScrubTextResult } from "./scrub";
+import { SECRET_MARKER, scrubText, snakeKey, type LiveScrub, type ScrubTextResult } from "./scrub";
 import { typedSecretValues } from "./typed";
 
 export { isSecretName, scrubAssignments, scrubExactValues, scrubUrlPasswords };
@@ -134,6 +134,15 @@ export interface PlainScrubOptions {
   env?: NodeJS.ProcessEnv;
   /** More exact values to hide (the keys in Casper's login file). */
   values?: readonly string[];
+  /** A running command's latest lines (decision 98): the device rules and the key rules always, each in the strictest
+   * state a line out of view could set (scrubText, scrubProseSecrets). */
+  live?: LiveScrub;
+}
+
+/** The exact values the always-on pass hides wherever they are, longest first: secret-named environment values, `values`
+ * (Casper's logins) and the secrets typed this session. */
+export function exactSecretValues(options: Pick<PlainScrubOptions, "env" | "values"> = {}): string[] {
+  return [...new Set([...secretEnvValues(options.env), ...(options.values ?? []), ...typedSecretValues()])].sort((a, b) => b.length - a.length);
 }
 
 /** The always-on pass for native read, grep and shell output: env values, secret-named keys, and in a
@@ -143,16 +152,28 @@ export function scrubPlainSecrets(text: string, options: PlainScrubOptions = {})
   let hidden = 0;
   let out = text;
   const add = (result: ScrubTextResult) => { out = result.text; hidden += result.hidden; for (const kind of result.kinds) kinds.add(kind); };
-  const exact = [...new Set([...secretEnvValues(options.env), ...(options.values ?? []), ...typedSecretValues()])].sort((a, b) => b.length - a.length);
-  add(scrubExactValues(out, exact));
+  add(scrubExactValues(out, exactSecretValues(options)));
   // Private keys are hidden in any output, with or without the device config rules.
-  if (options.secretFile || PEM_BEGIN.test(out) || PEM_END.test(out)) add(scrubText(out, { keyFile: options.keyFile === true }));
+  if (options.live || options.secretFile || PEM_BEGIN.test(out) || PEM_END.test(out)) add(scrubText(out, { keyFile: options.keyFile === true, ...(options.live ? { live: options.live } : {}) }));
   else if (options.keyFile) add(scrubText(out, { keyFile: true, keysOnly: true }));
   if (options.pgpass) add(scrubPgpass(out));
   add(scrubUrlPasswords(out));
   add(scrubAssignments(out, options.secretFile === true));
-  add(scrubProseSecrets(out));
+  add(scrubProseSecrets(out, options.live ? { live: options.live } : {}));
   return { text: out, hidden, kinds: KIND_ORDER.filter((kind) => kinds.has(kind)) };
+}
+
+/**
+ * A running command's lines (decision 98) as scrubPlainSecrets' live form leaves them, and as each of its passes leaves
+ * them on its own, each run when called (a check stops at the first that changes a line it shows). Each pass reads
+ * what the one before it left, and a live rule can change a line out of view that the final scrub leaves as it is (a
+ * device rule that takes a table header's bar as a value): the pass after it would then miss what it finds in the
+ * final output (that column's cells). Read alone, each pass sees every line as it is.
+ */
+export function livePlainScrubs(text: string, options: Omit<PlainScrubOptions, "live"> & { live: LiveScrub }): Array<() => string> {
+  return [() => scrubPlainSecrets(text, options).text, () => scrubExactValues(text, exactSecretValues(options)).text,
+    () => scrubText(text, { keyFile: options.keyFile === true, live: options.live }).text, () => scrubUrlPasswords(text).text,
+    () => scrubAssignments(text, options.secretFile === true).text, () => scrubProseSecrets(text, { live: options.live }).text];
 }
 
 /**

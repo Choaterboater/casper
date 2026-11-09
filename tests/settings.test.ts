@@ -51,7 +51,7 @@ test("the settings list shows each switch and where it stands", async () => {
   expect(settingRows(context).map((row) => `${row.label}: ${row.value}`)).toEqual([
     "Web lookups: off", "Browser tool: on", "Browser clicks: on", "Routine commands: on", "Auto mode: on", "Blocked commands: ask", "Commands while planning: on", "Slow commands: on", "Stalled commands: on", "Keep going: on", "Starter templates: on", "Diagram tool: on", "Pages the AI makes: on", "Pictures the AI makes: on", "Open pages in the browser: on", "Updates: off", "Notifications: on", "Suggestions: on", "Side questions with ?: on", "Built-in skills: on", "GitHub tool: on", "Packs: on", "Spend notes: at $1 a task", "Spend pause: at $5 a task",
     "Prompt cache: auto", "Lean guidance: auto", "Compact at: auto", "Hide old tool output: on", "Local models: on", "Page checks: on", "Show the AI the pages: ask once a session",
-    "Work shown: normal", "Reasoning headline: on", "Theme: default", "Untrusted-text reader: on", "Helpers that build: off", "Playwright tests: on", "Compose files: on", "Send Casper's name to OpenRouter: on", "Sign-ins from other tools: on", "Readable private places: none", "Network server updates: on", "My MCP servers: on", "MCP pictures: on", "Apps' MCP servers: on", "Apps' access modes: on", "Apps answer the AI's questions: on", "Apps close idle Casper: on", "My language servers: on", "Private ssh passwords: on", "Commands that read private places: on",
+    "Work shown: normal", "Reasoning headline: on", "Theme: default", "Untrusted-text reader: on", "Helpers that build: off", "Playwright tests: on", "Compose files: on", "Send Casper's name to OpenRouter: on", "Sign-ins from other tools: on", "Readable private places: none", "Network server updates: on", "My MCP servers: on", "MCP pictures: on", "Apps' MCP servers: on", "Apps' access modes: on", "Apps answer the AI's questions: on", "Apps close idle Casper: on", "Apps show running output: on", "My language servers: on", "Private ssh passwords: on", "Commands that read private places: on",
   ]);
   expect(settingRows(context).find((row) => row.label === "Playwright tests")!.question).toBe("Casper runs a project's own Playwright tests (the e2e check) after each change, once they are installed. They are on.");
   const question = (label: string, rows = settingRows(context)) => rows.find((row) => row.label === label)!.question;
@@ -235,6 +235,20 @@ test("The settings list has MCP pictures with key mcp_pictures, on by default, a
   row = settingRows(context).find((entry) => entry.label === "MCP pictures")!;
   expect(row.value).toBe("off");
   expect(row.choices.map((choice) => [choice.label, choice.keys, choice.value])).toEqual([["Turn them on", ["mcp_pictures"], true]]);
+});
+
+test("The settings list has Apps show running output with key acp_live_output", async () => {
+  const { home, project, config } = await place();
+  let context = await loadProjectContext(await inspectProject(project), { homeDir: home });
+  let row = settingRows(context).find((entry) => entry.label === "Apps show running output")!;
+  expect(row.value).toBe("on");
+  expect(row.question).toContain("Applies from the next prompt.");
+  expect(row.choices.map((choice) => [choice.label, choice.keys, choice.value])).toEqual([["Turn it off", ["acp_live_output"], false]]);
+  await writeFile(config, "acp_live_output: off\n");
+  context = await loadProjectContext(await inspectProject(project), { homeDir: home });
+  row = settingRows(context).find((entry) => entry.label === "Apps show running output")!;
+  expect(row.value).toBe("off");
+  expect(row.choices.map((choice) => [choice.label, choice.keys, choice.value])).toEqual([["Turn it on", ["acp_live_output"], true]]);
 });
 
 test("The settings list has Apps close idle Casper with key acp_idle_exit", async () => {

@@ -17,7 +17,8 @@
 // this process now, by kind only (decision 91). The conversation's name, the plain-words title its first request gives
 // it with no model call, is the app's chat title (session_info_update, decision 96). Each prompt reply carries the
 // conversation's mark, and session/fork goes on with a copy of a saved conversation, whole or cut at a mark; the
-// source is only read (decision 97).
+// source is only read (decision 97). A running command's latest lines reach the app while it runs, unless
+// acp_live_output is off or netconan is in use (decision 98).
 
 import os from "node:os";
 import path from "node:path";
@@ -34,11 +35,11 @@ import { promptWords } from "../app/rewind";
 import { taskExitCode } from "../task/result";
 import { CASPER_VERSION } from "../version";
 import type { AwayAsker } from "../tui/terminal";
-import { readAcpIdleExitSetting, readAcpMcpSetting, type AcpMcpSetting } from "../config/load";
+import { readAcpIdleExitSetting, readAcpLiveOutputSetting, readAcpMcpSetting, type AcpMcpSetting } from "../config/load";
 import type { MCPServerDefinition } from "../mcp/config";
 import { toolCallId } from "../runtime/tool-reason";
 import type { RuntimeEvent, RuntimeSession, RuntimeSessionInfo, RuntimeStatus } from "../runtime/types";
-import { fileTextHoldsSecret, onlyNetconanChecks } from "../secrets/tool-output";
+import { fileTextHoldsSecret, liveOutputHoldsSecret, onlyNetconanChecks } from "../secrets/tool-output";
 import { attachImages, leadingImagePath, startsWithImageFile } from "../app/images";
 import { terminalText } from "../tui/format";
 import { forgetSteered, settleAppSteers, steerFromApp } from "../app/during-work";
@@ -192,6 +193,8 @@ export async function runAcpSession(options: SessionOptions): Promise<void> {
   // A step shows a file's text only when it holds no secret by the rules a read of that file gets. Those rules take
   // netconan in too when it is installed, and it can't run on text shown at once, so then no device config is shown.
   let netconanInUse = false;
+  // acp_live_output, read again at each prompt: a running command's lines go out while it runs (decision 98).
+  let liveOutput = true;
   // A step's relative path is resolved from where the runtime works (the git top level of a session opened in a
   // subfolder), so its locations and diffs name the file it really wrote.
   const mapper = new UpdateMapper(hide, { cwd: () => app?.projectContext ? app.activeWorkspaceRoot() : folder ?? process.cwd(), mcpTool: (name, args) => app?.broker?.named(name, args),
@@ -203,7 +206,11 @@ export async function runAcpSession(options: SessionOptions): Promise<void> {
     headlines: () => app?.projectContext?.reasoningHeadline !== false && (!app || displayLevel(app) !== "quiet"),
     values: () => secrets,
     // The main runtime's usage after each of its responses (decision 88).
-    usage: () => app?.session?.getUsage?.(), status: () => app?.session?.getStatus?.() });
+    usage: () => app?.session?.getUsage?.(), status: () => app?.session?.getStatus?.(),
+    // A running command's lines go out as it runs, never while netconan is in use, and only lines the final output's
+    // scrub would leave as they are (decision 98).
+    liveOutput: () => liveOutput, netconan: () => netconanInUse,
+    liveHoldsSecret: (text, cut, before) => liveOutputHoldsSecret(text, { cut, before, ...(app ? { configs: app.scrubFiles, networkLoginFile: networkLoginFile(app) } : {}) }) });
   // A box is a step on the wire: the text so far, and a command's open block, end before it (and before its answer).
   const boxUpdate = (update: Json) => { for (const done of mapper.flush()) sendUpdate(done); sendUpdate(update); };
   /** The app's line, as the AI reads it: after the model's words so far, and before its next ones (a message of their
@@ -460,6 +467,7 @@ export async function runAcpSession(options: SessionOptions): Promise<void> {
     let failure: { error: unknown } | undefined;
     let isCommand = false;
     try {
+      liveOutput = await readAcpLiveOutputSetting(options.homeDir ?? os.homedir()) === "on";
       // A command as the terminal tells one (src/app/command-loop.ts): a leading "/" that is not a picture file's path.
       // It takes only the person's words: embedded context sent with it (another chat) is never its words (decision 90).
       const line = content.context.length ? withoutPasted(content.text, content.context) : content.text.trim();
