@@ -209,6 +209,8 @@ export async function loadWorkspace(app: CasperApp, cwd: string) {
     readOnly: () => app.readOnlyAccess,
     // The app's "Don't ask" asks nothing, so the app's servers' changes get Casper's box (decision 82).
     clientAsksIgnored: () => app.clientAccess === "full",
+    // MCP pictures (decision 99): your /settings switch, read at each call.
+    pictures: () => app.projectContext?.mcpPictures !== "off",
     onSessionCovered: (server, tool) => { if (!app.closing) app.output.write(`[approval] allowed (this session): ${terminalText(server)} · ${terminalText(tool)}\n`); },
     // An MCP change is treated like a shell command: it may change the project's files (or a service's), so later
     // checks are not "before the change", services restart, and the tree is compared to tell.

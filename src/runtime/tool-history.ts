@@ -75,13 +75,16 @@ export class ToolHistory {
         if (message.role !== "toolResult" || message.isError || this.masks.has(keyOf(message))) continue;
         const call = calls.get(message.toolCallId);
         if (!call || !eligible(message) || referenced(message, call, references)) continue;
-        const imagesOnly = message.toolName === "browser" && call.arguments.action !== "screenshot";
+        // An MCP result keeps its text; only its old pictures go (decision 99), as a browser check's do.
+        const mcp = isMcpTool(message.toolName);
+        const imagesOnly = mcp || (message.toolName === "browser" && call.arguments.action !== "screenshot");
         const target = typeof call.arguments.path === "string" ? call.arguments.path
           : typeof call.arguments.command === "string" ? call.arguments.command
-            : typeof call.arguments.action === "string" ? call.arguments.action : "";
-        const recall = message.toolName === "bash" || message.toolName === "powershell" ? "re-run only if safe to see it" : "re-run to see it";
+            : typeof call.arguments.action === "string" ? call.arguments.action
+              : mcp && typeof call.arguments.id === "string" ? call.arguments.id : "";
+        const recall = mcp || message.toolName === "bash" || message.toolName === "powershell" ? "re-run only if safe to see it" : "re-run to see it";
         const mask = { key: keyOf(message), imagesOnly,
-          text: `[${imagesOnly ? "screenshots" : "output"} of ${oneLine(message.toolName)}${target ? ` ${oneLine(target)}` : ""} hidden, ${recall}]` };
+          text: `[${mcp ? "pictures" : imagesOnly ? "screenshots" : "output"} of ${oneLine(message.toolName)}${target ? ` ${oneLine(target)}` : ""} hidden, ${recall}]` };
         masks.push(mask);
         if (first < 0) first = index;
         hideable += imagesOnly ? message.content.filter((part) => part.type === "image").length * IMAGE_TOKENS : tokensOf(message);
@@ -126,8 +129,13 @@ function promptTokens(messages: Message[]): number {
   return messages.reduce((sum, message) => sum + tokensOf(message), 0);
 }
 
+/** call_capability, or a direct MCP tool (`mcp_<name>_<8 or 24 hex>`, src/capabilities/broker.ts runtimeName). */
+function isMcpTool(name: string): boolean {
+  return name === "call_capability" || /^mcp_\w+_(?:[0-9a-f]{8}|[0-9a-f]{24})$/.test(name);
+}
+
 function eligible(message: ToolResultMessage): boolean {
-  if (message.toolName === "browser") return message.content.some((part) => part.type === "image");
+  if (message.toolName === "browser" || isMcpTool(message.toolName)) return message.content.some((part) => part.type === "image");
   if (!["read", "bash", "powershell"].includes(message.toolName)) return false;
   if (message.toolName !== "read" && /\b(?:fail(?:ed|ure)?|error|timed? out|aborted|killed|stopped|exited with code|unfinished|running in (?:the )?background|still running|moved to (?:the )?background)\b/i.test(textOf(message))) return false;
   return message.content.some((part) => part.type === "image") || textOf(message).length >= TOOL_HISTORY_MIN_CHARS;

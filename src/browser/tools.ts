@@ -1,22 +1,15 @@
-import { formatDimensionNote, resizeImage } from "@earendil-works/pi-coding-agent";
 import { boundedObservation } from "../capabilities/result";
+import { fitImage } from "../pictures/fit";
 import type { RuntimeImage, RuntimeTool } from "../runtime/types";
 import { formatTerminalJSON } from "../tui/json";
 import { BROWSER_ACTION_FIELDS, BROWSER_ACTIONS } from "./arguments";
 import { MAX_ASSERTIONS } from "./scenario";
 import { SCREENSHOT_PNG, type BrowserSession } from "./session";
 
-/** Base64 size a picture may have: Pi's read tool keeps the same headroom below Anthropic's 5 MB per image. */
-const PICTURE_MAX_BASE64 = 4.5 * 1024 * 1024;
-
-/** A screenshot as the model may receive it: shrunk the way Pi's read tool shrinks pictures (at most 2000 px and
- * 4.5 MB of base64), with a note when it was resized, or left out when it can't be made small enough. */
+/** A screenshot as the model may receive it (src/pictures/fit.ts), or left out when it can't be made small enough. */
 export async function fitPicture(base64: string): Promise<{ image?: RuntimeImage; note?: string }> {
-  const fitted = await resizeImage(Buffer.from(base64, "base64"), "image/png").catch(() => null);
-  if (fitted) return { image: { data: fitted.data, mimeType: fitted.mimeType }, note: formatDimensionNote(fitted) };
-  // No image library here: a picture already small enough still goes as it is.
-  if (base64.length < PICTURE_MAX_BASE64) return { image: { data: base64, mimeType: "image/png" } };
-  return { note: "Picture not attached: too large to send; the PNG is at path." };
+  const fitted = await fitImage(base64, "image/png");
+  return fitted.image ? fitted : { note: "Picture not attached: too large to send; the PNG is at path." };
 }
 
 /** "viewport" for width: the actions that take a field, from the same table the validator uses. A field's note

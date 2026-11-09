@@ -172,6 +172,26 @@ test("old tool screenshots hide; user images, recent pictures and actively refer
   }
 });
 
+test("an old MCP result loses only its pictures; its text, a text-only MCP result and a referenced picture stay", () => {
+  const image = { type: "image" as const, data: "aGVsbG8=", mimeType: "image/png" };
+  for (const [name, args] of [["mcp_snapshot_0a1b2c3d", {}], ["call_capability", { id: "mcp:pics:snapshot", arguments: {} }]] as const) {
+    const original = history(); const call = (original[2] as AssistantMessage).content.at(-1)!;
+    if (call.type !== "toolCall") throw new Error("fixture call missing");
+    call.name = name; call.arguments = { ...args };
+    const output = original[3] as ToolResultMessage;
+    output.toolName = name; output.content = [{ type: "text", text: "Site map summary" }, image];
+    const projected = outputs(new ToolHistory().project(original, true, { contextWindow: 40_000 }).messages)[0]!;
+    expect(projected.content.some((part) => part.type === "image")).toBe(false);
+    expect(text(projected)).toContain("Site map summary");
+    expect(text(projected)).toContain(`[pictures of ${name}${name === "call_capability" ? " mcp:pics:snapshot" : ""} hidden, re-run only if safe to see it]`);
+    original.push({ role: "user", timestamp: 9, content: "Look at that image again" });
+    expect(outputs(new ToolHistory().project(original).messages)[0]).toEqual(output);
+  }
+  const original = history(); const output = original[3] as ToolResultMessage;
+  output.toolName = "mcp_snapshot_0a1b2c3d"; output.content = [{ type: "text", text: "x".repeat(TOOL_HISTORY_MIN_CHARS * 2) }];
+  expect(outputs(new ToolHistory().project(original).messages)[0]).toEqual(output);
+});
+
 test("compaction resets the checkpoint cadence, surviving stubs never change", () => {
   const masker = new ToolHistory(); const first = masker.project(history(16));
   const compacted = history(2); expect(masker.project(compacted).checkpoint?.turns).toBe(0);

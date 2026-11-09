@@ -586,3 +586,16 @@ test("Keep going row: on by default, a pick writes keep_going: false; it loads f
   await writeFile(projectFile, "keep_going: off\n");
   await expect(load()).rejects.toThrow("keep_going is a user setting");
 });
+
+test("MCP pictures: on by default in the MCP area, off writes mcp_pictures: false and applies at the next step", async () => {
+  const { home, project, config } = await folders();
+  expect(SETTINGS_AREAS[settingsArea("MCP pictures")]!.name).toBe("MCP & network");
+  const host = { ...fakeHost(home, project, ["MCP pictures", "Turn them off", "Done"]), duringTask: true };
+  await runSettings(host);
+  expect(host.asked[1]!.split("\n").slice(1)).toEqual(["1 Keep them on", "2 Turn them off"]);
+  expect(await readFile(config, "utf8")).toBe("mcp_pictures: false\n");
+  expect((await host.context())!.mcpPictures).toBe("off");
+  expect(host.text()).toContain("The running task uses it from its next step.");
+  await runSettings(fakeHost(home, project, ["MCP pictures", "Turn them on", "Done"]));
+  expect(await valueOf(home, project, "MCP pictures")).toBe("on");
+});

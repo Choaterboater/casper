@@ -11,6 +11,8 @@ import type { CheckChangeOptions } from "./check-changes";
 export interface RuntimeToolContext {
   /** Serialize multi-file mutations with the runtime's native file writers. */
   withFileLocks<T>(paths: string[], work: () => Promise<T>): Promise<T>;
+  /** The model this call answers can see images. False: a tool skips the work of making pictures (decision 99). */
+  seesImages?: boolean;
 }
 
 export interface RuntimeTool {
