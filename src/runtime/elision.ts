@@ -9,7 +9,7 @@ const PHRASE = String.raw`(?:\.\.\.|…)\s*(?:unchanged|existing|rest\s+(?:of\b|
   + String.raw`|(?:unchanged|existing\s+code|rest\s+of\s+(?:the\s+)?(?:file|code|implementation)|same\s+as\s+before|snipped?|omitted|elided)\s*(?:\.\.\.|…)`
   + String.raw`|(?:rest|remainder|everything\s+else)\s+of\s+(?:the\s+)?(?:file|code|implementation|function|class|module|method|component)\b[^\n]{0,40}?(?:unchanged|the\s+same|omitted|identical|as\s+before)`;
 /** Casper's own history stub for an old file body (src/runtime/tool-history.ts), copied back into a file. */
-const STUB = String.raw`\[(?:content|text) of .+ hidden, read the file before editing it\]`;
+const STUB = String.raw`\[(?:content|text) of .+ hidden, read the file before judging or editing it\]`;
 const MARKER = new RegExp(String.raw`^\s*(?:${OPENER}\s*(?:${PHRASE})|${STUB})`, "i");
 
 export const ELISION_NOTE = "The file now has a placeholder where code was. Write it in full or use edit.";

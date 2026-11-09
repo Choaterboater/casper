@@ -322,8 +322,9 @@ and verification results are not hidden.
 The same goes for the file bodies the AI sent: the content of an old `write`, the text of an old `edit`, and
 the body of an old `cat > file <<'EOF'` command, from 2,000 characters. The call keeps its tool, its path
 and its command line; only the body becomes a stub such as `[content of write public/app.js (640 lines)
-hidden, read the file before editing it]`, since the file on disk has it. A body stays while the latest rounds
-or request name its file, quote one of its lines or point back at an earlier write, and when the call failed.
+hidden, read the file before judging or editing it]`, since the file on disk has it, so a review never rates
+code it no longer sees. A body stays while the latest rounds or request name its file, quote one of its lines
+or point back at an earlier write, and when the call failed.
 
 When Casper starts a round itself (a check repair, the requirements review and self-review, a proof repair,
 finishing browser checks, keep going), hiding does not wait for the fifth-of-the-window or 60% mark: at that

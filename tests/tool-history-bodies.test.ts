@@ -47,14 +47,18 @@ test("old write, edit and heredoc bodies become stubs naming the file and its si
   const projected = new ToolHistory().project(c.messages, true, { ...window, followUp: true });
   expect(projected.checkpoint?.masks.map((mask) => mask.key.split(":")[0])).toEqual(["body", "body", "body", "body"]);
   const sent = projected.messages;
-  expect(callArgs(sent, write)).toEqual({ path: "public/app.js", content: "[content of write public/app.js (120 lines) hidden, read the file before editing it]" });
-  expect(callArgs(sent, edit)).toEqual({ path: "src/server.ts", edits: [{ oldText: "[hidden]", newText: "[text of 1 replacement in edit src/server.ts hidden, read the file before editing it]" }] });
-  expect(callArgs(sent, heredoc)).toEqual({ command: "mkdir -p test && cat > test/api.test.js <<'EOF'\n[content of test/api.test.js (80 lines) hidden, read the file before editing it]\nEOF" });
-  expect(callArgs(sent, legacy)).toEqual({ path: "src/db.ts", edits: [{ oldText: "[hidden]", newText: "[text of 1 replacement in edit src/db.ts hidden, read the file before editing it]" }] });
+  expect(callArgs(sent, write)).toEqual({ path: "public/app.js", content: "[content of write public/app.js (120 lines) hidden, read the file before judging or editing it]" });
+  expect(callArgs(sent, edit)).toEqual({ path: "src/server.ts", edits: [{ oldText: "[hidden]", newText: "[text of 1 replacement in edit src/server.ts hidden, read the file before judging or editing it]" }] });
+  expect(callArgs(sent, heredoc)).toEqual({ command: "mkdir -p test && cat > test/api.test.js <<'EOF'\n[content of test/api.test.js (80 lines) hidden, read the file before judging or editing it]\nEOF" });
+  expect(callArgs(sent, legacy)).toEqual({ path: "src/db.ts", edits: [{ oldText: "[hidden]", newText: "[text of 1 replacement in edit src/db.ts hidden, read the file before judging or editing it]" }] });
   // Only call arguments change: results, text and the saved conversation stay as they were.
   expect(JSON.stringify(c.messages)).toBe(bytes);
   expect(sent.filter((message) => message.role !== "assistant")).toEqual(c.messages.filter((message) => message.role !== "assistant"));
-  for (const mask of projected.checkpoint!.masks) expect(mask.text.length).toBeLessThanOrEqual(512);
+  // Every stub names its file and tells the model to read it first, so a review never judges code it no longer sees.
+  for (const mask of projected.checkpoint!.masks) {
+    expect(mask.text.length).toBeLessThanOrEqual(512);
+    expect(mask.text).toEndWith(", read the file before judging or editing it]");
+  }
 });
 
 test("a body stays while it is recent, named, quoted, failed, small, not a file, or hiding is off", () => {
@@ -76,10 +80,10 @@ test("a body stays while it is recent, named, quoted, failed, small, not a file,
   const projected = new ToolHistory().project(c.messages, true, { ...window, followUp: true });
   const sent = projected.messages;
   for (const id of [named, edited, quoted, failed, small, script, two, recent]) expect(callArgs(sent, id)).toEqual(callArgs(c.messages, id));
-  expect(callArgs(sent, hidden).content).toBe("[content of write public/hidden.js (300 lines) hidden, read the file before editing it]");
+  expect(callArgs(sent, hidden).content).toBe("[content of write public/hidden.js (300 lines) hidden, read the file before judging or editing it]");
   // A model that copies the stub back into a file gets the placeholder note, as for "// ... existing code ...".
   expect(newElisions("", `${callArgs(sent, hidden).content}\n`)).toHaveLength(1);
-  expect(newElisions("", "[text of 2 replacements in edit src/a.ts hidden, read the file before editing it]")).toHaveLength(1);
+  expect(newElisions("", "[text of 2 replacements in edit src/a.ts hidden, read the file before judging or editing it]")).toHaveLength(1);
   // A vague pointer back at an earlier write keeps every body this time.
   c.user("Compare it with the previous version.");
   expect(new ToolHistory().project(c.messages, true, { ...window, followUp: true }).checkpoint).toBeUndefined();

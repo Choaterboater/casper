@@ -13,8 +13,8 @@ usually before decision 12's marks are reached.
   the latest four rounds, at the same checkpoints, outweighing what the rebuild re-reads, and saved as branch-local
   masks. Eligible: a successful `write` (its content), `edit` (its replacement text, the legacy `oldText`/`newText`
   form too) and a bash command that is one `cat > file <<DELIM` heredoc, optionally after a `&&` or `;` prefix,
-  each from 2,000 characters. The stub names the tool, the file and its size, and says to read the file before editing
-  it. The call keeps its tool, its path and, for a heredoc, its command line and closing line.
+  each from 2,000 characters. The stub names the tool, the file and its size, and says to read the file before judging
+  or editing it, so a review never rates code it no longer sees. The call keeps its tool, its path and, for a heredoc, its command line and closing line.
 - **A body stays** while the latest rounds or the latest request name its path or file name, quote one of its lines
   (tool arguments compared unescaped), name its call id or point back at an earlier write or version. Shared
   library words do not count, as they do for results, because the file on disk can always be read again.

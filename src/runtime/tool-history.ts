@@ -198,7 +198,7 @@ function fileBody(call: ToolCall): FileBody | undefined {
   const args = call.arguments;
   const path = typeof args.path === "string" ? args.path : "";
   if (call.name === "write" && path && typeof args.content === "string") {
-    return { path, text: args.content, stub: `[content of write ${oneLine(path)} (${lineCount(args.content)} lines) hidden, read the file before editing it]` };
+    return { path, text: args.content, stub: `[content of write ${oneLine(path)} (${lineCount(args.content)} lines) hidden, read the file before judging or editing it]` };
   }
   if (call.name === "edit" && path) {
     const edits = typeof args.edits === "string" ? [args.edits] : Array.isArray(args.edits) ? args.edits : [];
@@ -206,11 +206,11 @@ function fileBody(call: ToolCall): FileBody | undefined {
     const text = parts.map((edit) => typeof edit === "string" ? edit : edit && typeof edit === "object"
       ? ["oldText", "newText"].map((key) => { const value = Reflect.get(edit, key); return typeof value === "string" ? value : ""; }).join("\n") : "").join("\n");
     const count = typeof args.edits === "string" ? "the" : String(parts.length);
-    return { path, text, stub: `[text of ${count} ${parts.length === 1 ? "replacement" : "replacements"} in edit ${oneLine(path)} hidden, read the file before editing it]` };
+    return { path, text, stub: `[text of ${count} ${parts.length === 1 ? "replacement" : "replacements"} in edit ${oneLine(path)} hidden, read the file before judging or editing it]` };
   }
   if (call.name === "bash" && typeof args.command === "string") {
     const heredoc = heredocBody(args.command);
-    if (heredoc) return { path: heredoc.path, text: heredoc.body, stub: `[content of ${oneLine(heredoc.path)} (${lineCount(heredoc.body)} lines) hidden, read the file before editing it]` };
+    if (heredoc) return { path: heredoc.path, text: heredoc.body, stub: `[content of ${oneLine(heredoc.path)} (${lineCount(heredoc.body)} lines) hidden, read the file before judging or editing it]` };
   }
   return undefined;
 }

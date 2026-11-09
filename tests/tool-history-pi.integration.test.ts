@@ -86,7 +86,7 @@ for (const mode of ["follow-up", "plain"]) test(`Pi hides an old file body at th
   for (const index of [7, 8]) {
     if (mode === "follow-up") {
       expect(sent(index)).not.toContain("SYNTHETIC_BODY_LINE");
-      expect(sent(index)).toContain("[content of write built.txt (400 lines) hidden, read the file before editing it]");
+      expect(sent(index)).toContain("[content of write built.txt (400 lines) hidden, read the file before judging or editing it]");
     } else expect(sent(index)).toContain("SYNTHETIC_BODY_LINE");
   }
   // The cache is rebuilt once, at the round's first request, and never again.
@@ -94,7 +94,7 @@ for (const mode of ["follow-up", "plain"]) test(`Pi hides an old file body at th
 }, childTestLimit(3));
 test("after its body is hidden, an edit made from the stub is refused and a stub written back gets the placeholder note", async () => {
   let requests = 0;
-  const stub = "[content of write built.txt (400 lines) hidden, read the file before editing it]";
+  const stub = "[content of write built.txt (400 lines) hidden, read the file before judging or editing it]";
   const f = await fixture(() => {
     const step = requests++;
     if (step === 0) return calls([{ name: "write", args: { path: "built.txt", content: "SYNTHETIC_BODY_LINE\n".repeat(400) } }]);
