@@ -266,6 +266,21 @@ test("sudo -n over ssh, and any ssh with BatchMode=yes, never take the terminal:
   }
 });
 
+test("a heredoc's lines are data, not commands: a `/login` route in a written file needs no terminal; a real login after it does", () => {
+  const body = "app.get('/x', h);\n/login\n  vim\nless notes\n";
+  const data = [`cat > app.js <<EOF\n${body}EOF`, `cat > app.js <<'EOF'\n${body}EOF`, `cat > app.js <<"EOF"\n${body}EOF`,
+    `cat > app.js << EOF\n${body}EOF`, `cat > app.js <<-EOF\n\t/login\n\tEOF`, `cat <<\\EOF > app.js\n${body}EOF`,
+    `cat > a <<A > /dev/null; cat > b <<'B'\n/login\nA\nvim\nB\necho done`, `cat <<EOF | grep x\n/login\nEOF`,
+    // Not ended: bash reads to the end as the body.
+    `cat > app.js <<EOF\n/login\n`, "psql mydb <<EOF\nselect 1;\nEOF", "python3 <<EOF\nprint(1)\nEOF",
+    // Only an end word alone on its line ends the body; `<<<` and arithmetic `<<` are not heredocs.
+    `cat > a <<EOF\nEOF2\n/login\n EOF\nEOF`, "echo $((1 << 2)); ls", "grep x <<< '/login'", "echo '<<EOF'\nls"];
+  for (const command of data) expect([command, terminalNeed(command)]).toEqual([command, undefined]);
+  const real = [`cat > app.js <<EOF\n${body}EOF\nlogin`, `cat > app.js <<'EOF'\n/login\nEOF\nvim app.js`, `cat > a <<-EOF\n\tx\n\tEOF\nlogin`,
+    `cat > a <<A; cat > b <<B\nx\nA\ny\nB\nnano a`, "echo $((1 << 2))\nvim a", "echo '<<EOF'\nvim a", "# no <<EOF here\nlogin", "login"];
+  for (const command of real) expect([command, terminalNeed(command)]).toEqual([command, "interactive"]);
+});
+
 viaBash("an interactive command gets the terminal right after its usual box, with a one-line note; the AI reads its exit code and last lines", async () => {
   const handOver = lender();
   const w = await world({ handOver: handOver.value, answers: ["Yes, this once"] });
