@@ -171,6 +171,85 @@ test("lab logins written as prose, markdown or a table are hidden; the words aro
   ]);
 });
 
+// Made-up values. Each table is drawn the way its tool draws it: a rule under the header, and for some one between rows.
+const GRID_SECRETS = ["Fake-Grid-Pass-0001", "Fake-Grid-Pass-0002"];
+/** A table of two logins. `head` and `body` are the bars of the header and of the rows; each rule is its left end, fill, cross and right end. */
+function grid(head: string, body: string, rules: { top?: string; under: string; between?: string; bottom?: string }): string[] {
+  const widths = [8, 21, 6];
+  const rule = (marks?: string) => marks ? [`${marks[0]}${widths.map((width) => marks[1]!.repeat(width)).join(marks[2])}${marks[3]}`] : [];
+  const row = (bar: string, cells: string[]) => `${bar}${cells.map((cell, at) => ` ${cell.padEnd(widths[at]! - 1)}`).join(bar)}${bar}`;
+  return [...rule(rules.top), row(head, ["user", "password", "role"]), ...rule(rules.under), row(body, ["app", GRID_SECRETS[0]!, "rw"]),
+    ...rule(rules.between), row(body, ["backup", GRID_SECRETS[1]!, "ro"]), ...rule(rules.bottom)];
+}
+const GRIDS: Array<[string, string[]]> = [
+  ["mysql, psql with a border, tabulate pretty", grid("|", "|", { top: "+-++", under: "+-++", bottom: "+-++" })],
+  ["tabulate grid", grid("|", "|", { top: "+-++", under: "+=++", between: "+-++", bottom: "+-++" })],
+  ["a line of = under the header", grid("|", "|", { under: "====" })],
+  ["a box with a rule between rows (tabulate simple_grid, rich with lines)", grid("│", "│", { top: "┌─┬┐", under: "├─┼┤", between: "├─┼┤", bottom: "└─┴┘" })],
+  ["rich's default table", grid("┃", "│", { top: "┏━┳┓", under: "┡━╇┩", bottom: "└─┴┘" })],
+  ["tabulate fancy_grid, pveum", grid("│", "│", { top: "╒═╤╕", under: "╞═╪╡", between: "├─┼┤", bottom: "╘═╧╛" })],
+  ["tabulate heavy_grid", grid("┃", "┃", { top: "┏━┳┓", under: "┣━╋┫", between: "┣━╋┫", bottom: "┗━┻┛" })],
+  ["tabulate double_grid", grid("║", "║", { top: "╔═╦╗", under: "╠═╬╣", between: "╠═╬╣", bottom: "╚═╩╝" })],
+  ["tabulate rounded_grid", grid("│", "│", { top: "╭─┬╮", under: "├─┼┤", between: "├─┼┤", bottom: "╰─┴╯" })],
+  // psql's own table has no bar at either end of a row.
+  ["psql", [" usename |       passwd        | role ", "---------+---------------------+------", " app     | Fake-Grid-Pass-0001 | rw", " backup  | Fake-Grid-Pass-0002 | ro", "(2 rows)"]],
+  ["psql, a row with no name", [" usename |       passwd        | role ", "---------+---------------------+------", " app     | Fake-Grid-Pass-0001 | rw", "         | Fake-Grid-Pass-0002 | ro", "(2 rows)"]],
+  ["psql with unicode lines", [" usename │       passwd        │ role ", "─────────┼─────────────────────┼──────", " app     │ Fake-Grid-Pass-0001 │ rw", " backup  │ Fake-Grid-Pass-0002 │ ro", "(2 rows)"]],
+];
+
+test("a rule line under a table's header or between its rows keeps the Password column hidden: mysql, psql, rich and tabulate grids", async () => {
+  let windows = 0;
+  for (const [name, lines] of GRIDS) {
+    const header = lines.findIndex((line) => /pass/.test(line));
+    const want = lines.map((line) => GRID_SECRETS.reduce((out, secret) => out.replace(secret, "<secret hidden>"), line));
+    // The words around the secrets stay: the header, the other cells and every rule.
+    expect([name, scrubPlainSecrets(lines.join("\n"), { env: {} }).text.split("\n")]).toEqual([name, want]);
+    // Every run of whole lines with the header in view, as an output cut anywhere would be read: no run shows a
+    // secret or a secret's tail. (A row whose header is above the run has no column to go by.)
+    for (let start = 0; start <= header; start++) {
+      for (let end = start + 1; end <= lines.length; end++) {
+        for (const [tool, input] of [["bash", { command: "./logins.sh" }], ["read", { path: "notes/logins.txt" }]] as const) {
+          const text = lines.slice(start, end).join("\n");
+          const out = (await scrubToolOutput(scrubber, tool, input, [text], undefined, { env: {} }))?.texts[0] ?? text;
+          windows++;
+          for (const secret of GRID_SECRETS) {
+            for (const part of [secret, secret.slice(-6)]) expect([name, tool, start, end, part, out.includes(part)]).toEqual([name, tool, start, end, part, false]);
+          }
+        }
+      }
+    }
+  }
+  expect(windows).toBeGreaterThan(200);
+  // Under a device config's lines the device rules read the output first: the same columns go.
+  for (const [name, lines] of GRIDS.slice(0, 3)) {
+    const text = ["hostname lab-sw1", "snmp-server community FixtureComm9 RO", ...lines].join("\n");
+    const out = (await scrubToolOutput(scrubber, "bash", { command: "./logins.sh" }, [text], undefined, { env: {} }))!.texts[0]!;
+    for (const secret of ["FixtureComm9", ...GRID_SECRETS]) expect([name, secret, out.includes(secret.slice(-6))]).toEqual([name, secret, false]);
+  }
+});
+
+test("a table's rules hide no more than its secret column: a key and value table keeps its names, and the next table starts fresh", () => {
+  const plain = (text: string) => scrubPlainSecrets(text, { env: {} }).text;
+  // pveum and pvesh draw "key | value": the key column names the rows, and only the token's value goes.
+  const uuid = "0f1e2d3c-4b5a-6978-8a9b-0c1d2e3f4a5b";
+  const pveum = ["┌──────────────┬──────────────────────────────────────┐", "│ key          │ value                                │",
+    "╞══════════════╪══════════════════════════════════════╡", "│ full-tokenid │ root@pam!sampleapp                   │",
+    "├──────────────┼──────────────────────────────────────┤", "│ info         │ {\"privsep\":\"1\"}                      │",
+    "├──────────────┼──────────────────────────────────────┤", `│ value        │ ${uuid} │`,
+    "└──────────────┴──────────────────────────────────────┘"];
+  expect(plain(pveum.join("\n")).split("\n")).toEqual(pveum.map((line) => line.replace(uuid, "<secret hidden>")));
+  // A table with no secret column stays whole, with any rules.
+  const nicknames = (lines: string[]) => lines.join("\n").replace(/password|passwd/, "nickname").replaceAll("Fake-Grid-Pass-000", "Fixture-Nick-Name-0");
+  for (const [name, lines] of GRIDS) expect([name, plain(nicknames(lines))]).toEqual([name, nicknames(lines)]);
+  // A bottom edge and then a top edge: a table printed right under a table of logins is read by its own header.
+  for (const [name, logins] of [GRIDS[1]!, GRIDS[4]!]) {
+    const hidden = logins.join("\n").replaceAll(/Fake-Grid-Pass-000\d/g, "<secret hidden>");
+    expect([name, plain(`${logins.join("\n")}\n${nicknames(logins)}`)]).toEqual([name, `${hidden}\n${nicknames(logins)}`]);
+  }
+  // Text after a table ends it.
+  expect(plain(`${GRIDS[0]![1].join("\n")}\n2 rows in set\n| app | Fixture-Nick-Name-01 | rw |`)).toContain("| app | Fixture-Nick-Name-01 | rw |");
+});
+
 test("a file or branch name with login in it is not a login: the name after it stays", () => {
   for (const command of [
     "git log origin/fix/login-expired origin/fix/minors",

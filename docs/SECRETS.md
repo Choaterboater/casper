@@ -81,7 +81,7 @@ through. Check what a tool returns before you share it.
   `**root** / **<secret hidden>**`, `login: admin / <secret hidden>`,
   `creds: user / <secret hidden>`, `**Password:** <secret hidden>`, `pw: <secret hidden>`,
   `the password is <secret hidden>`, `admin:<secret hidden>@10.0.0.5`, the cells of a table's Password
-  column, Proxmox API tokens (`root@pam!name=<secret hidden>`, `PVEAPIToken=...`, the value row of
+  column (a Markdown table, or one drawn with rules: mysql's and psql's, rich's and tabulate's grids), Proxmox API tokens (`root@pam!name=<secret hidden>`, `PVEAPIToken=...`, the value row of
   `pveum user token add`), a token's secret written after its id (`root@pam!sampleapp <secret hidden>`)
   and `token=<uuid or long hex>`. In commands: `sshpass -p`, `--password`,
   `--token`, `curl -u user:<secret hidden>`, `mysql -p`, `ipmitool -P`, `smbclient -U user%...`,
@@ -287,6 +287,11 @@ Casper.
   format Casper doesn't know reaches the AI. Lab logins written with no spaces
   (`root/Example-Pass1`) or in a sentence ("use root and Example-Pass1") are not hidden,
   because they look like a path or plain words.
+- A table's secret column is known by its header (`Password`, `Secret`, `Token`, `Key`, `Community`
+  and the like), through any rule lines under it or between its rows. Rows whose header is not in
+  the output are not hidden, and a table with no bars (PowerShell's `Format-Table`) is not read as
+  one. A plain cell under such a header is hidden too: the `Key` column of mysql's `DESCRIBE` shows
+  `<secret hidden>`. In a table of `key` and `value` the key column names the rows, so it stays.
 - A private key's body in command output is recognised by its BEGIN or END line; a
   piece of one with neither (`head -n 20 key.pem | tail -n 5`) is not. In a key file
   (`*.pem`, `*.key`, `*.p8`, `id_rsa`, `id_ed25519_deploy`) every long base64 line is hidden, so a certificate read
