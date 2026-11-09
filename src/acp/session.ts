@@ -13,7 +13,8 @@
 // (`_casper/steer`) reaches the AI at its next step, as a line typed in the terminal does (decision 86). Each model
 // response is followed by a usage_update, and Casper's lines for the person are notes (decision 88). A session/load
 // goes on with the conversation's own model and effort (decision 89). `_casper/idle` tells the app whether it may close
-// this process now, by kind only (decision 91).
+// this process now, by kind only (decision 91). The conversation's name, the plain-words title its first request gives
+// it with no model call, is the app's chat title (session_info_update, decision 96).
 
 import os from "node:os";
 import path from "node:path";
@@ -45,19 +46,19 @@ import { accessModeOf, modeState, setAccessMode, withModeTold } from "./modes";
 import { AcpAsker } from "./permission";
 import { promptContent } from "./prompt";
 import { RpcConnection, RpcFailure, RPC, type Json } from "./rpc";
-import { acpReceipt, commandsUpdate, configUpdate, hider, UpdateMapper, valuesHider } from "./updates";
+import { acpReceipt, commandsUpdate, configUpdate, hider, titleShown, UpdateMapper, valuesHider } from "./updates";
 
 /** ACP's protocol version this agent speaks. */
 export const ACP_PROTOCOL_VERSION = 1;
 
 /** The initialize reply, the same from the router and from each session. `acp_mcp: off` says no http server is taken
  * (stdio ones are ACP's baseline; Casper connects none of them either). `_meta.casper.steer`: `_casper/steer` takes a
- * line during a prompt (decision 86). */
+ * line during a prompt (decision 86). `_meta.casper.title`: Casper sends the chat's title (decision 96). */
 export function initializeResult(setting: AcpMcpSetting = "on"): Json {
   return {
     protocolVersion: ACP_PROTOCOL_VERSION,
     agentCapabilities: { loadSession: true, promptCapabilities: { image: true, audio: false, embeddedContext: true }, mcpCapabilities: { http: setting !== "off", sse: false },
-      _meta: { casper: { steer: true } } },
+      _meta: { casper: { steer: true, title: true } } },
     agentInfo: { name: "casper", title: "Casper", version: CASPER_VERSION },
     authMethods: [],
   };
@@ -267,6 +268,19 @@ export async function runAcpSession(options: SessionOptions): Promise<void> {
     lastOffer = json;
     sendUpdate(configUpdate(offer.wire));
   };
+  // The conversation's name the app was last told (decision 96): a name is sent once, when it is new.
+  let toldTitle: string | undefined;
+  /** The conversation's name as the app's chat title, when it changed: the first request's plain-words title (no model
+   * call), a typed /rename, or a loaded conversation's own. Hidden like every other word, also where the title cut or
+   * trimmed a secret (titleShown). */
+  const sendTitle = () => {
+    if (!app || !sessionId) return;
+    let name: string | undefined;
+    try { name = app.session?.getSessionInfo?.().name; } catch { name = undefined; }
+    if (!name || name === toldTitle) return;
+    toldTitle = name;
+    sendUpdate({ sessionUpdate: "session_info_update", title: titleShown(name, hide, secrets), updatedAt: new Date().toISOString() });
+  };
   let asker: AcpAsker | undefined;
   /** The access the app picked (session/set_mode, or the `mode` option): it holds from the next tool call, also during
    * a prompt. A switch to Read only closes every open box as No. */
@@ -313,6 +327,8 @@ export async function runAcpSession(options: SessionOptions): Promise<void> {
       created.acpToolCallId = (id) => mapper.acpId(id);
       created.onOutput = ownLines;
       created.onPersonNote = personNote;
+      // The first request names the conversation as its work starts: the app's chat gets the title at once.
+      created.onConversationNamed = sendTitle;
       // The accepted plan's checklist is the app's plan; planning words that were no plan are a message (decision 84).
       created.onPlanSteps = (steps) => { for (const update of mapper.planSteps(steps)) sendUpdate(update); };
       created.onPlanWords = (words) => { for (const update of mapper.words(words)) sendUpdate(update); };
@@ -376,9 +392,11 @@ export async function runAcpSession(options: SessionOptions): Promise<void> {
     formQuestions = Boolean(capabilities?.elicitation?.form);
     return initializeResult(await readAcpMcpSetting(options.homeDir ?? os.homedir()));
   });
-  // The commands follow the reply, which names the session (a load's, after the conversation it replays).
-  connection.onRequest("session/new", (params) => open(params, false), sendCommands);
-  connection.onRequest("session/load", (params) => open(params, true), sendCommands);
+  // The commands follow the reply, which names the session (a load's, after the conversation it replays), and then the
+  // conversation's name, when it has one (a loaded or continued one).
+  const afterOpen = () => { sendCommands(); sendTitle(); };
+  connection.onRequest("session/new", (params) => open(params, false), afterOpen);
+  connection.onRequest("session/load", (params) => open(params, true), afterOpen);
   connection.onRequest("session/prompt", async (params) => {
     if (!app || !sessionId || params.sessionId !== sessionId) throw new RpcFailure(RPC.notFound, "Unknown session");
     if (busy) throw new RpcFailure(RPC.invalidRequest, "This session is already working on a prompt; cancel it or wait");
@@ -449,8 +467,10 @@ export async function runAcpSession(options: SessionOptions): Promise<void> {
     const exitCode = taskExitCode(report, task, { requireVerification: options.cli.requireVerification });
     learnSecrets();
     for (const update of mapper.flush()) sendUpdate(update);
-    // A typed /model, a failover or a model server found since: the picker follows, before the receipt.
+    // A typed /model, a failover or a model server found since: the picker follows, before the receipt. So does a name
+    // a typed /rename gave the conversation.
     announce();
+    sendTitle();
     let status: RuntimeStatus | undefined;
     try { status = app.session?.getStatus?.(); } catch { status = undefined; }
     const receipt = acpReceipt(receiptEvent(report, task, exitCode, app.sandboxReceipt(), app.commandUsage()), task, hide, { status, root: app.activeWorkspaceRoot() });

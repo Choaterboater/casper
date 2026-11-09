@@ -8,7 +8,8 @@ import { MAX_EMBEDDED_TEXT, promptContent } from "../src/acp/prompt";
 import { RpcConnection, RpcFailure } from "../src/acp/rpc";
 import { SESSION_REQUESTS, sessionArgs, sessionFor } from "../src/acp/server";
 import { askedWithout, initializeResult, promptText } from "../src/acp/session";
-import { acpReceipt, hider, keptLines, UpdateMapper, type AcpReceipt } from "../src/acp/updates";
+import { acpReceipt, hider, keptLines, titleShown, UpdateMapper, type AcpReceipt } from "../src/acp/updates";
+import { sessionTitle } from "../src/tui/session-title";
 import type { ReceiptEvent } from "../src/app/json-events";
 import { retryWords } from "../src/app/events";
 import type { RuntimeEvent, RuntimeSession } from "../src/runtime/types";
@@ -599,6 +600,25 @@ describe("an ACP box names its step and carries its diff (decision 85)", () => {
     expect(await asker.ask(box)).toEqual([YES_ONCE]);
     expect(yes.sent[0]!.options.map((option: { name: string; kind: string }) => [option.name, option.kind]))
       .toEqual([[NO, "reject_once"], [YES_ONCE, "allow_once"], [YES_SESSION, "allow_always"]]);
+  });
+});
+
+describe("an ACP app gets Casper's chat title (decision 96)", () => {
+  test("Initialize says Casper sends the chat's title, whatever acp_mcp says", () => {
+    for (const setting of ["on", "ask", "off"] as const) expect(initializeResult(setting)).toMatchObject({ agentCapabilities: { _meta: { casper: { title: true } } } });
+  });
+
+  test("A secret the title cut or trimmed is hidden too", () => {
+    const token = "Qx7Lm2Pz9Rt4Vb8Nc3Kd6Hf1Jg5Ws0Ya7Ue2Io9Tk3Bn";
+    const long = sessionTitle(`${token} gets a 401 from the server, why`)!;
+    expect(long).toBe(`${token.slice(0, 40)}…`);
+    expect(hider(() => [token])(long)).toBe(long);
+    expect(titleShown(long, hider(() => [token]), [token])).toBe("<secret hidden>…");
+    const trimmed = sessionTitle("Log in to the router with Hunter2Pass!")!;
+    expect(trimmed).toBe("Log in to the router with Hunter2Pass");
+    expect(titleShown(trimmed, hider(() => ["Hunter2Pass!"]), ["Hunter2Pass!"])).toBe("Log in to the router with <secret hidden>");
+    // A name with no secret in it stays as it is.
+    expect(titleShown("IPv4 subnet calculator", hider(() => [token]), [token])).toBe("IPv4 subnet calculator");
   });
 });
 

@@ -24,8 +24,8 @@ export const LEFT_OUT: Readonly<Record<string, string>> = {
   // Does nothing over ACP: the app opened the folder (trust follows Casper's own rules), and receipts' suggestions are
   // a terminal row.
   trust: "does nothing over ACP", suggestions: "does nothing over ACP",
-  // Naming the conversation comes with the app's own chat titles (gap row 25).
-  rename: "comes with the app's chat titles",
+  // The app names its chats from Casper's own title (decision 96); a typed /rename still sends the new name.
+  rename: "the app names its chats",
 };
 
 /** What may follow a command, for the menu: its hint, or else its first four subcommands. */
