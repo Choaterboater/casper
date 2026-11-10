@@ -1,20 +1,16 @@
-import { formatDimensionNote, resizeImage } from "@earendil-works/pi-coding-agent";
 import { boundedObservation } from "../capabilities/result";
+import { PICTURE_MAX_BASE64, piResize, type Resize } from "../pictures/fit";
 import type { RuntimeImage, RuntimeTool } from "../runtime/types";
 import { formatTerminalJSON } from "../tui/json";
 import { BROWSER_ACTION_FIELDS, BROWSER_ACTIONS } from "./arguments";
 import { MAX_ASSERTIONS, MAX_STEPS } from "./scenario";
 import { SCREENSHOT_PNG, type BrowserSession } from "./session";
 
-/** Base64 size a picture may have: Pi's read tool keeps the same headroom below Anthropic's 5 MB per image. */
-const PICTURE_MAX_BASE64 = 4.5 * 1024 * 1024;
-
-/** A screenshot as the model may receive it: shrunk the way Pi's read tool shrinks pictures (at most 2000 px and
- * 4.5 MB of base64), with a note when it was resized, or left out when it can't be made small enough. */
-export async function fitPicture(base64: string): Promise<{ image?: RuntimeImage; note?: string }> {
-  const fitted = await resizeImage(Buffer.from(base64, "base64"), "image/png").catch(() => null);
-  if (fitted) return { image: { data: fitted.data, mimeType: fitted.mimeType }, note: formatDimensionNote(fitted) };
-  // No image library here: a picture already small enough still goes as it is.
+/** A screenshot as the model may receive it, shrunk as src/pictures/fit.ts shrinks a picture. Not resized (no image
+ * library here): Casper's own screenshot still goes as it is when it is under 4.5 MB, else it stays at its path. */
+export async function fitPicture(base64: string, resize: Resize = piResize): Promise<{ image?: RuntimeImage; note?: string }> {
+  const fitted = await resize(Buffer.from(base64, "base64"), "image/png");
+  if (fitted) return fitted;
   if (base64.length < PICTURE_MAX_BASE64) return { image: { data: base64, mimeType: "image/png" } };
   return { note: "Picture not attached: too large to send; the PNG is at path." };
 }

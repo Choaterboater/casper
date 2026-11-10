@@ -177,6 +177,11 @@ export function boundCapabilityResult(value: unknown, maxBytes = 16_384, maxItem
   const normalizeContent = (block: unknown): unknown => {
     if (!isRecord(block)) return block;
     if (block.type === "image" || block.type === "audio") {
+      // A picture takePictures already handled: its line says whether it follows the result or was left out.
+      if (block.type === "image" && block.data === undefined && (typeof block.picture === "number" || typeof block.omitted === "string")) {
+        if (typeof block.omitted === "string") omitted = true;
+        return block;
+      }
       omitted = true;
       const { data: _data, ...metadata } = block;
       return { ...metadata, omitted: "binary MCP content is not exposed" };

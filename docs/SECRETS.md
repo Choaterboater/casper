@@ -40,7 +40,10 @@ through. Check what a tool returns before you share it.
   (`next_token`, `page_token`) and anything under `_pagination` are left alone, so
   paging keeps working. Exact copies of Casper's own secrets (your secret environment
   values, the keys in its login file and your saved network logins) are hidden in every
-  server's results too. The result says `secretsHidden: N`.
+  server's results too. The result says `secretsHidden: N`. A picture a server
+  returns goes to a model that sees images as it is: Casper can't read text in a
+  picture, so it can't hide a secret shown in one. `mcp_pictures: off` in your own
+  config leaves every MCP picture out.
 - **Files you or the AI read: config files for device secrets.** A `read` is
   scrubbed for `.cfg`, `.conf` and `.set` files, and for files under a folder named
   `configs`, `backups` or `oxidized`. Source code and data files (`.ts`, `.py`,

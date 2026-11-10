@@ -43,6 +43,10 @@ export type AcpQuestionsSetting = typeof ACP_QUESTIONS_SETTINGS[number];
  * conversation later (decision 91). Unset: on. */
 export const ACP_IDLE_EXIT_SETTINGS = ["on", "off"] as const;
 export type AcpIdleExitSetting = typeof ACP_IDLE_EXIT_SETTINGS[number];
+/** `mcp_pictures:` (in ~/.casper/config.yaml only) whether a picture an MCP server returns goes to a model that can see
+ * images (decision 99). Unset: on. */
+export const MCP_PICTURES_SETTINGS = ["on", "off"] as const;
+export type McpPicturesSetting = typeof MCP_PICTURES_SETTINGS[number];
 
 /** `showPages:` whether the AI is shown page screenshots after a UI change: ask once a session, always, or never. */
 export const SHOW_PAGES_SETTINGS = ["ask", "on", "off"] as const;
@@ -192,6 +196,8 @@ export interface LoadedConfiguration {
   acpQuestions?: AcpQuestionsSetting;
   /** `acp_idle_exit: on|off` in ~/.casper/config.yaml: whether an app may close an idle Casper (decision 91). Unset: on. */
   acpIdleExit?: AcpIdleExitSetting;
+  /** `mcp_pictures: on|off` in ~/.casper/config.yaml: whether MCP pictures reach a model that sees images (decision 99). Unset: on. */
+  mcpPictures?: McpPicturesSetting;
   /** `lsp_autostart: off` in your own config: your own language servers wait for /lsp connect. Unset: on. */
   lspAutostart?: boolean;
   /** `notifications: off` in your own config: no bell or desktop notification when a long task ends or a question waits. Unset: on. */
@@ -352,7 +358,7 @@ const POLICY_KEYS = {
 } as const;
 const ISOLATE_KEYS = ["parallelAgents", "riskyRefactor", "experimentalBranch"];
 const TOP_LEVEL_KEYS = new Set(["profile", "project", "languages", "frameworks", "packageManager", "commands", "architecture",
-  "conventions", "verify", "verification", "repair", "skills", "visualize", "policy", "services", "smoke", "pages", "lab", "suggestions", "updates", "sideQuestions", "localModels", "modelServers", "cache", "display", "theme", "showPages", "spend", "sandbox", "shell", "web", "reader", "delegate", "browser", "templates", "packs", "github", "telemetry", "tools", "ssh_login", "other_logins", "network_updates", "ai_pages", "open_pages", "pictures", "browser_clicks", "routine_commands", "plan_commands", "private_commands", "auto_mode", "hide_tool_output", "reasoning_headline", "lean_guidance", "compact_at", "slow_commands", "keep_going", "stalled_commands", "mcp_autoconnect", "acp_mcp", "acp_access", "acp_questions", "acp_idle_exit", "lsp_autostart", "notifications", ...Object.keys(POLICY_KEYS)]);
+  "conventions", "verify", "verification", "repair", "skills", "visualize", "policy", "services", "smoke", "pages", "lab", "suggestions", "updates", "sideQuestions", "localModels", "modelServers", "cache", "display", "theme", "showPages", "spend", "sandbox", "shell", "web", "reader", "delegate", "browser", "templates", "packs", "github", "telemetry", "tools", "ssh_login", "other_logins", "network_updates", "ai_pages", "open_pages", "pictures", "browser_clicks", "routine_commands", "plan_commands", "private_commands", "auto_mode", "hide_tool_output", "reasoning_headline", "lean_guidance", "compact_at", "slow_commands", "keep_going", "stalled_commands", "mcp_autoconnect", "acp_mcp", "acp_access", "acp_questions", "acp_idle_exit", "mcp_pictures", "lsp_autostart", "notifications", ...Object.keys(POLICY_KEYS)]);
 
 /** Typos used to fall back silently to the defaults; the loader names them instead. */
 function unknownKeys(document: Mapping, label: string): string[] {
@@ -709,6 +715,14 @@ function acpIdleExitValue(value: unknown, label: string): AcpIdleExitSetting | u
   const setting = value === true ? "on" : value === false ? "off" : value;
   if (!ACP_IDLE_EXIT_SETTINGS.some((known) => known === setting)) throw new Error(`${label}: acp_idle_exit must be ${alternatives(ACP_IDLE_EXIT_SETTINGS)}`);
   return setting as AcpIdleExitSetting;
+}
+
+/** `mcp_pictures:` on or off (YAML's true and false too). */
+function mcpPicturesValue(value: unknown, label: string): McpPicturesSetting | undefined {
+  if (value === undefined || value === null) return undefined;
+  const setting = value === true ? "on" : value === false ? "off" : value;
+  if (!MCP_PICTURES_SETTINGS.some((known) => known === setting)) throw new Error(`${label}: mcp_pictures must be ${alternatives(MCP_PICTURES_SETTINGS)}`);
+  return setting as McpPicturesSetting;
 }
 
 /** `acp_idle_exit` from ~/.casper/config.yaml, read again for each idle check, so a change reaches a running session. A
@@ -1145,6 +1159,12 @@ export async function loadConfiguration(
     if (document.acp_idle_exit !== undefined) throw new Error(`${label}: acp_idle_exit is set in ~/.casper/config.yaml only`);
   }
   const acpIdleExit = acpIdleExitValue(globalDocument.acp_idle_exit, labels.global);
+  // Whether the pictures a server returns reach your model (and cost your tokens) is yours too.
+  if (projectDocument.mcp_pictures !== undefined) throw new Error("mcp_pictures is a user setting (~/.casper/config.yaml); a project cannot choose whether MCP pictures reach the model");
+  for (const [document, label] of [[profileDocument, labels.profile], [userProfileDocument, labels.userProfile]] as const) {
+    if (document.mcp_pictures !== undefined) throw new Error(`${label}: mcp_pictures is set in ~/.casper/config.yaml only`);
+  }
+  const mcpPictures = mcpPicturesValue(globalDocument.mcp_pictures, labels.global);
   // Whether your terminal rings or shows a notification is yours too.
   if (projectDocument.notifications !== undefined) throw new Error("notifications is a user setting (~/.casper/config.yaml); a project cannot turn Casper's notifications on or off");
   let notifications: boolean | undefined;
@@ -1248,6 +1268,7 @@ export async function loadConfiguration(
     ...(acpAccess !== undefined ? { acpAccess } : {}),
     ...(acpQuestions !== undefined ? { acpQuestions } : {}),
     ...(acpIdleExit !== undefined ? { acpIdleExit } : {}),
+    ...(mcpPictures !== undefined ? { mcpPictures } : {}),
     ...(lspAutostart !== undefined ? { lspAutostart } : {}),
     ...(notifications !== undefined ? { notifications } : {}),
     ...(pageChecks !== undefined ? { pageChecks } : {}),

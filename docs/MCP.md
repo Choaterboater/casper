@@ -1334,8 +1334,38 @@ the background.
   items on its own** (`lists: [{ path, shown, total }]` says which). When that is
   still too big, the per-list limit halves (25, 12, 6, 3, 1) before Casper falls
   back to a preview. A result that is one long text block previews its own text
-  with real line breaks. Text blocks that hold JSON are decoded first; binary
-  content (such as images) is left out.
+  with real line breaks. Text blocks that hold JSON are decoded first; audio and
+  binary resources are left out.
+- **Pictures reach a model that can see images.** A PNG, JPEG, GIF or WebP `image`
+  block goes to the AI after the result's text, as a pasted picture does, from every
+  server. Claude Code and DeepSeek Harness do the same for a model that takes
+  images. Its place in the text keeps one line, `{ "type": "image", "mimeType":
+  "image/png", "picture": 1 }`, and the summary says `1 picture follows this
+  result.` The limits are a request's own: at most 8 pictures per result and 20 MB
+  each, then shrunk as `read` shrinks a picture (at most 2000 px and 4.5 MB). Casper
+  reads each picture's width and height from its header first (a GIF's first frame
+  and every WebP frame too, which can be bigger than the size the file says) and
+  never opens one over 16384 px a side or 40 megapixels, or one whose size it can't
+  read: a small file can unpack to gigabytes. A picture the image library can't open
+  stays out, since a provider refuses the whole request over a broken one. With no
+  image library at all, a picture is sent as it is only when its header says it is
+  already within 2000 px and 4.5 MB (the browser's own screenshots keep their rule:
+  one under 4.5 MB goes as it is). One past a limit stays out with a line that says
+  why (`picture left out: at most 8 per result`, `over 20 MB`, or which tool's
+  picture, its size and why it was not opened or not sent). The pictures of one
+  result shrink at the same time, and Stop does not wait for them. A model that
+  can't see images gets the text and the note `binary MCP content is not exposed` in
+  each picture's place, with no time spent on pictures. A picture in a result the
+  server marked as failed (DeepSeek Harness drops those too), an SVG and the
+  reader's own MCP calls stay out as before. Casper looks at the picture's own bytes
+  to tell its type, so a PNG a server calls `image/jpeg` is sent as a PNG (DeepSeek
+  Harness refuses it), and a file that is not a picture never goes as one. And a
+  picture costs tokens on every later request, so **Hide old tool output** hides old
+  MCP pictures (never their text) after the latest rounds, where DeepSeek Harness
+  keeps them until a request goes over the model's picture budget. `mcp_pictures:
+  off` in `~/.casper/config.yaml` (**MCP pictures** in /settings) leaves every
+  picture out with the note. See [decision
+  99](adr/0002/99-mcp-images-reach-the-model.md).
 - **Duplicate copies are dropped.** Many servers send the same data twice, as
   `structuredContent` and as text. Text blocks that only repeat `structuredContent`
   (or its `result`, or a list split into one block per item) are left out and
