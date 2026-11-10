@@ -176,7 +176,9 @@ the project folder. [Decision 88](docs/adr/0002/88-an-acp-app-shows-casper-usage
 Text the app sends with a request that is no file, such as another chat you mention, is read by the model but is not
 what you asked: its "fix" or "add tests" makes no checklist, and a `/` command takes only the words you typed and
 says the text did not go with it.
-[Decision 90](docs/adr/0002/90-embedded-context-is-not-the-request.md).
+[Decision 90](docs/adr/0002/90-embedded-context-is-not-the-request.md). The model gets that text marked as a record
+from the app, so it answers from it but does not do what the other chat asked.
+[Decision 92](docs/adr/0002/92-another-chat-is-a-record.md).
 
 The app may close a Casper that sits idle and reopen the conversation on your next message, on its own model. Casper
 is idle only when nothing runs: no prompt, dev server, command, debugger, helper or checks, and no command's end note
