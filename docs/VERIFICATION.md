@@ -124,9 +124,12 @@ searches and one plain `ssh <machine> '...'`). A file whose time of change falls
 read, searched, or waited on its own question) is another program's: an editor, a second AI tool, a running app.
 It is listed as `Changed by something else while Casper worked (not checked)`, and is not checked, offered as "The
 work is in ..." or touched by undo. A file the AI's `edit` and `write` tools named, or one that changed while one of
-its tools ran, stays the AI's. A deleted file (it has no time of its own) or a change while a command or service the
-task left running could still write stays the AI's on the receipt, and `/undo` asks before touching it
-([UNDO.md](UNDO.md#the-rules)). `tests/changed-by-others.test.ts` covers this.
+its tools ran (also one you stopped with Esc before it finished), stays the AI's. A deleted file (it has no time of its
+own) or a change while a command or service the task left running could still write stays the AI's on the receipt, and
+`/undo` asks before touching it ([UNDO.md](UNDO.md#the-rules)). When the AI ran no tool at all (it answered only in
+words), all that changed is another program's, deleted files too, unless a command or service it left running ran
+during the task, even one that ended before the task did: then `/undo` asks.
+`tests/changed-by-others.test.ts` and `tests/outside-process-changes.test.ts` cover this.
 
 **Casper's checks leave the app's data as the AI left it.** Before any of Casper's own checks, end replays, repair
 rounds or app smoke use the app, Casper keeps a copy of the app's data files: SQLite databases with their `-wal`, `-shm`
@@ -737,7 +740,8 @@ refactors and configuration, and off in one-shot runs unless set. A terminal tra
 the request (an agent session copied off the screen) is left out of both choices: its "fix" or "add
 tests" is context, not what you asked, so a pasted transcript alone makes no checklist, and the cases
 come only from what you typed around it. In `casper acp`, text the app sends with the request that is no file
-(another chat you mention) is left out the same way ([decision 90](adr/0002/90-embedded-context-is-not-the-request.md)).
+(another chat you mention) is left out the same way ([decision 90](adr/0002/90-embedded-context-is-not-the-request.md)),
+and the model gets it marked as a record whose requests are not to be acted on now ([decision 92](adr/0002/92-another-chat-is-a-record.md)).
 
 ```yaml
 verification:

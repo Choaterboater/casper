@@ -755,23 +755,81 @@ const PAGE_SUMMARY = (textLimit: number, elementLimit: number) => {
 /** Runs in the page: the function every selector of the browser tool goes through. A plain CSS selector is the page's
  * own querySelectorAll; when it matches nothing there it is tried inside each open shadow root (web components), as
  * Puppeteer's `pierce/` does. `pierce/<css>` searches every root at once, and `host >>> inner` finds `inner` anywhere
- * inside `host`, shadow roots included. `everywhere` searches every root for a plain selector too. */
-const FINDER = () => (selector: string, everywhere = false): Element[] => {
+ * inside `host`, shadow roots included. `everywhere` searches every root for a plain selector too.
+ * `find.near` scores the page's elements against a selector's words and an expected text (what a selector that
+ * matches nothing may have meant), and `find.listed` names elements for an error: tag, data-testid, first text and a
+ * selector that matches only that element, so the AI's next try names one element the first time. */
+const FINDER = () => {
   const deep = (start: ParentNode, css: string): Element[] => {
     const found = [...start.querySelectorAll(css)];
     const hosts = [...(start instanceof Element ? [start] : []), ...start.querySelectorAll("*")].filter(el => el.shadowRoot);
     for (const host of hosts) found.push(...deep(host.shadowRoot!, css));
     return [...new Set(found)];
   };
-  if (selector.startsWith("pierce/")) return deep(document, selector.slice("pierce/".length));
-  if (selector.includes(">>>")) {
-    let scope: ParentNode[] = [document];
-    for (const part of selector.split(">>>").map(part => part.trim())) scope = [...new Set(scope.flatMap(root => deep(root, part)))];
-    return scope as Element[];
-  }
-  if (everywhere) return deep(document, selector);
-  const plain = [...document.querySelectorAll(selector)];
-  return plain.length ? plain : deep(document, selector);
+  const find = (selector: string, everywhere = false): Element[] => {
+    if (selector.startsWith("pierce/")) return deep(document, selector.slice("pierce/".length));
+    if (selector.includes(">>>")) {
+      let scope: ParentNode[] = [document];
+      for (const part of selector.split(">>>").map(part => part.trim())) scope = [...new Set(scope.flatMap(root => deep(root, part)))];
+      return scope as Element[];
+    }
+    if (everywhere) return deep(document, selector);
+    const plain = [...document.querySelectorAll(selector)];
+    return plain.length ? plain : deep(document, selector);
+  };
+  const norm = (value: string | null) => (value ?? "").replace(/\s+/g, " ").trim();
+  const near = (selector: string, expectedText = "", limit = 3): Element[] => {
+    const words = selector.toLowerCase().match(/[a-z][\w-]{2,}/g) ?? [];
+    const expected = norm(expectedText).toLowerCase();
+    const scored: Array<{ score: number; text: string; el: Element }> = [];
+    // The body's elements, open shadow roots included.
+    for (const el of find("*", true).filter(el => el !== document.body && el !== document.documentElement && !el.closest("head")).slice(0, 3000)) {
+      if (["SCRIPT", "STYLE", "NOSCRIPT", "TEMPLATE"].includes(el.tagName)) continue;
+      const tokens = [el.tagName.toLowerCase(), el.id.toLowerCase(), ...[...el.classList].map(c => c.toLowerCase()),
+        ...["name", "aria-label", "data-testid"].map(n => (el.getAttribute(n) ?? "").toLowerCase())].filter(Boolean);
+      const text = norm(el.textContent);
+      let score = 0;
+      for (const word of words) score += Math.max(0, ...tokens.map(t => t === word ? 3 : t.length > 2 && (t.includes(word) || word.includes(t)) ? 2 : 0));
+      const lower = text.toLowerCase();
+      if (expected && lower.length <= expected.length * 2 + 40) score += lower === expected ? 5 : lower.includes(expected) || (lower.length > 2 && expected.includes(lower)) ? 3 : 0;
+      if (score) scored.push({ score, text, el });
+    }
+    // Best first; on a tie the innermost element (shortest text).
+    return scored.sort((x, y) => y.score - x.score || x.text.length - y.text.length).slice(0, limit).map(({ el }) => el);
+  };
+  /** The shortest path of tag:nth-of-type steps (from an id or data-testid unique in its root when there is one) that
+   * matches only `el` through `find`; inside a shadow root, its host's selector >>> the path. */
+  const only = (el: Element): string | undefined => {
+    const root = el.getRootNode() as Document | ShadowRoot;
+    const prefix = root instanceof ShadowRoot ? only(root.host) : "";
+    if (prefix === undefined) return undefined;
+    const steps: string[] = [];
+    for (let node: Element | null = el; node; node = node.parentElement) {
+      const id = node.id ? `#${CSS.escape(node.id)}` : "";
+      const testid = node.getAttribute("data-testid");
+      const named = id && root.querySelectorAll(id).length === 1 ? id
+        : testid && root.querySelectorAll(`[data-testid="${CSS.escape(testid)}"]`).length === 1 ? `[data-testid="${CSS.escape(testid)}"]` : "";
+      const tag = node.tagName.toLowerCase();
+      // A shadow root's top elements have no parentElement: their siblings are the root's children.
+      const same = node.parentNode ? [...(node.parentNode as ParentNode).children].filter(child => child.tagName === node!.tagName) : [node];
+      steps.unshift(named || (same.length > 1 ? `${tag}:nth-of-type(${same.indexOf(node) + 1})` : tag));
+      const selector = prefix ? `${prefix} >>> ${steps.join(" > ")}` : steps.join(" > ");
+      const matches = find(selector);
+      if (matches.length === 1 && matches[0] === el) return selector;
+      if (named) return undefined;
+    }
+    return undefined;
+  };
+  const listed = (elements: Element[], limit = 5): string[] => {
+    const lines = elements.slice(0, limit).map(el => {
+      const testid = el.getAttribute("data-testid");
+      const text = norm(el.textContent) || norm(el.getAttribute("aria-label")) || norm(el.getAttribute("placeholder")) || norm((el as HTMLInputElement).value ?? "");
+      const selector = only(el);
+      return `${el.tagName.toLowerCase()}${testid ? `[data-testid="${testid.slice(0, 60)}"]` : ""}${text ? ` "${text.slice(0, 40)}"` : ""}${selector ? ` = ${selector}` : ""}`;
+    });
+    return elements.length > limit ? [...lines, `${elements.length - limit} more`] : lines;
+  };
+  return Object.assign(find, { near, listed });
 };
 type Find = ReturnType<typeof FINDER>;
 /** Runs `work` with FINDER in the page, then lets it go. */
@@ -949,7 +1007,7 @@ function dialogNote(dialog: { type: string; message: string; accepted?: boolean 
   return `${dialog.type} dialog ${JSON.stringify(dialog.message)}: Casper ${answer}`;
 }
 
-const BROKEN_CHECK_HINT ="If the check itself is wrong, record a corrected check of this page and withdraw this one (replacedBy: its id once it passes); if the page is wrong, fix it.";
+const BROKEN_CHECK_HINT = "If the check itself is wrong, record a corrected check of this page with replaces: this check's id; if the page is wrong, fix it.";
 /** On a replay failing a check that passed when recorded and fills a fixed email, user name or name: the page may refuse a repeat. */
 const RUN_HINT = "It passed before: a sign-up or booking may need a new value each run; use {run} in the fill value.";
 let runs = 0;
@@ -959,11 +1017,47 @@ const runToken = () => `${Date.now().toString(36)}${(++runs).toString(36)}`;
 const fixedIdentity = (steps: BrowserStep[]) => steps.some(step => step.action === "fill" && step.value !== undefined && !step.value.includes("{run}")
   && (/e-?mail|user|login|account|name/i.test(step.selector.replace(/\[\s*name\s*[~|^$*]?=/gi, "[")) || /\S@\S/.test(step.value)));
 const INSIDE_HINT = "The expected text is inside this element with other text: point the selector at the element that holds only it (see near).";
-/** The way out of a withdraw refused after a change: a corrected check of the same page that passes takes its place. */
-const REPLACE_WAY = "or record a corrected check of the same page and, once it passes, withdraw this one with replacedBy: its id";
+/** The way out of a withdraw refused after a change, with all a corrected check needs to take its place in one call. */
+const replaceWay = (id: string, scenario: BrowserScenario) =>
+  `or replace it in one call: record ${replacementNeeds(scenario)}, with replaces: "${id}"; once that passes it takes this one's place`;
+/** What a check that replaces `was` must be, in words: the same page and viewport, at least as many steps and
+ * assertions of each kind, and a pass. */
+function replacementNeeds(was: BrowserScenario): string {
+  const count = (kinds: string[], noun: string) => [...kinds.reduce((map, kind) => map.set(kind, (map.get(kind) ?? 0) + 1), new Map<string, number>())]
+    .map(([kind, n]) => `${n} ${kind} ${noun}${n === 1 ? "" : "s"}`);
+  const least = [...count(was.steps.map(step => step.action), "step"), ...count(was.assertions.map(a => a.kind), "assertion")];
+  return `a check of ${checkedPage(was.url)} at ${was.viewport.width}×${was.viewport.height} with at least ${least.length > 1 ? `${least.slice(0, -1).join(", ")} and ${least.at(-1)}` : least[0]} that passes`;
+}
+/** The page a check opens, for comparing a replacement with it: its path (the query, port and host may differ). */
+function checkedPage(url: string): string { try { return new URL(url).pathname; } catch { return url; } }
+/** Why `is` can't take the place of `was`, every reason at once: another page, another viewport, fewer steps or
+ * assertions of a kind (so a page-loads check can't stand in for a real one). */
+function shapeProblems(was: BrowserScenario, is: BrowserScenario): string[] {
+  const problems: string[] = [];
+  if (checkedPage(is.url) !== checkedPage(was.url)) problems.push(`must check the same page as this one (${checkedPage(was.url)}), not ${checkedPage(is.url)}`);
+  if (was.viewport.width !== is.viewport.width || was.viewport.height !== is.viewport.height)
+    problems.push(`must check the page at the same viewport as this one (${was.viewport.width}×${was.viewport.height})`);
+  const count = (kinds: string[]) => kinds.reduce((map, kind) => map.set(kind, (map.get(kind) ?? 0) + 1), new Map<string, number>());
+  const steps = count(is.steps.map(step => step.action)), assertions = count(is.assertions.map(a => a.kind));
+  const short = [...[...count(was.steps.map(step => step.action))].filter(([kind, n]) => (steps.get(kind) ?? 0) < n).map(([kind]) => `${kind} steps`),
+    ...[...count(was.assertions.map(a => a.kind))].filter(([kind, n]) => (assertions.get(kind) ?? 0) < n).map(([kind]) => `${kind} assertions`)];
+  if (short.length) problems.push(`must test at least what this check did; it has fewer ${short.join(", ")}`);
+  return problems;
+}
 /** A replay whose page's server no longer answers and no server of Casper's stands in: nothing was checked. */
 /** A new check written wrong (a selector that matches several elements): nothing is recorded. */
 class WrittenWrong extends Error {}
+/** " (matches: a; b)" for an error: the elements a selector matched, each with a selector for it alone. */
+function matchList(listed: readonly string[] | undefined, label = "matches"): string {
+  return listed?.length ? ` (${label}: ${listed.join("; ")})` : "";
+}
+/** A selector of an action or a check's step that matches no element or several: what it matched, or with none the
+ * elements most like it. The message keeps its first words (`exactly one element; it matches N`): checks read them. */
+class SelectorCount extends Error {
+  constructor(readonly count: number, readonly listed: string[]) {
+    super(`Browser selector must match exactly one element; it matches ${count}${count ? "" : " (open shadow roots searched too; host >>> inner names one inside a web component)"}${matchList(listed, count ? "matches" : "near")}`);
+  }
+}
 
 class ServerGone extends Error {}
 
@@ -1672,10 +1766,12 @@ export class BrowserSession {
 
   private async check(input: Record<string, unknown>, signal: AbortSignal): Promise<Record<string, unknown>> {
     let id: string;
+    const replaces = input.action === "check" && input.replaces !== undefined ? text(input.replaces, "replaces", 64) : undefined;
     if (input.action === "check") {
       const scenario = parseScenario(input.scenario);
       if (scenario.steps.some(step => step.dialog === "accept") && !localURL(scenario.url))
         throw new Error("dialog: accept works only on a page on this computer (the project's own server); leave it out to answer Cancel");
+      if (replaces !== undefined) this.replaceable(replaces, scenario);
       await this.askMetadata(scenario.url, signal);
       if ([...this.scenarios.values()].filter(entry => !entry.carried).length >= MAX_CHECKS) throw new Error(`Browser check limit reached (${MAX_CHECKS} per session); replay the ids your checks returned instead of recording new ones`);
       id = randomUUID();
@@ -1726,7 +1822,7 @@ export class BrowserSession {
       if (notOpened.notOpened) throw new Error(`The page reached for a cloud metadata address (${notOpened.notOpened.join(", ")}) and the person said no`);
       // A web app's splash ("Loading…") is not the page: its steps and assertions wait for it to draw.
       await this.settle(page, signal);
-      // The steps share 8 s of watching for what they changed, so 12 steps on a busy page stay inside the check's limit.
+      // The steps share 8 s of watching for what they changed, so 30 steps on a busy page stay inside the check's limit.
       const watchBy = performance.now() + 8_000;
       const token = runToken();
       /** A dialog that wanted OK, which Casper answered with Cancel, and the step that met it. */
@@ -1748,31 +1844,15 @@ export class BrowserSession {
         if (after.notOpened) throw new Error(`The page reached for a cloud metadata address (${after.notOpened.join(", ")}) and the person said no`);
       }
       if (scenario.steps.length) await this.settle(page, signal);
+      /** Per assertion, the elements its selector matched when it matched several: named in the written-wrong message. */
+      const listedMatches: Array<string[] | undefined> = [];
       for (const assertion of scenario.assertions) {
         signal.throwIfAborted();
         // withNear: on a selector that matches nothing or a wrong text, up to 3 real elements most like what was asked for.
-        const evaluate = (withNear = false) => withFinder(page, find => page.evaluate((find, a, withNear): { pass: boolean; actual: unknown; near?: string[]; inside?: boolean } => {
+        const evaluate = (withNear = false) => withFinder(page, find => page.evaluate((find, a, withNear): { pass: boolean; actual: unknown; near?: string[]; inside?: boolean; matches?: string[] } => {
           const norm = (value: string | null) => (value ?? "").replace(/\s+/g, " ").trim();
-          const nearest = (): string[] => {
-            const words = (a.selector ?? "").toLowerCase().match(/[a-z][\w-]{2,}/g) ?? [];
-            const expected = a.kind === "text" ? norm(a.expected).toLowerCase() : "";
-            const scored: Array<{ score: number; text: string; el: Element }> = [];
-            // The body's elements, open shadow roots included.
-            for (const el of find("*", true).filter(el => el !== document.body && el !== document.documentElement && !el.closest("head")).slice(0, 3000)) {
-              if (["SCRIPT", "STYLE", "NOSCRIPT", "TEMPLATE"].includes(el.tagName)) continue;
-              const tokens = [el.tagName.toLowerCase(), el.id.toLowerCase(), ...[...el.classList].map(c => c.toLowerCase()),
-                ...["name", "aria-label", "data-testid"].map(n => (el.getAttribute(n) ?? "").toLowerCase())].filter(Boolean);
-              const text = norm(el.textContent);
-              let score = 0;
-              for (const word of words) score += Math.max(0, ...tokens.map(t => t === word ? 3 : t.length > 2 && (t.includes(word) || word.includes(t)) ? 2 : 0));
-              const lower = text.toLowerCase();
-              if (expected && lower.length <= expected.length * 2 + 40) score += lower === expected ? 5 : lower.includes(expected) || (lower.length > 2 && expected.includes(lower)) ? 3 : 0;
-              if (score) scored.push({ score, text, el });
-            }
-            // Best first; on a tie the innermost element (shortest text).
-            return scored.sort((x, y) => y.score - x.score || x.text.length - y.text.length).slice(0, 3).map(({ el, text }) =>
-              `${el.tagName.toLowerCase()}${el.id ? `#${el.id}` : ""}${[...el.classList].slice(0, 2).map(c => `.${c}`).join("")}${text ? ` "${text.slice(0, 60)}"` : ""}`);
-          };
+          const nearest = (): string[] => find.near(a.selector ?? "", a.kind === "text" ? a.expected : "").map(el => { const text = norm(el.textContent);
+            return `${el.tagName.toLowerCase()}${el.id ? `#${el.id}` : ""}${[...el.classList].slice(0, 2).map(c => `.${c}`).join("")}${text ? ` "${text.slice(0, 60)}"` : ""}`; });
           if (a.kind === "no-horizontal-overflow" && !a.selector) return { pass: document.documentElement.scrollWidth <= innerWidth, actual: { width: document.documentElement.scrollWidth, viewport: innerWidth } };
           // Text with no selector: some element of the page (open shadow roots too) reads exactly that.
           if (a.kind === "text" && !a.selector) {
@@ -1780,7 +1860,8 @@ export class BrowserSession {
             return { pass, actual: pass ? norm(a.expected) : "No element reads exactly that", ...(withNear && !pass ? { near: nearest() } : {}) };
           }
           const matches = find(a.selector!);
-          if (matches.length !== 1) return { pass: false, actual: `Expected one element; found ${matches.length}`, ...(withNear && !matches.length ? { near: nearest() } : {}) };
+          if (matches.length !== 1) return { pass: false, actual: `Expected one element; found ${matches.length}`, ...(withNear && !matches.length ? { near: nearest() } : {}),
+            ...(withNear && matches.length > 1 ? { matches: find.listed(matches) } : {}) };
           const el = matches[0]!;
           const r = el.getBoundingClientRect();
           // One element: content wider than the box (a table cut off behind a scroller), or the box past the viewport.
@@ -1792,7 +1873,7 @@ export class BrowserSession {
           const visible = el.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true }) && r.width > 0 && r.height > 0;
           if (a.kind === "visible") return { pass: visible, actual: visible };
           const other = find(a.other);
-          if (other.length !== 1) return { pass: false, actual: `Expected one other element; found ${other.length}` };
+          if (other.length !== 1) return { pass: false, actual: `Expected one other element; found ${other.length}`, ...(withNear && other.length > 1 ? { matches: find.listed(other) } : {}) };
           const b = other[0]!.getBoundingClientRect();
           const overlap = r.left < b.right && r.right > b.left && r.top < b.bottom && r.bottom > b.top;
           return { pass: visible && b.width > 0 && b.height > 0 && !overlap, actual: { overlap } };
@@ -1801,6 +1882,7 @@ export class BrowserSession {
         const deadline = performance.now() + 1000;
         while (!result.pass && performance.now() < deadline) { await new Promise(resolve => setTimeout(resolve, 50)); signal.throwIfAborted(); result = await evaluate(); }
         if (!result.pass) result = await evaluate(true);
+        listedMatches.push(result.matches);
         // Still a failure: the hint only says which way to go, a wrong check or a wrong page. Not on the recording run: a
         // check recorded before the edit is meant to fail then, and must not be withdrawn for it. An element inside the
         // matched one that holds exactly the expected text means a selector written too wide, on any run.
@@ -1830,13 +1912,14 @@ export class BrowserSession {
         ? check.assertions.findIndex(assertion => assertion.status === "fail" && assertion.hint === INSIDE_HINT) : -1;
       if (wide >= 0) {
         check.status = "incomplete"; check.writtenWrong = `assertion ${wide + 1}'s selector is wider than the element that reads its text`;
-        check.reason = `Written wrong: ${check.writtenWrong}. Point it at that element (see near), record the check again, and withdraw this one with replacedBy.`;
+        check.reason = `Written wrong: ${check.writtenWrong}. Point it at that element (see near) and record the check again with replaces: "${id}".`;
       }
       if (several) {
         const what = `assertion ${several.index + 1}'s selector matches ${several.found} elements`;
-        if (input.action === "check") { this.scenarios.delete(id); throw new WrittenWrong(`${what}: name one element and record the check again (nothing was recorded)`); }
+        const which = matchList(listedMatches[several.index]);
+        if (input.action === "check") { this.scenarios.delete(id); throw new WrittenWrong(`${what}${which}: name one element and record the check again (nothing was recorded)`); }
         check.status = "incomplete"; check.writtenWrong = what;
-        check.reason = `Written wrong: ${what}. Name one element, record the check again, and withdraw this one with replacedBy.`;
+        check.reason = `Written wrong: ${what}${which}. Name one element and record the check again with replaces: "${id}".`;
       }
       // One of the other services it was recorded with couldn't start again: what it checked can't be seen, so it is
       // not replayed rather than failed.
@@ -1858,7 +1941,8 @@ export class BrowserSession {
         check.reason = `Stale, not failed: the server it ran on (${notOpened.standIn}) is gone, and Casper's server for the project, which may hold other data, did not pass it. Replay it with its own server running to count it.`;
       }
       if (recording) { check.baseline = check.status; entry.recordedRevision = entry.revision; }
-      const result = structuredClone(check) as unknown as Record<string, unknown>;
+      const replaced = replaces !== undefined ? await this.replaceWith(replaces, id, input.reason) : undefined;
+      const result = { ...structuredClone(check) as unknown as Record<string, unknown>, ...(replaced ? { replaced } : {}) };
       // The check is decided: reading the page after it can't change that, fail it or make it overrun.
       if (performance.now() - startedAt > FINAL_PAGE_AFTER_MS) return result;
       return { ...result, ...await this.finalPage(page, signal, FINAL_RESULT_BYTES - Buffer.byteLength(JSON.stringify(result))).catch(() => ({})) };
@@ -1868,7 +1952,7 @@ export class BrowserSession {
       const several = input.action === "replay" && error instanceof Error ? /exactly one element; it matches ([2-9]|\d{2,})/.exec(error.message)?.[1] : undefined;
       if (several) {
         check.status = "incomplete"; check.writtenWrong = `a step's selector matches ${several} elements`;
-        check.reason = `Written wrong: ${check.writtenWrong}. Name one element, record the check again, and withdraw this one with replacedBy.`;
+        check.reason = `Written wrong: ${check.writtenWrong}${error instanceof SelectorCount ? matchList(error.listed) : ""}. Name one element and record the check again with replaces: "${id}".`;
         return structuredClone(check) as unknown as Record<string, unknown>;
       }
       check.status = "incomplete"; check.reason = error instanceof ServerGone ? `Could not check. ${error.message}` : "Browser reproduction did not finish; no passing evidence.";
@@ -1883,7 +1967,7 @@ export class BrowserSession {
       }
       // A new check that stopped part way still gets its id back: replay it once the page is ready, or withdraw it.
       if (input.action === "check" && error instanceof Error && !signal.aborted)
-        throw new Error(`${error.message} (check id ${id}: replay it once the page is ready, or withdraw it if the check is wrong)`);
+        throw new Error(`${error.message} (check id ${id}: replay it once the page is ready, or withdraw it if the check is wrong${replaces !== undefined ? `; ${replaces} is not replaced until a check that replaces it passes` : ""})`);
       throw error;
     }
   }
@@ -2034,7 +2118,7 @@ export class BrowserSession {
     const status = entry.check.status;
     if (status === "withdrawn") throw new Error("This check is already withdrawn");
     if (status === "pass") throw new Error("Only a failed or unfinished check can be withdrawn; this one passed");
-    if (entry.carried && input.replacedBy === undefined) throw new Error(`This check was recorded in an earlier task: replay it first, ${REPLACE_WAY}`);
+    if (entry.carried && input.replacedBy === undefined) throw new Error(`This check was recorded in an earlier task: replay it first, ${replaceWay(id, entry.scenario)}`);
     const replacement = input.replacedBy === undefined ? undefined : this.replacement(id, entry, text(input.replacedBy, "replacedBy", 64));
     const withdrawn = replacement ? `${reason} (replaced by ${JSON.stringify(replacement.check.name)}, ${replacement.check.id})` : reason;
     const done = () => {
@@ -2051,38 +2135,52 @@ export class BrowserSession {
     // One that never finished has no inputs recorded: nothing run since it was recorded is enough.
     if (status === "incomplete") {
       if (entry.recordedRevision !== this.revision || entry.revision !== entry.recordedRevision)
-        throw new Error(`A change was made after this check was recorded: replay it, ${REPLACE_WAY}`);
+        throw new Error(`A change was made after this check was recorded: replay it, ${replaceWay(id, entry.scenario)}`);
       return done();
     }
     const now = await this.current(entry);
-    if (now.freshness === "stale") throw new Error(`${(now.reason ?? "A change was made after this check failed").replace(/\.$/, "")}: fix the page and replay it, ${REPLACE_WAY}`);
-    if (now.freshness !== "fresh") throw new Error(`Casper can't tell whether anything changed since this check failed (${(now.reason ?? "its inputs were not recorded").replace(/\.$/, "")}); replay it`);
+    if (now.freshness === "stale") throw new Error(`${(now.reason ?? "A change was made after this check failed").replace(/\.$/, "")}: fix the page and replay it, ${replaceWay(id, entry.scenario)}`);
+    if (now.freshness !== "fresh") throw new Error(`Casper can't tell whether anything changed since this check failed (${(now.reason ?? "its inputs were not recorded").replace(/\.$/, "")}); replay it, ${replaceWay(id, entry.scenario)}`);
     // A replay after a change resets freshness, so a check that still fails after a fix must not look withdrawable.
     if (entry.recordedRevision !== this.revision || entry.fingerprint !== entry.recordedFingerprint)
-      throw new Error(`A change was made after this check was recorded, so its failure may be real: fix the page, ${REPLACE_WAY}`);
+      throw new Error(`A change was made after this check was recorded, so its failure may be real: fix the page, ${replaceWay(id, entry.scenario)}`);
     return done();
   }
 
   /** The check `replacedBy` names, when it may take the place of check `id`: recorded after it, its latest run
    * passed, and it opens the same page (the same path; the query, port and host may differ) at the same viewport,
-   * with at least as many steps and assertions of each kind, so a page-loads check can't stand in for a real one. */
+   * with at least as many steps and assertions of each kind, so a page-loads check can't stand in for a real one.
+   * A refusal names every reason at once and all a replacement needs. */
   private replacement(id: string, entry: RecordedCheck, other: string): RecordedCheck {
+    const needs = `A replacement is ${replacementNeeds(entry.scenario)}; record it with replaces: "${id}" to do both in one call`;
     const by = this.scenarios.get(other);
-    if (!by || other === id) throw new Error("replacedBy must be the id of another check recorded in this session: record the corrected check of the same page first, and once it passes, withdraw this one with replacedBy: its id");
-    if (by.order < entry.order) throw new Error("replacedBy must name a check recorded after this one");
+    if (!by || other === id) throw new Error(`replacedBy must be the id of another check recorded in this session: record the corrected check of the same page first, and once it passes, withdraw this one with replacedBy: its id. ${needs}`);
+    if (by.order < entry.order) throw new Error(`replacedBy must name a check recorded after this one. ${needs}`);
     if (by.carried) throw new Error("replacedBy must name a check run in this task; replay it first");
-    const page = (url: string) => { try { return new URL(url).pathname; } catch { return url; } };
-    if (page(by.scenario.url) !== page(entry.scenario.url)) throw new Error(`replacedBy must check the same page as this one (${page(entry.scenario.url)}), not ${page(by.scenario.url)}`);
-    const was = entry.scenario, is = by.scenario;
-    if (was.viewport.width !== is.viewport.width || was.viewport.height !== is.viewport.height)
-      throw new Error(`replacedBy must check the page at the same viewport as this one (${was.viewport.width}×${was.viewport.height})`);
-    const count = (kinds: string[]) => kinds.reduce((map, kind) => map.set(kind, (map.get(kind) ?? 0) + 1), new Map<string, number>());
-    const steps = count(is.steps.map(step => step.action)), assertions = count(is.assertions.map(a => a.kind));
-    const short = [...[...count(was.steps.map(step => step.action))].filter(([kind, n]) => (steps.get(kind) ?? 0) < n).map(([kind]) => `${kind} steps`),
-      ...[...count(was.assertions.map(a => a.kind))].filter(([kind, n]) => (assertions.get(kind) ?? 0) < n).map(([kind]) => `${kind} assertions`)];
-    if (short.length) throw new Error(`replacedBy must test at least what this check did; it has fewer ${short.join(", ")}`);
-    if (by.check.status !== "pass") throw new Error("replacedBy must name a check whose latest run passed; fix it and replay it first");
+    const problems = shapeProblems(entry.scenario, by.scenario);
+    if (by.check.status !== "pass") problems.push("must name a check whose latest run passed; fix it and replay it first");
+    if (problems.length) throw new Error(`replacedBy ${problems.join("; and it ")}. ${needs}`);
     return by;
+  }
+
+  /** Before a check with `replaces` is recorded: the check it names can be replaced, and this scenario can take its place
+   * (a pass still to come). Otherwise nothing is recorded and the refusal says every reason and all a replacement needs. */
+  private replaceable(id: string, scenario: BrowserScenario): void {
+    const old = this.scenarios.get(id);
+    if (!old) throw new Error("replaces must be the id of a check recorded in this session (nothing was recorded)");
+    if (old.check.status === "withdrawn") throw new Error(`replaces names a check already withdrawn: record this check without replaces (nothing was recorded)`);
+    if (old.check.status === "pass") throw new Error(`replaces must name a failed or unfinished check; ${JSON.stringify(old.check.name)} passed (nothing was recorded)`);
+    const problems = shapeProblems(old.scenario, scenario);
+    if (problems.length) throw new Error(`replaces: this check ${problems.join("; and it ")}. A replacement is ${replacementNeeds(old.scenario)} (nothing was recorded)`);
+  }
+
+  /** After a check with `replaces` ran: once it passed, the old check is withdrawn naming it, through withdraw and
+   * its replacedBy rules; otherwise the old check stays and the result says how to finish. */
+  private async replaceWith(old: string, by: string, reason: unknown): Promise<Record<string, unknown>> {
+    if (this.scenarios.get(by)?.check.status !== "pass")
+      return { id: old, status: this.scenarios.get(old)?.check.status, note: `Not replaced: this check did not pass. If the page is wrong, fix it and replay this check, then withdraw ${old} with replacedBy: "${by}"; if this check is wrong too, record another with replaces: "${old}".` };
+    try { return await this.withdraw({ id: old, reason: reason ?? "written wrong", replacedBy: by }); }
+    catch (error) { return { id: old, status: this.scenarios.get(old)?.check.status, note: `Not replaced: ${error instanceof Error ? error.message : String(error)}` }; }
   }
 
   private async interact(input: Record<string, unknown>, signal: AbortSignal, waitForTarget = false, watchBy = Infinity): Promise<Record<string, unknown>> {
@@ -2094,13 +2192,18 @@ export class BrowserSession {
     if (action === "click" && input.value !== undefined) throw new Error("Click does not accept a value");
     if (action === "press" && !PRESS_KEYS.includes(value!)) throw new Error(`Unsupported browser key ${JSON.stringify(value!.slice(0, 20))}; press takes ${PRESS_KEYS.join(", ")}`);
     const page = this.page!;
-    const describe = () => withFinder(page, find => page.evaluate((find, selector) => {
-      const matches = find(selector);
-      if (matches.length !== 1) throw new Error(`Browser selector must match exactly one element; it matches ${matches.length}${matches.length ? "" : " (open shadow roots searched too; host >>> inner names one inside a web component)"}`);
-      const el = matches[0]!;
-      return { url: location.href, tag: el.tagName, type: el.getAttribute("type") ?? "", autocomplete: el.getAttribute("autocomplete") ?? "",
-        target: [el.getAttribute("aria-label"), el.textContent, el.getAttribute("name"), el.getAttribute("href")].filter(Boolean).join(" ").slice(0, 1024) };
-    }, find, selector));
+    // Not one element: the error lists what it matched (or what is most like it), each with a selector for it alone.
+    const describe = async () => {
+      const found = await withFinder(page, find => page.evaluate((find, selector) => {
+        const matches = find(selector);
+        if (matches.length !== 1) return { count: matches.length, listed: matches.length ? find.listed(matches) : find.listed(find.near(selector)) };
+        const el = matches[0]!;
+        return { url: location.href, tag: el.tagName, type: el.getAttribute("type") ?? "", autocomplete: el.getAttribute("autocomplete") ?? "",
+          target: [el.getAttribute("aria-label"), el.textContent, el.getAttribute("name"), el.getAttribute("href")].filter(Boolean).join(" ").slice(0, 1024) };
+      }, find, selector));
+      if (found.count !== undefined) throw new SelectorCount(found.count, found.listed ?? []);
+      return found as Exclude<typeof found, { count: number }>;
+    };
     // A check step waits up to 5 s for content that loads later (a time slot, a fetched list): while its selector
     // matches nothing, or its one element is disabled. Several matches still fail at once (a check written wrong).
     if (waitForTarget) {

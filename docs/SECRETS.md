@@ -203,6 +203,9 @@ is. Only the value is replaced.
 | Cisco IOS / NX-OS / ASA | `enable secret` and `enable password`, `username ... secret` or `password`, `snmp-server community`, SNMPv3 `auth`/`priv`, `key-string`, `crypto isakmp key`, `pre-shared-key`, `message-digest-key`, `ntp authentication-key`, `wpa-psk`, `standby ... authentication`, `passwd` |
 | Any | PEM private keys; the word after `password`, `secret` or `passwd` at the start of a line or after a space on the same line (common words like `manager` or `none`, a list of key words such as `password secret hash` or `password | secret`, and code or table marks such as `=`, `|` or `||` are skipped; a password that is literally `secret` or all punctuation is still hidden); `$1$`/`$2a$`/`$5$`/`$6$`/`$8$`/`$y$` hashes after a password, secret or hash word |
 
+A table's bar on its own (`|`, `│`, `┃`, `║`) is never the value: under a header such as
+`| Auth | Priv | Password |` the bars stay, so the Password column is still the one hidden.
+
 Left as they are, on purpose: `******`, SSH public keys, certificates, and
 hpe-networking-mcp's own `hpe_mcp_secret_<32 hex>` tokens. That server swaps those
 tokens back for the real value itself, so the AI can pass one back to it. They are
@@ -290,7 +293,8 @@ Casper.
 - A private key's body in command output is recognised by its BEGIN or END line; a
   piece of one with neither (`head -n 20 key.pem | tail -n 5`) is not. In a key file
   (`*.pem`, `*.key`, `*.p8`, `id_rsa`, `id_ed25519_deploy`) every long base64 line is hidden, so a certificate read
-  from part way down a `.pem` is hidden too.
+  from part way down a `.pem` is hidden too. A certificate's BEGIN or END line still gets the
+  device rules, so a community or key after it on the same line is hidden.
 - Lines longer than 4 KB (minified code, one-line JSON) are checked in 4 KB pieces
   that overlap by 512 characters, so a huge line can't stall Casper. A secret and the
   words before it, up to 512 characters together, always sit whole in one piece and

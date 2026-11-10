@@ -114,11 +114,82 @@ function segmentNeed(words: string[], alone: boolean): TerminalNeed | undefined 
   return undefined;
 }
 
+/**
+ * The command with each heredoc's lines taken out (`<<EOF`, `<<'EOF'`, `<<"EOF"`, `<<-EOF`, up to the end word alone on
+ * its line): they are what the command reads, so a `/login` route in a file written with `cat <<EOF` is not the login
+ * program. A command after the end word stays. `<<<` and `<<` inside `$(( ))` are not heredocs, nor is one in quotes or a
+ * comment. Only for this check: splitShell keeps the lines, since `bash <<EOF` or `ssh host <<EOF` runs them.
+ */
+function withoutHeredocLines(command: string): { text: string; heredoc: boolean } {
+  let text = "";
+  let quote: string | undefined;
+  let arithmetic = 0;
+  let heredoc = false;
+  const pending: Array<{ end: string; tabs: boolean }> = [];
+  let index = 0;
+  while (index < command.length) {
+    const char = command[index]!;
+    const next = command[index + 1];
+    if (quote) {
+      if (char === quote) quote = undefined;
+      else if (char === "\\" && quote === "\"" && next !== undefined) { text += char + next; index += 2; continue; }
+      text += char; index++; continue;
+    }
+    if (char === "\\" && next !== undefined) { text += char + next; index += 2; continue; }
+    if (char === "'" || char === "\"") { quote = char; text += char; index++; continue; }
+    if (char === "#" && /^$|[\s;&|()]/.test(command[index - 1] ?? "")) {
+      const stop = command.indexOf("\n", index);
+      const end = stop < 0 ? command.length : stop;
+      text += command.slice(index, end); index = end; continue;
+    }
+    if (char === "(" && next === "(") { arithmetic++; text += "(("; index += 2; continue; }
+    if (char === ")" && next === ")" && arithmetic) { arithmetic--; text += "))"; index += 2; continue; }
+    if (char === "<" && next === "<" && !arithmetic) {
+      if (command[index + 2] === "<") { text += "<<<"; index += 3; continue; }
+      let at = index + 2;
+      const tabs = command[at] === "-";
+      if (tabs) at++;
+      while (command[at] === " " || command[at] === "\t") at++;
+      // The end word, with its quotes and backslashes taken off: <<'EOF', <<"EOF" and <<\EOF all end at EOF.
+      let end = "";
+      let word = false;
+      let wordQuote: string | undefined;
+      for (; at < command.length; at++) {
+        const letter = command[at]!;
+        if (wordQuote) { if (letter === wordQuote) wordQuote = undefined; else end += letter; continue; }
+        if (letter === "'" || letter === "\"") { wordQuote = letter; word = true; continue; }
+        if (letter === "\\" && at + 1 < command.length) { end += command[++at]; word = true; continue; }
+        if (/[\s;&|<>()]/.test(letter)) break;
+        end += letter; word = true;
+      }
+      if (word) { pending.push({ end, tabs }); heredoc = true; }
+      text += command.slice(index, at); index = at; continue;
+    }
+    if (char === "\n" && pending.length) {
+      text += char; index++;
+      // Each heredoc on the line reads its own lines in turn; one with no end word reads to the end, as bash does.
+      for (const { end, tabs } of pending) {
+        while (index < command.length) {
+          const stop = command.indexOf("\n", index);
+          const line = command.slice(index, stop < 0 ? command.length : stop);
+          index = stop < 0 ? command.length : stop + 1;
+          if ((tabs ? line.replace(/^\t+/, "") : line) === end) break;
+        }
+      }
+      pending.length = 0;
+      continue;
+    }
+    text += char; index++;
+  }
+  return { text, heredoc };
+}
+
 /** What `command` needs from the terminal, if anything: "interactive" wins over "remote-sudo". A pager, REPL or database
- * shell counts only as the whole command, with no pipe or input redirect feeding or reading it. */
+ * shell counts only as the whole command, with no pipe, input redirect or heredoc feeding or reading it. */
 export function terminalNeed(command: string): TerminalNeed | undefined {
-  const line = splitShell(command);
-  const alone = line.segments.length === 1 && !/(?:^|[^<])<(?!<)|\|/.test(command);
+  const { text, heredoc } = withoutHeredocLines(command);
+  const line = splitShell(text);
+  const alone = !heredoc && line.segments.length === 1 && !/(?:^|[^<])<(?!<)|\|/.test(text);
   let found: TerminalNeed | undefined;
   for (const segment of line.segments) {
     const need = segmentNeed(segment.words, alone);

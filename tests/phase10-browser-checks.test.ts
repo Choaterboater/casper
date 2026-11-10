@@ -16,7 +16,7 @@ browserTest("a failing check names up to 3 real elements like it, and on a repla
   // Line breaks and runs of spaces count as one space on both sides; the text must otherwise match.
   expect(await run([{ kind: "text", selector: "h1", expected: "Hello Casper" }, { kind: "text", selector: ".status", expected: " Saved    ok " }]))
     .toMatchObject({ status: "pass", assertions: [{ status: "pass", actual: "Hello Casper" }, { status: "pass", actual: "Saved ok" }] });
-  const hint = "If the check itself is wrong, record a corrected check of this page and withdraw this one (replacedBy: its id once it passes); if the page is wrong, fix it.";
+  const hint = "If the check itself is wrong, record a corrected check of this page with replaces: this check's id; if the page is wrong, fix it.";
   const recorded = await run([{ kind: "visible", selector: "#title" }, { kind: "text", selector: "#save-btn", expected: "Save" },
     { kind: "text", selector: "h1", expected: "hello casper" }, { kind: "visible", selector: "button" }]) as { id: string; status: string; assertions: Array<Record<string, unknown>> };
   // Recorded before an edit a check is meant to fail: the real elements, but no hint to withdraw it.
@@ -186,7 +186,8 @@ browserTest("after a change a wrong check can be withdrawn by naming a later pas
   expect("hint" in total.assertions[0]!).toBe(false);
   f.session.invalidate();
   const refused = await f.session.run({ action: "withdraw", id: wrong.id, reason: "selector too wide" }).catch((e: Error) => e.message);
-  expect(refused).toContain("or record a corrected check of the same page and, once it passes, withdraw this one with replacedBy: its id");
+  // The refusal says all a replacement needs, in one message, and the one call that does it.
+  expect(refused).toBe(`A change was made after this check was recorded: replay it, or replace it in one call: record a check of / at 1280×800 with at least 1 text assertion that passes, with replaces: "${wrong.id}"; once that passes it takes this one's place`);
   const failing = await f.session.run({ action: "check", scenario: scenario("Booking 2", f.url, "h2", "Booked!") });
   const elsewhere = await f.session.run({ action: "check", scenario: scenario("Booking 3", `${f.url}/other`, "h2", "Booked") });
   expect(elsewhere).toMatchObject({ status: "pass" });
@@ -212,6 +213,86 @@ browserTest("after a change a wrong check can be withdrawn by naming a later pas
   // The failing replacement candidate still counts on its own.
   expect(report.status).toBe("fail");
 }, 30_000);
+
+browserTest("check with replaces records the corrected check and, once it passes, withdraws the old one in the same call; every guard rail stays", async () => {
+  const f = await fixture();
+  await writeFile(f.sourceFile, '<!doctype html><section id="done"><h2>Booked</h2><p>Monday 09:00</p></section><input id="who"><button id="go">Go</button>');
+  const fillGo = [{ action: "fill", selector: "#who", value: "Test", impact: "local-test" }, { action: "click", selector: "#go", impact: "local-test" }];
+  const scenario = (name: string, selector: string, extra: Record<string, unknown> = {}) => ({ name, url: f.url, scope: { inputs: ["index.html"] }, steps: fillGo,
+    assertions: [{ kind: "text", selector, expected: "Booked" }, { kind: "visible", selector: "#done" }], ...extra });
+  const wrong = await f.session.run({ action: "check", scenario: scenario("Booking", "#done") }) as { id: string };
+  f.session.invalidate();
+  const checks = async () => (await f.session.report()).checks.length;
+  // Refused before anything runs, every reason at once and what a replacement needs; nothing is recorded.
+  const elsewhere = { ...scenario("Elsewhere", "h2", { url: `${f.url}/other`, viewport: { width: 390, height: 844 } }), steps: fillGo.slice(0, 1), assertions: [{ kind: "text", selector: "h2", expected: "Booked" }] };
+  await expect(f.session.run({ action: "check", replaces: wrong.id, scenario: elsewhere })).rejects.toThrow(
+    "replaces: this check must check the same page as this one (/), not /other; and it must check the page at the same viewport as this one (1280×800); and it must test at least what this check did; it has fewer click steps, visible assertions. A replacement is a check of / at 1280×800 with at least 1 fill step, 1 click step, 1 text assertion and 1 visible assertion that passes (nothing was recorded)");
+  await expect(f.session.run({ action: "check", replaces: "not-an-id", scenario: scenario("Fixed", "h2") })).rejects.toThrow("replaces must be the id of a check recorded in this session (nothing was recorded)");
+  expect(await checks()).toBe(1);
+  // A replacement that fails is recorded on its own; the old check stays, and the result says how to finish.
+  const failing = await f.session.run({ action: "check", replaces: wrong.id, scenario: scenario("Still wrong", "#done p") }) as { id: string; status: string; replaced: Record<string, unknown> };
+  expect(failing).toMatchObject({ status: "fail", replaced: { id: wrong.id, status: "incomplete", note: expect.stringContaining(`Not replaced: this check did not pass. If the page is wrong, fix it and replay this check, then withdraw ${wrong.id} with replacedBy: "${failing.id}"`) } });
+  // One that passes takes the old check's place in the same call, with the reason given (or "written wrong").
+  const fixed = await f.session.run({ action: "check", replaces: wrong.id, reason: "selector too wide", scenario: scenario("Booking fixed", "#done h2") }) as { id: string; replaced: Record<string, unknown> };
+  expect(fixed).toMatchObject({ status: "pass", replaced: { id: wrong.id, status: "withdrawn", reason: `selector too wide (replaced by "Booking fixed", ${fixed.id})` } });
+  const report = await f.session.report();
+  expect(report.checks.find(c => c.id === wrong.id)).toMatchObject({ status: "withdrawn", withdrawn: `selector too wide (replaced by "Booking fixed", ${fixed.id})` });
+  // A passed or withdrawn check can't be replaced.
+  await expect(f.session.run({ action: "check", replaces: fixed.id, scenario: scenario("Again", "#done h2") })).rejects.toThrow(`replaces must name a failed or unfinished check; "Booking fixed" passed (nothing was recorded)`);
+  await expect(f.session.run({ action: "check", replaces: wrong.id, scenario: scenario("Again", "#done h2") })).rejects.toThrow("replaces names a check already withdrawn");
+  const other = await f.session.run({ action: "check", scenario: scenario("Other", "#done") }) as { id: string };
+  f.session.invalidate();
+  const unnamed = await f.session.run({ action: "check", replaces: other.id, scenario: scenario("Other fixed", "#done h2") });
+  expect(unnamed).toMatchObject({ status: "pass", replaced: { status: "withdrawn", reason: expect.stringMatching(/^written wrong \(replaced by "Other fixed", /) } });
+  // replacedBy names every reason at once too, and the one call that does both.
+  const third = await f.session.run({ action: "check", scenario: scenario("Third", "#done") }) as { id: string };
+  const phone = await f.session.run({ action: "check", scenario: { ...scenario("Phone", "#done h2"), viewport: { width: 390, height: 844 }, steps: [] } }) as { id: string };
+  f.session.invalidate();
+  await expect(f.session.run({ action: "withdraw", id: third.id, reason: "selector too wide", replacedBy: phone.id })).rejects.toThrow(
+    `replacedBy must check the page at the same viewport as this one (1280×800); and it must test at least what this check did; it has fewer fill steps, click steps. A replacement is a check of / at 1280×800 with at least 1 fill step, 1 click step, 1 text assertion and 1 visible assertion that passes; record it with replaces: "${third.id}" to do both in one call`);
+}, 40_000);
+
+browserTest("on a broken page every new way through still fails: the listed selector, 30 steps, a refused withdraw and replaces change the rounds, never what passes", async () => {
+  const f = await fixture();
+  // Save is broken: it never says the form was saved, whichever button is clicked.
+  const fields = Array.from({ length: 28 }, (_, i) => `<input id="f${i}">`).join("");
+  await writeFile(f.sourceFile, `<!doctype html><h1>Form</h1>${fields}<button type="button" class="save">Save</button><button type="button" class="save">Save copy</button><p id="out">Not saved</p>`);
+  const fills = Array.from({ length: 28 }, (_, i) => ({ action: "fill", selector: `#f${i}`, value: `value ${i}`, impact: "local-test" }));
+  const scenario = (name: string, save: string) => ({ name, url: f.url, scope: { inputs: ["index.html"] },
+    steps: [...fills, { action: "click", selector: save, impact: "local-test", reason: "saves the test form" }, { action: "press", selector: "#f0", value: "Tab", impact: "local-test" }],
+    assertions: [{ kind: "text", selector: "#out", expected: "Saved" }] });
+  // 1. The error lists a selector for each Save; the retry with the listed one runs and fails, as the page is broken.
+  const several = await f.session.run({ action: "check", scenario: scenario("Save", ".save") }).catch((e: Error) => e.message);
+  expect(several).toContain('it matches 2 (matches: button "Save" = button:nth-of-type(1); button "Save copy" = button:nth-of-type(2))');
+  // 3. A 30-step check is accepted and runs every step: it fails on the broken page.
+  const first = await f.session.run({ action: "check", scenario: scenario("Save", "button:nth-of-type(1)") }) as { id: string; status: string; assertions: Array<Record<string, unknown>> };
+  expect(first).toMatchObject({ status: "fail", assertions: [{ status: "fail", actual: "Not saved" }] });
+  // 4. After a change it can't be withdrawn: the refusal says what a replacement needs, and the check still fails.
+  f.session.invalidate();
+  await expect(f.session.run({ action: "withdraw", id: first.id, reason: "wrong" })).rejects.toThrow("with at least 28 fill steps, 1 click step, 1 press step and 1 text assertion that passes");
+  // 5. A replacement written right fails too on the broken page: the old check is not withdrawn and the result fails.
+  const replacement = await f.session.run({ action: "check", replaces: first.id, scenario: scenario("Save again", "button:nth-of-type(1)") }) as { id: string };
+  expect(replacement).toMatchObject({ status: "fail", replaced: { id: first.id, status: "fail", note: expect.stringContaining("Not replaced: this check did not pass") } });
+  // A replacement that only checks the page loads is refused before it runs; nothing is withdrawn.
+  await expect(f.session.run({ action: "check", replaces: first.id, scenario: { ...scenario("Loads", "h1"), steps: [], assertions: [{ kind: "visible", selector: "h1" }] } }))
+    .rejects.toThrow("it has fewer fill steps, click steps, press steps, text assertions");
+  const report = await f.session.report();
+  expect(report.status).toBe("fail");
+  expect(report.checks.map(c => c.status)).toEqual(["fail", "fail"]);
+}, 60_000);
+
+browserTest("a check of 30 steps runs within the check's time", async () => {
+  const f = await fixture();
+  const fields = Array.from({ length: 29 }, (_, i) => `<label>F${i} <input id="f${i}"></label>`).join("");
+  await writeFile(f.sourceFile, `<!doctype html><form>${fields}<button type="button" id="save">Save</button></form><p id="out"></p>
+    <script>document.querySelector("#save").onclick = () => { document.querySelector("#out").textContent = [...document.querySelectorAll("input")].filter(i => i.value).length + " filled"; };</script>`);
+  const steps = [...Array.from({ length: 29 }, (_, i) => ({ action: "fill", selector: `#f${i}`, value: `value ${i}`, impact: "local-test" })),
+    { action: "click", selector: "#save", impact: "local-test", reason: "saves the test form" }];
+  const started = performance.now();
+  expect(await f.session.run({ action: "check", scenario: { name: "Long form", url: f.url, scope: { inputs: ["index.html"] }, steps, assertions: [{ kind: "text", selector: "#out", expected: "29 filled" }] } }))
+    .toMatchObject({ status: "pass" });
+  expect(performance.now() - started).toBeLessThan(30_000);
+}, 45_000);
 
 browserTest("a replay whose own server is gone opens the same path on Casper's server; with none up it could not check (incomplete, not failed)", async () => {
   const f = await fixture();
@@ -246,9 +327,37 @@ browserTest("a new check whose step selector matches several elements is not kep
   await writeFile(f.sourceFile, "<!doctype html><button>A</button><button>B</button><h1>Hi</h1>");
   const error = await f.session.run({ action: "check", scenario: { name: "Two buttons", url: f.url, scope: { inputs: ["index.html"] },
     steps: [{ action: "click", selector: "button", impact: "local-test", reason: "Test" }], assertions: [{ kind: "visible", selector: "h1" }] } }).catch((e: Error) => e.message);
-  expect(error).toContain("it matches 2: name one element and record the check again (nothing was recorded)");
+  expect(error).toContain('it matches 2 (matches: button "A" = button:nth-of-type(1); button "B" = button:nth-of-type(2)): name one element and record the check again (nothing was recorded)');
   expect((await f.session.report()).checks).toHaveLength(0);
 }, 30_000);
+
+browserTest("a selector that matches several elements or none lists each one's tag, data-testid, first text and a selector for it alone, which the retry can use", async () => {
+  const f = await fixture();
+  await writeFile(f.sourceFile, `<!doctype html><h1>Tasks</h1><ul id="list">
+    <li><span>Milk</span><button data-testid="done-1">Done</button></li>
+    <li><span>Eggs</span><button class="done">Done</button></li></ul><p class="count">2 left</p><p class="count">0 done</p><task-tabs></task-tabs>
+    <script>customElements.define("task-tabs", class extends HTMLElement { connectedCallback() {
+      this.attachShadow({ mode: "open" }).innerHTML = '<button class="tab">All</button><button class="tab">Open</button>'; } });</script>`);
+  const scenario = (steps: unknown[], assertions: unknown[]) => ({ name: "Done", url: f.url, scope: { inputs: ["index.html"] }, steps, assertions });
+  const click = (selector: string) => ({ action: "click", selector, impact: "local-test", reason: "ticks off a test task" });
+  const several = await f.session.run({ action: "check", scenario: scenario([click("li button")], [{ kind: "visible", selector: "h1" }]) }).catch((e: Error) => e.message);
+  expect(several).toContain('it matches 2 (matches: button[data-testid="done-1"] "Done" = [data-testid="done-1"]; button "Done" = li:nth-of-type(2) > button)');
+  // Inside a web component's shadow root: its host's selector >>> the element's own.
+  const shadow = await f.session.run({ action: "check", scenario: scenario([click("pierce/.tab")], [{ kind: "visible", selector: "h1" }]) }).catch((e: Error) => e.message);
+  expect(shadow).toContain('it matches 2 (matches: button "All" = task-tabs >>> button:nth-of-type(1); button "Open" = task-tabs >>> button:nth-of-type(2))');
+  // One that matches nothing names the elements most like it, after the 5 s wait for a late element.
+  const none = await f.session.run({ action: "check", scenario: scenario([click('[data-testid="done"]')], [{ kind: "visible", selector: "h1" }]) }).catch((e: Error) => e.message);
+  expect(none).toContain('it matches 0 (open shadow roots searched too; host >>> inner names one inside a web component) (near: button "Done" = li:nth-of-type(2) > button; button[data-testid="done-1"] "Done" = [data-testid="done-1"])');
+  // An assertion's selector: the same list, and nothing recorded.
+  const assertion = await f.session.run({ action: "check", scenario: scenario([], [{ kind: "text", selector: ".count", expected: "2 left" }]) }).catch((e: Error) => e.message);
+  expect(assertion).toBe("assertion 1's selector matches 2 elements (matches: p \"2 left\" = p:nth-of-type(1); p \"0 done\" = p:nth-of-type(2)): name one element and record the check again (nothing was recorded)");
+  // Only the one that matched nothing keeps its id (the feature may not be built yet).
+  expect((await f.session.report()).checks).toHaveLength(1);
+  // The listed selectors name one element each, so the retry is right the first time.
+  expect(await f.session.run({ action: "check", scenario: scenario([click("li:nth-of-type(2) > button"), click("task-tabs >>> button:nth-of-type(2)")],
+    [{ kind: "text", selector: "p:nth-of-type(1)", expected: "2 left" }]) }))
+    .toMatchObject({ status: "pass" });
+}, 40_000);
 
 browserTest("a check step waits up to 5 s for its target to appear or be enabled; several matches fail at once", async () => {
   const f = await fixture();

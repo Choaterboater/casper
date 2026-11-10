@@ -316,8 +316,20 @@ the hideable output fills a fifth of the model's context window (and eight round
 last time), or the prompt passes 60% of the window, and it is more than the cache has to re-read after the
 first stub. So a short task never pays a cache rebuild, and one rebuild takes several old reads at once.
 The last four rounds, errors, unfinished or stopped commands and recently referenced output stay visible.
-Browser check text stays; only its old pictures can be hidden. User pictures, writes, MCP responses
-and verification results are not hidden. References are conservatively detected from the latest
+Browser check text stays; only its old pictures can be hidden. User pictures, MCP responses
+and verification results are not hidden.
+
+The same goes for the file bodies the AI sent: the content of an old `write`, the text of an old `edit`, and
+the body of an old `cat > file <<'EOF'` command, from 2,000 characters. The call keeps its tool, its path
+and its command line; only the body becomes a stub such as `[content of write public/app.js (640 lines)
+hidden, read the file before judging or editing it]`, since the file on disk has it, so a review never rates
+code it no longer sees. A body stays while the latest rounds or request name its file, quote one of its lines
+or point back at an earlier write, and when the call failed.
+
+When Casper starts a round itself (a check repair, the requirements review and self-review, a proof repair,
+finishing browser checks, keep going), hiding does not wait for the fifth-of-the-window or 60% mark: at that
+round's first request it hides what has aged, if that is at least 5% of the window and more than the rebuild
+re-reads. These rounds re-read the whole build, so they gain the most, and the prompt changes there anyway. References are conservatively detected from the latest
 user request and recent model text, thinking and tool arguments (paths, call IDs, quoted lines,
 source symbols and vague mentions of earlier output); semantic references can still be missed.
 
@@ -402,6 +414,10 @@ An app may close a Casper that sits idle and reopen the conversation later
 dev server, command, debugger, helper or checks are at work, a command's end note included. `acp_idle_exit: off` in
 `~/.casper/config.yaml` (only there) keeps it open; it is read again at each check. /settings shows it as **Apps close
 idle Casper**.
+
+The app's chat gets Casper's own title for it, made from your first request with no model call
+([decision 96](adr/0002/96-an-acp-app-gets-casper-chat-title.md)). It has no setting: the app decides whether to
+show it.
 
 ### Asking less: /permissions
 
@@ -1598,9 +1614,12 @@ the skill's tags, name and description, the kind of task, and the project's lang
 task-kind or language match alone does not load a skill. A tag or the skill's whole name, as a phrase in the request
 ("find skills", "mcp builder"), counts on its own; one word of a longer name (`mcp` of `mcp-builder`) is only a word of
 its description, so "add another mcp central server to network mcp" picks no builder skill. Otherwise the description
-needs two of the request's words, three for a request of more than six words, and words of any
-request (`my`, `check`, `see`, `why`, `changes`, `working`) never count. `disable-model-invocation: true` keeps a
-skill out of automatic selection, even after review.
+needs two of the request's words, three for a request of more than six words. Words of any
+request (`my`, `check`, `see`, `why`, `changes`, `working`) and words about the exchange itself (`question`, `answer`,
+`options`, `one line`, `earlier`, `chat`, `session`) never count, and a word said twice, once as a plural ("the tests
+in sum.test.js"), counts once. Skills are picked from your own words: a chat you mention or a transcript you paste
+goes to the AI but picks no skill ([decision 93](adr/0002/93-skills-fit-what-was-asked.md)).
+`disable-model-invocation: true` keeps a skill out of automatic selection, even after review.
 
 Set how many skills load per request in the global, profile or project file:
 

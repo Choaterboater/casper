@@ -1,4 +1,4 @@
-import { existsSync, lstatSync, readFileSync, realpathSync } from "node:fs";
+import { existsSync, lstatSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { lstat, realpath } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -132,6 +132,24 @@ class PiToolController {
   }
 }
 
+/** The whole lines of the saved conversation `file` as they are now, in a private file a fork reads (decision 97).
+ * The process of that conversation may be writing its next entry: a line still being written is left out, and the
+ * reader in Pi, which ends a cut last line with a newline (and rewrites an old file format), changes this file, never
+ * the source. */
+function wholeLinesCopy(file: string): { file: string; remove(): void } {
+  const text = readFileSync(file);
+  const folder = mkdtempSync(path.join(os.tmpdir(), "casper-fork-"));
+  const copy = path.join(folder, path.basename(file));
+  writeFileSync(copy, text.subarray(0, text.lastIndexOf(0x0a) + 1), { mode: 0o600 });
+  return { file: copy, remove: () => rmSync(folder, { recursive: true, force: true }) };
+}
+
+/** The fork `target`'s header names the conversation it came from, not the private file it was read from. */
+function forkedFrom(target: string, source: string): void {
+  const [head = "", ...rest] = readFileSync(target, "utf8").split("\n");
+  writeFileSync(target, [JSON.stringify({ ...JSON.parse(head), parentSession: source }), ...rest].join("\n"));
+}
+
 class PiRuntimeSession implements RuntimeSession {
   private readonly listeners = new Set<RuntimeEventListener>();
   private readonly toolInputs = new Map<string, ToolObservationInput>();
@@ -216,6 +234,38 @@ class PiRuntimeSession implements RuntimeSession {
     const result = await this.runtime.switchSession(targetPath);
     if (result.cancelled) throw new Error("Conversation fork was cancelled");
     if (options.context) await this.appendContext(options.context);
+    return this.getSessionInfo();
+  }
+
+  async forkAt(source: string, at?: string): Promise<RuntimeSessionInfo | "unknown conversation" | "unknown mark"> {
+    if (this.readOnly) throw new Error("Read-only subagents cannot fork sessions");
+    if (this.busy || this.models.busy) throw new Error("Wait for active work before forking sessions.");
+    const saved = (await SessionManager.list(this.runtime.cwd)).find((conversation) => conversation.id === source);
+    if (!saved) return "unknown conversation";
+    // Pi reads a copy of the whole lines of the source, so the source process may go on writing to it (decision 97).
+    const read = wholeLinesCopy(saved.path);
+    const folder = path.dirname(saved.path);
+    let target: string | undefined;
+    try {
+      if (at === undefined) target = SessionManager.forkFrom(read.file, this.runtime.cwd, folder).getSessionFile();
+      else {
+        // The source's entries in memory; only the path from its start to `at` is written, to a new file.
+        const copy = SessionManager.open(read.file, folder, this.runtime.cwd);
+        if (!copy.getEntry(at)) return "unknown mark";
+        target = copy.createBranchedSession(at);
+        // A point before the first message has nothing to go on with, and Pi writes no file for it.
+        if (!target || !existsSync(target)) return "unknown mark";
+      }
+      if (!target) throw new Error("The conversation fork was not persisted");
+      forkedFrom(target, saved.path);
+    } finally { read.remove(); }
+    try {
+      const result = await this.runtime.switchSession(target, { cwdOverride: this.runtime.cwd });
+      if (result.cancelled) throw new Error("Conversation fork was cancelled");
+    } catch (error) {
+      rmSync(target, { force: true });
+      throw error;
+    }
     return this.getSessionInfo();
   }
 
@@ -432,7 +482,7 @@ class PiRuntimeSession implements RuntimeSession {
     return this.models.status(this.runtime.session);
   }
 
-  async prompt(text: string, signal?: AbortSignal, options?: { request: string; typed?: string; maxTurns?: number; images?: readonly RuntimeImage[] }): Promise<void> {
+  async prompt(text: string, signal?: AbortSignal, options?: { request: string; typed?: string; maxTurns?: number; images?: readonly RuntimeImage[]; followUp?: boolean }): Promise<void> {
     if (this.promptActive) throw new Error("A prompt is already active.");
     this.promptActive = true;
     this.agentShellGuard?.task(options?.request ?? text, signal ?? options?.request ?? text);
@@ -465,6 +515,8 @@ class PiRuntimeSession implements RuntimeSession {
     };
     // Who wrote this prompt's message, recorded at the first request after it is in the conversation.
     let author: { from: string | null; typed?: string } | undefined;
+    // A round Casper starts itself may hide old output at its first request, a point where the prompt changes anyway.
+    let followUp = options?.followUp === true;
     // Pi can resolve auth before its agent has an AbortController. Keep the
     // preparation signal linked at the last seam before provider execution.
     agent.streamFunction = (model, context, streamOptions) => {
@@ -478,7 +530,8 @@ class PiRuntimeSession implements RuntimeSession {
         if (entry.customType === TOOL_HISTORY_ENTRY) history.restore(entry.data);
         else if (entry.customType === STEERED_LINE_ENTRY) { const at = steeredAt(entry.data); if (at !== undefined) typed.add(at); }
       }
-      const projected = history.project(context.messages, this.hideToolOutput?.() !== false, { contextWindow: model.contextWindow });
+      const projected = history.project(context.messages, this.hideToolOutput?.() !== false, { contextWindow: model.contextWindow, followUp });
+      followUp = false;
       if (projected.checkpoint) session.sessionManager.appendCustomEntry(TOOL_HISTORY_ENTRY, projected.checkpoint);
       const messages = this.steeredLines.project(projected.messages, typed, at => session.sessionManager.appendCustomEntry(STEERED_LINE_ENTRY, { at }));
       return stream(model, { ...context, messages }, {

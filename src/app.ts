@@ -579,6 +579,8 @@ export class CasperApp {
   onLinesJoined?: (lines: readonly string[]) => void;
   /** `casper acp`: a line Casper wrote for the person (personNote), so the app shows it as a note (decision 88). */
   onPersonNote?: (line: string) => void;
+  /** `casper acp`: the first request just named the conversation, so the app's chat gets that title (decision 96). */
+  onConversationNamed?: () => void;
   readonly allow?: RunAllowances;
   readonly sandboxSeams?: Partial<ShellSandboxOptions>;
   /** web_search and web_fetch for this workspace; unset when web: off. */

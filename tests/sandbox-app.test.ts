@@ -6,7 +6,7 @@ import path from "node:path";
 import { CasperApp, type CasperAppOptions } from "../src/app";
 import { rebindWorkspace } from "../src/app/session-branches";
 import { loadProjectContext } from "../src/project/context";
-import type { AgentRuntime, RuntimeStartOptions } from "../src/runtime/types";
+import type { AgentRuntime, RuntimeEventListener, RuntimeStartOptions } from "../src/runtime/types";
 import { currentSandbox } from "../src/sandbox/manager";
 import { SkillRegistry } from "../src/skills/registry";
 import { fakeEngine } from "./support/sandbox-fakes";
@@ -23,14 +23,25 @@ async function fixture(options: Partial<CasperAppOptions> = {}, edit = true) {
   const home = path.join(base, "home"), project = path.join(base, "project");
   await mkdir(home); await mkdir(project);
   let started: RuntimeStartOptions | undefined;
+  const listeners = new Set<RuntimeEventListener>();
+  const emit = (event: Parameters<RuntimeEventListener>[0]) => { for (const listener of listeners) listener(event); };
+  let turn = 0;
   const runtime: AgentRuntime = {
     async start(startOptions) {
       started = startOptions;
       return {
         getStatus: () => ({ provider: "fixture", model: "demo", auth: "configured" }),
         getState: () => ({ cwd: project, isStreaming: false }),
-        subscribe: () => () => {}, abort: async () => {}, setTools: () => {},
-        prompt: async () => { if (edit) await writeFile(path.join(project, "notes.md"), "done\n"); },
+        subscribe: (listener: RuntimeEventListener) => { listeners.add(listener); return () => listeners.delete(listener); },
+        abort: async () => {}, setTools: () => {},
+        prompt: async () => {
+          if (!edit) return;
+          // The fixture's writes are its model's tool: a real model changes files only through its tools.
+          const id = `edit-${++turn}`;
+          emit({ type: "tool_start", toolName: "fixture_edit", toolCallId: id });
+          await writeFile(path.join(project, "notes.md"), "done\n");
+          emit({ type: "tool_end", toolName: "fixture_edit", toolCallId: id, isError: false });
+        },
       };
     },
     async dispose() {},

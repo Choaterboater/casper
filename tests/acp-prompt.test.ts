@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
-import { MAX_EMBEDDED_TEXT, promptContent } from "../src/acp/prompt";
+import { CONTEXT_END, CONTEXT_START, MAX_EMBEDDED_TEXT, promptContent } from "../src/acp/prompt";
 import { RPC, RpcFailure } from "../src/acp/rpc";
 import { attachImages } from "../src/app/images";
 
@@ -94,10 +94,11 @@ test("embedded text up to 256 KB goes whole; past that a file goes as its path a
   expect(asFile.text).toMatch(new RegExp(`^Attached file big\\.log \\(\\d+ KB\\): "${file.replace(/[\\.]/g, "\\$&")}"$`));
   expect(asFile.notes).toEqual([]);
   const cut = promptContent([{ type: "resource", resource: { uri: "zed://buffer/7", text: big } }]);
-  expect(Buffer.byteLength(cut.text)).toBeLessThanOrEqual(MAX_EMBEDDED_TEXT + 64);
-  expect(cut.text.startsWith("zed://buffer/7\nline of text\n")).toBe(true);
+  expect(Buffer.byteLength(cut.text)).toBeLessThanOrEqual(MAX_EMBEDDED_TEXT + 64 + CONTEXT_START.length + CONTEXT_END.length);
+  // It is no file, so it goes as context, between the fixed lines (decision 92).
+  expect(cut.text.startsWith(`${CONTEXT_START}\nzed://buffer/7\nline of text\n`)).toBe(true);
   // Cut at a line: no half line at the end.
-  expect(cut.text.endsWith("line of text")).toBe(true);
+  expect(cut.text.endsWith(`line of text\n${CONTEXT_END}`)).toBe(true);
   expect(cut.notes).toEqual(["The text sent as zed://buffer/7 is over 256 KB; only its first 256 KB went with the request."]);
 });
 

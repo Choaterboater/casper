@@ -30,6 +30,16 @@ export function hideCut(headline: string, values: readonly string[]): string {
   return headline;
 }
 
+/** A conversation's name as the app's chat title (decision 96), hidden: `hide`, then each of `values` (the user's own
+ * secrets) as sessionTitle may have trimmed it (a final `.`, `,`, `:`, `;`, `!` or `?` gone), then the start of one
+ * that a long first word's cut at 40 characters ends inside (hideCut). */
+export function titleShown(name: string, hide: (text: string) => string, values: readonly string[]): string {
+  let shown = hide(name);
+  const forms = [...new Set(values.map((value) => value.replace(/[\s.,:;!?]+$/, "")))].filter((form) => form.length >= 6).sort((a, b) => b.length - a.length);
+  for (const form of forms) if (shown.includes(form)) shown = shown.split(form).join(HIDDEN);
+  return hideCut(shown, values);
+}
+
 /** Each of `values` as reasoningHeadline may have changed it, longest first: marks and a leading `#` taken off,
  * spaces run together, and at the end of a sentence its final `.`, `:` or `;` gone; the value itself too. */
 export function headlineForms(values: readonly string[]): string[] {

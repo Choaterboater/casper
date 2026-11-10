@@ -35,7 +35,10 @@ async function fixture(options: { projectYaml: string; shell?: string }) {
             emit({ type: "tool_start", toolName: "bash", toolCallId: `t${prompts.length}`, input: { command: options.shell } });
             emit({ type: "tool_end", toolName: "bash", toolCallId: `t${prompts.length}`, input: { command: options.shell }, output: { text: "1 passed", truncated: false }, isError: false });
           }
+          // The fixture's writes are its model's tool: a real model changes files only through its tools.
+          emit({ type: "tool_start", toolName: "fixture_edit", toolCallId: `edit${prompts.length}` });
           await writeFile(path.join(project, "calc.py"), `def add(a, b):\n    return a + b  # ${prompts.length}\n`);
+          emit({ type: "tool_end", toolName: "fixture_edit", toolCallId: `edit${prompts.length}`, isError: false });
           emit({ type: "assistant_text_delta", delta: "Done.\n" });
           emit({ type: "assistant_response_end", stopReason: "stop" });
         },
@@ -167,12 +170,20 @@ test("a one-shot run never shows suggestions", async () => {
   await writeFile(path.join(project, "calc.py"), "def add(a, b):\n    return a - b\n");
   await writeFile(path.join(project, ".casper/project.yaml"), PASSING);
   let output = "";
+  const listeners = new Set<RuntimeEventListener>();
+  const emit = (event: Parameters<RuntimeEventListener>[0]) => { for (const listener of listeners) listener(event); };
   const runtime: AgentRuntime = {
     start: async () => ({
       getStatus: () => ({ provider: "fixture", model: "demo", auth: "configured" }),
       getState: () => ({ cwd: project, isStreaming: false }),
-      subscribe: () => () => {}, abort: async () => {}, setTools: () => {},
-      prompt: async () => { await writeFile(path.join(project, "calc.py"), "def add(a, b):\n    return a + b\n"); },
+      subscribe: (listener: RuntimeEventListener) => { listeners.add(listener); return () => listeners.delete(listener); },
+      abort: async () => {}, setTools: () => {},
+      prompt: async () => {
+        // The fixture's writes are its model's tool: a real model changes files only through its tools.
+        emit({ type: "tool_start", toolName: "fixture_edit", toolCallId: "edit1" });
+        await writeFile(path.join(project, "calc.py"), "def add(a, b):\n    return a + b\n");
+        emit({ type: "tool_end", toolName: "fixture_edit", toolCallId: "edit1", isError: false });
+      },
     }),
     dispose: async () => {},
   };
