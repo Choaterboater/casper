@@ -411,9 +411,11 @@ test("a table printed straight after another is read by its own header: a Markdo
       lines: ["| Variable_name | Value |", "|---------------|-------|", "| port          | 3306  |", ...logins] },
     { name: "a grid, then Markdown", gone, stay, lines: [...grid, ...logins] },
     { name: "rich, then Markdown", gone, stay, lines: [...rich, ...logins] },
-    { name: "Markdown, then Markdown", gone, stay, lines: [...markdown, ...logins] },
-    { name: "Markdown, a lone rule, then Markdown", gone, stay, lines: [...markdown, "|----|", ...logins] },
-    { name: "Markdown, a lone bar, then Markdown", gone, stay, lines: [...markdown, " | ", ...logins] },
+    // After Markdown rows the older reading takes the next header for a row and hides the cell under the first
+    // table's password column: the word user there goes too.
+    { name: "Markdown, then Markdown", gone, stay: ["password            |", "| b    |"], lines: [...markdown, ...logins] },
+    { name: "Markdown, a lone rule, then Markdown", gone, stay: ["password            |", "| b    |"], lines: [...markdown, "|----|", ...logins] },
+    { name: "Markdown, a lone bar, then Markdown", gone, stay: ["password            |", "| b    |"], lines: [...markdown, " | ", ...logins] },
     // A grid's bottom edge is the only rule before the next grid's header.
     { name: "a grid, then a grid with no top edge", gone, stay: ["| user | password            |", "| b    |"],
       lines: [...grid, "| user | password            |", "+======+=====================+", "| b    | Fake-Grid-Pass-0002 |", "+------+---------------------+"] },
@@ -438,6 +440,33 @@ test("a key and value table keeps a secret-named row's setting: ON or OFF, true 
   const table = [rule, line("Variable_name", "Value"), rule, ...rows.map(([name, value]) => line(name!, value!)),
     line("report_password", "Fake-Report-Pass-01"), line("db_password", "123456"), rule];
   await expectTables([{ name: "SHOW VARIABLES", gone: ["Fake-Report-Pass-01", "123456"], stay: rows.map(([name, value]) => line(name!, value!)), lines: table }]);
+});
+
+test("a row the older table reading hides stays hidden: a line of = or ━ after the rows, rich's Markdown box with lines, a placeholder row, org tables, wide letters", async () => {
+  const keyValue = ["| key      | value             |", "|----------|-------------------|", "| user     | admin             |", "| password | Fake-Kv-Pass-0001 |"];
+  await expectTables([
+    // print('=' * 40) or a rich rule after a Markdown key and value table whose last row is a password.
+    { name: "key and value, then a line of =", gone: ["Fake-Kv-Pass-0001"], stay: ["admin", "done"], lines: [...keyValue, "=".repeat(40), "done"] },
+    { name: "key and value, then a line of ━", gone: ["Fake-Kv-Pass-0001"], stay: ["admin"], lines: [...keyValue, "━".repeat(40)] },
+    { name: "users with the last one named key, then rich's table", gone: ["Fake-Us-Pass-0003", "Fake-Us-Pass-0004"], stay: ["| alice  |", "┃ host ┃ port ┃", "│ db1  │ 5432 │"],
+      lines: ["| user   | password          |", "|--------|-------------------|", "| alice  | Fake-Us-Pass-0003 |", "| key    | Fake-Us-Pass-0004 |",
+        "┏━━━━━━┳━━━━━━┓", "┃ host ┃ port ┃", "┡━━━━━━╇━━━━━━┩", "│ db1  │ 5432 │", "└──────┴──────┘"] },
+    // rich's box.MARKDOWN with show_lines=True draws Markdown's header rule between the rows too.
+    { name: "rich's Markdown box with lines, key and value", gone: ["Fake-Rm-Pass-0001"], stay: ["admin", "db1"],
+      lines: ["| key      | value             |", "|----------|-------------------|", "| user     | admin             |", "|----------|-------------------|",
+        "| password | Fake-Rm-Pass-0001 |", "|----------|-------------------|", "| host     | db1               |"] },
+    { name: "rich's Markdown box with lines, a user named token", gone: ["Fake-Rm-Pass-0002", "Fake-Rm-Pass-0003"], stay: ["| token |", "| alice |"],
+      lines: ["| user  | password          |", "|-------|-------------------|", "| token | Fake-Rm-Pass-0002 |", "|-------|-------------------|", "| alice | Fake-Rm-Pass-0003 |"] },
+    { name: "a placeholder row under a user named token", gone: ["Fake-Ph-Pass-0004", "Fake-Ph-Pass-0005"], stay: ["| token |", "| alice |", "| -     | -  "],
+      lines: ["| user  | password          | role |", "|-------|-------------------|------|", "| token | Fake-Ph-Pass-0004 | ro   |", "| -     | -                 | -    |", "| alice | Fake-Ph-Pass-0005 | rw   |"] },
+    // tabulate's orgtbl twice: its header rule has a + where the bars cross.
+    { name: "org tables: setting and value, then user and password", gone: ["Fake-Org-Pass-007"], stay: ["| port    | 5432  |", "| alice |"],
+      lines: ["| setting | value |", "|---------+-------|", "| port    | 5432  |", "| user  | password          |", "|-------+-------------------|", "| alice | Fake-Org-Pass-007 |"] },
+    // A wide letter takes two places on screen but one in the text, so the header's bars are not above the rule's crosses.
+    { name: "heavy_grid with a wide-letter header and a user named token", gone: ["Fake-Cjk-Pass-00011", "Fake-Cjk-Pass-00012"], stay: ["┃ token  ┃", "┃ backup ┃", "用户名"],
+      lines: ["┏━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━┓", "┃ 用户名 ┃ password            ┃", "┣━━━━━━━━╋━━━━━━━━━━━━━━━━━━━━━┫", "┃ token  ┃ Fake-Cjk-Pass-00011 ┃",
+        "┣━━━━━━━━╋━━━━━━━━━━━━━━━━━━━━━┫", "┃ backup ┃ Fake-Cjk-Pass-00012 ┃", "┗━━━━━━━━┻━━━━━━━━━━━━━━━━━━━━━┛"] },
+  ]);
 });
 
 test("a file or branch name with login in it is not a login: the name after it stays", () => {
