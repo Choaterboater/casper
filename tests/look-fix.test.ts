@@ -96,8 +96,15 @@ async function fixture(answers: Array<string | ((project: string) => Promise<str
         prompt: async (text: string) => {
           prompts.push(text);
           const next = answers.shift() ?? "ok";
-          const answer = typeof next === "string" ? next : await next(project);
           emit({ type: "assistant_response_start", provider: "fixture", model: "demo" });
+          let answer: string;
+          if (typeof next === "string") answer = next;
+          else {
+            // The fixture's writes are its model's tool: a real model changes files only through its tools.
+            emit({ type: "tool_start", toolName: "fixture_edit", toolCallId: `edit-${prompts.length}` });
+            answer = await next(project);
+            emit({ type: "tool_end", toolName: "fixture_edit", toolCallId: `edit-${prompts.length}`, isError: false });
+          }
           emit({ type: "assistant_text_delta", delta: `${answer}\n` });
           emit({ type: "assistant_response_end", stopReason: "stop" });
         },

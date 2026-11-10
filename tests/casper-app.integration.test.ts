@@ -250,9 +250,15 @@ test("local skill commands work without starting an unavailable runtime", async 
     await execFileAsync("git", ["-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "init"], { cwd: root });
     const runtime: AgentRuntime = {
       async start(options: RuntimeStartOptions): Promise<RuntimeSession> {
+        let listener: RuntimeEventListener | undefined;
         return {
-          async prompt() { await writeFile(path.join(root, "configs/sw1.cfg"), "hostname sw1\ndescription reload later\nreload\n"); },
-          setTools() {}, async abort() {}, subscribe() { return () => {}; },
+          async prompt() {
+            // The fixture's writes are its model's tool: a real model changes files only through its tools.
+            listener?.({ type: "tool_start", toolName: "fixture_edit", toolCallId: "edit-1" });
+            await writeFile(path.join(root, "configs/sw1.cfg"), "hostname sw1\ndescription reload later\nreload\n");
+            listener?.({ type: "tool_end", toolName: "fixture_edit", toolCallId: "edit-1", isError: false });
+          },
+          setTools() {}, async abort() {}, subscribe(next) { listener = next; return () => { listener = undefined; }; },
           getState: () => ({ cwd: options.cwd, isStreaming: false }),
         };
       },

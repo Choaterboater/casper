@@ -58,7 +58,11 @@ async function fixture(input: { vision: boolean; showPages?: "ask" | "on" | "off
         prompt: async (text, _signal, promptOptions) => {
           prompts.push({ text, ...(promptOptions?.images ? { images: promptOptions.images } : {}) });
           for (const listener of listeners) listener({ type: "assistant_response_start", provider: "fixture", model: "m" });
+          // The fixture's writes are its model's tool: a real model changes files only through its tools.
+          const toolCallId = `edit-${prompts.length}`;
+          for (const listener of listeners) listener({ type: "tool_start", toolName: "fixture_edit", toolCallId });
           await turns.shift()?.(options);
+          for (const listener of listeners) listener({ type: "tool_end", toolName: "fixture_edit", toolCallId, isError: false });
           for (const listener of listeners) listener({ type: "assistant_text_delta", delta: "Done.\n" });
           for (const listener of listeners) listener({ type: "assistant_response_end", stopReason: "stop" });
         },

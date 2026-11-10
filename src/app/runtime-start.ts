@@ -118,7 +118,8 @@ export async function ensureRuntime(app: CasperApp): Promise<RuntimeSession> {
         const windows = app.taskEdits?.windows;
         if (windows && (event.type === "tool_start" || event.type === "tool_end") && !leavesFilesHere(event.toolName, event.input, app.activeWorkspaceRoot())) {
           const id = event.toolCallId ?? event.toolName;
-          if (event.type === "tool_start") windows.start(id, event.toolName === "make_picture");
+          // A tool that may write counts from its start: one stopped (Esc) before it ends still wrote the AI's files.
+          if (event.type === "tool_start") { windows.start(id, event.toolName === "make_picture"); app.taskEdits!.tools = true; }
           else windows.end(id);
         }
         // A command moved to the background or a service the AI runs may write at any time: Casper can't tell then.

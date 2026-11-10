@@ -72,8 +72,9 @@ commits yet and no task, `/diff` lists the files and says there is nothing to co
   AI tool, an editor or a running app saved it while the AI waited) is the receipt's `Changed by something else
   while Casper worked` line, and undo never removes or puts it back: `– Left as it is: PROJECT_SUMMARY.md (changed
   by something else while Casper worked)`. So is a file that kept changing between tasks while no task ran (the log of
-  a job an earlier task started), unless the AI's `edit` or `write` tools named it. A task whose only changes were
-  those offers no `2 Undo`.
+  a job an earlier task started), unless the AI's `edit` or `write` tools named it. So is all that changed, deleted
+  files too, when the AI ran no tool at all (it answered only in words) and nothing it left running ran during the
+  task. A task whose only changes were those offers no `2 Undo`.
 - **Asks when it can't tell.** A deleted file (it has no time of its own), or a change while a command or service
   the task left running could still write, may or may not be the task's. In a session Casper asks first:
 

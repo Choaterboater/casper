@@ -30,8 +30,15 @@ class ScriptedRuntime implements AgentRuntime {
       getSessionInfo: info, resumeConversation: async () => {}, forkSession: async () => info(), switchSession: async () => info() };
   }
   async dispose() {}
+  edits = 0;
   /** A model edit: the file is written and reported, as Pi's edit/write tools do. */
-  async write(file: string, content: string) { await mkdir(path.dirname(file), { recursive: true }); await writeFile(file, content); await this.options!.afterFileEdit!(file); }
+  async write(file: string, content: string) {
+    // The fixture's writes are its model's tool: a real model changes files only through its tools.
+    const toolCallId = `edit-${++this.edits}`;
+    for (const listener of this.listeners) listener({ type: "tool_start", toolName: "fixture_edit", toolCallId });
+    await mkdir(path.dirname(file), { recursive: true }); await writeFile(file, content); await this.options!.afterFileEdit!(file);
+    for (const listener of this.listeners) listener({ type: "tool_end", toolName: "fixture_edit", toolCallId, isError: false });
+  }
 }
 
 /** The dev server stand-in: answers every page. */

@@ -10,7 +10,7 @@ import { checkCommand } from "./support/check-command";
 import { loadProjectContext } from "../src/project/context";
 import { acceptChange, proveChange } from "../src/app/task-run";
 import type { CasperApp } from "../src/app";
-import type { RuntimeSession } from "../src/runtime/types";
+import type { RuntimeEventListener, RuntimeSession } from "../src/runtime/types";
 import type { ChangeBaseline } from "../src/verify/proof";
 
 /** At the end of a task Casper replays browser checks that ran before a later edit itself, before the receipt. */
@@ -43,12 +43,15 @@ async function replayFailure(options: { budget?: number; priorRepairs?: boolean;
   let finished = false;
   const turns: Array<number | undefined> = [];
   let project = "";
+  const listeners = new Set<RuntimeEventListener>();
+  const emit: RuntimeEventListener = event => { for (const listener of listeners) listener(event); };
   const app = await richApp(root => {
     project = root;
     return {
       async start() { return {
         setTools: () => {}, getStatus: () => ({ provider: "fixture", model: "demo", auth: "configured" as const }),
-        getState: () => ({ cwd: root, isStreaming: false }), subscribe: () => () => {}, abort: async () => {},
+        getState: () => ({ cwd: root, isStreaming: false }), abort: async () => {},
+        subscribe: (listener: RuntimeEventListener) => { listeners.add(listener); return () => listeners.delete(listener); },
         prompt: async (text: string, _signal?: AbortSignal, round?: { maxTurns?: number }) => {
           prompts.push(text); turns.push(round?.maxTurns);
           if (options.turnLimit) app.app.taskTurnLimit = 1;
@@ -56,23 +59,27 @@ async function replayFailure(options: { budget?: number; priorRepairs?: boolean;
           if (finish && options.finishes) finished = true;
           calls.push(text.includes("Browser replay failure evidence") ? "browser repair" : finish ? "finish" : "model");
           if (text.includes("Browser replay failure evidence") && options.repairFails) throw new Error("synthetic repair failure");
-          if (options.child) {
-            const child = path.join(root, "sample-app");
-            await mkdir(child, { recursive: true });
-            await writeFile(path.join(child, "package.json"), JSON.stringify({ scripts: { test: replayed ? "bun second.ts" : "bun first.ts" } }));
-            await writeFile(path.join(child, "first.ts"), "process.exit(0);\n");
-            await writeFile(path.join(child, "second.ts"), "process.exit(1);\n");
-            return;
-          }
-          if (options.noEdit && replayed) return;
-          await writeFile(path.join(root, "notes.txt"), `turn ${prompts.length}`);
-          if (options.scoped && replayed) await writeFile(path.join(root, "app.ts"), "export const saved = true;\n");
-          if (options.proving) {
-            await writeFile(path.join(root, "app.ts"), replayed ? "fixed again\n" : "fixed\n");
-            if (options.weakenTest && replayed) await writeFile(path.join(root, "tests/check.ts"), "console.log('pass');\n");
-          }
-          if (options.priorRepairs && prompts.length === 1) await writeFile(path.join(root, "broken.txt"), "broken");
-          else await writeFile(path.join(root, "broken.txt"), options.regression && replayed ? "broken" : "fixed");
+          // The fixture's writes are its model's tool: a real model changes files only through its tools.
+          emit({ type: "tool_start", toolName: "fixture_edit", toolCallId: `edit-${prompts.length}` });
+          try {
+            if (options.child) {
+              const child = path.join(root, "sample-app");
+              await mkdir(child, { recursive: true });
+              await writeFile(path.join(child, "package.json"), JSON.stringify({ scripts: { test: replayed ? "bun second.ts" : "bun first.ts" } }));
+              await writeFile(path.join(child, "first.ts"), "process.exit(0);\n");
+              await writeFile(path.join(child, "second.ts"), "process.exit(1);\n");
+              return;
+            }
+            if (options.noEdit && replayed) return;
+            await writeFile(path.join(root, "notes.txt"), `turn ${prompts.length}`);
+            if (options.scoped && replayed) await writeFile(path.join(root, "app.ts"), "export const saved = true;\n");
+            if (options.proving) {
+              await writeFile(path.join(root, "app.ts"), replayed ? "fixed again\n" : "fixed\n");
+              if (options.weakenTest && replayed) await writeFile(path.join(root, "tests/check.ts"), "console.log('pass');\n");
+            }
+            if (options.priorRepairs && prompts.length === 1) await writeFile(path.join(root, "broken.txt"), "broken");
+            else await writeFile(path.join(root, "broken.txt"), options.regression && replayed ? "broken" : "fixed");
+          } finally { emit({ type: "tool_end", toolName: "fixture_edit", toolCallId: `edit-${prompts.length}`, isError: false }); }
         },
       }; },
       async dispose() {},

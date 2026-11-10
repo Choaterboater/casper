@@ -84,10 +84,19 @@ class Main implements AgentRuntime {
   constructor(private readonly act: (delegate: RuntimeTool, task: number) => Promise<void>) {}
   async start(options: RuntimeStartOptions): Promise<RuntimeSession> {
     this.tools = options.tools ?? [];
+    const listeners = new Set<RuntimeEventListener>();
+    const emit = (event: RuntimeEvent) => { for (const listener of listeners) listener(event); };
     return {
       setTools: (tools) => { this.tools = tools; },
-      prompt: async () => { await this.act(this.tools.find((tool) => tool.name === "delegate")!, ++this.count); },
-      abort: async () => {}, subscribe: () => () => {}, getState: () => ({ cwd: options.cwd, isStreaming: false }),
+      prompt: async () => {
+        const task = ++this.count;
+        // The fixture's writes are its model's tool: a real model changes files only through its tools.
+        emit({ type: "tool_start", toolName: "fixture_edit", toolCallId: `edit-${task}` });
+        await this.act(this.tools.find((tool) => tool.name === "delegate")!, task);
+        emit({ type: "tool_end", toolName: "fixture_edit", toolCallId: `edit-${task}`, isError: false });
+      },
+      abort: async () => {}, subscribe: (listener) => { listeners.add(listener); return () => { listeners.delete(listener); }; },
+      getState: () => ({ cwd: options.cwd, isStreaming: false }),
     };
   }
   async dispose() {}

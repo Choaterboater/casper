@@ -213,6 +213,8 @@ export async function runModelTask(app: CasperApp, prompt: string, options: { fl
   );
   // Smoke checks are verification: they run only when Casper checks this task.
   const edits: NonNullable<CasperApp["taskEdits"]> = { edited: false, shell: false, turnEnded: false, windows: new WriteWindows() };
+  // Something left running when the task starts may write during it and end before the task does: Casper can't tell then.
+  edits.windows!.unsure = leftRunning(app);
   app.taskEdits = edits;
   app.smokeTask = verificationMode !== "off" ? new SmokeChecks(context.smoke ?? [], () => serviceManager(app), () => changedSinceTaskStart(app, edits)) : undefined;
   await prepareCapabilities(app, prompt);
@@ -410,16 +412,23 @@ export async function runModelTask(app: CasperApp, prompt: string, options: { fl
     // ssh on another machine) is another program's: an editor, a second AI tool, a running app's database. It is named
     // on the receipt, and not checked, offered as "The work is in ..." or undone (src/task/attribution.ts).
     // So is a file that kept changing between the last task and this one (liveFiles): a job an earlier task started.
-    if (before && afterModel && edits.windows && (edits.tools || liveFiles.size)) {
+    if (before && afterModel && edits.windows) {
       const changes = diffSnapshots(before, afterModel);
-      const split = edits.tools ? await attributeChanges({ root: workspaceRoot, changes, windows: edits.windows.windows(),
-        moved: movedElsewhere(findMoves(before, afterModel, changes), changes),
-        since: edits.windows.since, until: Date.now(), toolFiles: new Set(toolFiles(workspaceRoot, app.observations.edited(), "inside")),
-        unsure: Boolean(edits.windows.unsure || app.backgroundCommands?.list().length || app.services?.live() || app.subagents.runs().length),
+      // A command, service or helper the AI left running at any time during the task may have written: Casper can't tell then.
+      const unsure = edits.windows.unsure || leftRunning(app);
+      const attribute = (windows: ReadonlyArray<readonly [number, number]>) => attributeChanges({ root: workspaceRoot, changes, windows,
+        moved: movedElsewhere(findMoves(before, afterModel!, changes), changes),
+        since: edits.windows!.since, until: Date.now(), toolFiles: new Set(toolFiles(workspaceRoot, app.observations.edited(), "inside")), unsure,
         commands: app.observations.toolCalls.flatMap((call) => typeof call.input?.command === "string" ? [call.input.command] : []), liveFiles,
-        ownRuns: app.observations.toolCalls.some((call) => OWN_RUNS.has(call.toolName)) }).catch(() => undefined)
-        // No tool of the AI's ran: a live file that changed is its writer's.
-        : { task: [], others: flatten(changes).filter((file) => liveFiles.has(file)), unsure: [], testData: [] };
+        ownRuns: app.observations.toolCalls.some((call) => OWN_RUNS.has(call.toolName)) });
+      const all = flatten(changes);
+      const split = edits.tools ? await attribute(edits.windows.windows()).catch(() => undefined)
+        // No tool of the AI's ran (it answered in words): with nothing of its running during the task, all that changed is
+        // another program's. With something running, what it may have written is unsure (undo asks), as after a tool;
+        // nothing is surely this turn's, and an app's own database or log, or a live file, stays its writer's.
+        : !unsure ? { task: [], others: all, unsure: [], testData: [] }
+        : await attribute([]).then((found) => ({ task: [], others: found.others, unsure: [...found.task, ...found.unsure].sort(), testData: [] }))
+          .catch(() => ({ task: [], others: [], unsure: all, testData: [] }));
       if (split?.others.length) {
         changedNotByModel = split.others;
         othersAsFound = afterModel;
@@ -1557,6 +1566,11 @@ function showReceipt(app: CasperApp, task: TaskResult, view: ReceiptView | undef
 /** The line a task that is not done ends with (src/task/ending.ts), in a block of its own like a receipt. */
 function writeEnding(app: CasperApp, line: string): void {
   app.terminal.write(`${line}\n`, "group");
+}
+
+/** A background command, service or helper is running: it may write at any time. */
+function leftRunning(app: CasperApp): boolean {
+  return Boolean(app.backgroundCommands?.list().length || app.services?.live() || app.subagents.runs().length);
 }
 
 /** Whether the task's code may differ from its start. A shell command's effect is unknown, so the tree is
