@@ -439,6 +439,10 @@ export interface RuntimeSession {
   /** Write every message of the conversation to `file` as JSON lines (/export). */
   exportJsonl?(file: string): void;
   forkSession?(options: RuntimeForkOptions): Promise<RuntimeSessionInfo>;
+  /** Copies this workspace's saved conversation `source` (by its exact ID) into a new conversation and goes on with
+   * the copy: up to `at`, one of the source's marks (conversationMark), or all of it. The source file is only read.
+   * "unknown conversation" and "unknown mark" leave no new file. Between prompts only (an ACP app's session/fork). */
+  forkAt?(source: string, at?: string): Promise<RuntimeSessionInfo | "unknown conversation" | "unknown mark">;
   switchSession?(options: RuntimeSwitchOptions): Promise<RuntimeSessionInfo>;
   /** Persist context in the active conversation without triggering a model turn. */
   appendContext?(text: string): Promise<void>;

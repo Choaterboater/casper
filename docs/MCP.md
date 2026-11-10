@@ -666,8 +666,8 @@ in the box. It applies from the next start.
 
 ### Servers an app hands Casper
 
-An app or an editor that runs `casper acp` can list MCP servers in `session/new` or `session/load`
-(decision 77). Casper Desktop lists its own, so its plugin tools reach Casper. Each one:
+An app or an editor that runs `casper acp` can list MCP servers in `session/new`, `session/load` or
+`session/fork` (decisions 77 and 97). Casper Desktop lists its own, so its plugin tools reach Casper. Each one:
 
 - **Connects for that session only**, as `acp-<name>`, with no box, whatever My MCP servers says.
   Casper writes `[acp] The app's MCP server acp-app connects for this session.` on stderr, or why it
