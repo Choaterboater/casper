@@ -11,7 +11,8 @@ import { isRecord } from "../mcp/config";
 import { fitImage, headerSize, PICTURE_MAX_BASE64, PICTURE_MAX_SIDE } from "../pictures/fit";
 import type { RuntimeImage } from "../runtime/types";
 
-export type FitPicture = (base64: string, mimeType: string) => Promise<{ image?: RuntimeImage; note?: string }>;
+/** A picture at the size the model may take; `unopened` when the image library could not open it. */
+export type FitPicture = (base64: string, mimeType: string) => Promise<{ image?: RuntimeImage; note?: string; unopened?: true }>;
 
 /** Sides and area a picture's header may declare before it is decoded: a small file can unpack to gigabytes. */
 export const MAX_DECODE_SIDE = 16_384;
@@ -68,7 +69,7 @@ export async function takePictures(value: unknown, fit: FitPicture = fitImage, s
     if ("why" in slot) { content.push({ ...slot.metadata, omitted: `picture left out: ${slot.why}` }); continue; }
     const fitted = await slot.fitted;
     if (fitted === "stopped" || !fitted.image) {
-      const why = fitted === "stopped" ? fitted
+      const why = fitted === "stopped" ? fitted : fitted.unopened ? `${slot.what} was not sent: it could not be opened`
         : `${slot.what} was not sent: it could not be shrunk to ${PICTURE_MAX_SIDE} px and ${PICTURE_MAX_BASE64 / 1024 / 1024} MB`;
       content.push({ ...slot.metadata, omitted: `picture left out: ${why}` });
       continue;

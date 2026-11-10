@@ -1345,11 +1345,14 @@ the background.
   pictures per result and 20 MB each, then shrunk as `read` shrinks a picture (at
   most 2000 px and 4.5 MB). Casper reads each picture's width and height from its
   header first and never opens one over 16384 px a side or 40 megapixels, or one
-  whose size it can't read: a small file can unpack to gigabytes. A picture that
-  can't be shrunk (a body that can't be decoded) is sent as it is only when its
-  header says it is already within 2000 px. One past a limit stays out with a line
-  that says why (`picture left out: at most 8 per result`, `over 20 MB`, or which
-  tool's picture, its size and why it was not opened or not sent).
+  whose size it can't read: a small file can unpack to gigabytes. A picture the
+  image library can't open stays out, since a provider refuses the whole request
+  over a broken one. With no image library at all, a picture is sent as it is only
+  when its header says it is already within 2000 px and 4.5 MB (the browser's own
+  screenshots keep their rule: one under 4.5 MB goes as it is). One past a limit
+  stays out with a line that says why (`picture left out: at most 8 per result`,
+  `over 20 MB`, or which tool's picture, its size and why it was not opened or not
+  sent).
   The pictures of one result shrink at the same time, and Stop does not wait for
   them. A model that can't see images gets the text and the note
   `binary MCP content is not exposed` in each picture's place, with no time spent

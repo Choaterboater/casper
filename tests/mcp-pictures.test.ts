@@ -57,6 +57,28 @@ function jpegHeader(width: number, height: number): Buffer {
   return Buffer.concat([Buffer.from([0xff, 0xd8]), app0, sof, Buffer.from([0xff, 0xd9])]);
 }
 
+/** A JPEG with one 0xFF fill byte after SOI (the JPEG spec allows any number before a marker), then an APP1 segment
+ * that hides a 100x100 SOF0 where a reader that takes the fill byte for a marker lands, then the real SOF0. */
+function jpegWithFill(width: number, height: number): Buffer {
+  const sof = (w: number, h: number) => Buffer.from([0xff, 0xc0, 0, 17, 8, h >> 8, h & 0xff, w >> 8, w & 0xff, 3, 1, 0x22, 0, 2, 0x11, 1, 3, 0x11, 1]);
+  const length = 0xf000;
+  const app1 = Buffer.alloc(2 + length);
+  app1[0] = 0xff; app1[1] = 0xe1; app1.writeUInt16BE(length, 2);
+  // Read from the fill byte, the marker is 0xFF and the segment length is 0xE1 and the real length's first byte.
+  const misread = 2 + 2 + ((0xe1 << 8) | (length >> 8));
+  sof(100, 100).copy(app1, misread - 3);
+  return Buffer.concat([Buffer.from([0xff, 0xd8, 0xff]), app1, sof(width, height), Buffer.from([0xff, 0xd9])]);
+}
+
+/** A PNG with a made-up chunk before IHDR whose first 8 bytes say 100x100. */
+function pngWithFakeFirstChunk(width: number, height: number): Buffer {
+  const real = blankPng(width, height, CORRUPT);
+  const fake = Buffer.alloc(20);
+  fake.writeUInt32BE(8, 0); fake.write("faKE", 4, "latin1"); fake.writeUInt32BE(100, 8); fake.writeUInt32BE(100, 12);
+  fake.writeUInt32BE(crc32(fake.subarray(4, 16)), 16);
+  return Buffer.concat([real.subarray(0, 8), fake, real.subarray(8)]);
+}
+
 /** A GIF that is only a header: its logical screen size, no frames. */
 function gifHeader(width: number, height: number): Buffer {
   const out = Buffer.alloc(14);
@@ -185,18 +207,54 @@ test("a wide picture is shrunk to at most 2000 px, with a note that maps it back
     note: "[Image: original 3840x2160, displayed at 2000x1125. Multiply coordinates by 1.92 to map to original image.]" });
 }, 30_000);
 
-test("a picture that can't be decoded is sent as it is only when its header says it is already within 2000 px", async () => {
-  // A small file that says it is 3000 px wide, with a body Photon can't decode: never sent unshrunk.
-  const wide = blankPng(3000, 10, CORRUPT).toString("base64");
-  expect(await fitImage(wide, "image/png")).toEqual({});
-  const taken = await takePictures({ content: [{ type: "image", data: wide, mimeType: "image/png" }] }, fitImage, undefined, "site_map");
-  expect(taken.images).toEqual([]);
+test("a picture the image library can't open is left out, whatever its header says", async () => {
+  // Photon loads here, so a body it can't decode is a broken picture: a provider would refuse the whole request.
+  for (const [width, height] of [[100, 100], [3000, 10]] as const) {
+    const broken = blankPng(width, height, CORRUPT).toString("base64");
+    expect(await fitImage(broken, "image/png")).toEqual({ unopened: true });
+    const taken = await takePictures({ content: [{ type: "image", data: broken, mimeType: "image/png" }] }, fitImage, undefined, "site_map");
+    expect(taken.images).toEqual([]);
+    expect((taken.value as { content: unknown[] }).content).toEqual([{ type: "image", mimeType: "image/png",
+      omitted: `picture left out: site_map's picture (${width}x${height} px, 1 KB) was not sent: it could not be opened` }]);
+  }
+  // A good picture still opens and goes.
+  expect((await fitImage(blankPng(100, 100).toString("base64"), "image/png")).image).toBeDefined();
+}, 30_000);
+
+test("with no image library, a picture goes as it is only when its header says it is within 2000 px and 4.5 MB", async () => {
+  const noLibrary = async () => null;
+  const small = blankPng(100, 100).toString("base64");
+  expect(await fitImage(small, "image/png", noLibrary)).toEqual({ image: { data: small, mimeType: "image/png" } });
+  const wide = blankPng(3000, 10).toString("base64");
+  expect(await fitImage(wide, "image/png", noLibrary)).toEqual({});
+  const taken = await takePictures({ content: [{ type: "image", data: wide, mimeType: "image/png" }] },
+    (data, mimeType) => fitImage(data, mimeType, noLibrary), undefined, "site_map");
   expect((taken.value as { content: unknown[] }).content).toEqual([{ type: "image", mimeType: "image/png",
     omitted: "picture left out: site_map's picture (3000x10 px, 1 KB) was not sent: it could not be shrunk to 2000 px and 4.5 MB" }]);
-  // One whose header says 100x100 is within the limit: it goes as it is (no image library here does the same).
-  const small = blankPng(100, 100, CORRUPT).toString("base64");
-  expect(await fitImage(small, "image/png")).toEqual({ image: { data: small, mimeType: "image/png" } });
-}, 30_000);
+});
+
+test("a JPEG's fill bytes before a marker and a PNG's chunk before IHDR can't hide its real size", async () => {
+  let asked = 0;
+  const counting = async (data: string, mimeType: string) => { asked++; return { image: { data, mimeType } }; };
+  const omittedFor = async (bytes: Buffer, mimeType: string) => {
+    const taken = await takePictures({ content: [{ type: "image", data: bytes.toString("base64"), mimeType }] }, counting, undefined, "site_map");
+    return ((taken.value as { content: Record<string, unknown>[] }).content[0]!).omitted;
+  };
+  expect(await omittedFor(jpegWithFill(17_000, 100), "image/jpeg")).toMatch(/^picture left out: site_map's picture \(17000x100 px, \d+ KB\) was not opened: over 16384 px/);
+  expect(await omittedFor(jpegWithFill(20_000, 20_000), "image/jpeg")).toMatch(/\(20000x20000 px, \d+ KB\) was not opened/);
+  // A segment whose length runs past the end of the file: malformed, so its size can't be read.
+  const cut = jpegWithFill(100, 100).subarray(0, 1000);
+  expect(await omittedFor(cut, "image/jpeg")).toBe("picture left out: site_map's picture (1 KB) was not opened: its size could not be read");
+  // A PNG's size is IHDR's, and IHDR must come first with 13 bytes.
+  const unread = "picture left out: site_map's picture (1 KB) was not opened: its size could not be read";
+  expect(await omittedFor(pngWithFakeFirstChunk(30_000, 10), "image/png")).toBe(unread);
+  const short = Buffer.from(blankPng(30_000, 10, CORRUPT)); short.writeUInt32BE(8, 8);
+  expect(await omittedFor(short, "image/png")).toBe(unread);
+  expect(asked).toBe(0);
+  // The same JPEG with a size within the limits still opens.
+  expect((await takePictures({ content: [{ type: "image", data: jpegWithFill(1000, 800).toString("base64"), mimeType: "image/jpeg" }] }, counting)).images).toHaveLength(1);
+  expect(asked).toBe(1);
+});
 
 test("a picture whose header says it is over 16384 px a side or 40 megapixels, or has no size, is never decoded", async () => {
   let asked = 0;

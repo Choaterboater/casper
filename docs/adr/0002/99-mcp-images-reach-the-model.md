@@ -21,13 +21,21 @@ to a model that declares image input, and DeepSeek Harness drops the pictures of
   `<tool>'s picture (<W>x<H> px, <N> KB) was not sent: it could not be shrunk to 2000 px and 4.5 MB`.
 - **Sizes are read before a picture is opened.** A small file can unpack to gigabytes, and up to 8 decode at once.
   So the width and height come from the picture's header first (PNG IHDR, GIF logical screen, WebP VP8/VP8L/VP8X,
-  JPEG SOFn: `headerSize` in `src/pictures/fit.ts`, using `pictureSize` from `src/pictures/shrink.ts`). One over
+  JPEG SOFn: `headerSize` in `src/pictures/fit.ts`, using `pictureSize` from `src/pictures/shrink.ts`). They are read
+  as a decoder reads them: a PNG's first chunk must be IHDR, 13 bytes long; a JPEG's size is its first SOFn after
+  skipping any 0xFF fill bytes before each marker, and every segment must fit in the file. A header that breaks
+  these is malformed, so its size can't be read. One over
   16384 px a side or 40 megapixels, or one whose size can't be read, is never decoded and stays out with
   `<tool>'s picture (…) was not opened: over 16384 px a side or 40 megapixels` (or `its size could not be read`).
   This is the one limit added beyond a request's own: a pasted picture comes from you, an MCP picture from a server.
-- **Never sent unshrunk past 2000 px.** Pi's resize gives nothing both when no image library loads and when it can't
-  decode the body (it catches every error). Either way the picture goes as it is only when its header says it is
-  already within 2000 px and 4.5 MB of base64; otherwise it stays out with the `was not sent` line above.
+- **A broken picture stays out; never sent unshrunk past 2000 px.** Pi's resize gives nothing both when no image
+  library loads and when it can't decode the body (it catches every error), so when it gives nothing Casper checks
+  once whether the library loads by resizing a 1x1 PNG (`imageLibraryLoads`). It loads: the library could not open
+  this picture, which stays out with `<tool>'s picture (…) was not sent: it could not be opened`, since a provider
+  usually refuses the whole request over a broken picture. It doesn't load: the picture goes as it is only when its
+  header says it is already within 2000 px and 4.5 MB of base64; otherwise it stays out with the `was not sent` line
+  above. The browser's screenshots are Casper's own and keep their rule (`fitPicture` in `src/browser/tools.ts`):
+  not resized, one under 4.5 MB of base64 goes as it is.
 - **Two differences from DeepSeek Harness.** Both read the picture's own bytes. DeepSeek Harness refuses a picture
   whose declared type does not match them; Casper sends it as its bytes say (`imageMimeType`): a PNG a server calls
   `image/jpeg` goes as a PNG, and text or an SVG that calls itself a PNG stays out. And Casper hides old MCP pictures
@@ -70,6 +78,7 @@ to a model that declares image input, and DeepSeek Harness drops the pictures of
 
 A picture's base64 in the result text; more than 8 pictures, or one over 20 MB, sent; a picture decoded whose header
 says over 16384 px a side or 40 megapixels, or has no size; a picture sent unshrunk whose header says over 2000 px; a
+picture the image library loaded and could not open sent; a
 picture sent to a model without image input, or shrunk for one; a picture sent or shrunk with `mcp_pictures: off`; a
 type taken from the declared `mimeType` instead of the bytes; a picture from an `isError` result or the reader's call
 sent; audio or a blob sent; an MCP result's text hidden.

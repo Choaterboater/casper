@@ -102,6 +102,15 @@ test("a 4K screenshot reaches the model at most 2000 px wide, with a note that m
   expect(wide.note).toBe("[Image: original 3840x2160, displayed at 2000x1125. Multiply coordinates by 1.92 to map to original image.]");
 }, 30_000);
 
+test("with no image library, a screenshot under 4.5 MB goes as it is, whatever its size; a bigger one stays at path", async () => {
+  // Casper's own screenshots keep this rule: the header rules are for MCP pictures only (decision 99).
+  const noLibrary = async () => null;
+  const wide = blankPng(3840, 2160).toString("base64");
+  expect(await fitPicture(wide, noLibrary)).toEqual({ image: { data: wide, mimeType: "image/png" } });
+  const big = "A".repeat(4.5 * 1024 * 1024);
+  expect(await fitPicture(big, noLibrary)).toEqual({ note: "Picture not attached: too large to send; the PNG is at path." });
+});
+
 test("a screenshot too big for the provider is shrunk below 4.5 MB of base64 first, as Pi's read tool does", async () => {
   const big = noisyPng(1920, 1080).toString("base64");
   expect(big.length).toBeGreaterThan(5 * 1024 * 1024);

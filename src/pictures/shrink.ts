@@ -22,11 +22,15 @@ export interface ShrinkOptions {
   run?: ToolRunner;
 }
 
-/** Width and height from a PNG, JPEG or WebP header; undefined when it can't be read. */
+/** Width and height from a PNG, JPEG or WebP header; undefined when it can't be read or is malformed. */
 export function pictureSize(bytes: Uint8Array): { width: number; height: number } | undefined {
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
   const type = imageType(bytes);
-  if (type === "png" && bytes.length >= 24) return { width: view.getUint32(16), height: view.getUint32(20) };
+  if (type === "png") {
+    // The first chunk must be IHDR, 13 bytes long: a made-up first chunk would otherwise read as its own numbers.
+    const ihdr = bytes.length >= 24 && view.getUint32(8) === 13 && String.fromCharCode(...bytes.subarray(12, 16)) === "IHDR";
+    return ihdr ? { width: view.getUint32(16), height: view.getUint32(20) } : undefined;
+  }
   if (type === "webp" && bytes.length >= 30) {
     const chunk = String.fromCharCode(...bytes.subarray(12, 16));
     const u24 = (at: number) => bytes[at]! | (bytes[at + 1]! << 8) | (bytes[at + 2]! << 16);
@@ -36,11 +40,20 @@ export function pictureSize(bytes: Uint8Array): { width: number; height: number 
     return undefined;
   }
   if (type === "jpeg") {
-    for (let at = 2; at + 9 < bytes.length;) {
+    // The first SOFn's size, as a decoder reads it: any number of 0xFF fill bytes may come before a marker, and every
+    // segment must fit in the file. Anything else (a marker with no length before the frame, a segment cut short) is
+    // malformed, so the size can't be read.
+    for (let at = 2; at < bytes.length;) {
       if (bytes[at] !== 0xff) return undefined;
-      const marker = bytes[at + 1]!;
-      if (marker >= 0xc0 && marker <= 0xcf && ![0xc4, 0xc8, 0xcc].includes(marker)) return { width: view.getUint16(at + 7), height: view.getUint16(at + 5) };
-      at += 2 + view.getUint16(at + 2);
+      while (bytes[at + 1] === 0xff) at++;
+      if (at + 4 > bytes.length) return undefined;
+      const marker = bytes[at + 1]!, length = view.getUint16(at + 2);
+      if (marker === 0x00 || marker === 0x01 || (marker >= 0xd0 && marker <= 0xd9)) return undefined;
+      if (length < 2 || at + 2 + length > bytes.length) return undefined;
+      if (marker >= 0xc0 && marker <= 0xcf && ![0xc4, 0xc8, 0xcc].includes(marker)) {
+        return length >= 7 ? { width: view.getUint16(at + 7), height: view.getUint16(at + 5) } : undefined;
+      }
+      at += 2 + length;
     }
   }
   return undefined;
