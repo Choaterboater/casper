@@ -291,7 +291,12 @@ Casper.
   and the like), through any rule lines under it or between its rows. Rows whose header is not in
   the output are not hidden, and a table with no bars (PowerShell's `Format-Table`) is not read as
   one. A plain cell under such a header is hidden too: the `Key` column of mysql's `DESCRIBE` shows
-  `<secret hidden>`. In a table of `key` and `value` the key column names the rows, so it stays.
+  `<secret hidden>`. Only in a table whose header is just `key` and `value` does the key column
+  stay: it names the rows there. Beside any other column (`name | key | value`) a key column is hidden.
+- A table does not escape a bar inside a value (psql prints it as it is), so a password that holds
+  one makes its row a cell longer than the header. Casper then hides that row from its first secret
+  cell to its end, the cells after the password with it. A row with no header in view has no such
+  count to go by.
 - A private key's body in command output is recognised by its BEGIN or END line; a
   piece of one with neither (`head -n 20 key.pem | tail -n 5`) is not. In a key file
   (`*.pem`, `*.key`, `*.p8`, `id_rsa`, `id_ed25519_deploy`) every long base64 line is hidden, so a certificate read

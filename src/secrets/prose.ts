@@ -133,14 +133,16 @@ const TABLE_ROW = /^\s*[|│┃║]/;
 const TABLE_RULE = /^(?=.*\S)[\s|:+=\-\u2500-\u257F]+$/;
 /** A table's top or bottom edge: a rule with no bar at its start (+---+---+, └──┴──┘, ┌──┬──┐). */
 const edge = (line: string) => TABLE_RULE.test(line) && !TABLE_ROW.test(line);
-/** psql's rule under its header (----+----, ────┼────): its rows have no bar at either end. */
-const OPEN_RULE = /^[-─]+(?:[+┼][-─]+)+$/;
+/** psql's rule under its header (----+----, ────┼────): its rows have no bar at either end. A CR may end the line. */
+const OPEN_RULE = /^[-─]+(?:[+┼][-─]+)+\s*$/;
 const cellText = (cell: string) => cell.trim().replace(/^[*_`]+|[*_`]+$/g, "").trim();
 const marks = (line: string, mark: RegExp) => [...line.matchAll(mark)].map((match) => match.index);
 
+interface Cell { start: number; end: number; text: string }
+
 /** The cells of a table row, with their start and end in the line. `open`: the line's ends are cell edges too. */
-function cells(line: string, open = false): Array<{ start: number; end: number; text: string }> {
-  const out: Array<{ start: number; end: number; text: string }> = [];
+function cells(line: string, open = false): Cell[] {
+  const out: Cell[] = [];
   const bars = open ? [-1, ...marks(line, BAR), line.length] : marks(line, BAR);
   for (let index = 0; index + 1 < bars.length; index++) {
     const raw = line.slice(bars[index]! + 1, bars[index + 1]!);
@@ -151,10 +153,12 @@ function cells(line: string, open = false): Array<{ start: number; end: number; 
   return out;
 }
 
-/** The columns a header row names as secret. In a "key | value" table the key column names the rows. */
-function secretColumns(row: ReturnType<typeof cells>): number[] {
+const secretHeader = (row: Cell[]) => row.some((cell) => SECRET_HEADER.test(cellText(cell.text)));
+
+/** The columns a header row names as secret. A header of just "key" and "value": the key column names the rows. */
+function secretColumns(row: Cell[]): number[] {
   const names = row.map((cell) => cellText(cell.text));
-  const named = names.some((name) => /^values?$/i.test(name));
+  const named = names.length === 2 && names.some((name) => /^keys?$/i.test(name)) && names.some((name) => /^values?$/i.test(name));
   return names.flatMap((name, at) => SECRET_HEADER.test(name) && !(named && /^keys?$/i.test(name)) ? [at] : []);
 }
 
@@ -187,6 +191,8 @@ export function scrubProseSecrets(text: string): ScrubTextResult {
   const tokenTable = /tokenid/i.test(text);
   let hidden = 0;
   let columns: number[] | undefined;
+  // How many cells the header has: a row with more holds a bar inside a value (psql does not escape one).
+  let width = 0;
   // psql's table: known by the rule under its header, and read until a line with no bar.
   let open = false;
   // The line above, as it was written.
@@ -197,17 +203,21 @@ export function scrubProseSecrets(text: string): ScrubTextResult {
     above = line;
     const spans: Span[] = windowedSpans(line, ruleSpans);
     // The bars of psql's header sit right above the crosses of its rule.
-    const psql: number[] = !columns && OPEN_RULE.test(line) && marks(before, BAR).join() === marks(line, /[+┼]/g).join() ? secretColumns(cells(before, true)) : [];
-    if (psql.length) { columns = psql; open = true; }
+    const psql: Cell[] = !columns && OPEN_RULE.test(line) && marks(before, BAR).join() === marks(line, /[+┼]/g).join() ? cells(before, true) : [];
+    if (secretHeader(psql)) { columns = secretColumns(psql); width = psql.length; open = true; }
     else if (TABLE_RULE.test(line)) {
       // A bottom edge and then a top edge: the next table is read by its own header.
       if (edge(line) && edge(before)) { columns = undefined; open = false; }
     } else if (open ? line.search(BAR) >= 0 : TABLE_ROW.test(line)) {
       const row = cells(line, open);
-      if (!columns && row.some((cell) => SECRET_HEADER.test(cellText(cell.text)))) columns = secretColumns(row);
+      if (!columns && secretHeader(row)) { columns = secretColumns(row); width = row.length; }
       else {
+        // A row longer than its header: the bar inside a value moved the cells after it, so the row goes from its
+        // first secret cell to its end.
+        const rest = columns && row.length > width ? row.at(-1)!.end : undefined;
         for (const column of columns ?? []) {
           const cell = row[column];
+          if (cell && rest !== undefined) { spans.push({ start: cell.start, end: rest, kind: "password" }); break; }
           if (cell && anyValue(cellText(cell.text)) && !cell.text.includes(SECRET_MARKER)) spans.push({ start: cell.start, end: cell.end, kind: "password" });
         }
         // A key/value table: "│ value │ <uuid> │" after pveum's token add, "| password | X |".
@@ -215,7 +225,7 @@ export function scrubProseSecrets(text: string): ScrubTextResult {
           const key = cellText(row[at]!.text).toLowerCase();
           const next = row[at + 1]!;
           if ((SECRET_HEADER.test(key) || (tokenTable && key === "value")) && anyValue(cellText(next.text)) && !next.text.includes(SECRET_MARKER)) {
-            spans.push({ start: next.start, end: next.end, kind: key === "value" ? "key" : "password" });
+            spans.push({ start: next.start, end: rest ?? next.end, kind: key === "value" ? "key" : "password" });
           }
         }
       }

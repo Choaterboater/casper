@@ -250,6 +250,56 @@ test("a table's rules hide no more than its secret column: a key and value table
   expect(plain(`${GRIDS[0]![1].join("\n")}\n2 rows in set\n| app | Fixture-Nick-Name-01 | rw |`)).toContain("| app | Fixture-Nick-Name-01 | rw |");
 });
 
+test("a key column is kept only in a two-column key and value table; psql's table is read with CRLF line ends, by its row names, and with a bar inside a value", async () => {
+  const plain = (text: string) => scrubPlainSecrets(text, { env: {} }).text;
+  // Made-up values. Each case: its lines, what must not show (a secret, or the pieces a bar cuts it into), what must stay.
+  const cases: Array<{ name: string; lines: string[]; gone: string[]; stay: string[] }> = [
+    // A key column beside a value column and anything else holds keys, as on a table with no value column.
+    { name: "name, key and value", gone: ["Fake-Api-Key-0001", "Fake-Api-Key-0002"], stay: ["billing", "eu-west"],
+      lines: ["| name | key | value |", "|---|---|---|", "| billing | Fake-Api-Key-0001 | eu-west |", "| search | Fake-Api-Key-0002 | us-east |"] },
+    { name: "service, key and values, a grid", gone: ["Fake-Api-Key-0001"], stay: ["billing", "eu-west"],
+      lines: ["+---------+-------------------+---------+", "| service | key               | values  |", "+---------+-------------------+---------+",
+        "| billing | Fake-Api-Key-0001 | eu-west |", "+---------+-------------------+---------+"] },
+    { name: "psql: usename, keys and value", gone: ["Fake-Api-Key-0001"], stay: ["billing", "eu-west"],
+      lines: [" usename |       keys        |  value  ", "---------+-------------------+---------", " billing | Fake-Api-Key-0001 | eu-west", "(1 row)"] },
+    // psql's key and value table: the key column names the rows, and a row named password hides its value.
+    { name: "psql: key and value", gone: ["Fake-Grid-Pass-0001", "Fake-Tok-Value-0002"], stay: ["host", "db.example.test", "password", "token"],
+      lines: ["   key    |        value        ", "----------+---------------------", " host     | db.example.test", " password | Fake-Grid-Pass-0001", " token    | Fake-Tok-Value-0002", "(3 rows)"] },
+    // psql does not escape a bar inside a value: the row is one cell longer than its header.
+    { name: "psql: a bar inside a password", gone: ["Fake-Grid", "Pass-0001", "Fake-Grid-Pass-0002"], stay: ["app", "backup"],
+      lines: [" usename |       passwd        | role ", "---------+---------------------+------", " app     | Fake-Grid|Pass-0001 | rw", " backup  | Fake-Grid-Pass-0002 | ro", "(2 rows)"] },
+    { name: "psql: a bar inside a value under a row name", gone: ["Fake-Grid", "Pass-0001"], stay: ["host", "password"],
+      lines: ["   key    |        value        ", "----------+---------------------", " host     | db.example.test", " password | Fake-Grid|Pass-0001", "(2 rows)"] },
+    { name: "Markdown: a bar inside a password", gone: ["Fake-Grid", "Pass-0001"], stay: ["app"],
+      lines: ["| user | password | role |", "|---|---|---|", "| app | Fake-Grid|Pass-0001 | rw |"] },
+  ];
+  let windows = 0;
+  for (const { name, lines, gone, stay } of cases) {
+    const header = lines.findIndex((line) => /key|pass/.test(line));
+    // Unix and Windows line ends (psql on Windows, a saved .txt).
+    for (const end of ["\n", "\r\n"]) {
+      const out = plain(lines.join(end));
+      for (const part of gone) expect([name, end, part, out.includes(part), out.includes(part.slice(-6))]).toEqual([name, end, part, false, false]);
+      for (const word of stay) expect([name, end, word, out.includes(word)]).toEqual([name, end, word, true]);
+      // Every run of whole lines with the header in view, through the final scrub.
+      for (let start = 0; start <= header; start++) {
+        for (let stop = start + 1; stop <= lines.length; stop++) {
+          const text = lines.slice(start, stop).join(end);
+          const shown = (await scrubToolOutput(scrubber, "bash", { command: "./logins.sh" }, [text], undefined, { env: {} }))?.texts[0] ?? text;
+          windows++;
+          for (const part of gone) expect([name, end, start, stop, part, shown.includes(part), shown.includes(part.slice(-6))]).toEqual([name, end, start, stop, part, false, false]);
+        }
+      }
+    }
+  }
+  expect(windows).toBeGreaterThan(60);
+  // Every grid of the tests above reads the same with CRLF line ends.
+  for (const [name, lines] of GRIDS) {
+    const out = plain(lines.join("\r\n"));
+    for (const secret of GRID_SECRETS) expect([name, secret, out.includes(secret.slice(-6))]).toEqual([name, secret, false]);
+  }
+});
+
 test("a file or branch name with login in it is not a login: the name after it stays", () => {
   for (const command of [
     "git log origin/fix/login-expired origin/fix/minors",
