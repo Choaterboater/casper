@@ -579,7 +579,7 @@ export class CapabilityBroker {
     if (capability.router && capability.tool.name === "find_tool") this.rememberHits(capability.descriptor.source, raw);
     // 7. Pictures out first (base64 has no text to scrub), then hide device secrets (passwords, keys, SNMP
     // communities) before anything else reads the result.
-    const taken = pictures ? await takePictures(raw, fitImage, combined) : { value: raw, images: [] };
+    const taken = pictures ? await takePictures(raw, fitImage, combined, capability.tool.name) : { value: raw, images: [] };
     const scrubbed = await this.scrub(taken.value, combined, capability.descriptor.source);
     if (capability.router) this.recentOn(capability.descriptor.source).remember(scrubbed.value);
     if (planMode(plan) === "preview") this.previews.set(this.previewSlot(capability, plan), { text: previewText(scrubbed.value), at: Date.now() });

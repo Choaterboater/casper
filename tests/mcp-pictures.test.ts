@@ -7,6 +7,7 @@ import { CasperApp } from "../src/app";
 import { MAX_IMAGE_BYTES, MAX_IMAGES } from "../src/app/images";
 import { CapabilityBroker } from "../src/capabilities/broker";
 import { takePictures } from "../src/capabilities/pictures";
+import { fitImage } from "../src/pictures/fit";
 import { boundCapabilityResult } from "../src/capabilities/result";
 import { loadConfiguration } from "../src/config/load";
 import type { MCPServerDefinition } from "../src/mcp/config";
@@ -35,19 +36,35 @@ async function pictureBroker(pictures?: () => boolean) {
   return new CapabilityBroker(mcp, undefined, pictures ? { pictures } : {});
 }
 
-/** A black RGB PNG: tiny in bytes, large in size. */
-function blankPng(width: number, height: number): Buffer {
+/** A black RGB PNG: tiny in bytes, large in size. With `body`, that IDAT instead of the real pixels (a corrupt one). */
+function blankPng(width: number, height: number, body?: Buffer): Buffer {
   const chunk = (type: string, data: Buffer) => {
-    const body = Buffer.concat([Buffer.from(type), data]);
-    const out = Buffer.alloc(body.length + 8);
-    out.writeUInt32BE(data.length, 0); body.copy(out, 4); out.writeUInt32BE(crc32(body), body.length + 4);
+    const bytes = Buffer.concat([Buffer.from(type), data]);
+    const out = Buffer.alloc(bytes.length + 8);
+    out.writeUInt32BE(data.length, 0); bytes.copy(out, 4); out.writeUInt32BE(crc32(bytes), bytes.length + 4);
     return out;
   };
   const header = Buffer.alloc(13);
   header.writeUInt32BE(width, 0); header.writeUInt32BE(height, 4); header[8] = 8; header[9] = 2;
-  const rows = Buffer.alloc((width * 3 + 1) * height);
-  return Buffer.concat([Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]), chunk("IHDR", header), chunk("IDAT", deflateSync(rows, { level: 1 })), chunk("IEND", Buffer.alloc(0))]);
+  const idat = body ?? deflateSync(Buffer.alloc((width * 3 + 1) * height), { level: 1 });
+  return Buffer.concat([Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]), chunk("IHDR", header), chunk("IDAT", idat), chunk("IEND", Buffer.alloc(0))]);
 }
+
+/** A JPEG that is only a header: SOI, a baseline SOF0 frame of that size, EOI. */
+function jpegHeader(width: number, height: number): Buffer {
+  const app0 = Buffer.from([0xff, 0xe0, 0, 16, ...Buffer.from("JFIF\0"), 1, 1, 0, 0, 1, 0, 1, 0, 0]);
+  const sof = Buffer.from([0xff, 0xc0, 0, 17, 8, height >> 8, height & 0xff, width >> 8, width & 0xff, 3, 1, 0x22, 0, 2, 0x11, 1, 3, 0x11, 1]);
+  return Buffer.concat([Buffer.from([0xff, 0xd8]), app0, sof, Buffer.from([0xff, 0xd9])]);
+}
+
+/** A GIF that is only a header: its logical screen size, no frames. */
+function gifHeader(width: number, height: number): Buffer {
+  const out = Buffer.alloc(14);
+  out.write("GIF89a", 0, "latin1"); out.writeUInt16LE(width, 6); out.writeUInt16LE(height, 8); out[13] = 0x3b;
+  return out;
+}
+
+const CORRUPT = Buffer.from("not a zlib stream, so the picture can't be decoded");
 
 const asIs = async (data: string, mimeType: string) => ({ image: { data, mimeType } });
 
@@ -157,7 +174,8 @@ test("at most MAX_IMAGES pictures per result and MAX_IMAGE_BYTES each; one that 
   expect(big).toEqual({ value: { content: [{ type: "image", mimeType: "image/png", omitted: `picture left out: over ${MAX_IMAGE_BYTES / 1024 / 1024} MB` }] }, images: [] });
 
   const tooLarge = await takePictures({ content: [{ type: "image", data: FIXTURE_PIXEL, mimeType: "image/png" }] }, async () => ({}));
-  expect(tooLarge).toEqual({ value: { content: [{ type: "image", mimeType: "image/png", omitted: "picture left out: too large to send" }] }, images: [] });
+  expect(tooLarge).toEqual({ value: { content: [{ type: "image", mimeType: "image/png",
+    omitted: "picture left out: the tool's picture (1x1 px, 1 KB) was not sent: it could not be shrunk to 2000 px and 4.5 MB" }] }, images: [] });
 });
 
 test("a wide picture is shrunk to at most 2000 px, with a note that maps it back", async () => {
@@ -166,6 +184,45 @@ test("a wide picture is shrunk to at most 2000 px, with a note that maps it back
   expect((wide.value as { content: unknown[] }).content[0]).toMatchObject({ type: "image", picture: 1,
     note: "[Image: original 3840x2160, displayed at 2000x1125. Multiply coordinates by 1.92 to map to original image.]" });
 }, 30_000);
+
+test("a picture that can't be decoded is sent as it is only when its header says it is already within 2000 px", async () => {
+  // A small file that says it is 3000 px wide, with a body Photon can't decode: never sent unshrunk.
+  const wide = blankPng(3000, 10, CORRUPT).toString("base64");
+  expect(await fitImage(wide, "image/png")).toEqual({});
+  const taken = await takePictures({ content: [{ type: "image", data: wide, mimeType: "image/png" }] }, fitImage, undefined, "site_map");
+  expect(taken.images).toEqual([]);
+  expect((taken.value as { content: unknown[] }).content).toEqual([{ type: "image", mimeType: "image/png",
+    omitted: "picture left out: site_map's picture (3000x10 px, 1 KB) was not sent: it could not be shrunk to 2000 px and 4.5 MB" }]);
+  // One whose header says 100x100 is within the limit: it goes as it is (no image library here does the same).
+  const small = blankPng(100, 100, CORRUPT).toString("base64");
+  expect(await fitImage(small, "image/png")).toEqual({ image: { data: small, mimeType: "image/png" } });
+}, 30_000);
+
+test("a picture whose header says it is over 16384 px a side or 40 megapixels, or has no size, is never decoded", async () => {
+  let asked = 0;
+  const counting = async (data: string, mimeType: string) => { asked++; return { image: { data, mimeType } }; };
+  const notOpened = (what: string) => `picture left out: site_map's picture (${what}) was not opened: over 16384 px a side or 40 megapixels`;
+  const cases: [Buffer, string, string][] = [
+    [blankPng(30_000, 10, CORRUPT), "image/png", notOpened("30000x10 px, 1 KB")],
+    [blankPng(8000, 8000, CORRUPT), "image/png", notOpened("8000x8000 px, 1 KB")],
+    [jpegHeader(20_000, 20_000), "image/jpeg", notOpened("20000x20000 px, 1 KB")],
+    [jpegHeader(16_385, 100), "image/jpeg", notOpened("16385x100 px, 1 KB")],
+    [gifHeader(65_535, 65_535), "image/gif", notOpened("65535x65535 px, 1 KB")],
+    // A header cut short, or a JPEG with no frame: its size can't be read, so it is not opened either.
+    [blankPng(100, 100).subarray(0, 20), "image/png", "picture left out: site_map's picture (1 KB) was not opened: its size could not be read"],
+    [Buffer.from([0xff, 0xd8, 0xff, 0xd9]), "image/jpeg", "picture left out: site_map's picture (1 KB) was not opened: its size could not be read"],
+  ];
+  for (const [bytes, mimeType, omitted] of cases) {
+    const taken = await takePictures({ content: [{ type: "image", data: bytes.toString("base64"), mimeType }] }, counting, undefined, "site_map");
+    expect(taken).toEqual({ value: { content: [{ type: "image", mimeType, omitted }] }, images: [] });
+  }
+  expect(asked).toBe(0);
+  // Within both limits: decoded and sent.
+  for (const bytes of [jpegHeader(16_384, 2000), gifHeader(4000, 3000), blankPng(6000, 6000, CORRUPT)]) {
+    expect((await takePictures({ content: [{ type: "image", data: bytes.toString("base64"), mimeType: "image/png" }] }, counting)).images).toHaveLength(1);
+  }
+  expect(asked).toBe(3);
+});
 
 test("audio, blobs, non-picture images and error results pass through untouched for today's note", async () => {
   const content = [

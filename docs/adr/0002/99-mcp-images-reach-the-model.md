@@ -17,7 +17,17 @@ to a model that declares image input, and DeepSeek Harness drops the pictures of
   (20 MB) each, the same as a request's pasted or dropped pictures (`src/app/images.ts`). Then each is shrunk the way
   Pi's `read` and the browser's screenshots are (`src/pictures/fit.ts`: at most 2000 px and 4.5 MB of base64). A
   picture past a limit, or one that can't be made small enough, stays out with a line that says why:
-  `picture left out: at most 8 per result`, `over 20 MB`, `too large to send`. No new limit is added.
+  `picture left out: at most 8 per result`, `over 20 MB`, or
+  `<tool>'s picture (<W>x<H> px, <N> KB) was not sent: it could not be shrunk to 2000 px and 4.5 MB`.
+- **Sizes are read before a picture is opened.** A small file can unpack to gigabytes, and up to 8 decode at once.
+  So the width and height come from the picture's header first (PNG IHDR, GIF logical screen, WebP VP8/VP8L/VP8X,
+  JPEG SOFn: `headerSize` in `src/pictures/fit.ts`, using `pictureSize` from `src/pictures/shrink.ts`). One over
+  16384 px a side or 40 megapixels, or one whose size can't be read, is never decoded and stays out with
+  `<tool>'s picture (…) was not opened: over 16384 px a side or 40 megapixels` (or `its size could not be read`).
+  This is the one limit added beyond a request's own: a pasted picture comes from you, an MCP picture from a server.
+- **Never sent unshrunk past 2000 px.** Pi's resize gives nothing both when no image library loads and when it can't
+  decode the body (it catches every error). Either way the picture goes as it is only when its header says it is
+  already within 2000 px and 4.5 MB of base64; otherwise it stays out with the `was not sent` line above.
 - **Two differences from DeepSeek Harness.** Both read the picture's own bytes. DeepSeek Harness refuses a picture
   whose declared type does not match them; Casper sends it as its bytes say (`imageMimeType`): a PNG a server calls
   `image/jpeg` goes as a PNG, and text or an SVG that calls itself a PNG stays out. And Casper hides old MCP pictures
@@ -58,7 +68,8 @@ to a model that declares image input, and DeepSeek Harness drops the pictures of
 
 ## A finding
 
-A picture's base64 in the result text; more than 8 pictures, or one over 20 MB, sent; a picture sent to a model
-without image input, or shrunk for one; a picture sent or shrunk with `mcp_pictures: off`; a type taken from the
-declared `mimeType` instead of the bytes; a picture from an `isError` result or the reader's call sent; audio or a blob sent; an MCP
-result's text hidden.
+A picture's base64 in the result text; more than 8 pictures, or one over 20 MB, sent; a picture decoded whose header
+says over 16384 px a side or 40 megapixels, or has no size; a picture sent unshrunk whose header says over 2000 px; a
+picture sent to a model without image input, or shrunk for one; a picture sent or shrunk with `mcp_pictures: off`; a
+type taken from the declared `mimeType` instead of the bytes; a picture from an `isError` result or the reader's call
+sent; audio or a blob sent; an MCP result's text hidden.
