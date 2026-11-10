@@ -179,7 +179,11 @@ export async function runModelTask(app: CasperApp, prompt: string, options: { fl
   // replay their ids in its own browser; none counts here until it runs again (BrowserSession.carried).
   if (app.browser?.status().state === "closed") { app.browserChecks = app.browser.carried(); app.browser = undefined; }
   app.lastTaskRequest = prompt;
-  const selected = await app.skillRegistry!.loadForTask(prompt, context.model, classification);
+  // A pasted transcript's or a mentioned chat's words ("fix", "add tests") are context: what was asked is read without
+  // them (decision 90). Skills fit what was asked too: a mentioned chat's words picked six skills for a question about
+  // it. Only context asks for nothing.
+  const asked = options.asked === undefined ? classification : classifyTask(options.asked);
+  const selected = options.asked === "" ? [] : await app.skillRegistry!.loadForTask(options.asked ?? prompt, context.model, asked);
   reportSkillWarnings(app);
   if (selected.length) {
     personNote(app, ` skills selected: ${selected.map(({ skill }) => skill.name).join(", ")}`);
@@ -209,6 +213,8 @@ export async function runModelTask(app: CasperApp, prompt: string, options: { fl
   );
   // Smoke checks are verification: they run only when Casper checks this task.
   const edits: NonNullable<CasperApp["taskEdits"]> = { edited: false, shell: false, turnEnded: false, windows: new WriteWindows() };
+  // Something left running when the task starts may write during it and end before the task does: Casper can't tell then.
+  edits.windows!.unsure = leftRunning(app);
   app.taskEdits = edits;
   app.smokeTask = verificationMode !== "off" ? new SmokeChecks(context.smoke ?? [], () => serviceManager(app), () => changedSinceTaskStart(app, edits)) : undefined;
   await prepareCapabilities(app, prompt);
@@ -260,8 +266,6 @@ export async function runModelTask(app: CasperApp, prompt: string, options: { fl
   // Unset, it is on for code changes in a session a person answers (the terminal, an ACP client) and off otherwise:
   // questions, docs, refactors and one-shot runs.
   // After the new-project question no checklist is made and no plan-first line is shown.
-  // A pasted transcript's words ("fix", "add tests") are context: what was asked is read without them.
-  const asked = options.asked === undefined ? classification : classifyTask(options.asked);
   const checklistOn = !app.beforeWorkAsked && (context.verification.checklist
     ?? (someoneAnswers(app) && ["implement", "fix", "test"].includes(asked.intent)));
   const complete = checklistOn ? session.complete?.bind(session) : undefined;
@@ -408,16 +412,23 @@ export async function runModelTask(app: CasperApp, prompt: string, options: { fl
     // ssh on another machine) is another program's: an editor, a second AI tool, a running app's database. It is named
     // on the receipt, and not checked, offered as "The work is in ..." or undone (src/task/attribution.ts).
     // So is a file that kept changing between the last task and this one (liveFiles): a job an earlier task started.
-    if (before && afterModel && edits.windows && (edits.tools || liveFiles.size)) {
+    if (before && afterModel && edits.windows) {
       const changes = diffSnapshots(before, afterModel);
-      const split = edits.tools ? await attributeChanges({ root: workspaceRoot, changes, windows: edits.windows.windows(),
-        moved: movedElsewhere(findMoves(before, afterModel, changes), changes),
-        since: edits.windows.since, until: Date.now(), toolFiles: new Set(toolFiles(workspaceRoot, app.observations.edited(), "inside")),
-        unsure: Boolean(edits.windows.unsure || app.backgroundCommands?.list().length || app.services?.live() || app.subagents.runs().length),
+      // A command, service or helper the AI left running at any time during the task may have written: Casper can't tell then.
+      const unsure = edits.windows.unsure || leftRunning(app);
+      const attribute = (windows: ReadonlyArray<readonly [number, number]>) => attributeChanges({ root: workspaceRoot, changes, windows,
+        moved: movedElsewhere(findMoves(before, afterModel!, changes), changes),
+        since: edits.windows!.since, until: Date.now(), toolFiles: new Set(toolFiles(workspaceRoot, app.observations.edited(), "inside")), unsure,
         commands: app.observations.toolCalls.flatMap((call) => typeof call.input?.command === "string" ? [call.input.command] : []), liveFiles,
-        ownRuns: app.observations.toolCalls.some((call) => OWN_RUNS.has(call.toolName)) }).catch(() => undefined)
-        // No tool of the AI's ran: a live file that changed is its writer's.
-        : { task: [], others: flatten(changes).filter((file) => liveFiles.has(file)), unsure: [], testData: [] };
+        ownRuns: app.observations.toolCalls.some((call) => OWN_RUNS.has(call.toolName)) });
+      const all = flatten(changes);
+      const split = edits.tools ? await attribute(edits.windows.windows()).catch(() => undefined)
+        // No tool of the AI's ran (it answered in words): with nothing of its running during the task, all that changed is
+        // another program's. With something running, what it may have written is unsure (undo asks), as after a tool;
+        // nothing is surely this turn's, and an app's own database or log, or a live file, stays its writer's.
+        : !unsure ? { task: [], others: all, unsure: [], testData: [] }
+        : await attribute([]).then((found) => ({ task: [], others: found.others, unsure: [...found.task, ...found.unsure].sort(), testData: [] }))
+          .catch(() => ({ task: [], others: [], unsure: all, testData: [] }));
       if (split?.others.length) {
         changedNotByModel = split.others;
         othersAsFound = afterModel;
@@ -1201,7 +1212,7 @@ function finishChecksPrompt(checks: readonly BrowserCheck[]): string {
   return [
     "Casper: browser checks you recorded in this task never finished.",
     ...checks.map((check) => `- ${check.name} (id ${check.id})${check.reason ? `: ${check.reason}` : ""}`),
-    "Replay each id with the browser tool now that the page is ready. If a check is wrong (it needs data or steps it doesn't set up), first record a correct check of the same page; once it passes, withdraw this one with replacedBy: the new check's id. One that went to a sign-in page never saw its page: withdraw it, no replacedBy needed, and if its page isn't checked yet, record a check that signs in through its steps. Every id above must end replayed or withdrawn. Don't change the app in this turn. Casper replays the checks again after it.",
+    "Replay each id with the browser tool now that the page is ready. If a check is wrong (it needs data or steps it doesn't set up), record a correct check of the same page with replaces: its id; once that passes, the old one is withdrawn. One that went to a sign-in page never saw its page: withdraw it, no replacedBy needed, and if its page isn't checked yet, record a check that signs in through its steps. Every id above must end replayed or withdrawn. Don't change the app in this turn. Casper replays the checks again after it.",
   ].join("\n");
 }
 
@@ -1360,14 +1371,14 @@ async function keepGoing(app: CasperApp, session: RuntimeSession, request: strin
     app.events.ensureLineBreak();
     app.output.write(`↻ keep going ${round}/${KEEP_GOING_ROUNDS}: ${why} carries on (Esc stops it)\n`);
     app.lastAnswer = "";
-    await session.prompt(keepGoingPrompt(need, steps), app.commandAbort?.signal, { request, maxTurns: app.maxTurns });
+    await session.prompt(keepGoingPrompt(need, steps), app.commandAbort?.signal, { request, maxTurns: app.maxTurns, followUp: true });
     await retryModelFailure(app, session, request);
   }
 }
 
 export async function promptRound(app: CasperApp, session: RuntimeSession, text: string, request: string, images?: RuntimeImage[], turns = ROUND_MAX_TURNS): Promise<boolean> {
   const roundBudget = app.maxTurns === undefined || turns < app.maxTurns;
-  try { await session.prompt(text, app.commandAbort?.signal, { request, maxTurns: roundBudget ? turns : app.maxTurns, ...(images?.length ? { images } : {}) }); }
+  try { await session.prompt(text, app.commandAbort?.signal, { request, maxTurns: roundBudget ? turns : app.maxTurns, followUp: true, ...(images?.length ? { images } : {}) }); }
   // A picture the round made is there before the checks and the proof look again.
   finally { await settlePictures(app); }
   if (!roundBudget || app.taskTurnLimit === undefined) return false;
@@ -1555,6 +1566,11 @@ function showReceipt(app: CasperApp, task: TaskResult, view: ReceiptView | undef
 /** The line a task that is not done ends with (src/task/ending.ts), in a block of its own like a receipt. */
 function writeEnding(app: CasperApp, line: string): void {
   app.terminal.write(`${line}\n`, "group");
+}
+
+/** A background command, service or helper is running: it may write at any time. */
+function leftRunning(app: CasperApp): boolean {
+  return Boolean(app.backgroundCommands?.list().length || app.services?.live() || app.subagents.runs().length);
 }
 
 /** Whether the task's code may differ from its start. A shell command's effect is unknown, so the tree is

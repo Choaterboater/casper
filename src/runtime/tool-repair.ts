@@ -1,3 +1,5 @@
+import { validateToolArguments, type Tool, type ToolCall } from "@earendil-works/pi-ai";
+
 /**
  * Repairs the shape of a tool call's arguments before Pi validates them (borrowed from opencode's tool-input
  * repair), so a weaker model's near miss runs instead of failing. Only what the tool's schema makes certain is
@@ -12,6 +14,10 @@
  * The other way round is refused for Pi's file tools: Pi's validation would also turn 33, false or null into text
  * where a string is wanted, so `write {"path":33,"content":false}` would make a file named 33 holding "false". A field
  * those tools' schemas want as a string must come as one, or the call does not run and the model is told which.
+ *
+ * A call that still fails the schema after the repair is refused here with Pi's own error, each field and what was
+ * wrong with it, but not Pi's copy of the whole call ("Received arguments: ..."): the model already has its call, and
+ * a long one (a browser check's scenario) cost thousands of characters of context per refusal.
  */
 type Schema = Record<string, unknown>;
 
@@ -160,6 +166,14 @@ export function textFieldRefusal(tool: string, schema: unknown, args: unknown): 
   return `${tool} did not run: ${problems.join("; ")}. ${problems.length === 1 ? "Send it as a string." : "Send them as strings."}`;
 }
 
+/** Pi's schema error for a call, without the copy of its arguments Pi appends; undefined when the call is valid. */
+export function schemaRefusal(name: string, schema: unknown, args: unknown): string | undefined {
+  if (!isObject(schema)) return undefined;
+  try { validateToolArguments({ name, description: "", parameters: schema } as unknown as Tool, { type: "toolCall", id: "", name, arguments: args } as unknown as ToolCall); }
+  catch (error) { return (error instanceof Error ? error.message : String(error)).replace(/\n+Received arguments:[\s\S]*$/, ""); }
+  return undefined;
+}
+
 export function repairNote(fixes: string[]): string {
   return `Casper repaired this call's arguments. Next time ${fixes.join("; ")}.`;
 }
@@ -181,6 +195,8 @@ export class ToolArgumentRepair {
       const { args: repaired, fixes } = repairToolArguments(schema, own ? own(args) : args);
       const refusal = textFieldRefusal(name, schema, repaired);
       if (refusal) { this.pending.delete(name); throw new Error(refusal); }
+      const invalid = schemaRefusal(name, schema, repaired);
+      if (invalid) { this.pending.delete(name); throw new Error(invalid); }
       if (fixes.length) this.pending.set(name, repairNote(fixes));
       else this.pending.delete(name);
       return repaired as T;

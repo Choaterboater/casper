@@ -74,6 +74,8 @@ export function viewport(value: unknown): { width: number; height: number } {
 }
 /** One check may confirm several things on a page (each is a quick read); weak models often list 5–8. */
 export const MAX_ASSERTIONS = 8;
+/** Steps a check may take: a form of a dozen fields with its clicks fits in one check rather than several. */
+export const MAX_STEPS = 30;
 export function parseScenario(input: unknown): BrowserScenario {
   if (Buffer.byteLength(JSON.stringify(input) ?? "") > 16_384) throw new Error("Browser scenario exceeds 16 KiB");
   const entry = object(input, ["name", "url", "viewport", "steps", "assertions", "scope"], "scenario");
@@ -82,7 +84,7 @@ export function parseScenario(input: unknown): BrowserScenario {
   const scope = record(entry.scope) && Array.isArray(entry.scope.inputs) && !entry.scope.inputs.length && blank(entry.scope.exclude) ? undefined : entry.scope;
   if (scope !== undefined && !isVerificationScope(scope)) throw new Error("Browser scenario scope needs inputs: 1–32 project-relative paths (exclude is optional)");
   const steps = entry.steps ?? [];
-  if (!Array.isArray(steps) || steps.length > 12) throw new Error("Browser scenario steps must be a list of 0–12 click/fill/press/select steps");
+  if (!Array.isArray(steps) || steps.length > MAX_STEPS) throw new Error(`Browser scenario steps must be a list of 0–${MAX_STEPS} click/fill/press/select steps`);
   if (!Array.isArray(entry.assertions) || !entry.assertions.length || entry.assertions.length > MAX_ASSERTIONS) throw new Error(`Browser scenario needs 1–${MAX_ASSERTIONS} assertions`);
   const parsedSteps = steps.map((value, index) => {
     const step = object(value, ["action", "selector", "value", "impact", "reason", "dialog"], `scenario step ${index + 1}`);

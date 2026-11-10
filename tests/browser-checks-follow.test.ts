@@ -187,7 +187,7 @@ browserTest("an assertion whose selector matches several elements is a check wri
   items.count = 2;
   const row = { name: "one row", url, steps: [], assertions: [{ kind: "text", selector: "li.row", expected: "Row" }] };
   // As a step selector that matches several already is: nothing is recorded, and the AI is told to name one element.
-  await expect(session.run({ action: "check", scenario: row })).rejects.toThrow(/assertion 1's selector matches 2 elements: name one element and record the check again \(nothing was recorded\)/);
+  await expect(session.run({ action: "check", scenario: row })).rejects.toThrow(/assertion 1's selector matches 2 elements \(matches: li "Row" = li:nth-of-type\(1\); li "Row" = li:nth-of-type\(2\)\): name one element and record the check again \(nothing was recorded\)/);
   expect((await session.report()).checks).toEqual([]);
   // Recorded while it matched one; the page later has two: written wrong, not failed.
   items.count = 1;

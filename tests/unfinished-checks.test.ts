@@ -2,6 +2,7 @@ import { afterEach, expect, test } from "bun:test";
 import { mkdtemp } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import type { RuntimeEvent, RuntimeEventListener } from "../src/runtime/types";
 import type { VerificationResult } from "../src/verify/evidence";
 import { VerifierRegistry } from "../src/verify/registry";
 import { verifyAndRepair } from "../src/verify/repair-loop";
@@ -139,12 +140,21 @@ test("in the terminal, a timed-out check asks what to do instead of starting a p
   await mkdir(home, { recursive: true }); await mkdir(path.join(project, ".casper"), { recursive: true });
   await writeFile(path.join(project, ".casper/project.yaml"), `verify:\n  test: ${JSON.stringify(checkCommand("sleep:5000"))}\nverification:\n  mode: auto\n  timeoutMs: 300\n`);
   let prompts = 0;
+  const listeners = new Set<RuntimeEventListener>();
+  const emit = (event: RuntimeEvent) => { for (const listener of listeners) listener(event); };
   const runtime = {
     start: async () => ({
       getStatus: () => ({ provider: "fixture", model: "demo", auth: "configured" as const }),
       getState: () => ({ cwd: project, isStreaming: false }),
-      setTools: () => {}, subscribe: () => () => {}, abort: async () => {},
-      prompt: async () => { prompts++; await writeFile(path.join(project, "notes.dat"), `edit ${prompts}\n`); },
+      setTools: () => {}, abort: async () => {},
+      subscribe: (listener: RuntimeEventListener) => { listeners.add(listener); return () => listeners.delete(listener); },
+      prompt: async () => {
+        prompts++;
+        // The fixture's writes are its model's tool: a real model changes files only through its tools.
+        emit({ type: "tool_start", toolName: "fixture_edit", toolCallId: `edit-${prompts}` });
+        await writeFile(path.join(project, "notes.dat"), `edit ${prompts}\n`);
+        emit({ type: "tool_end", toolName: "fixture_edit", toolCallId: `edit-${prompts}`, isError: false });
+      },
     }),
     dispose: async () => {},
   };
@@ -204,12 +214,21 @@ test("on a plain terminal (TERM=dumb) a timed-out check asks the same question a
   await mkdir(home, { recursive: true }); await mkdir(path.join(project, ".casper"), { recursive: true });
   await writeFile(path.join(project, ".casper/project.yaml"), `verify:\n  test: ${JSON.stringify(checkCommand("sleep:5000"))}\nverification:\n  mode: auto\n  timeoutMs: 300\n`);
   let prompts = 0;
+  const listeners = new Set<RuntimeEventListener>();
+  const emit = (event: RuntimeEvent) => { for (const listener of listeners) listener(event); };
   const runtime = {
     start: async () => ({
       getStatus: () => ({ provider: "fixture", model: "demo", auth: "configured" as const }),
       getState: () => ({ cwd: project, isStreaming: false }),
-      setTools: () => {}, subscribe: () => () => {}, abort: async () => {},
-      prompt: async () => { prompts++; await writeFile(path.join(project, "notes.dat"), `edit ${prompts}\n`); },
+      setTools: () => {}, abort: async () => {},
+      subscribe: (listener: RuntimeEventListener) => { listeners.add(listener); return () => listeners.delete(listener); },
+      prompt: async () => {
+        prompts++;
+        // The fixture's writes are its model's tool: a real model changes files only through its tools.
+        emit({ type: "tool_start", toolName: "fixture_edit", toolCallId: `edit-${prompts}` });
+        await writeFile(path.join(project, "notes.dat"), `edit ${prompts}\n`);
+        emit({ type: "tool_end", toolName: "fixture_edit", toolCallId: `edit-${prompts}`, isError: false });
+      },
     }),
     dispose: async () => {},
   };
@@ -259,12 +278,21 @@ test("5 Allow more time from now on saves the longer limit for this project, wit
   await mkdir(home, { recursive: true }); await mkdir(path.join(project, ".casper"), { recursive: true });
   await writeFile(path.join(project, ".casper/project.yaml"), `verify:\n  test: ${JSON.stringify(checkCommand("sleep:5000"))}\nverification:\n  mode: auto\n  timeoutMs: 300\n`);
   let prompts = 0;
+  const listeners = new Set<RuntimeEventListener>();
+  const emit = (event: RuntimeEvent) => { for (const listener of listeners) listener(event); };
   const runtime = {
     start: async () => ({
       getStatus: () => ({ provider: "fixture", model: "demo", auth: "configured" as const }),
       getState: () => ({ cwd: project, isStreaming: false }),
-      setTools: () => {}, subscribe: () => () => {}, abort: async () => {},
-      prompt: async () => { prompts++; await writeFile(path.join(project, "notes.dat"), `edit ${prompts}\n`); },
+      setTools: () => {}, abort: async () => {},
+      subscribe: (listener: RuntimeEventListener) => { listeners.add(listener); return () => listeners.delete(listener); },
+      prompt: async () => {
+        prompts++;
+        // The fixture's writes are its model's tool: a real model changes files only through its tools.
+        emit({ type: "tool_start", toolName: "fixture_edit", toolCallId: `edit-${prompts}` });
+        await writeFile(path.join(project, "notes.dat"), `edit ${prompts}\n`);
+        emit({ type: "tool_end", toolName: "fixture_edit", toolCallId: `edit-${prompts}`, isError: false });
+      },
     }),
     dispose: async () => {},
   };

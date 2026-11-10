@@ -81,7 +81,10 @@ async function session(turns: Turn[]) {
         prompt: async (text: string) => {
           append(`user-${++made}`, text);
           emit({ type: "assistant_response_start", provider: "fixture", model: "demo" });
+          // The fixture's writes are its model's tool: a real model changes files only through its tools.
+          emit({ type: "tool_start", toolName: "fixture_edit", toolCallId: `edit-${made}` });
           await turns.shift()?.(project);
+          emit({ type: "tool_end", toolName: "fixture_edit", toolCallId: `edit-${made}`, isError: false });
           emit({ type: "assistant_text_delta", delta: "Done.\n" });
           emit({ type: "assistant_response_end", stopReason: "stop" });
           append(`reply-${made}`);

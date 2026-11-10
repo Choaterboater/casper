@@ -432,7 +432,7 @@ class PiRuntimeSession implements RuntimeSession {
     return this.models.status(this.runtime.session);
   }
 
-  async prompt(text: string, signal?: AbortSignal, options?: { request: string; typed?: string; maxTurns?: number; images?: readonly RuntimeImage[] }): Promise<void> {
+  async prompt(text: string, signal?: AbortSignal, options?: { request: string; typed?: string; maxTurns?: number; images?: readonly RuntimeImage[]; followUp?: boolean }): Promise<void> {
     if (this.promptActive) throw new Error("A prompt is already active.");
     this.promptActive = true;
     this.agentShellGuard?.task(options?.request ?? text, signal ?? options?.request ?? text);
@@ -465,6 +465,8 @@ class PiRuntimeSession implements RuntimeSession {
     };
     // Who wrote this prompt's message, recorded at the first request after it is in the conversation.
     let author: { from: string | null; typed?: string } | undefined;
+    // A round Casper starts itself may hide old output at its first request, a point where the prompt changes anyway.
+    let followUp = options?.followUp === true;
     // Pi can resolve auth before its agent has an AbortController. Keep the
     // preparation signal linked at the last seam before provider execution.
     agent.streamFunction = (model, context, streamOptions) => {
@@ -478,7 +480,8 @@ class PiRuntimeSession implements RuntimeSession {
         if (entry.customType === TOOL_HISTORY_ENTRY) history.restore(entry.data);
         else if (entry.customType === STEERED_LINE_ENTRY) { const at = steeredAt(entry.data); if (at !== undefined) typed.add(at); }
       }
-      const projected = history.project(context.messages, this.hideToolOutput?.() !== false, { contextWindow: model.contextWindow });
+      const projected = history.project(context.messages, this.hideToolOutput?.() !== false, { contextWindow: model.contextWindow, followUp });
+      followUp = false;
       if (projected.checkpoint) session.sessionManager.appendCustomEntry(TOOL_HISTORY_ENTRY, projected.checkpoint);
       const messages = this.steeredLines.project(projected.messages, typed, at => session.sessionManager.appendCustomEntry(STEERED_LINE_ENTRY, { at }));
       return stream(model, { ...context, messages }, {

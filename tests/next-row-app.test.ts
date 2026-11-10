@@ -15,6 +15,7 @@ test("the row under an interactive receipt runs the step whose number is typed n
   await Promise.all([mkdir(home), mkdir(project)]); await writeFile(path.join(project, "notes.txt"), "An empty folder would ask about a new project.\n");
   const listeners = new Set<RuntimeEventListener>();
   const emit = (event: Parameters<RuntimeEventListener>[0]) => { for (const listener of listeners) listener(event); };
+  let turns = 0;
   const runtime: AgentRuntime = {
     async start() {
       return {
@@ -23,9 +24,13 @@ test("the row under an interactive receipt runs the step whose number is typed n
         subscribe: (listener: RuntimeEventListener) => { listeners.add(listener); return () => listeners.delete(listener); },
         abort: async () => {},
         prompt: async () => {
+          turns += 1;
+          emit({ type: "assistant_response_start", provider: "fixture", model: "demo" });
+          // The fixture's writes are its model's tool: a real model changes files only through its tools.
+          emit({ type: "tool_start", toolName: "fixture_edit", toolCallId: `edit-${turns}` });
           // A real change, so the turn gets a receipt (a turn that changes nothing and runs no tests gets none).
           await writeFile(path.join(project, "notes.txt"), "An empty folder would ask about a new project, fixed.\n");
-          emit({ type: "assistant_response_start", provider: "fixture", model: "demo" });
+          emit({ type: "tool_end", toolName: "fixture_edit", toolCallId: `edit-${turns}`, isError: false });
           emit({ type: "assistant_text_delta", delta: "Done.\n" });
           emit({ type: "assistant_response_end", stopReason: "stop" });
         },

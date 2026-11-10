@@ -6,7 +6,7 @@ import { stringify } from "yaml";
 import { CasperApp } from "../src/app";
 import { loadProjectContext } from "../src/project/context";
 import { inspectProject } from "../src/project/inspect";
-import type { AgentRuntime, RuntimeSession, RuntimeStartOptions } from "../src/runtime/types";
+import type { AgentRuntime, RuntimeEventListener, RuntimeSession, RuntimeStartOptions } from "../src/runtime/types";
 import { SkillRegistry } from "../src/skills/registry";
 import { formatTaskPrompt } from "../src/task/classify";
 import { describeChecksPlan, planAutoChecks, selectedChecks } from "../src/verify/mode";
@@ -86,8 +86,17 @@ class EditingRuntime implements AgentRuntime {
   constructor(private readonly edit: (options: RuntimeStartOptions) => Promise<void>) {}
   async start(options: RuntimeStartOptions): Promise<RuntimeSession> {
     const info = () => ({ cwd: options.cwd, sessionId: "fixture", sessionFile: path.join(options.cwd, "..", "session.jsonl") });
-    return { prompt: async (text) => { this.prompts.push(text); if (this.prompts.length === 1) await this.edit(options); }, setTools: () => {},
-      abort: async () => {}, subscribe: () => () => {}, getState: () => ({ cwd: options.cwd, isStreaming: false }), clearConversation: async () => {},
+    const listeners = new Set<RuntimeEventListener>();
+    const emit: RuntimeEventListener = (event) => { for (const listener of listeners) listener(event); };
+    return { prompt: async (text) => {
+      this.prompts.push(text);
+      if (this.prompts.length !== 1) return;
+      // The fixture's writes are its model's tool: a real model changes files only through its tools.
+      emit({ type: "tool_start", toolName: "fixture_edit", toolCallId: "edit-1" });
+      await this.edit(options);
+      emit({ type: "tool_end", toolName: "fixture_edit", toolCallId: "edit-1", isError: false });
+    }, setTools: () => {},
+      abort: async () => {}, subscribe: (listener) => { listeners.add(listener); return () => listeners.delete(listener); }, getState: () => ({ cwd: options.cwd, isStreaming: false }), clearConversation: async () => {},
       getSessionInfo: info, resumeConversation: async () => {}, forkSession: async () => info(), switchSession: async () => info() };
   }
   async dispose() {}

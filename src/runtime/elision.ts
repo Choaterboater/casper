@@ -1,14 +1,16 @@
 /**
  * Catches a write or edit that leaves a placeholder where code was, such as `// ... existing code ...` or
  * `# ... rest unchanged` (borrowed from skyn3t's elided-code check). Only a comment line counts, so spread
- * syntax (`...rest`) and a plain "unchanged" in prose never match. A placeholder line the old text already had
+ * syntax (`...rest`) and a plain "unchanged" in prose never match. Casper's own stub for an old file body counts too. A placeholder line the old text already had
  * is not counted again. It is a note added to the tool result, never a refusal.
  */
 const OPENER = String.raw`(?:\/\/|#|\/\*|<!--|--|\{\/\*)`;
 const PHRASE = String.raw`(?:\.\.\.|…)\s*(?:unchanged|existing|rest\s+(?:of\b|unchanged)|remainder|same\s+as\s+before|snipped?|omitted|elided)`
   + String.raw`|(?:unchanged|existing\s+code|rest\s+of\s+(?:the\s+)?(?:file|code|implementation)|same\s+as\s+before|snipped?|omitted|elided)\s*(?:\.\.\.|…)`
   + String.raw`|(?:rest|remainder|everything\s+else)\s+of\s+(?:the\s+)?(?:file|code|implementation|function|class|module|method|component)\b[^\n]{0,40}?(?:unchanged|the\s+same|omitted|identical|as\s+before)`;
-const MARKER = new RegExp(String.raw`^\s*${OPENER}\s*(?:${PHRASE})`, "i");
+/** Casper's own history stub for an old file body (src/runtime/tool-history.ts), copied back into a file. */
+const STUB = String.raw`\[(?:content|text) of .+ hidden, read the file before judging or editing it\]`;
+const MARKER = new RegExp(String.raw`^\s*(?:${OPENER}\s*(?:${PHRASE})|${STUB})`, "i");
 
 export const ELISION_NOTE = "The file now has a placeholder where code was. Write it in full or use edit.";
 

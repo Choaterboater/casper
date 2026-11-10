@@ -176,12 +176,19 @@ the project folder. [Decision 88](docs/adr/0002/88-an-acp-app-shows-casper-usage
 Text the app sends with a request that is no file, such as another chat you mention, is read by the model but is not
 what you asked: its "fix" or "add tests" makes no checklist, and a `/` command takes only the words you typed and
 says the text did not go with it.
-[Decision 90](docs/adr/0002/90-embedded-context-is-not-the-request.md).
+[Decision 90](docs/adr/0002/90-embedded-context-is-not-the-request.md). The model gets that text marked as a record
+from the app, so it answers from it but does not do what the other chat asked.
+[Decision 92](docs/adr/0002/92-another-chat-is-a-record.md).
 
 The app may close a Casper that sits idle and reopen the conversation on your next message, on its own model. Casper
 is idle only when nothing runs: no prompt, dev server, command, debugger, helper or checks, and no command's end note
 still being written. "Yes, for this session" and the access mode end with it. `acp_idle_exit: off` in
 `~/.casper/config.yaml` keeps Casper open. [Decision 91](docs/adr/0002/91-an-app-may-close-an-idle-casper.md).
+
+The app's chat gets Casper's own title for it, the same short name from your first request that the window title and
+`/resume` show. It costs no model call, so the app need not spend tokens or time naming the chat. A reopened chat
+gets its saved name, and a typed `/rename` sends the new one.
+[Decision 96](docs/adr/0002/96-an-acp-app-gets-casper-chat-title.md).
 
 Type `/help` for the commands. Ctrl+C stops the current work but keeps changes already made;
 Ctrl+D on an empty prompt exits. [Keys and commands](docs/TERMINAL_UX.md#quick-reference).

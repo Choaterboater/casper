@@ -69,7 +69,10 @@ function makeApp(place: { home: string; project: string }, turns: Turn[], option
         prompt: async () => {
           conversation.push(`turn-${conversation.length}`);
           emit({ type: "assistant_response_start", provider: "fixture", model: "demo" });
+          // The fixture's writes are its model's tool: a real model changes files only through its tools.
+          emit({ type: "tool_start", toolName: "fixture_edit", toolCallId: `edit-${conversation.length}` });
           await turns.shift()?.(place.project, async (file) => startOptions.afterFileEdit?.(file, new AbortController().signal));
+          emit({ type: "tool_end", toolName: "fixture_edit", toolCallId: `edit-${conversation.length}`, isError: false });
           emit({ type: "assistant_text_delta", delta: "Done.\n" });
           emit({ type: "assistant_response_end", stopReason: "stop" });
         },

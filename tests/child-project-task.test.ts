@@ -33,6 +33,7 @@ async function lab() {
   await writeFile(path.join(docs, "notes.md"), "lab notes\n");
   const starts: string[] = [];
   let disposed = 0;
+  let turns = 0;
   /** Conversations by folder, as Pi keeps them, and what forks and resumes did. */
   const saved = new Map<string, RuntimeConversation[]>();
   const forks: Array<{ cwd: string; context?: string }> = [];
@@ -60,12 +61,17 @@ async function lab() {
         subscribe: (listener: RuntimeEventListener) => { listeners.add(listener); return () => listeners.delete(listener); },
         abort: async () => {}, setTools: () => {},
         prompt: async () => {
+          const emit: RuntimeEventListener = (event) => { for (const listener of listeners) listener(event); };
+          const toolCallId = `edit-${++turns}`;
+          // The fixture's writes are its model's tool: a real model changes files only through its tools.
+          emit({ type: "tool_start", toolName: "fixture_edit", toolCallId });
           const dir = path.join(docs, "sample-tools");
           await mkdir(path.join(dir, "tests"), { recursive: true });
           await writeFile(path.join(dir, "pyproject.toml"), '[project]\nname = "sample-tools"\n');
           await writeFile(path.join(dir, "sites.py"), "def count():\n    return 3\n");
           await writeFile(path.join(dir, "tests", "test_sites.py"),
             "import unittest\nimport sites\n\nclass T(unittest.TestCase):\n    def test_count(self):\n        self.assertEqual(sites.count(), 3)\n");
+          emit({ type: "tool_end", toolName: "fixture_edit", toolCallId, isError: false });
         },
       };
     },

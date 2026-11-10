@@ -510,8 +510,9 @@ export interface RuntimeSession {
   /** `maxTurns` stops the request gracefully after that many model turns (tools of the last turn
    * still finish) and emits turn_limit; unset means no Casper turn limit. `images` go with the text (a model
    * that can't see them gets a placeholder from the runtime). `typed`: the person's own words when this message is
-   * theirs; without it the saved conversation records the message as Casper's own (a repair or review round). */
-  prompt(text: string, signal?: AbortSignal, options?: { request: string; typed?: string; maxTurns?: number; images?: readonly RuntimeImage[] }): Promise<void>;
+   * theirs; without it the saved conversation records the message as Casper's own (a repair or review round).
+   * `followUp`: Casper starts this round itself, so old tool output and file bodies may be hidden before its first request. */
+  prompt(text: string, signal?: AbortSignal, options?: { request: string; typed?: string; maxTurns?: number; images?: readonly RuntimeImage[]; followUp?: boolean }): Promise<void>;
   /** A line the user typed while the model works, with its pictures: the model reads it at its next step. False, with nothing sent,
    * when no prompt is running (the caller keeps it as the next request). */
   steer?(text: string, images?: readonly RuntimeImage[]): Promise<boolean>;

@@ -2,7 +2,7 @@ import { afterAll, expect, test } from "bun:test";
 import { PassThrough } from "node:stream";
 import { CasperApp } from "../src/app";
 import { settleAppSteers, steerFromApp } from "../src/app/during-work";
-import type { AgentRuntime, RuntimeImage, RuntimeSession, RuntimeStatus } from "../src/runtime/types";
+import type { AgentRuntime, RuntimeEventListener, RuntimeImage, RuntimeSession, RuntimeStatus } from "../src/runtime/types";
 import { runsDuringWork } from "../src/tui/commands";
 import { duringTask } from "../src/tui/give-way";
 import { TerminalSurface } from "../src/tui/surface";
@@ -267,16 +267,24 @@ test("a subcommand label too wide for the menu's column ends with …, never cut
 test("/diff list during a task prints the list with no picker, so nothing sits in the way of a box the task opens", async () => {
   const gate = Promise.withResolvers<void>();
   let turns = 0, second = false;
+  const listeners = new Set<RuntimeEventListener>();
+  const emit = (event: Parameters<RuntimeEventListener>[0]) => { for (const listener of listeners) listener(event); };
   const app = await richApp(project => ({
     async start() {
       return {
         setTools: () => {},
         getStatus: () => ({ provider: "fixture", model: "demo", auth: "configured" }),
         getState: () => ({ cwd: project, isStreaming: false }),
-        subscribe: () => () => {},
+        subscribe: (listener: RuntimeEventListener) => { listeners.add(listener); return () => listeners.delete(listener); },
         abort: async () => {},
         prompt: async () => {
-          if (++turns === 1) { await Bun.write(`${project}/notes.txt`, "changed\n"); return; }
+          if (++turns === 1) {
+            // The fixture's writes are its model's tool: a real model changes files only through its tools.
+            emit({ type: "tool_start", toolName: "fixture_edit", toolCallId: `edit-${turns}` });
+            await Bun.write(`${project}/notes.txt`, "changed\n");
+            emit({ type: "tool_end", toolName: "fixture_edit", toolCallId: `edit-${turns}`, isError: false });
+            return;
+          }
           second = true; await gate.promise;
         },
       };
