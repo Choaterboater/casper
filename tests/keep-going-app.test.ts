@@ -47,7 +47,13 @@ async function session(replies: Reply[], config?: string) {
           prompts.push(text);
           const reply = replies.shift() ?? { text: "No reply was scripted for this prompt." };
           emit({ type: "assistant_response_start", provider: "fixture", model: "demo" });
-          for (const [file, body] of Object.entries(reply.files ?? {})) await writeFile(path.join(project, file), body);
+          if (reply.files) {
+            // The fixture's writes are its model's tool: a real model changes files only through its tools.
+            const toolCallId = `edit-${prompts.length}`;
+            emit({ type: "tool_start", toolName: "fixture_edit", toolCallId });
+            for (const [file, body] of Object.entries(reply.files)) await writeFile(path.join(project, file), body);
+            emit({ type: "tool_end", toolName: "fixture_edit", toolCallId, isError: false });
+          }
           emit({ type: "assistant_text_delta", delta: reply.text });
           emit({ type: "assistant_response_end", stopReason: "stop" });
         },

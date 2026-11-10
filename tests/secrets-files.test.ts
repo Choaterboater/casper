@@ -82,6 +82,15 @@ test("a private key printed by a command is hidden even with /secrets files off"
   expect(out!.texts[0]).not.toContain("b3BlbnNzaC1rZXktdjEAAAA");
 });
 
+test("a key file's certificate armor line still gets the device rules: a community after an END on the same line goes", async () => {
+  // Made-up values. A key file's armor line used to skip the device rules, so this community reached the AI.
+  const pem = "-----BEGIN CERTIFICATE-----\nMIIBszCCAVmgAwIBAgIUFixtureCertBody0123456789abcdefABCDEF\n-----END CERTIFICATE----- snmp-server community FixComm77 RO\n";
+  for (const configs of [true, false]) {
+    const out = await scrubToolOutput(scrubber, "read", { path: "certs/bundle.pem" }, [pem], undefined, { configs, env: {} });
+    expect([configs, out?.texts[0]]).toEqual([configs, pem.replace("FixComm77", "<secret hidden>")]);
+  }
+});
+
 test("passwords inside addresses and webhook or DSN addresses are hidden", async () => {
   const env = "DATABASE_URL=postgres://admin:Sup3rS3cret@db.local:5432/app\nSLACK_WEBHOOK_URL=https://hooks.slack.com/services/T0/B0/abcd1234\nSENTRY_DSN=https://k3y@o1.ingest.sentry.io/1\nAPP_URL=https://example.com\n";
   const read = await scrubToolOutput(scrubber, "read", { path: ".env" }, [env], undefined, { configs: false, env: {} });

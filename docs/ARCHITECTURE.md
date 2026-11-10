@@ -46,9 +46,10 @@ From the prompt to the receipt, in `src/app/task-run.ts` (`runModelTask`) unless
    places, git's own files, the plan turn's gate, writes outside the project). Every shell command goes through
    `casperBashOperations`, which asks first when no sandbox runs and wraps the command when one does. Every tool
    result is scrubbed before the model reads it. MCP calls go through the broker and its approval box.
-   The provider seam projects old bulky tool results to permanent stubs once they fill a fifth of the model's
-   window, or the prompt passes 60% of it, and they outweigh what the rebuild re-reads
-   (`src/runtime/tool-history.ts`), retaining the latest four rounds and observable recent references. The original
+   The provider seam projects old bulky tool results, and the file bodies of old write, edit and heredoc calls, to
+   permanent stubs once they fill a fifth of the model's window, or the prompt passes 60% of it, or Casper starts its
+   own repair, review or proof round, and they outweigh what the rebuild re-reads
+   (`src/runtime/tool-history.ts`, decision 100), retaining the latest four rounds and observable recent references. The original
    transcript stays intact; branch-local custom entries persist mask decisions and compaction epochs.
    Each checkpoint changes the prefix once, then subsequent requests reuse identical earlier messages.
    `/settings` **Hide old tool output** stops new masks from the next step, without restoring old ones.
@@ -68,6 +69,8 @@ From the prompt to the receipt, in `src/app/task-run.ts` (`runModelTask`) unless
    The other way round is refused: Pi's check would turn a number, true or false, or null into text, so a `read`,
    `write` or `edit` whose path, content or edit text is not text does not run, and its result names each field
    (`path must be a string, not the number 33`) for the model to send again as text.
+   A call that still does not fit the schema after the repair gets Pi's error, each field and what was wrong with it,
+   without Pi's copy of the whole call: the model has its call already, and a long one cost thousands of characters.
    With the Claude subscription, a call whose JSON Claude wrote wrong (a raw line break or a regex's `\d` in a
    string) is mended as Pi mends it for its other providers. One still unreadable, or not one object, is never
    guessed at: it does not run, its result says why and asks for it again, and the task goes on instead of stopping

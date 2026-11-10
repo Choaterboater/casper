@@ -51,7 +51,11 @@ function createApp(root: string, options: { autoVerify?: boolean; respond?: (pro
         setTools(next) { tools = next; options.onSetTools?.(next); },
         async prompt(text) {
           promptCount++;
-          prompts.push(text); await options.respond!(text, (event) => listener?.(event));
+          prompts.push(text);
+          // The fixture's writes are its model's tool: a real model changes files only through its tools.
+          listener?.({ type: "tool_start", toolName: "fixture_edit", toolCallId: `edit-${promptCount}` });
+          try { await options.respond!(text, (event) => listener?.(event)); }
+          finally { listener?.({ type: "tool_end", toolName: "fixture_edit", toolCallId: `edit-${promptCount}`, isError: false }); }
           if (options.checkOnPrompt || options.checkFailureOnPrompt) listener?.({ type: "tool_end", toolName: "bash", input: { command: "test -f fixed" }, output: { text: options.checkFailureOnPrompt ? "model check failed" : "model check passed", truncated: false }, isError: Boolean(options.checkFailureOnPrompt) });
           if (options.editOnPrompt?.(promptCount)) await afterFileEdit?.("changed.ts");
           if (options.selectCheckOnPrompt?.(promptCount)) {

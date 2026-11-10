@@ -107,8 +107,11 @@ async function fixture(options: Options = {}) {
       promptModels.push(current);
       emit({ type: "assistant_response_start", provider: "fixture", model: current });
       if (options.failOn?.includes(promptModels.length)) { emit({ type: "error", message: "Provider returned an empty response" }); return; }
+      // The fixture's writes are its model's tool: a real model changes files only through its tools.
+      emit({ type: "tool_start", toolName: "fixture_edit", toolCallId: `edit-${promptModels.length}` });
       await writeFile(path.join(project, "model.txt"), `${current}\n`);
       await writeFile(path.join(project, "calc.py"), `def add(a, b):\n    return a + b  # prompt ${promptModels.length}\n`);
+      emit({ type: "tool_end", toolName: "fixture_edit", toolCallId: `edit-${promptModels.length}`, isError: false });
       emit({ type: "assistant_text_delta", delta: "Done.\n" });
       emit({ type: "assistant_response_end", stopReason: "stop" });
     },

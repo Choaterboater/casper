@@ -106,7 +106,10 @@ export function conversationName(app: CasperApp): string {
 export function nameConversation(app: CasperApp, session: RuntimeSession, prompt: string): void {
   try {
     const name = session.getSessionInfo?.().name ? undefined : sessionTitle(prompt);
-    if (name) session.setSessionName?.(name);
+    if (name && session.setSessionName) {
+      session.setSessionName(name);
+      app.onConversationNamed?.();
+    }
   } catch { /* a conversation that is not saved has no name; the title shows the folder */ }
 }
 

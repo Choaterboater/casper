@@ -37,8 +37,15 @@ class ScriptedRuntime implements AgentRuntime {
   }
   /** A shell command the model ran (its effect, if any, is up to the caller): only its tool events are reported. */
   bash(command: string) { for (const listener of this.listeners) listener({ type: "tool_end", toolName: "bash", toolCallId: command, input: { command }, isError: false }); }
+  edits = 0;
   /** A model edit: the file is written and reported, as Pi's edit/write tools do. */
-  async write(file: string, content: string) { await writeFile(file, content); await this.options!.afterFileEdit!(file); }
+  async write(file: string, content: string) {
+    // The fixture's writes are its model's tool: a real model changes files only through its tools.
+    const toolCallId = `edit-${++this.edits}`;
+    for (const listener of this.listeners) listener({ type: "tool_start", toolName: "fixture_edit", toolCallId });
+    await writeFile(file, content); await this.options!.afterFileEdit!(file);
+    for (const listener of this.listeners) listener({ type: "tool_end", toolName: "fixture_edit", toolCallId, isError: false });
+  }
 }
 
 const create = { name: "create note", service: "api", request: { method: "POST", path: "/notes", body: { title: "a" } }, expect: { status: 201, json: { title: "a" } } };

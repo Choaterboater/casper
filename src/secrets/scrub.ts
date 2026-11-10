@@ -29,7 +29,8 @@ function ruleSpans(line: string, rules: readonly SecretRule[]): Span[] {
         // Quoted values keep their quotes; only the inside is replaced.
         if (found.length >= 2 && (found[0] === "\"" || found[0] === "'") && found.at(-1) === found[0]) { start++; end--; }
         const inner = line.slice(start, end);
-        if (keepLiterally(inner) || line.startsWith(SECRET_MARKER, start)) continue;
+        // A table's bar is not a value ("| Auth | Priv | Password |"): hiding it would shift the table's columns.
+        if (keepLiterally(inner) || line.startsWith(SECRET_MARKER, start) || /^[|│┃║]$/.test(inner)) continue;
         spans.push({ start, end, kind: rule.kind });
       }
     }
@@ -113,8 +114,11 @@ export function scrubText(text: string, options: { keyFile?: boolean; keysOnly?:
       inBody = false;
       continue;
     }
-    if (options.keyFile && /-----(?:BEGIN|END) [A-Z0-9 ]+-----/.test(line)) { inOther = line.includes("-----BEGIN"); inBody = false; continue; }
-    const part = options.keyFile && !inOther ? keyBodyLine(line) : undefined;
+    // A certificate's or public key's armor line in a key file: the body after it is not a secret, but the device
+    // rules still read the line itself (a log line or JSON that names a certificate may hold a community after it).
+    const armor = options.keyFile === true && /-----(?:BEGIN|END) [A-Z0-9 ]+-----/.test(line);
+    if (armor) { inOther = line.includes("-----BEGIN"); inBody = false; }
+    const part = options.keyFile && !armor && !inOther ? keyBodyLine(line) : undefined;
     if (part && (inBody || part.body.length >= 40)) {
       if (!inBody) { hidden++; kinds.add("private-key"); }
       inBody = true;

@@ -21,14 +21,31 @@ const STOP_WORDS = new Set([
   "changes", "changed", "changing", "work", "works", "worked", "working",
 ]);
 
+/** Words about the exchange itself, which say how to answer or what was said, not what it is about: "ask me one
+ * multiple-choice question … Options: Yes, No. Then fix sum.js" picked deep-research ("comparing options", "research the
+ * question") and "in one line: what did I answer to your question earlier?" picked google-workspace ("a one-line fix",
+ * "earlier in the chat") and prototype ("answer a design question"); "the tools you can use in this session" picked
+ * two browser skills ("tools … when the session runs"). Their plurals ("options", "questions") say the same; the plurals
+ * of other stop words ("tasks", "needs") do not, and stay. */
+const EXCHANGE_WORDS = new Set([
+  "ask", "asked", "asking", "question", "answer", "answered", "reply", "replied", "replies", "option", "choice", "yes",
+  "line", "earlier", "later", "previous", "previously", "chat", "conversation", "session", "did", "done",
+]);
+
 /** The share of a long request's words a skill's name, tags and description must share with it, unless the request names
  * the skill. A 5,000-character build spec shares words with any long description by chance ("file", "read", "edit"):
  * it picked xlsx, docx, docs and google-workspace, 41k characters of skill text in every turn. */
 const TOPIC_SHARE = 0.08;
 
+/** A word without its plural "s" ("class", "status" and "analysis" keep theirs). */
+function singular(word: string): string {
+  return word.length > 3 && word.endsWith("s") && !/[siu]s$/.test(word) ? word.slice(0, -1) : word;
+}
+
+/** The words that can say what a text is about: no stop word, nor a word about the exchange or its plural. */
 function words(text: string): Set<string> {
   return new Set((text.toLowerCase().match(/[a-z0-9]+/g) ?? [])
-    .filter((word) => word.length > 1 && !STOP_WORDS.has(word)));
+    .filter((word) => word.length > 1 && !STOP_WORDS.has(word) && !EXCHANGE_WORDS.has(word) && !EXCHANGE_WORDS.has(singular(word))));
 }
 
 /** The request without its links (https://…, www.…, host.tld/path): a word inside one, such as "mcp" in a repository
@@ -56,8 +73,10 @@ function namesSkill(name: string, request: string): boolean {
  * past this many of the request's words, the description needs three of them, not two. */
 const SHORT_REQUEST_WORDS = 6;
 
+/** The words both share. One said twice, once as a plural, counts once: "count the tests in sum.test.js" says "test"
+ * twice, and was a match for every skill that says "test" and "tests" (tdd, modernize-tests, migrate-to-shoehorn). */
 function overlap(left: Set<string>, right: Set<string>): number {
-  return [...left].filter((word) => right.has(word)).length;
+  return new Set([...left].filter((word) => right.has(word)).map(singular)).size;
 }
 
 export function scoreSkill(

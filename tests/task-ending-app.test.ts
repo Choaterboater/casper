@@ -32,6 +32,7 @@ interface Reply { files?: Record<string, string>; seen?: string; text: string; f
 function fakeRuntime(project: () => string, replies: Reply[]): AgentRuntime {
   const listeners = new Set<RuntimeEventListener>();
   const emit = (event: Parameters<RuntimeEventListener>[0]) => { for (const listener of listeners) listener(event); };
+  let turn = 0;
   return {
     async start(options: RuntimeStartOptions) {
       return {
@@ -41,12 +42,16 @@ function fakeRuntime(project: () => string, replies: Reply[]): AgentRuntime {
         abort: async () => {}, setTools: () => {},
         prompt: async () => {
           const reply = replies.shift()!;
+          const toolCallId = `edit-${++turn}`, writes = Object.keys(reply.files ?? {}).length > 0 || !!reply.seen;
           emit({ type: "assistant_response_start", provider: "fixture", model: "demo" });
+          // The fixture's writes are its model's tool: a real model changes files only through its tools.
+          if (writes) emit({ type: "tool_start", toolName: "fixture_edit", toolCallId });
           for (const [file, text] of Object.entries(reply.files ?? {})) {
             await mkdir(path.dirname(path.join(project(), file)), { recursive: true });
             await writeFile(path.join(project(), file), text);
           }
           if (reply.seen) { await writeFile(reply.seen, "edited\n"); await options.afterFileEdit?.(reply.seen, new AbortController().signal); }
+          if (writes) emit({ type: "tool_end", toolName: "fixture_edit", toolCallId, isError: false });
           emit({ type: "assistant_text_delta", delta: reply.text });
           emit({ type: "assistant_response_end", stopReason: "stop" });
           if (reply.fail) throw new Error(reply.fail);

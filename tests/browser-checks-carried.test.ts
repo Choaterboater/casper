@@ -39,7 +39,7 @@ test("a browser takes an earlier task's checks: none is in its report until it r
   // An earlier task's result belongs to that task's receipt.
   expect(await session.report()).toMatchObject({ status: "incomplete", checks: [] });
   await expect(session.run({ action: "withdraw", id: "check-30", reason: "expected text had a typo" }))
-    .rejects.toThrow("This check was recorded in an earlier task: replay it first, or record a corrected check of the same page");
+    .rejects.toThrow("This check was recorded in an earlier task: replay it first, or replace it in one call: record a check of");
   await expect(session.run({ action: "withdraw", id: "check-29", reason: "typo", replacedBy: "check-30" }))
     .rejects.toThrow("replacedBy must name a check run in this task; replay it first");
   await expect(session.run({ action: "replay", id: "check-1" })).rejects.toThrow("Unknown browser check id; replay an id a check returned in this conversation");
