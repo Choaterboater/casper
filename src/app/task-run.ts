@@ -179,7 +179,11 @@ export async function runModelTask(app: CasperApp, prompt: string, options: { fl
   // replay their ids in its own browser; none counts here until it runs again (BrowserSession.carried).
   if (app.browser?.status().state === "closed") { app.browserChecks = app.browser.carried(); app.browser = undefined; }
   app.lastTaskRequest = prompt;
-  const selected = await app.skillRegistry!.loadForTask(prompt, context.model, classification);
+  // A pasted transcript's or a mentioned chat's words ("fix", "add tests") are context: what was asked is read without
+  // them (decision 90). Skills fit what was asked too: a mentioned chat's words picked six skills for a question about
+  // it. Only context asks for nothing.
+  const asked = options.asked === undefined ? classification : classifyTask(options.asked);
+  const selected = options.asked === "" ? [] : await app.skillRegistry!.loadForTask(options.asked ?? prompt, context.model, asked);
   reportSkillWarnings(app);
   if (selected.length) {
     personNote(app, ` skills selected: ${selected.map(({ skill }) => skill.name).join(", ")}`);
@@ -260,8 +264,6 @@ export async function runModelTask(app: CasperApp, prompt: string, options: { fl
   // Unset, it is on for code changes in a session a person answers (the terminal, an ACP client) and off otherwise:
   // questions, docs, refactors and one-shot runs.
   // After the new-project question no checklist is made and no plan-first line is shown.
-  // A pasted transcript's words ("fix", "add tests") are context: what was asked is read without them.
-  const asked = options.asked === undefined ? classification : classifyTask(options.asked);
   const checklistOn = !app.beforeWorkAsked && (context.verification.checklist
     ?? (someoneAnswers(app) && ["implement", "fix", "test"].includes(asked.intent)));
   const complete = checklistOn ? session.complete?.bind(session) : undefined;

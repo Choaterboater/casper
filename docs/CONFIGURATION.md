@@ -1577,9 +1577,12 @@ the skill's tags, name and description, the kind of task, and the project's lang
 task-kind or language match alone does not load a skill. A tag or the skill's whole name, as a phrase in the request
 ("find skills", "mcp builder"), counts on its own; one word of a longer name (`mcp` of `mcp-builder`) is only a word of
 its description, so "add another mcp central server to network mcp" picks no builder skill. Otherwise the description
-needs two of the request's words, three for a request of more than six words, and words of any
-request (`my`, `check`, `see`, `why`, `changes`, `working`) never count. `disable-model-invocation: true` keeps a
-skill out of automatic selection, even after review.
+needs two of the request's words, three for a request of more than six words. Words of any
+request (`my`, `check`, `see`, `why`, `changes`, `working`) and words about the exchange itself (`question`, `answer`,
+`options`, `one line`, `earlier`, `chat`, `session`) never count, and a word said twice, once as a plural ("the tests
+in sum.test.js"), counts once. Skills are picked from your own words: a chat you mention or a transcript you paste
+goes to the AI but picks no skill ([decision 93](adr/0002/93-skills-fit-what-was-asked.md)).
+`disable-model-invocation: true` keeps a skill out of automatic selection, even after review.
 
 Set how many skills load per request in the global, profile or project file:
 
