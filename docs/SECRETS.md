@@ -84,7 +84,7 @@ through. Check what a tool returns before you share it.
   `**root** / **<secret hidden>**`, `login: admin / <secret hidden>`,
   `creds: user / <secret hidden>`, `**Password:** <secret hidden>`, `pw: <secret hidden>`,
   `the password is <secret hidden>`, `admin:<secret hidden>@10.0.0.5`, the cells of a table's Password
-  column, Proxmox API tokens (`root@pam!name=<secret hidden>`, `PVEAPIToken=...`, the value row of
+  column (a Markdown table, or one drawn with rules: mysql's and psql's, rich's and tabulate's grids), Proxmox API tokens (`root@pam!name=<secret hidden>`, `PVEAPIToken=...`, the value row of
   `pveum user token add`), a token's secret written after its id (`root@pam!sampleapp <secret hidden>`)
   and `token=<uuid or long hex>`. In commands: `sshpass -p`, `--password`,
   `--token`, `curl -u user:<secret hidden>`, `mysql -p`, `ipmitool -P`, `smbclient -U user%...`,
@@ -293,6 +293,51 @@ Casper.
   format Casper doesn't know reaches the AI. Lab logins written with no spaces
   (`root/Example-Pass1`) or in a sentence ("use root and Example-Pass1") are not hidden,
   because they look like a path or plain words.
+- A table's secret column is known by its header (`Password`, `Secret`, `Token`, `Key`, `Community`
+  and the like), through any rule lines under it or between its rows. Rows whose header is not in
+  the output are not hidden, and a table with no bars (PowerShell's `Format-Table`) is not read as
+  one. A plain cell under such a header is hidden too. A key column stays where it names the rows (a
+  table whose header is just `key` and `value`) or an index (mysql's `EXPLAIN` and `DESCRIBE`), but
+  only in a table whose rule lines do not start with a bar (mysql's `+---+`, psql's own `---+---`, a
+  grid's `├──┼──┤`). In one whose rules start with a bar (Markdown's `|---|`, `|---+---|` in
+  tabulate's orgtbl and psql formats, rich's ASCII box) it is hidden, as Casper always read those.
+  Beside any other column (`name | key | value`) it is hidden.
+- Each table is read two ways, and a cell either way hides stays hidden: the way Casper first read
+  tables (a row of bars with a secret word in it starts one, and a line that does not start with a
+  bar, such as `+---+` or `├──┼──┤`, ends it) and the way that follows rule lines. The first way
+  hides some words that are not secrets. In a mysql or grid table, any row holding a header word (a
+  row named `password` in a `key | value` table, a user named `token` or `key`) is taken for a new
+  header, so the names in the rows below it (`api_key`, `host`, other users) are hidden. A header
+  printed right after Markdown rows is taken for one of their rows, so its word under the first
+  table's secret column (`user`) is hidden.
+- In a table whose header is two columns ending in `value` (`key | value`, `setting | value`), a row
+  whose name holds a secret (`api_key`, `db_password`, `Secret Key`) hides its value, unless the value
+  is a setting: `ON` or `OFF`, `Y` or `N`, yes or no, true or false, enabled or disabled, a whole number
+  of up to five digits, or a date with or without a time (mysql's `SHOW VARIABLES` lists
+  `password_require_current OFF` and `password_history 1440`). So a PIN of five digits or fewer in a row
+  such as `db_password` is shown; a row named `password` or `token` still hides it. In other tables, a
+  three-column `key | value | description` among them, a row is read by its name only when the name is
+  a header word itself (`password`, `token`).
+- A line of dashes or `=` with no bar or cross ends a table unless it sits right under the header,
+  and so does a grid's edge (`+---+`) below Markdown rows: the table after it is read by its own header.
+  A table printed straight after another is read by its own header when Markdown's rule (`|---|`) or a
+  rule of `=`, `═` or `━` sits under it. When that header comes right after a rule, it is seen only if
+  the rule under it has its crosses in other places than the first table's header bars and the rule
+  under them: rich's Markdown box with lines and tabulate's `heavy_grid` and `double_grid` draw that
+  rule between their rows too, so a new table of the same widths is not seen there. A box's edge
+  (`┏━━┳━━┓`, `╚══╩══╝`) or a line of `=` alone never starts one. A new header with no rule under it, or
+  with only a `+---+` or `─` rule, is not seen by the way that follows rules: its rows are read by the
+  first table's header, or by none.
+- A table does not escape a bar inside a value (psql prints it as it is), so a password that holds
+  one makes its row a cell longer than the header. Casper then hides that row from its first secret
+  cell to its end, the cells after the password with it. A Markdown row with no last bar is hidden
+  the same way, since a bar inside its value need not make it longer, and so is every row under a
+  header with no last bar. A row with no header in view has no such count to go by.
+- These table shapes are not read: psql's one-column and expanded (`\x`) output and its double
+  header line (`═══╪═══`); rich tables with no outer bars (the `MINIMAL` and `SIMPLE` boxes,
+  `HORIZONTALS`, `box=None`, `show_edge=False`); ClickHouse's `PrettyCompact`, whose header sits inside
+  its top edge (`┌─user─┬─password─┐`); tabulate's `jira`, `youtrack` and `textile`; Markdown
+  rows with no leading bar or inside a `>` quote; and any table behind a `grep -n` or `cat -n` prefix.
 - A private key's body in command output is recognised by its BEGIN or END line; a
   piece of one with neither (`head -n 20 key.pem | tail -n 5`) is not. In a key file
   (`*.pem`, `*.key`, `*.p8`, `id_rsa`, `id_ed25519_deploy`) every long base64 line is hidden, so a certificate read
