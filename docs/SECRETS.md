@@ -293,7 +293,8 @@ Casper.
 - A private key's body in command output is recognised by its BEGIN or END line; a
   piece of one with neither (`head -n 20 key.pem | tail -n 5`) is not. In a key file
   (`*.pem`, `*.key`, `*.p8`, `id_rsa`, `id_ed25519_deploy`) every long base64 line is hidden, so a certificate read
-  from part way down a `.pem` is hidden too.
+  from part way down a `.pem` is hidden too. A certificate's BEGIN or END line still gets the
+  device rules, so a community or key after it on the same line is hidden.
 - Lines longer than 4 KB (minified code, one-line JSON) are checked in 4 KB pieces
   that overlap by 512 characters, so a huge line can't stall Casper. A secret and the
   words before it, up to 512 characters together, always sit whole in one piece and
