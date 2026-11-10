@@ -173,13 +173,40 @@ posixOnly("No in the host box keeps the host blocked: no box to run it outside, 
   expect(await changed.shell.refused!(retried.id!, "")).toEndWith(`${SANDBOX_REFUSED} ${OUTSIDE_RUN_DECLINED}`);
   expect(changed.terminal.asked).toHaveLength(3);
   await changed.sandbox.close();
-  // Something else refused as well (a write): the box to run it outside still asks, naming both.
+  // Something else refused as well (a write): the No still stands, with no box to run it outside.
   const mixed = await session(["No", "No"], () => [`deny(1) file-write-create ${outsideFile(mixed)}`, "network-outbound api.example.com:443"]);
   const run = await mixed.shell.wrap("do-it", mixed.project);
   expect(await mixed.engine.ask!("api.example.com", 443)).toBe(false);
-  expect(await mixed.shell.refused!(run.id!, "")).toEndWith(`${SANDBOX_REFUSED} ${OUTSIDE_RUN_DECLINED}`);
-  expect(mixed.terminal.asked).toHaveLength(2);
+  expect(await mixed.shell.refused!(run.id!, "")).toEndWith(hostDeclined("api.example.com"));
+  expect(mixed.terminal.asked).toHaveLength(1);
   await mixed.sandbox.close();
+});
+
+posixOnly("a declined host keeps its No when the command was refused a write too: no box to run it outside, and commands: outside doesn't run it", async () => {
+  for (const config of [undefined, "sandbox:\n  commands: outside\n"]) {
+    const s = await session(["No", "Yes, this once"], () => [`deny(1) file-write-create ${outsideFile(s)}`, "network-outbound api.example.com:443"], {}, "linux", config ? { config } : {});
+    const run = await s.shell.wrap("do-it", s.project);
+    expect(await s.engine.ask!("api.example.com", 443)).toBe(false);
+    expect(await s.shell.refused!(run.id!, "")).toBe(`[sandbox] Blocked by the sandbox (wanted to write ${outsideFile(s)}; wanted to reach api.example.com). ${hostDeclined("api.example.com")}`);
+    expect(s.terminal.asked.map((entry) => entry.question)).toEqual([hostQuestion("api.example.com")]);
+    expect(outsideWritesReceipt(s.sandbox)).toEqual({});
+    await s.sandbox.close();
+  }
+});
+
+posixOnly("the box lists private-place reads first and says how many more it left out; the receipt names every folder written outside", async () => {
+  const ssh = path.join("home", ".ssh", "id_ed25519");
+  const s = await session(["Yes, this once"], () => [
+    ...["a", "b", "c"].map((folder) => `deny(1) file-write-create ${path.join(s.base, folder, "out.txt")}`),
+    `deny(1) file-read-data ${path.join(s.base, ssh)}`,
+    `deny(1) file-write-create ${path.join(s.base, "e", "out.txt")}`,
+  ], {}, "darwin");
+  const run = await s.shell.wrap("do-it", s.project);
+  expect(await s.shell.refused!(run.id!, "")).toEqual({ outside: true, line: OUTSIDE_RUN_LINE });
+  expect(s.terminal.asked.map((entry) => entry.question)).toEqual([outsideRunQuestion(
+    `The sandbox blocked it (wanted to read ${path.join(s.base, ssh)}; wanted to write ${path.join(s.base, "a", "out.txt")}; wanted to write ${path.join(s.base, "b", "out.txt")}; +2 more).`, "do-it")]);
+  expect(outsideWritesReceipt(s.sandbox)).toEqual({ outsideAllowed: ["a", "b", "c", "e"].map((folder) => path.join(s.base, folder)) });
+  await s.sandbox.close();
 });
 
 posixOnly("a stopped command never asks; a folder the write box offers keeps that box", async () => {

@@ -2,7 +2,7 @@ import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { CASPER_PRIVATE_PATHS, gitDirs, hooksPathTargets, otherLoginFiles, PRIVATE_PATHS, PROTECTED_WRITE_PATHS, realpathLongest, within } from "../platform/project-paths";
+import { CASPER_OWN_PRIVATE_PATHS, CASPER_PRIVATE_PATHS, gitDirs, hooksPathTargets, otherLoginFiles, PRIVATE_PATHS, PROTECTED_WRITE_PATHS, realpathLongest, within } from "../platform/project-paths";
 
 /**
  * What the shell sandbox lets a command touch. One policy feeds every shell path (the AI's bash, checks,
@@ -35,7 +35,8 @@ export interface SandboxUserSettings {
   commands?: "ask" | "outside" | "inside";
   /** `sandbox.allowRead`: private places you want commands and the AI's file tools to read anyway (`~/.aws`), as
    * Claude Code's `sandbox.filesystem.allowRead`: a built-in private place at or inside one of these is no longer
-   * hidden. An entry inside a private place (`~/.ssh/config`) opens nothing; loading the config says so. Sandboxed
+   * hidden, except Casper's own (its logins, keys and records), whatever the entry (`~`, `~/.casper`). An entry inside
+   * a private place (`~/.ssh/config`) opens nothing; loading the config says both. Sandboxed
    * commands still can't write an opened place, nor can the AI's edit and write while the sandbox is on or in its
    * default off-until-you-turn-it-on state; with `sandbox: off` (or --no-sandbox) they treat it like any place outside
    * the project (protected ones, ~/.ssh, stay unchangeable). Only your own files can set it; a project's own denyRead
@@ -335,16 +336,19 @@ export function sandboxPolicy(input: SandboxPolicyInput): SandboxPolicy {
   const denyWrite = input.platform === "darwin"
     ? unique([...denyAround(denied, openFolders(input, root)), ...inHome([".casper/agent", ".casper/config.yaml", ...CASPER_PRIVATE_PATHS])])
     : denied;
-  // Your sandbox.allowRead takes a built-in private place off the list (never the project's own denyRead).
+  // Your sandbox.allowRead takes a built-in private place off the list, never one of Casper's own (nor the project's
+  // own denyRead).
   const readable = (input.user?.allowRead ?? []).map((entry) => resolveEntry(entry, root, home)).flatMap(spellings);
+  const agentOwn = ["auth.json", "models.json", "sessions"].flatMap((name) => input.agentDir ? spellings(path.join(input.agentDir, name)) : []);
+  const own = new Set([...inHome(CASPER_OWN_PRIVATE_PATHS), ...agentOwn]);
   const denyRead = unique([
     ...[
       ...inHome(PRIVATE_PATHS),
       // Other tools' sign-ins a folder setting moved (CODEX_HOME, GH_CONFIG_DIR...) or Windows keeps in %APPDATA%.
       ...otherLogins,
       ...inHome(CASPER_PRIVATE_PATHS),
-      ...["auth.json", "models.json", "sessions"].flatMap((name) => input.agentDir ? spellings(path.join(input.agentDir, name)) : []),
-    ].filter((entry) => !readable.some((place) => within(place, entry))),
+      ...agentOwn,
+    ].filter((entry) => own.has(entry) || !readable.some((place) => within(place, entry))),
     ...(input.project?.denyRead ?? []).map((entry) => resolveEntry(entry, root, home)).flatMap(spellings),
     ...(input.denyRead ?? []).flatMap(spellings),
   ]);

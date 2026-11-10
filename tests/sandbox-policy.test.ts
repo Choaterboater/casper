@@ -183,6 +183,37 @@ test("a sandbox.allowRead entry inside a private place opens nothing, and loadin
   expect(privatePlace(path.join(home, ".kube", "config"), context)).toBeUndefined();
 });
 
+test("sandbox.allowRead never opens Casper's own logins, keys and records, even [~] or [~/.casper]; ~/.aws beside them opens, and loading says so", async () => {
+  const { home, root } = await fixture();
+  const agentDir = path.join(home, ".casper", "agent");
+  const own = [".casper/agent/auth.json", ".casper/agent/models.json", ".casper/agent/sessions/one.jsonl", ".casper/mcp-consent.key", ".casper/packs.key",
+    ".casper/network-logins.json", ".casper/mcp-secrets.json", ".casper/mcp.json", ".casper/profiles/work/mcp.json", ".casper/projects/key/approvals.json", ".casper/packs.json"];
+  for (const entry of ["~", "~/.casper"]) {
+    await writeFile(path.join(home, ".casper", "config.yaml"), `sandbox:\n  allowRead: ["${entry}", ~/.aws, ~/.casper/profiles/work]\n`);
+    const loaded = await loadConfiguration({ projectRoot: root, homeDir: home });
+    expect(loaded.warnings.filter((line) => line.includes("sandbox.allowRead"))).toEqual([
+      `~/.casper/config.yaml: sandbox.allowRead ${entry} holds Casper's own logins, keys and records, which stay private; the rest of it opens`,
+      "~/.casper/config.yaml: sandbox.allowRead ~/.casper/profiles/work is in Casper's own private place ~/.casper/profiles, which stays private, so it opens nothing",
+    ]);
+    const allowRead = loaded.sandbox.user.allowRead!.map((place) => place.replace(/^~/, home));
+    // The read tool, helpers and the reader use this check.
+    const context = { root, home, agentDir, allowRead };
+    for (const file of own) expect(privatePlace(path.join(home, file), context)).toBeDefined();
+    expect(privatePathCommand("cat ~/.casper/agent/auth.json", context)).toBeDefined();
+    expect(privatePlace(path.join(home, ".aws", "credentials"), context)).toBeUndefined();
+    expect(privatePathCommand("cat ~/.aws/credentials", context)).toBeUndefined();
+    // A sandboxed command: still hidden, on macOS and Linux.
+    for (const platform of ["darwin", "linux"] as const) {
+      const policy = sandboxPolicy({ root, home, agentDir, tempDirs: [TMP], platform, user: loaded.sandbox.user });
+      for (const place of [".casper/agent/auth.json", ".casper/agent/models.json", ".casper/agent/sessions", ".casper/mcp-consent.key", ".casper/packs.key",
+        ".casper/network-logins.json", ".casper/mcp-secrets.json", ".casper/mcp.json", ".casper/profiles", ".casper/projects", ".casper/packs.json", ".casper/run"]) {
+        expect(policy.denyRead).toContain(path.join(home, place));
+      }
+      expect(policy.denyRead).not.toContain(path.join(home, ".aws"));
+    }
+  }
+});
+
 test("a project can't turn the sandbox off; you can", async () => {
   const { home, root } = await fixture();
   await mkdir(path.join(root, ".casper"), { recursive: true });

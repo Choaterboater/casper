@@ -427,17 +427,18 @@ export class ShellSandbox {
     return this.allRefused(id, output).slice(0, 3);
   }
 
-  /** The hosts run `id` was refused when the sandbox refused nothing else and the person said No to each of them in
-   * the host box while it ran. Undefined otherwise: a host nobody was asked about, or anything else refused. */
+  /** The hosts run `id` was refused that the person said No to in the host box while it ran, whatever else was
+   * refused: their No stands for the whole command. Undefined when there is none (a host nobody was asked about). */
   declinedHosts(id: string, output = ""): string[] | undefined {
     const declined = this.heldRuns.get(id);
     if (!declined?.size) return undefined;
-    const hosts = this.allRefused(id, output).map((line) => /^wanted to reach (\S+)$/.exec(line)?.[1]);
-    if (!hosts.length || hosts.some((host) => host === undefined || !declined.has(hostName(host)))) return undefined;
-    return [...new Set(hosts as string[])];
+    const hosts = this.allRefused(id, output).flatMap((line) => /^wanted to reach (\S+)$/.exec(line)?.[1] ?? [])
+      .filter((host) => declined.has(hostName(host)));
+    return hosts.length ? [...new Set(hosts)] : undefined;
   }
 
-  private allRefused(id: string, output: string): string[] {
+  /** Everything the sandbox refused for run `id`, as `refused` says it but not cut to three. */
+  allRefused(id: string, output = ""): string[] {
     const plain = new Set<string>();
     for (const line of this.engine.violations(id)) {
       const network = /network-outbound\s+(\S+?)(?::\d+)?(?:\s|$)/.exec(line);

@@ -24,7 +24,7 @@ import type { GuidanceSetting } from "../runtime/guidance";
 import { DISPLAY_LEVELS, type DisplayLevel } from "../tui/display";
 import { DEFAULT_SPEND_LIMITS, type SpendLimits } from "../task/spend";
 import { isOutside } from "../platform/inside";
-import { CASPER_PRIVATE_PATHS, PRIVATE_PATHS } from "../platform/project-paths";
+import { CASPER_OWN_PRIVATE_PATHS, PRIVATE_PATHS, within } from "../platform/project-paths";
 
 
 /** `acp_mcp:` (in ~/.casper/config.yaml only) whether the MCP servers an ACP client lists connect for its session, and
@@ -588,14 +588,22 @@ function toolsLayer(document: Mapping, label: string, warnings: string[]): boole
   return onOffLayer(value.downloads, label, "tools.downloads");
 }
 
-/** The built-in private place an allowRead entry sits inside (`~/.ssh/config` is inside `~/.ssh`), if any: such an
- * entry opens nothing, since only the place itself or a folder holding it does. */
-function insidePrivatePlace(entry: string, home: string): string | undefined {
+/** What loading says about an allowRead entry, if anything. One inside a private place (`~/.ssh/config` is inside
+ * `~/.ssh`) opens nothing, since only the place itself or a folder holding it does; Casper's own places stay private
+ * whatever the entry names (`~`, `~/.casper`). */
+function allowReadWarning(entry: string, home: string, label: string): string | undefined {
   const expanded = entry.replace(/^(?:~|\$HOME|\$\{HOME\})(?=\/|$)/, home);
   if (!path.isAbsolute(expanded)) return undefined;
   const relative = path.relative(home, path.resolve(expanded)).split(path.sep).join("/");
-  if (!relative || isOutside(relative)) return undefined;
-  return [...PRIVATE_PATHS, ...CASPER_PRIVATE_PATHS].find((place) => relative.startsWith(`${place}/`));
+  const said = `${label}: sandbox.allowRead ${entry}`;
+  const own = CASPER_OWN_PRIVATE_PATHS.find((place) => relative === place || relative.startsWith(`${place}/`));
+  if (own) return `${said} is in Casper's own private place ~/${own}, which stays private, so it opens nothing`;
+  if (within(path.resolve(expanded), home) || CASPER_OWN_PRIVATE_PATHS.some((place) => place.startsWith(`${relative}/`))) {
+    return `${said} holds Casper's own logins, keys and records, which stay private; the rest of it opens`;
+  }
+  if (isOutside(relative)) return undefined;
+  const place = PRIVATE_PATHS.find((candidate) => relative.startsWith(`${candidate}/`));
+  return place ? `${said} is inside the private place ~/${place}, so it opens nothing; name ~/${place} (or a folder holding it) to open it` : undefined;
 }
 
 /** `sandbox:` and `shell.keepEnv` from your own file or a profile: `sandbox: off`, or a mapping that adds hosts,
@@ -618,8 +626,8 @@ function sandboxUserLayer(document: Mapping, label: string, into: SandboxUserSet
     };
     add("allowedDomains"); add("allowWrite"); add("allowRead"); add("allowUnixSockets");
     for (const entry of pathList(value.allowRead, `${label}: sandbox.allowRead`) ?? []) {
-      const place = insidePrivatePlace(entry, home);
-      if (place) warnings.push(`${label}: sandbox.allowRead ${entry} is inside the private place ~/${place}, so it opens nothing; name ~/${place} (or a folder holding it) to open it`);
+      const warning = allowReadWarning(entry, home, label);
+      if (warning) warnings.push(warning);
     }
     for (const key of ["checks", "commands"] as const) {
       const mode = value[key];

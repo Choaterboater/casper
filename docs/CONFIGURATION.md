@@ -698,7 +698,8 @@ box to allow writes to a folder still asks). A change applies from the next star
 another tool's sign-in) off the hidden list for shell commands and the AI's file tools (helpers', the untrusted-text
 reader's and dev services' too), as Claude Code's `sandbox.filesystem.allowRead`. Name the place itself or a folder
 holding it (`~/.ssh`, not `~/.ssh/config`): an entry inside a private place opens nothing, and loading your config
-says so. It opens reading only: sandboxed commands, and the AI's `edit` and `write` while the sandbox is on or in its
+says so. Casper's own logins, keys and records (its provider login, MCP servers, profiles, saved conversations) stay
+private whatever an entry names, `~` and `~/.casper` included; loading says that too. It opens reading only: sandboxed commands, and the AI's `edit` and `write` while the sandbox is on or in its
 default "off unless you turn it on" state, still can't change an opened place. With `sandbox: off` (or
 `--no-sandbox`), `edit` and `write` treat it like any other place outside the project and change it without asking,
 except `~/.ssh`, which they never change. `/settings` changes only the entries in `~/.casper/config.yaml`; a profile's

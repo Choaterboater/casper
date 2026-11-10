@@ -208,6 +208,13 @@ export const writeCantAsk = (folder: string) => `${folder} is outside this proje
  * why: the sandbox's report, or the denial words the command printed. */
 export const outsideRunQuestion = (why: string, command: string, preceding?: string) =>
   commandQuestion(`${terminalText(why)} Run this command outside the sandbox?`, command, preceding);
+/** What the sandbox refused, for that box: reads first (only private places are hidden from a command), at most three,
+ * then "+N more", so a read never hides behind earlier writes. */
+function blockedList(refusals: readonly string[]): string {
+  const ordered = [...refusals.filter((line) => line.startsWith("wanted to read ")), ...refusals.filter((line) => !line.startsWith("wanted to read "))];
+  const shown = ordered.slice(0, 3);
+  return [...shown, ...(ordered.length > shown.length ? [`+${ordered.length - shown.length} more`] : [])].join("; ");
+}
 /** Read by the AI before the output of the run outside the sandbox. */
 export const OUTSIDE_RUN_LINE = "[sandbox] The user allowed this one command outside the sandbox, so Casper ran it again there. That run's output follows; its exit code is the result.";
 export const OUTSIDE_RUN_DECLINED = "The user said no to running it outside the sandbox. Don't retry it or work around it.";
@@ -342,7 +349,7 @@ export function runtimeShell(host: SandboxHost, sandbox: ShellSandbox, given: Sa
     // The receipt names the folders outside the project the sandbox said it wanted to write, as for a folder you allowed
     // (no undo copy). Linux's bubblewrap reports nothing, so its output's "Read-only file system" lines name them.
     const root = realpathLongest(sandbox.root);
-    for (const line of sandbox.refused(id, output)) {
+    for (const line of sandbox.allRefused(id, output)) {
       const file = /^wanted to write (\/.*)$/.exec(line)?.[1];
       if (file && isOutside(path.relative(root, realpathLongest(file)))) sandbox.noteOutsideAllow(path.dirname(file));
     }
@@ -497,14 +504,14 @@ export function runtimeShell(host: SandboxHost, sandbox: ShellSandbox, given: Sa
       }
       const blocked = `[sandbox] ${reason[0]!.toUpperCase()}${reason.slice(1)}.`;
       if (github) return `${blocked} ${github.replace(/^\[sandbox\] /, "")}`;
-      // Only hosts the person said No to in the host box while it ran: that No stands, as the write box's does, and
-      // the command is not offered (or, with sandbox.commands: outside, run) outside the sandbox.
+      // A host the person said No to in the host box while it ran, whatever else was refused: that No stands, as the
+      // write box's does, and the command is not offered (or, with sandbox.commands: outside, run) outside the sandbox.
       const declined = sandbox.declinedHosts(id, output);
       if (declined) return `${blocked} ${hostDeclined(declined.map(terminalText).join(", "))}`;
       // Refused only for writes to folders Casper may offer: one question for all of them (the next command gets
       // the new policy).
-      const refusals = sandbox.refused(id, output);
-      const why = `The sandbox blocked it (${refusals.join("; ")}).`;
+      const refusals = sandbox.allRefused(id, output);
+      const why = `The sandbox blocked it (${blockedList(refusals)}).`;
       const writes = refusals.map((line) => /^wanted to write (\/.*)$/.exec(line)?.[1]);
       const folders = writes.map((file) => file === undefined ? undefined : sandbox.writeFolder(file));
       // Your sandbox.commands: outside runs it outside before any write box, also where nobody can answer.

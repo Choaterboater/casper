@@ -18,8 +18,9 @@ default, so it asks too.
   filter refuses Unix sockets, which Claude Code also counts), from any program, on any line. Like
   Claude Code, Casper does not check which file or host it was before it asks. A command that failed with neither
   asks nothing.
-- **The box.** `The sandbox blocked it (wanted to write <file>; wanted to read <file>; wanted to reach <host>). Run
-  this command outside the sandbox?` with the command below it, in the terminal or as `session/request_permission` in
+- **The box.** `The sandbox blocked it (wanted to read <file>; wanted to write <file>; wanted to reach <host>). Run
+  this command outside the sandbox?` with the command below it (reads first, at most three, then `+N more`, so a
+  private place it read never hides behind earlier writes), in the terminal or as `session/request_permission` in
   an app over `casper acp`, where it names the bash step that raised it (decision 85). Where only the output's words
   count: `The command said "Operation not permitted"; the sandbox may have blocked it. Run this command outside the
   sandbox?`
@@ -31,7 +32,7 @@ default, so it asks too.
   that was handed the terminal is handed it again. The AI reads the held run's
   output, the line `[sandbox] The user allowed this one command outside the sandbox, so Casper ran it again there. That
   run's output follows; its exit code is the result.`, then that run's output; its exit code is the call's. The
-  receipt lists the folders outside the project the sandbox said it wanted to write (from its report, or on Linux from
+  receipt lists every folder outside the project the sandbox said it wanted to write (from its report, or on Linux from
   the output's `Read-only file system` lines) under `Allowed writes outside the project` (no undo copy).
 - **No**, a cancel, an error, a closed connection or no answer leaves the command failed. The AI reads what it read
   before (where the sandbox named it, `[sandbox] Blocked by the sandbox (...).` and the sandbox's "don't retry" line)
@@ -53,8 +54,11 @@ default, so it asks too.
 - **Private places.** Your own `sandbox.allowRead` (`[~/.aws]`; **Readable private places** in `/settings`) takes a
   built-in private place at or inside a folder you name off the sandbox's hidden list and the refusals of the AI's
   file tools, helpers, the untrusted-text reader and dev-service commands, as Claude Code's
-  `sandbox.filesystem.allowRead`. Unlike Claude Code's, an entry inside a private place (`~/.ssh/config`) opens
-  nothing, and loading the config says so: name the place or a folder holding it. Sandboxed commands still can't
+  `sandbox.filesystem.allowRead`. Casper's own private places (its provider login and settings, MCP servers and
+  their keys, profiles, network logins, approvals and saved conversations) are never opened, whatever the entry
+  (`~`, `~/.casper`), as `/settings` never offers them; loading the config says they stay private. Unlike Claude
+  Code's, an entry inside a private place (`~/.ssh/config`) opens nothing, and loading the config says so: name the
+  place or a folder holding it. Sandboxed commands still can't
   write an opened place, nor can the AI's `edit` and `write` while the sandbox is on or in its default off-until-asked
   state; with `sandbox: off` (or `--no-sandbox`) they treat it like any place outside the project (no box), except
   protected ones such as `~/.ssh`. A project's own `denyRead` stays. A project file can't set it.
@@ -75,8 +79,8 @@ default, so it asks too.
   write where every refused folder is one the write box offers asks that box instead ("Allow it?"), as before; where
   that box can't ask (Read only), this one asks where it can.
 - A host the person answered No in the host box while the command ran keeps that No, as the write box's No does: a
-  command refused only such hosts gets the plain blocked line and "The user said no to reaching <host>", never this
-  box, and `sandbox.commands: outside` doesn't run it outside either. A host nobody was asked about (a one-shot run, a
+  command refused such a host, whatever else it was refused, gets the plain blocked line and "The user said no to
+  reaching <host>", never this box, and `sandbox.commands: outside` doesn't run it outside either. A host nobody was asked about (a one-shot run, a
   crew running) is refused as before and asks here.
 - Only that command, once. The run outside is not wrapped, and nothing is added to the session's allowed places.
 - Finding, accepted: the command runs a second time, so whatever its first, held run did inside the project happens
@@ -89,3 +93,7 @@ default, so it asks too.
   (`~/.ssh`), a protected one (`.mcp.json`, another repository's `.git/hooks`), your GitHub login, the project during a
   plan turn. On Don't ask that happens with no box, as in Claude Code's bypass mode. `sandbox.commands: inside` keeps
   every blocked command blocked.
+- Finding, accepted: the declined host is found in the sandbox runtime's record of refusals, which keeps the last 100
+  across all commands. A command that logs over 100 more refusals after the declined host, or runs beside commands
+  that do, can lose that record, and then asks here (or on `sandbox.commands: outside` runs outside) as for any
+  refusal. The box still shows the command, and nothing runs outside on ask without "Yes, this once".
