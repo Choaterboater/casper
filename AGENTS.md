@@ -7,9 +7,10 @@
 
 ## Working on this repo (agents and people)
 
-- Changes ship as small PRs from a branch made from a fresh `origin/main`. The owner merges and publishes. Never push to `main`, tag, or publish a release.
+- Changes ship as PRs from a branch made from a fresh `origin/main`. The owner merges and publishes. Never push to `main`, tag, or publish a release.
+- Group PRs by area, not by size: changes that touch the same files or depend on each other go in one PR, one commit per change. Only independent work (another area, mergeable in any order) gets its own PR. Keep changes that need the owner's review (below) apart from other work. Split a PR by area once it passes about 4 changes or 1,500 changed lines.
 - Only real accounts and Casper's own `Choaterboater` identity may author commits here. No bots (Dependabot is removed: dependency and GitHub Action pin updates are made as ordinary PRs by Casper), no other AI names, no tool-added trailers.
-- Before a push: `git fetch`; `git merge-base HEAD origin/main` equals `origin/main`; one commit unless told otherwise; `git log -1 --format='%an <%ae>'` shows the identity above; grep the added lines for personal names, device names, MAC addresses, org ids and local paths (none belong in code, tests, docs or commit messages: use placeholders such as `192.0.2.x` and `02:00:00:...`). Add files by name, never `git add -A`.
+- Before a push: `git fetch`; `git merge-base HEAD origin/main` equals `origin/main`; one commit per change; `git log -1 --format='%an <%ae>'` shows the identity above; grep the added lines for personal names, device names, MAC addresses, org ids and local paths (none belong in code, tests, docs or commit messages: use placeholders such as `192.0.2.x` and `02:00:00:...`). Add files by name, never `git add -A`.
 - Never change the configured check (`.casper/project.yaml`, quick-test scripts) to narrow or speed it up; run targeted `bun test` commands directly instead.
 - While working, run typecheck, lint and only the tests the change touches. Run the full set once at the end with `bun test --parallel=4` (at most 4); CI runs everything. After pulling, run `bun install --frozen-lockfile`.
 - Build with at most 2 Casper sessions/crews on one machine at a time.
@@ -23,4 +24,4 @@
 - A known slow test uses `flakyOn("win32")` and the list in `tests/flaky-list.test.ts`; read the real failing line of a red job before calling it a flake or re-running it.
 - Reviewers (AI or human) read `docs/adr/0002-deliberate-choices.md` and decisions in `docs/adr/0002/` before flagging permission or security behaviour: a listed choice is not a finding unless its guard rail is broken.
 - A change to the sandbox, approval boxes, the private-places list, secrets handling, `.github/workflows` or `AGENTS.md` needs the owner's review before merge: say so in the PR.
-- A PR stacked on another one is rebased after the first is squash-merged by cherry-picking only its own commit onto the new `origin/main`.
+- No stacked PRs: a change that needs another one goes in the same PR.
