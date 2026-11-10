@@ -878,7 +878,7 @@ export async function runPlanTurn(app: CasperApp, session: RuntimeSession, reque
   const flow = await loadFlow(app, "plan-first");
   if (!flow) { app.output.write("[plan] The plan-first flow could not be loaded; nothing was built.\n"); return "stop"; }
   app.events.ensureLineBreak();
-  app.output.write("• Casper planning first: the model reads and writes a plan; Casper blocks the file changes it can see until you choose Build\n");
+  app.output.write(`• Casper planning first: the model reads and writes a plan; Casper blocks ${app.blockedCommandsAsk() ? "edits until you choose Build, and asks before a command that may change files" : "the file changes it can see until you choose Build"}\n`);
   const changed = new Set<string>();
   const spec = await wantsSpec(root, request);
   const flowPrompt = `${formatFlowPrompt(flow, request)}${spec ? "\n\nThis is a new-project/spec request. Use Goal, Screens, Data, Look, First version, Later, Done means; no implementation Steps required." : ""}`;

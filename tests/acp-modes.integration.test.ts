@@ -85,7 +85,7 @@ test("new and load list the modes with Ask first current; a set is taken, not ec
   expect(modeOf(loaded.configOptions)!.currentValue).toBe("ask");
 }, childTestLimit(2));
 
-test("Read only: a write, an edit and touch are not run, ls runs, no checks run and the receipt names read only", async () => {
+test("Read only: a write and an edit are not run, touch asks first and a cancel is No, ls runs, no checks run and the receipt names read only", async () => {
   const f = await fixture(callsFor("notes", [
     { name: "write", args: { path: "notes.txt", content: "changed\n" } },
     { name: "edit", args: { path: "notes.txt", edits: [{ oldText: "first", newText: "changed" }] } },
@@ -108,14 +108,65 @@ test("Read only: a write, an edit and touch are not run, ls runs, no checks run 
   const ended = (id: string) => updates.find((update) => update.sessionUpdate === "tool_call_update" && update.toolCallId === id && ["completed", "failed"].includes(update.status));
   const steps = updates.filter((update) => update.sessionUpdate === "tool_call" && String(update.toolCallId).startsWith("casper-tool-"));
   const step = (tool: string, target?: string) => steps.find((update) => update._meta?.casper?.tool === tool && (!target || JSON.stringify(update.rawInput).includes(target)));
-  for (const blocked of [step("write"), step("edit"), step("bash", "touch")]) expect(JSON.stringify(ended(blocked.toolCallId))).toContain("Read only:");
+  for (const blocked of [step("write"), step("edit")]) expect(JSON.stringify(ended(blocked.toolCallId))).toContain("Read only:");
+  // touch is not a look command: it asks (plan_commands, decision 95), and the client's cancel is No.
+  expect(JSON.stringify(ended(step("bash", "touch").toolCallId))).toContain("the user said no to this command while Read only");
   expect(ended(step("bash", "ls").toolCallId).status).toBe("completed");
   expect(JSON.stringify(ended(step("bash", "ls").toolCallId))).toContain("notes.txt");
   expect(JSON.stringify(done._meta.casper.receipt)).toContain("read only (set by the app)");
   // No checklist call, and the request says Read only to the model this once.
   expect(f.payloads.some(isChecklistCall)).toBe(false);
   expect(JSON.stringify(f.payloads[0]!.messages)).toContain(READ_ONLY_TYPED);
-  expect(client.permissions).toEqual([]);
+  expect(client.permissions).toHaveLength(1);
+  expect(client.permissions[0]!.toolCall.title).toStartWith("Run this command? The app set Read only, and it may change files.");
+  expect(client.permissions[0]!.options.map((entry: { name: string; kind: string }) => [entry.name, entry.kind])).toEqual([["No", "reject_once"], ["Yes, this once", "allow_once"]]);
+}, childTestLimit(1));
+
+test("Read only: the app's Yes, this once runs a command that is not a look command; plan_commands: off refuses it with no box", async () => {
+  const f = await fixture(callsFor("notes", [{ name: "bash", args: { command: "touch x.txt" } }]));
+  const client = open(f);
+  await client.request("initialize", INIT);
+  client.answerPermissions((params) => option(params, "allow_once"));
+  const { sessionId } = await client.request("session/new", { cwd: f.project, mcpServers: [] });
+  await client.request("session/set_mode", { sessionId, modeId: "read" });
+  expect((await client.request("session/prompt", { sessionId, prompt: text("Fix the notes: run touch x.txt") })).stopReason).toBe("end_turn");
+  expect(client.permissions).toHaveLength(1);
+  expect(existsSync(path.join(f.project, "x.txt"))).toBe(true);
+  expect(await client.close()).toBe(0);
+
+  await writeFile(path.join(f.home, ".casper/config.yaml"), "plan_commands: off\n", { flag: "a" });
+  await rm(path.join(f.project, "x.txt"));
+  const off = open(f);
+  await off.request("initialize", INIT);
+  off.answerPermissions((params) => option(params, "allow_once"));
+  const second = await off.request("session/new", { cwd: f.project, mcpServers: [] });
+  await off.request("session/set_mode", { sessionId: second.sessionId, modeId: "read" });
+  expect((await off.request("session/prompt", { sessionId: second.sessionId, prompt: text("Fix the notes: run touch x.txt") })).stopReason).toBe("end_turn");
+  expect(off.permissions).toEqual([]);
+  expect(existsSync(path.join(f.project, "x.txt"))).toBe(false);
+  expect(JSON.stringify(ofSession(off, second.sessionId))).toContain("Read only: the app set Casper to look and answer");
+}, childTestLimit(2));
+
+test("a command naming ~/.ssh asks in a card in Ask first and in Read only, and the app's No refuses it (private_commands, decision 95)", async () => {
+  const f = await fixture(callsFor("hosts", [{ name: "bash", args: { command: "cat ~/.ssh/config" } }]));
+  await mkdir(path.join(f.home, ".ssh"), { recursive: true });
+  await writeFile(path.join(f.home, ".ssh/config"), "Host build\n  HostName 192.0.2.10\n");
+  // The sandbox off, as it is by default at a terminal (with it on, it hides ~/.ssh and nothing asks).
+  await writeFile(path.join(f.home, ".casper/config.yaml"), "sandbox: off\n", { flag: "a" });
+  const client = open(f);
+  await client.request("initialize", INIT);
+  client.answerPermissions((params) => option(params, "reject_once"));
+  const { sessionId } = await client.request("session/new", { cwd: f.project, mcpServers: [] });
+  expect((await client.request("session/prompt", { sessionId, prompt: text("Which hosts? cat ~/.ssh/config") })).stopReason).toBe("end_turn");
+  await client.request("session/set_mode", { sessionId, modeId: "read" });
+  expect((await client.request("session/prompt", { sessionId, prompt: text("Which hosts now? cat ~/.ssh/config") })).stopReason).toBe("end_turn");
+  expect(client.permissions.map((entry: Record<string, any>) => String(entry.toolCall.title).split("\n")[0])).toEqual([
+    "Run this command? It uses ~/.ssh, which is private (keys and logins).  cat ~/.ssh/config",
+    "Run this command? It uses ~/.ssh, which is private (keys and logins).  cat ~/.ssh/config"]);
+  expect(client.permissions[0]!.options.map((entry: { name: string }) => entry.name)).toEqual(["No", "Yes, this once", "Yes, for this session"]);
+  const said = JSON.stringify(ofSession(client, sessionId));
+  expect(said).toContain("the user said no to reading ~/.ssh");
+  expect(said).not.toContain("HostName 192.0.2.10");
 }, childTestLimit(1));
 
 test("Read only: the app's change tool is refused with no box, and its read tool runs", async () => {

@@ -17,9 +17,10 @@ It is on by default and costs nothing until the AI calls it. Each call is one sm
    sandbox like the AI's own commands) or `mcp` (an MCP tool by id; its own approval box still applies).
    Other output, such as `docker logs`, is refused; the error tells the AI to save it to a file with
    its own shell first (`docker logs --tail 500 app > tmp/app.log 2>&1`) and then give that `path`.
-2. Casper reads the source. Paths follow the same rules as the AI's read tool: private places
-   (`~/.ssh`, your `sandbox.denyRead`) are refused, also through a link. Secrets are hidden
-   before the text leaves.
+2. Casper reads the source. Paths follow the same rules as the AI's read tool: a private place
+   (`~/.ssh`, your `sandbox.denyRead`), also through a link, asks in the same box first while
+   someone can answer (Commands that read private places, in `/settings`), and is refused when
+   nobody can or you turned that off. Secrets are hidden before the text leaves.
 3. Your `fast` model reads it (the session's model when no fast model is set or signed in). The
    call has no tools. The text sits between markers that change every call, and the prompt says it
    is data, not instructions.

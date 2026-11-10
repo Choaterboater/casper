@@ -38,7 +38,7 @@ const touchOutside = (folder: string) => (_request: number, payload: Payload): S
 const toolResult = (payloads: Payload[], word: string) => JSON.stringify(payloads.filter((payload) => lastUser(payload).includes(`session ${word}`))
   .flatMap((payload) => payload.messages.filter((message) => message.role === "tool")));
 
-test.skipIf(!sandboxAvailable || scratchInTemp)("a command the sandbox blocks asks the app to run it outside, naming its step: Yes, this once and Don't ask write; No and Read only do not", async () => {
+test.skipIf(!sandboxAvailable || scratchInTemp)("a command the sandbox blocks asks the app to run it outside, naming its step: Yes, this once and Don't ask write; No and Read only's No do not", async () => {
   await mkdir(SCRATCH, { recursive: true });
   const outside = await realpath(await mkdtemp(path.join(SCRATCH, "acp-run-outside-")));
   outsideFolders.push(outside);
@@ -64,6 +64,8 @@ test.skipIf(!sandboxAvailable || scratchInTemp)("a command the sandbox blocks as
     expect(existsSync(path.join(outside, `outside-${word}.txt`))).toBe(word === "yes" || word === "full");
     const asked = client.permissions.filter((params) => params.sessionId === sessionId);
     if (mode === "full") expect(toolResult(f.payloads, word)).toContain(OUTSIDE_RUN_UNASKED_LINE);
+    // Read only (decision 95): touch is not a look command, so it asks first in Read only's own box; No keeps it unrun.
+    if (mode === "read") { expect(asked).toHaveLength(1); expect(asked[0].toolCall.title).toStartWith("Run this command? The app set Read only, and it may change files."); continue; }
     if (mode !== "ask") { expect(asked).toEqual([]); continue; }
     expect(asked).toHaveLength(1);
     // The sandbox's own report, or (where it names nothing) the command's denial words.

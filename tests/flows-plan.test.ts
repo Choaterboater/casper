@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { refusalForScreen } from "../src/app/events";
 import {
   extractPlan, formatBuildPrompt, formatPlanBlock, formatPlanChangePrompt, isPlanningCommand, isSpecPlan, planDetailsText,
-  planMarkdown, planReviewMarkdown, planScreenRows, planToolGate, type ParsedPlan,
+  planMarkdown, PLANNING_BLOCKED, planReviewMarkdown, planScreenRows, planToolGate, READ_ONLY_BLOCKED, type ParsedPlan,
 } from "../src/flows/plan";
 
 /** An answer in the shape the plan-first flow asks for now. */
@@ -38,9 +38,12 @@ describe("the plan turn's tool gate", () => {
   });
 
   test("every other state-changing tool is blocked too: MCP tools, services, the browser, builders", () => {
-    for (const tool of ["mcp", "service", "browser", "delegate", "github", "netbox_create_device", "lsp", "plan_step"]) {
-      expect(planToolGate(tool, {})).toBe(`Not run: Planning only: Casper blocks file changes until you choose Build. While planning it allows only read, grep, find, ls, web, GitHub and MCP lookups and read-only helpers, not ${tool}.`);
+    for (const tool of ["mcp", "service", "browser", "delegate", "github", "netbox_create_device", "plan_step"]) {
+      expect(planToolGate(tool, {})).toBe(`Not run: Planning only: Casper blocks file changes until you choose Build. While planning it allows only read, grep, find, ls, lsp, the reader, questions, web, GitHub and MCP lookups and read-only helpers, not ${tool}.`);
+      expect(refusalForScreen(planToolGate(tool, {})!)!.length).toBeLessThanOrEqual(240);
     }
+    // lsp's rename edits files, so it waits as an edit does.
+    expect(planToolGate("lsp", { server: "ts", operation: "rename", path: "a.ts", line: 0, character: 0, newName: "b" })).toBe("Not run: Planning only: Casper blocks file changes until you choose Build.");
     expect(planToolGate("delegate", { role: "builder", goal: "build it" })).toContain("Planning only");
     expect(planToolGate("github", { verb: "rerun", number: 1 })).toContain("Planning only");
   });
@@ -55,6 +58,13 @@ describe("the plan turn's tool gate", () => {
 
   test("the look tools and look commands run; writing shell commands do not", () => {
     for (const tool of ["read", "grep", "find", "ls", "web_search", "web_fetch"]) expect(planToolGate(tool, {})).toBeUndefined();
+    // The AI's question to you, the reader (its path asks the private box, its command must be a read-only one, its MCP
+    // source goes through the broker) and lsp lookups change nothing, as Claude Code's plan mode allows AskUserQuestion and LSP.
+    for (const reason of [PLANNING_BLOCKED, READ_ONLY_BLOCKED]) {
+      expect(planToolGate("ask", { question: "Which database?", options: [{ label: "Postgres" }, { label: "SQLite" }] }, undefined, reason)).toBeUndefined();
+      expect(planToolGate("casper_read_untrusted", { path: "logs/app.log" }, undefined, reason)).toBeUndefined();
+      for (const operation of ["diagnostics", "symbols", "workspaceSymbols", "definition", "references"]) expect(planToolGate("lsp", { server: "ts", operation, path: "a.ts" }, undefined, reason)).toBeUndefined();
+    }
     expect(planToolGate("bash", { command: "ls" })).toBeUndefined();
     expect(planToolGate("bash", { command: "rm x" })).toContain("While planning it runs only look commands");
     expect(planToolGate("bash", {})).toContain("Planning only");
@@ -69,6 +79,17 @@ describe("the plan turn's tool gate", () => {
     expect(planToolGate("bash", { command: "'' x" })).toEndWith("grep and git log.");
     // The screen shows 240 characters of a refusal: the reason is never cut off.
     for (const command of ["ls\ngit log", "git status && git commit -m x"]) expect(refusalForScreen(planToolGate("bash", { command })!)!.length).toBeLessThanOrEqual(240);
+  });
+
+  test("plan_commands on, with someone to answer: a bash command that is not a look command goes on to the shell's box; a PowerShell one and edits are still refused", () => {
+    // The shell asks "Run this command?" (tests/plan-private-asks.test.ts); off, or nobody to answer, keeps the refusal above.
+    for (const command of ["rm x", "npm test", "ls\ngit log", "git commit -m x"]) expect(planToolGate("bash", { command }, undefined, undefined, true)).toBeUndefined();
+    // Only bash has that box behind it (casperBashOperations): PowerShell keeps the refusal, so Remove-Item never runs unasked.
+    expect(planToolGate("powershell", { command: "Remove-Item src -Recurse" }, undefined, undefined, true)).toEndWith(" Remove-Item is not one.");
+    expect(planToolGate("powershell", { command: "Remove-Item src -Recurse" }, undefined, READ_ONLY_BLOCKED, true)).toStartWith(`Not run: ${READ_ONLY_BLOCKED}.`);
+    expect(planToolGate("powershell", { command: "Get-ChildItem src" }, undefined, undefined, true)).toBeUndefined();
+    expect(planToolGate("edit", { path: "a.ts" }, undefined, undefined, true)).toBe("Not run: Planning only: Casper blocks file changes until you choose Build.");
+    expect(planToolGate("service", {}, undefined, undefined, true)).toContain("not service");
   });
 
   test("look commands and pipelines of them are allowed", () => {

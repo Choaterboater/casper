@@ -17,7 +17,8 @@ import { removeTempDir } from "./support/temp-dir";
  * The real source CLI (or the real app on a fake terminal) and the real Pi runtime run against a local model server.
  * A stand-in `ssh` on PATH logs what actually ran. Casper must ask before each ssh (No first), refuse ~/.ssh, keep
  * the password and tokens off the screen and away from the model, list the changes made on the host, run the
- * sub-folder's tests, and give an honest receipt. A run that can't ask never waits.
+ * sub-folder's tests, and give an honest receipt. A run that can't ask never waits. Where the sandbox can't start, a
+ * command naming ~/.ssh asks the private box instead, and its No keeps the file from the model.
  */
 
 const cleanup: Array<() => Promise<unknown>> = [];
@@ -65,7 +66,7 @@ function answer(text: string): Response {
 
 interface Payload { messages: Array<{ role: string; content: unknown }> }
 
-async function scenario() {
+async function scenario(steps = STEPS) {
   const root = await realpath(await mkdtemp(path.join(os.tmpdir(), "casper-remote-safety-")));
   cleanup.push(() => removeTempDir(root));
   const home = path.join(root, "home"), docs = path.join(home, "Documents"), agent = path.join(home, ".pi/agent"), bin = path.join(root, "bin");
@@ -82,7 +83,7 @@ async function scenario() {
   const payloads: Payload[] = [];
   const server = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: async (request) => {
     const index = payloads.push(await request.json()) - 1;
-    const step = STEPS[index];
+    const step = steps[index];
     return step ? toolCall(step[0], step[1], index) : answer(CLAIM);
   } });
   cleanup.push(async () => { server.stop(true); });
@@ -91,7 +92,8 @@ async function scenario() {
   } } }));
   await writeFile(path.join(agent, "settings.json"), JSON.stringify({ defaultProvider: "fixture", defaultModel: "fixture", retry: { enabled: false } }));
   await writeFile(path.join(home, ".casper/settings.json"), JSON.stringify({ defaultProvider: "fixture", defaultModel: "fixture" }));
-  // The questions below are the sandbox's: a session has it off unless the config turns it on.
+  // The questions below are the sandbox's: a session has it off unless the config turns it on. With it on, ~/.ssh
+  // named in a command is refused; where it can't start, the private box asks (private_commands, on by default).
   await writeFile(path.join(home, ".casper/config.yaml"), "sandbox: on\n", { flag: "a" });
   const env = cleanEnv({ HOME: home, CASPER_AGENT_DIR: agent, PI_CODING_AGENT_DIR: agent, CASPER_OFFLINE: "1", PI_OFFLINE: "1", PI_TELEMETRY: "0",
     NO_COLOR: "1", PATH: `${bin}:${process.env.PATH}` });
@@ -127,7 +129,7 @@ function expectNothingLeaked(screen: string, sent: string) {
 /** POSIX, with python3 for the sub-folder's unittest tests. */
 const posix = test.skipIf(process.platform === "win32" || !python);
 
-posix("interactive: each ssh asks first (No first), ~/.ssh stays private, secrets stay hidden, the host's changes and the sub-folder's tests are on the receipt", async () => {
+posix("interactive, sandbox on: each ssh asks first (No first), ~/.ssh stays private, secrets stay hidden, the host's changes and the sub-folder's tests are on the receipt", async () => {
   const run = await scenario();
   const answers: Array<[string, string]> = [
     ["idle", `${PROMPT}\r`],
@@ -187,6 +189,37 @@ posix("interactive: each ssh asks first (No first), ~/.ssh stays private, secret
   // No noise: no 0.0s, no memory warning.
   expect(screen).not.toMatch(/\b0\.\ds\b/);
   expect(screen).not.toContain("[memory]");
+}, 120_000);
+
+posix("interactive where the sandbox can't start: cat ~/.ssh/config and ../.ssh/config ask the private box, No first, and No keeps ~/.ssh from the model", async () => {
+  const run = await scenario([["bash", { command: "cat ~/.ssh/config" }], ["bash", { command: "cat ../.ssh/config" }]]);
+  // private_commands stays at its default (on): each command opens the private box, and Enter twice answers its first choice, No.
+  const answers: Array<[string, string]> = [
+    ["idle", "look at my ssh config\r"],
+    ["It uses ~/.ssh", ""], ["this exact command, until you quit", "\r"], ["Enter sends No", "\r"],
+    ["It uses ~/.ssh", ""], ["this exact command, until you quit", "\r"], ["Enter sends No", "\r"],
+    ["idle", "/exit\r"],
+  ];
+  const result = await run.spawn([process.execPath, path.join(import.meta.dir, "fixtures/remote-safety-interactive.ts"), run.docs],
+    { SCENARIO_ANSWERS: JSON.stringify(answers), SCENARIO_SANDBOX_PROBLEM: "bubblewrap (bwrap) is missing" });
+  expect(result.stdout).not.toContain("SCENARIO_STUCK");
+  expect(result.exit).toBe(0);
+  const screen = JSON.parse(result.stdout.slice(result.stdout.indexOf("SCENARIO_SCREEN=") + "SCENARIO_SCREEN=".length).split("\n")[0]!) as string;
+  const boxes = screen.replace(/[│╭╮╰╯─]/g, "").replace(/\s+/g, " ");
+  for (const command of ["cat ~/.ssh/config", "cat ../.ssh/config"]) {
+    expect(boxes).toContain(`Run this command? It uses ~/.ssh, which is private (keys and logins). ${command}`);
+  }
+  expect(boxes).toContain("❯ 1. No 2. Yes, this once 3. Yes, for this session");
+  // The model reads the No, with the machines the ssh config names so it can use `ssh build-server`; never the file.
+  const sent = run.sentToModel();
+  expect(run.payloads.length).toBe(3);
+  const last = JSON.stringify(run.payloads.at(-1)!.messages.filter((message) => message.role !== "assistant"));
+  expect(last.split("Not run: the user said no to reading ~/.ssh. Their ssh config names these machines: build-server (deploy@198.51.100.20).").length - 1).toBe(2);
+  for (const text of [screen, sent]) {
+    expect(text).not.toContain("HostName 198.51.100.20");
+    expect(text).not.toContain("IdentityFile");
+    expect(text).not.toContain("SSH_PRIVATE_KEY_MARKER");
+  }
 }, 120_000);
 
 posix("one-shot with no sandbox: nothing waits, no ssh runs, ~/.ssh stays private, and the receipt says the host commands were not run", async () => {

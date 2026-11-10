@@ -38,7 +38,8 @@ async function fixture() {
 /** The app fields the questions read, around a terminal. */
 function appWith(terminal: unknown, extra: Record<string, unknown> = {}): CasperApp {
   const output = { write: (text: string) => { (terminal as { write(text: string): void }).write(text); } };
-  return { interactive: true, closing: false, planning: false, approvalQueue: Promise.resolve(), terminal, output, ...extra } as unknown as CasperApp;
+  // Not planning and no Read only: changesBlocked() says so, as the app's does.
+  return { interactive: true, closing: false, planning: false, approvalQueue: Promise.resolve(), terminal, output, changesBlocked: () => undefined, ...extra } as unknown as CasperApp;
 }
 
 /** A terminal like both real ones: one question open at a time; asked while one is open, it answers undefined. */

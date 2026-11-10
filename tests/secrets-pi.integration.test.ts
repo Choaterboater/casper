@@ -1,5 +1,5 @@
 import { afterEach, expect } from "bun:test";
-import { realpathSync } from "node:fs";
+import { existsSync, realpathSync } from "node:fs";
 import { access, mkdir, mkdtemp, readFile, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -296,6 +296,115 @@ posixOnly("with no sandbox, the AI's bash can't read ~/.ssh either: the command 
   // The machines the config names come with the refusal (docs/adr/0002/22): name, user and address, nothing else.
   expect(sent).toContain("Their ssh config names these machines: build-server (root@198.51.100.20).");
   expect((result.toolEnds as Array<{ isError: boolean }>)[0]!.isError).toBe(true);
+}, 30_000);
+
+posixOnly("with the sandbox off and the shell's box, a command naming ~/.ssh asks first: No refuses it, Yes runs it (decision 95)", async () => {
+  const setup = async ({ home }: { home: string }) => {
+    await mkdir(path.join(home, ".ssh"), { recursive: true });
+    await writeFile(path.join(home, ".ssh/config"), "Host build-server\n  HostName 198.51.100.20\n");
+  };
+  const tools = [{ name: "bash", args: { command: "cat ~/.ssh/config", timeout: 10 } }];
+  const no = await run(tools, { FIXTURE_PRIVATE: "no" }, setup);
+  expect(no.result.privateAsked).toEqual(["~/.ssh: cat ~/.ssh/config"]);
+  expect(no.sent).toContain("Not run: the user said no to reading ~/.ssh.");
+  expect(no.sent).not.toContain("HostName 198.51.100.20");
+  const yes = await run(tools, { FIXTURE_PRIVATE: "yes" }, setup);
+  expect(yes.result.privateAsked).toEqual(["~/.ssh: cat ~/.ssh/config"]);
+  expect(yes.sent).toContain("Host build-server");
+}, 30_000);
+
+posixOnly("with the sandbox off and the shell's box, the AI's read of ~/.ssh/config asks first in its own words: No refuses it, Yes reads it (decision 95)", async () => {
+  const setup = async ({ home }: { home: string }) => {
+    await mkdir(path.join(home, ".ssh"), { recursive: true });
+    await writeFile(path.join(home, ".ssh/config"), "Host build-server\n  HostName 198.51.100.20\n");
+  };
+  const tools = [{ name: "read", args: { path: "~/.ssh/config" } }];
+  const no = await run(tools, { FIXTURE_PRIVATE: "no" }, setup);
+  expect(no.result.privateAsked).toEqual(["~/.ssh: read ~/.ssh/config"]);
+  expect(no.sent).not.toContain("HostName 198.51.100.20");
+  const yes = await run(tools, { FIXTURE_PRIVATE: "yes" }, setup);
+  expect(yes.result.privateAsked).toEqual(["~/.ssh: read ~/.ssh/config"]);
+  expect(yes.sent).toContain("Host build-server");
+  // Without the box (a run that can't ask), fileToolGate's refusal, as before.
+  const refused = await run(tools, {}, setup);
+  expect(refused.sent).toContain("Not read: ~/.ssh is private (keys and logins). Casper keeps it from the AI.");
+  expect(refused.sent).not.toContain("HostName 198.51.100.20");
+}, 30_000);
+
+posixOnly("a read-only helper's read of ~/.ssh/config asks in the session's box: No refuses it, Yes reads it; with no box it is refused (decision 95)", async () => {
+  const setup = async ({ home }: { home: string }) => {
+    await mkdir(path.join(home, ".ssh"), { recursive: true });
+    await writeFile(path.join(home, ".ssh/config"), "Host build-server\n  HostName 198.51.100.20\n");
+  };
+  const tools = [{ name: "read", args: { path: "~/.ssh/config" } }];
+  const no = await run(tools, { FIXTURE_READ_ONLY: "1", FIXTURE_PRIVATE: "no" }, setup);
+  expect(no.result.privateAsked).toEqual(["~/.ssh: read ~/.ssh/config"]);
+  expect(no.sent).not.toContain("HostName 198.51.100.20");
+  const yes = await run(tools, { FIXTURE_READ_ONLY: "1", FIXTURE_PRIVATE: "yes" }, setup);
+  expect(yes.sent).toContain("Host build-server");
+  const refused = await run(tools, { FIXTURE_READ_ONLY: "1" }, setup);
+  expect(refused.sent).toContain("Not read: ~/.ssh is private (keys and logins). Casper keeps it from the AI.");
+}, 30_000);
+
+posixOnly("the AI's write into ~/.aws or ~/.ssh asks the private box and then no outside-write box; a write into ~/.casper stays refused (decision 95)", async () => {
+  let home = "";
+  const setup = async (dirs: { home: string }) => { home = dirs.home; await mkdir(path.join(home, ".aws"), { recursive: true }); await mkdir(path.join(home, ".ssh"), { recursive: true }); };
+  const tools = [{ name: "write", args: { path: "~/.aws/config", content: "[default]\nregion = us-east-1\n" } }];
+  const no = await run(tools, { FIXTURE_PRIVATE: "no", FIXTURE_OUTSIDE: "allow" }, setup);
+  expect(no.result.privateAsked).toEqual(["~/.aws: change ~/.aws/config"]);
+  expect(existsSync(path.join(home, ".aws/config"))).toBe(false);
+  const yes = await run(tools, { FIXTURE_PRIVATE: "yes", FIXTURE_OUTSIDE: "allow" }, setup);
+  expect(yes.result.privateAsked).toEqual(["~/.aws: change ~/.aws/config"]);
+  expect(yes.result.outsideAsked).toEqual([]);
+  expect(await readFile(path.join(home, ".aws/config"), "utf8")).toBe("[default]\nregion = us-east-1\n");
+  // It is still recorded as a write outside the project, so the receipt names it.
+  expect(yes.result.outsideRecorded).toEqual([path.join(home, ".aws/config")]);
+  expect(yes.result.outsideWrote).toEqual(yes.result.outsideRecorded);
+  expect(no.result.outsideRecorded).toEqual([]);
+  expect(no.result.outsideWrote).toEqual([]);
+  // ~/.ssh asks the same box, as the shell's write there does: No leaves it alone, Yes writes it.
+  const sshWrite = [{ name: "write", args: { path: "~/.ssh/config", content: "Host x\n" } }];
+  const sshNo = await run(sshWrite, { FIXTURE_PRIVATE: "no", FIXTURE_OUTSIDE: "allow" }, setup);
+  expect(sshNo.result.privateAsked).toEqual(["~/.ssh: change ~/.ssh/config"]);
+  expect(existsSync(path.join(home, ".ssh/config"))).toBe(false);
+  const ssh = await run(sshWrite, { FIXTURE_PRIVATE: "yes", FIXTURE_OUTSIDE: "allow" }, setup);
+  expect(ssh.result.privateAsked).toEqual(["~/.ssh: change ~/.ssh/config"]);
+  expect(ssh.result.outsideAsked).toEqual([]);
+  expect(await readFile(path.join(home, ".ssh/config"), "utf8")).toBe("Host x\n");
+  expect(ssh.result.outsideWrote).toEqual([path.join(home, ".ssh/config")]);
+  // ~/.casper holds Casper's own logins and records: no box, today's refusal.
+  const casper = await run([{ name: "write", args: { path: "~/.casper/projects/x", content: "x" } }], { FIXTURE_PRIVATE: "yes", FIXTURE_OUTSIDE: "allow" }, setup);
+  expect(casper.result.privateAsked).toEqual([]);
+  expect(casper.sent).toContain("Not done: ~/.casper/projects is private (Casper's own records). Casper keeps it from the AI.");
+  expect(existsSync(path.join(home, ".casper/projects/x"))).toBe(false);
+}, 30_000);
+
+posixOnly("an edit or write the private box's yes would still refuse is refused before that box asks (decision 95)", async () => {
+  let home = "";
+  const setup = async (dirs: { home: string }) => { home = dirs.home; await mkdir(path.join(home, ".aws"), { recursive: true }); };
+  const tools = [{ name: "write", args: { path: "~/.aws/config", content: "[default]\n" } }];
+  const refused = await run(tools, { FIXTURE_PRIVATE: "yes", FIXTURE_OUTSIDE: "allow", FIXTURE_PRIVATE_REFUSED: "1" }, setup);
+  expect(refused.result.privateAsked).toEqual([]);
+  expect(refused.sent).toContain(`Not done: ${path.join(home, ".aws/config")} stays refused.`);
+  expect(existsSync(path.join(home, ".aws/config"))).toBe(false);
+  expect(refused.result.outsideRecorded).toEqual([]);
+  // A read there isn't a write: it still asks.
+  const read = await run([{ name: "read", args: { path: "~/.aws/config" } }], { FIXTURE_PRIVATE: "no", FIXTURE_OUTSIDE: "allow", FIXTURE_PRIVATE_REFUSED: "1" }, setup);
+  expect(read.result.privateAsked).toEqual(["~/.aws: read ~/.aws/config"]);
+}, 30_000);
+
+posixOnly("with the sandbox on, the AI's read of ~/.ssh/config still asks (its file tools run outside the sandbox); a command naming it is refused (decision 95)", async () => {
+  const setup = async ({ home }: { home: string }) => {
+    await mkdir(path.join(home, ".ssh"), { recursive: true });
+    await writeFile(path.join(home, ".ssh/config"), "Host build-server\n  HostName 198.51.100.20\n");
+  };
+  const read = await run([{ name: "read", args: { path: "~/.ssh/config" } }], { FIXTURE_PRIVATE: "yes", FIXTURE_SANDBOX_ON: "1" }, setup);
+  expect(read.result.privateAsked).toEqual(["~/.ssh: read ~/.ssh/config"]);
+  expect(read.sent).toContain("Host build-server");
+  const command = await run([{ name: "bash", args: { command: "cat ~/.ssh/config", timeout: 10 } }], { FIXTURE_PRIVATE: "yes", FIXTURE_SANDBOX_ON: "1" }, setup);
+  expect(command.result.privateAsked).toEqual([]);
+  expect(command.sent).toContain("Not run: this command reads ~/.ssh, which is private (keys and logins). Casper keeps it from the AI.");
+  expect(command.sent).not.toContain("HostName 198.51.100.20");
 }, 30_000);
 
 posixOnly("a token the AI typed into a command is hidden in what Casper shows and keeps, and marked for the receipt", async () => {

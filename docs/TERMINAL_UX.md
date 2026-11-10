@@ -353,7 +353,7 @@ the plan screen does not fold them. A group with no words above it gets a `●` 
 to show (a new file written whole) are named in the row (`edited new.py`). A failed edit the model tried again
 at once is shown nowhere. Ctrl+T shows each step not shown yet in full (the group's whole diff, or everything the failed
 step printed), oldest first and at most the last five, then a running command's output so far; when the screen says what
-Ctrl+T shows (`Ctrl+T shows the log`), it shows that. `/output all` lists every call of the last task on its own line. A command Casper refused before it ran (a private place such as `~/.ssh`, another machine
+Ctrl+T shows (`Ctrl+T shows the log`), it shows that. `/output all` lists every call of the last task on its own line. A command Casper refused before it ran (a private place such as `~/.ssh` where it can't ask or you said No, another machine
 you said No to, or one a script run can't ask about) is not a failure: it reads
 `○ bash · cat ~/.ssh/config — not run`, with the reason said to you on the next line, and is not
 counted as failed. A skipped check keeps its `○ … — skipped` line.
@@ -455,10 +455,13 @@ Suggestions off in `/settings` leaves it out. A request that already lists its r
 more list lines, most with a detail such as a command, number, file or example) gets no line, and the asks
 in a pasted terminal transcript don't count.
 `/plan <request>` (or `plan first:` at the start of a request) runs a
-plan turn: the model may only read (read, grep, find, ls and look-only shell commands such as `ls`,
-`cat` or `git log`); every other tool, MCP and Casper's own tools included, is refused with "Planning
-only" and shown as `— not run`, not as a failed step (the receipt does not count it). A refused shell command
-names its first part that is not a look command (`npm is not one.`). This is Casper's gate, not a
+plan turn: the model may only read (read, grep, find, ls, `lsp` lookups, the reader and look-only shell commands
+such as `ls`, `cat` or `git log`) and ask you questions; every other tool, MCP changes and Casper's own tools included,
+is refused with "Planning only" and shown as `— not run`, not as a failed step (the receipt does not count it). Another
+bash command asks first (a PowerShell one is refused), as in Claude Code's plan mode: `Run this command? You're planning, and it may change files before you choose
+Build.` with `1 No · 2 Yes, this once · 3 Yes, for this session` (Enter is No); a yes runs it as Build would. With
+`plan_commands: off` (Commands while planning in `/settings`), or in a run that can't ask, it is refused and names
+its first part that is not a look command (`npm is not one.`). This is Casper's gate, not a
 sandbox, and a file that changed anyway is named on the receipt (`– Changed while planning: …`). Planning is optional, not a mode or a new gate on ordinary build requests.
 
 **One optional question round.** A clear request goes directly to a plan. Only when choices change the build
@@ -560,7 +563,7 @@ model rewrites the plan once with every answer, not once per question.
 
 Choice 3 opens one empty line: type what to change in plain words, such as "drop steps 1 and 4" or "also test X".
 A line ending in `?` ("why step 3?") is a question: the model answers it in words under the same planning gate,
-the plan stays as it is, and the same choices come back. While planning, besides look commands and web lookups,
+the plan stays as it is, and the same choices come back. While planning, besides look commands (other commands ask) and web lookups,
 the AI may read GitHub (pull requests, one pull request, CI; not a rerun), make MCP calls Casper labels as reads
 (a call that would ask, such as a change, waits for Build) and send read-only explorer and reviewer helpers to
 research; builders wait for Build.

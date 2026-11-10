@@ -157,7 +157,7 @@ test("Read only uses the plan turn's gate with its own words; reads and look com
   expect(planToolGate("write", { path: "a" }, undefined, READ_ONLY_BLOCKED)).toBe(`Not run: ${READ_ONLY_BLOCKED}.`);
   expect(planToolGate("edit", { path: "a" }, undefined, READ_ONLY_BLOCKED)).toStartWith("Not run: Read only:");
   expect(planToolGate("bash", { command: "touch x.txt" }, undefined, READ_ONLY_BLOCKED)).toStartWith(`Not run: ${READ_ONLY_BLOCKED}. It runs only look commands`);
-  expect(planToolGate("service", {}, undefined, READ_ONLY_BLOCKED)).toEndWith("It allows only read, grep, find, ls, web, GitHub and MCP lookups and read-only helpers, not service.");
+  expect(planToolGate("service", {}, undefined, READ_ONLY_BLOCKED)).toEndWith("It allows only read, grep, find, ls, lsp, the reader, questions, web, GitHub and MCP lookups and read-only helpers, not service.");
   expect(planToolGate("bash", { command: "ls -la" }, undefined, READ_ONLY_BLOCKED)).toBeUndefined();
   expect(planToolGate("read", { path: "a" }, undefined, READ_ONLY_BLOCKED)).toBeUndefined();
   // The plan turn keeps its words.

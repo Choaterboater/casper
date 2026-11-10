@@ -144,7 +144,7 @@ export const CONTINUE_TYPED = "Earlier sessions: if this conversation doesn't ha
   + "You can't run / commands or read saved conversations.";
 
 /** Said only while the app that runs casper acp has set Read only (decision 82), so no other request pays for it. */
-export const READ_ONLY_TYPED = "Read only (the person's app set it): Casper refuses every edit, write and changing command. Look and answer; say what you would change.";
+export const READ_ONLY_TYPED = "Read only (the person's app set it): Casper refuses every edit and write, and asks first or refuses a changing command. Look and answer; say what you would change.";
 
 export function formatTaskPrompt(
   request: string,
