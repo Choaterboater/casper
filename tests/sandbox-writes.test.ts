@@ -2,7 +2,7 @@ import { afterEach, expect, test } from "bun:test";
 import { mkdir, mkdtemp, realpath, symlink } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { BUNDLE_ELSEWHERE, createSessionSandbox, outsideWritesReceipt, runtimeShell, SANDBOX_REFUSED, writeAllowedLine, writeCantAsk, writeDeclined, writeOnceLine, type SandboxHost } from "../src/app/sandbox";
+import { BUNDLE_ELSEWHERE, createSessionSandbox, OUTSIDE_RUN_DECLINED, outsideWritesReceipt, runtimeShell, SANDBOX_REFUSED, writeAllowedLine, writeCantAsk, writeDeclined, writeOnceLine, type SandboxHost } from "../src/app/sandbox";
 import { writeChoices } from "../src/app/safe-choices";
 import { loadProjectContext } from "../src/project/context";
 import { inspectProject } from "../src/project/inspect";
@@ -137,9 +137,9 @@ posixOnly("a run that can't ask refuses the shell write at once with the allowWr
   await s.sandbox.close();
 });
 
-test("private, protected, system and git places, ~ itself, reads and hosts get the plain refusal, never a question", async () => {
+posixOnly("private, protected, system and git places, ~ itself, reads and hosts never get the write box: the shell asks only to run the command outside (decision 94)", async () => {
   let refusal: string[] = [];
-  const s = await session(["Yes, for this session"], { refuse: () => refusal });
+  const s = await session([], { refuse: () => refusal });
   const other = path.join(s.base, "other-repo");
   await mkdir(path.join(other, ".git", "hooks"), { recursive: true });
   for (const lines of [
@@ -153,8 +153,11 @@ test("private, protected, system and git places, ~ itself, reads and hosts get t
   ]) {
     refusal = lines;
     const run = await s.shell.wrap("do-it", s.project);
-    expect(await s.shell.refused!(run.id!, "")).toEndWith(SANDBOX_REFUSED);
+    expect(await s.shell.refused!(run.id!, "")).toEndWith(`${SANDBOX_REFUSED} ${OUTSIDE_RUN_DECLINED}`);
   }
+  expect(s.terminal.asked).toHaveLength(6);
+  expect(s.terminal.asked.every((box) => /^The sandbox blocked it \(wanted to .*\)\. Run this command outside the sandbox\?/.test(box.question))).toBe(true);
+  s.terminal.asked.length = 0;
   expect(SANDBOX_REFUSED).toBe("The sandbox refuses this every time. Don't retry it or work around it, not with the write or edit tool either. If the task needs it, say in one line what was blocked. No helper scripts for the user to run outside Casper.");
   // The AI's write tool: the same places are refused without a question.
   for (const file of ["/etc/hosts", path.join(s.home, ".bashrc"), path.join(other, ".git", "config"), path.join(s.home, ".ssh", "new")]) {

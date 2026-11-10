@@ -22,6 +22,8 @@ export interface ReaderToolOptions {
   agentDir?: string;
   /** The project's sandbox.denyRead (absolute). */
   privatePaths?: readonly string[];
+  /** Your sandbox.allowRead (absolute): private places you opened, as for the read tool. */
+  allowRead?: readonly string[];
   /** The separate model call (RuntimeSession.complete). Unset: the tool says the runtime can't make one. */
   complete?: ReaderComplete;
   /** Runs a read-only command the way the AI's bash runs (the shell sandbox). Unset: commands are not offered. */
@@ -68,7 +70,7 @@ function size(bytes: number): string {
  * newest lines), from the first whole line, with a note. Errors are Casper's own words. */
 async function readPath(given: string, options: ReaderToolOptions): Promise<{ text: string; source: string; note?: string } | { error: string }> {
   const context = { root: options.root, ...(options.home ? { home: options.home } : {}), ...(options.agentDir ? { agentDir: options.agentDir } : {}),
-    ...(options.privatePaths?.length ? { denyRead: options.privatePaths } : {}) };
+    ...(options.privatePaths?.length ? { denyRead: options.privatePaths } : {}), ...(options.allowRead?.length ? { allowRead: options.allowRead } : {}) };
   const refused = fileToolGate("read", { path: given }, context);
   if (refused) return { error: refused };
   const absolute = resolveToolPath(given, options.root, options.home);
@@ -129,7 +131,8 @@ export function readerTool(options: ReaderToolOptions): RuntimeTool {
         if (read.note) notes.push(read.note);
       } else if (typeof args.command === "string" && options.runCommand) {
         const command = args.command.trim();
-        const place = { root: options.root, ...(options.home ? { home: options.home } : {}), ...(options.privatePaths?.length ? { denyRead: options.privatePaths } : {}) };
+        const place = { root: options.root, ...(options.home ? { home: options.home } : {}), ...(options.privatePaths?.length ? { denyRead: options.privatePaths } : {}),
+          ...(options.allowRead?.length ? { allowRead: options.allowRead } : {}) };
         if (!readOnlyCommand(command, place)) return failure("Not run: the reader runs only commands that read files in the project (cat, tail, head, grep, git log and the like). For other output, save it to a file with bash first (docker logs --tail 500 app > tmp/app.log 2>&1), then use path.");
         source = `command: ${command.slice(0, 200)}`;
         let ran;

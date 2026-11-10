@@ -24,6 +24,7 @@ import type { GuidanceSetting } from "../runtime/guidance";
 import { DISPLAY_LEVELS, type DisplayLevel } from "../tui/display";
 import { DEFAULT_SPEND_LIMITS, type SpendLimits } from "../task/spend";
 import { isOutside } from "../platform/inside";
+import { CASPER_OWN_PRIVATE_PATHS, PRIVATE_PATHS, within } from "../platform/project-paths";
 
 
 /** `acp_mcp:` (in ~/.casper/config.yaml only) whether the MCP servers an ACP client lists connect for its session, and
@@ -572,7 +573,7 @@ function projectOverrides(document: Mapping): ProjectModelOverrides {
   };
 }
 
-const SANDBOX_USER_KEYS = ["enabled", "allowedDomains", "allowWrite", "allowUnixSockets", "checks"];
+const SANDBOX_USER_KEYS = ["enabled", "allowedDomains", "allowWrite", "allowRead", "allowUnixSockets", "checks", "commands"];
 const SANDBOX_PROJECT_KEYS = ["denyRead", "denyWrite"];
 
 function pathList(value: unknown, label: string): string[] | undefined {
@@ -593,9 +594,27 @@ function toolsLayer(document: Mapping, label: string, warnings: string[]): boole
   return onOffLayer(value.downloads, label, "tools.downloads");
 }
 
+/** What loading says about an allowRead entry, if anything. One inside a private place (`~/.ssh/config` is inside
+ * `~/.ssh`) opens nothing, since only the place itself or a folder holding it does; Casper's own places stay private
+ * whatever the entry names (`~`, `~/.casper`). */
+function allowReadWarning(entry: string, home: string, label: string): string | undefined {
+  const expanded = entry.replace(/^(?:~|\$HOME|\$\{HOME\})(?=\/|$)/, home);
+  if (!path.isAbsolute(expanded)) return undefined;
+  const relative = path.relative(home, path.resolve(expanded)).split(path.sep).join("/");
+  const said = `${label}: sandbox.allowRead ${entry}`;
+  const own = CASPER_OWN_PRIVATE_PATHS.find((place) => relative === place || relative.startsWith(`${place}/`));
+  if (own) return `${said} is in Casper's own private place ~/${own}, which stays private, so it opens nothing`;
+  if (within(path.resolve(expanded), home) || CASPER_OWN_PRIVATE_PATHS.some((place) => place.startsWith(`${relative}/`))) {
+    return `${said} holds Casper's own logins, keys and records, which stay private; the rest of it opens`;
+  }
+  if (isOutside(relative)) return undefined;
+  const place = PRIVATE_PATHS.find((candidate) => relative.startsWith(`${candidate}/`));
+  return place ? `${said} is inside the private place ~/${place}, so it opens nothing; name ~/${place} (or a folder holding it) to open it` : undefined;
+}
+
 /** `sandbox:` and `shell.keepEnv` from your own file or a profile: `sandbox: off`, or a mapping that adds hosts,
  * write folders and sockets. Later layers add to earlier ones; `off` in any of them turns it off. */
-function sandboxUserLayer(document: Mapping, label: string, into: SandboxUserSettings, warnings: string[]): void {
+function sandboxUserLayer(document: Mapping, label: string, into: SandboxUserSettings, warnings: string[], home: string): void {
   const value = document.sandbox;
   // Which file turned it off, for the banner and the receipt.
   const setOff = (off: boolean) => { into.off = off; if (off) into.offSource = label; else delete into.offSource; };
@@ -607,14 +626,20 @@ function sandboxUserLayer(document: Mapping, label: string, into: SandboxUserSet
       if (typeof value.enabled !== "boolean") throw new Error(`${label}: sandbox.enabled must be true or false`);
       setOff(!value.enabled);
     }
-    const add = (key: "allowedDomains" | "allowWrite" | "allowUnixSockets") => {
+    const add = (key: "allowedDomains" | "allowWrite" | "allowRead" | "allowUnixSockets") => {
       const list = pathList(value[key], `${label}: sandbox.${key}`);
       if (list) into[key] = [...new Set([...(into[key] ?? []), ...list])];
     };
-    add("allowedDomains"); add("allowWrite"); add("allowUnixSockets");
-    if (value.checks !== undefined && value.checks !== null) {
-      if (value.checks !== "ask" && value.checks !== "outside" && value.checks !== "inside") throw new Error(`${label}: sandbox.checks must be ask, outside or inside`);
-      into.checks = value.checks;
+    add("allowedDomains"); add("allowWrite"); add("allowRead"); add("allowUnixSockets");
+    for (const entry of pathList(value.allowRead, `${label}: sandbox.allowRead`) ?? []) {
+      const warning = allowReadWarning(entry, home, label);
+      if (warning) warnings.push(warning);
+    }
+    for (const key of ["checks", "commands"] as const) {
+      const mode = value[key];
+      if (mode === undefined || mode === null) continue;
+      if (mode !== "ask" && mode !== "outside" && mode !== "inside") throw new Error(`${label}: sandbox.${key} must be ask, outside or inside`);
+      into[key] = mode;
     }
   } else if (value !== undefined && value !== null) throw new Error(`${label}: sandbox must be on, off or a mapping`);
   const shell = document.shell;
@@ -1020,8 +1045,9 @@ export async function loadConfiguration(
   const pages = pageChecks === false ? "off" : projectPages;
   const sandboxWarnings: string[] = [];
   const sandboxUser: SandboxUserSettings = {};
-  sandboxUserLayer(globalDocument, labels.global, sandboxUser, sandboxWarnings);
-  sandboxUserLayer(userProfileDocument, labels.userProfile, sandboxUser, sandboxWarnings);
+  sandboxUserLayer(globalDocument, labels.global, sandboxUser, sandboxWarnings, homeDir);
+  if (sandboxUser.allowRead) sandboxUser.ownAllowRead = [...sandboxUser.allowRead];
+  sandboxUserLayer(userProfileDocument, labels.userProfile, sandboxUser, sandboxWarnings, homeDir);
   const sandboxProject = sandboxProjectLayer(projectDocument, labels.project, sandboxWarnings);
   // What the AI may reach on the web, and which paid provider it uses, is your choice, never a repository's.
   if (projectDocument.web !== undefined) throw new Error("web is a user setting (~/.casper/config.yaml); a project cannot turn web lookups on or off or pick a search provider");

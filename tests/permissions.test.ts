@@ -202,7 +202,7 @@ test("/permissions is short: the state first, one line per kind, what stays prot
   const { output } = await session(d, ["/permissions"], []);
   const screen = output.slice(output.indexOf("Asking is on:"), output.indexOf("Stop asking until you quit?"));
   for (const line of ["Asking is on: Casper asks before", "  Shell: ", "  Other machines (ssh, scp): asks", "  Writes outside the project: asks · allowed: none · /permissions write <folder>",
-    "  Network devices (MCP): writes off", "Protected whatever you pick: ~/.ssh, ~/.casper", "/permissions details shows everything"]) {
+    "  Network devices (MCP): writes off", "Protected: ~/.ssh, cloud logins and Casper's own logins and records are private", "/permissions details shows everything"]) {
     expect(screen).toContain(line);
   }
   expect(screen.trim().split("\n").length).toBeLessThanOrEqual(12);
@@ -226,6 +226,23 @@ test("the short screen's Network devices line says which servers have writes on 
   expect(permissionsSummary({ ...view, mcpWritesOn: ["central"] })).toContain("writes on: central · each change asks");
 });
 
+test("Protected says what can't be read and what can't be changed; the blocked-command words only while the sandbox is on", () => {
+  const view: PermissionsView = {
+    shell: "", scripts: "", asking: true, sandboxOn: false, outsideWritesAsk: true, commandsSession: 0, commandsSaved: 0, listedHosts: 0, rememberedHosts: [], reachHosts: [],
+    labDevices: 0, labAsks: undefined, checks: "ask", checksRemembered: false, writesForGood: [], writesSession: [], mcpWritesOn: [], mcpAllowAll: [],
+    web: true, github: true, sshLogin: true, downloads: true, show: (folder) => folder,
+  };
+  for (const text of [permissionsSummary(view), permissionsScreen(view)]) {
+    expect(text).toContain("Protected: ~/.ssh, cloud logins and Casper's own logins and records are private: the AI's file tools and a command naming one are refused, sandbox or not, unless sandbox");
+    expect(text).toContain("~/.casper, shell start-up files and git's own files can be read, but the AI's edit and write can't change them, and a command that does is like any other command (Run this command?);");
+    expect(text).not.toContain("a command the sandbox blocks");
+  }
+  expect(permissionsScreen(view)).toContain("unless sandbox: allowRead in ~/.casper/config.yaml (Readable private places in /settings) opens one;");
+  for (const text of [permissionsSummary({ ...view, sandboxOn: true }), permissionsScreen({ ...view, sandboxOn: true })]) {
+    expect(text).toContain("can't change them, and the sandbox blocks a command that does (a command the sandbox blocks can run once outside it: it asks);");
+  }
+});
+
 test("with Read only set by the app, /permissions and its details name it first", () => {
   const view: PermissionsView = {
     shell: "", scripts: "", asking: true, sandboxOn: false, outsideWritesAsk: true, commandsSession: 0, commandsSaved: 0, listedHosts: 0, rememberedHosts: [], reachHosts: [],
@@ -233,6 +250,8 @@ test("with Read only set by the app, /permissions and its details name it first"
     web: true, github: true, sshLogin: true, downloads: true, show: (folder) => folder,
   };
   expect(permissionsSummary(view)).not.toContain(READ_ONLY_LINE);
+  // Decision 94: the one box Read only still shows is the one to run a blocked look command outside the sandbox.
+  expect(READ_ONLY_LINE).toContain("nothing asks except the box to run a blocked look command once outside the sandbox");
   expect(permissionsSummary({ ...view, readOnly: true }).split("\n")[0]).toBe(READ_ONLY_LINE);
   expect(permissionsScreen({ ...view, readOnly: true }).split("\n")[1]).toBe(READ_ONLY_LINE);
 });
@@ -254,7 +273,7 @@ test("/permissions details is the full screen: every fact and every way to be as
   const d = await dirs();
   const { output } = await session(d, ["/permissions details"], []);
   for (const line of ["What Casper may do here, and how to change it. Asking is on.", "To stop being asked about one command: answer 3", "Writes outside the project: Casper asks (1 No · 2 Yes, this once · 3 Yes, for this session; the Next row offers to keep it for this project)",
-    "/permissions write <folder>", "To turn everything on: there is no single switch, on purpose.", "Protected whatever you pick: ~/.ssh, ~/.casper", "/verify and /services may execute project scripts"]) {
+    "/permissions write <folder>", "To turn everything on: there is no single switch, on purpose.", "Protected: ~/.ssh, cloud logins and Casper's own logins and records are private", "/verify and /services may execute project scripts"]) {
     expect(output).toContain(line);
   }
   expect(output).not.toContain("Stop asking until you quit?");

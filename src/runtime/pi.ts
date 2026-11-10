@@ -916,8 +916,9 @@ export const SCRUB_FAILED_TEXT = "Output not shown: Casper could not check it fo
 
 /** The path context the file and command gates read. denyRead follows the app's current workspace when the
  * conversation supplies a reader for it (it outlives a rebind), and is read at each call. */
-export function toolPathContext(root: string, home: string, agentDir: string | undefined, options: Pick<RuntimeStartOptions, "privatePaths" | "currentPrivatePaths">) {
-  const context: { root: string; home: string; agentDir: string | undefined; readonly denyRead?: readonly string[] } = { root, home, agentDir };
+export function toolPathContext(root: string, home: string, agentDir: string | undefined, options: Pick<RuntimeStartOptions, "privatePaths" | "currentPrivatePaths" | "allowRead">) {
+  const context: { root: string; home: string; agentDir: string | undefined; readonly denyRead?: readonly string[]; allowRead?: readonly string[] } =
+    { root, home, agentDir, ...(options.allowRead?.length ? { allowRead: options.allowRead } : {}) };
   // A getter, defined directly: spreading an object with a getter would freeze its value at that moment.
   if (options.privatePaths?.length || options.currentPrivatePaths) {
     Object.defineProperty(context, "denyRead", { enumerable: true, get: () => options.currentPrivatePaths?.() ?? options.privatePaths ?? [] });
@@ -1071,7 +1072,8 @@ export class PiRuntime implements AgentRuntime {
     this.readOnly = true;
     return this.create({ cwd: options.cwd, systemPromptAppend: options.systemPromptAppend,
       ...(options.scrubToolOutput ? { scrubToolOutput: options.scrubToolOutput } : {}),
-      ...(options.privatePaths?.length ? { privatePaths: options.privatePaths } : {}) }, options, true);
+      ...(options.privatePaths?.length ? { privatePaths: options.privatePaths } : {}),
+      ...(options.allowRead?.length ? { allowRead: options.allowRead } : {}) }, options, true);
   }
 
   startBuilder(options: RuntimeBuilderStartOptions): Promise<RuntimeSession> {
@@ -1085,7 +1087,8 @@ export class PiRuntime implements AgentRuntime {
       ...(options.beforeToolGate ? { beforeToolGate: options.beforeToolGate } : {}),
       ...(options.beforeToolWait ? { beforeToolWait: options.beforeToolWait } : {}),
       ...(options.scrubToolOutput ? { scrubToolOutput: options.scrubToolOutput } : {}),
-      ...(options.privatePaths?.length ? { privatePaths: options.privatePaths } : {}) }, options, false);
+      ...(options.privatePaths?.length ? { privatePaths: options.privatePaths } : {}),
+      ...(options.allowRead?.length ? { allowRead: options.allowRead } : {}) }, options, false);
   }
 
   /** `bounded`: a child's run limits and signal; `readOnlyTools`: a read-only child (false: a crew builder). */
@@ -1564,9 +1567,22 @@ export function casperBashOperations(shell: RuntimeShell | undefined, local: Bas
       // A command that needs the person gets Casper's terminal (src/terminal/hand-over.ts): no time limit, no background.
       if (wrapped.handOver && shell?.handOver) {
         try {
-          const ran = await shell.handOver(wrapped.command, cwd, wrapped.env ? { ...baseEnv(), ...wrapped.env } : baseEnv(), options.signal);
-          agentGuard.finished(command, ran.exitCode);
+          // The run outside the sandbox gets the same environment, typed casper_secret values included.
+          const env = wrapped.env ? { ...baseEnv(), ...wrapped.env } : baseEnv();
+          let ran = await shell.handOver(wrapped.command, cwd, env, options.signal);
           if (ran.text) options.onData(Buffer.from(ran.text));
+          // Held and blocked by the sandbox: the same box as any held command (decision 94); a yes hands the terminal
+          // over again for that same command, outside the sandbox.
+          if (wrapped.id && ran.exitCode !== 0 && shell.refused) {
+            const said = await shell.refused(wrapped.id, ran.text ?? "", { rerun: !options.signal?.aborted });
+            if (typeof said === "string") options.onData(Buffer.from(`\n${said}\n`));
+            else if (said && !options.signal?.aborted) {
+              options.onData(Buffer.from(`\n${said.line}\n`));
+              ran = await shell.handOver(command, cwd, env, options.signal);
+              if (ran.text) options.onData(Buffer.from(ran.text));
+            }
+          }
+          agentGuard.finished(command, ran.exitCode);
           return { exitCode: ran.exitCode };
         } finally { if (wrapped.id) shell.finished?.(wrapped.id); }
       }
@@ -1587,13 +1603,24 @@ export function casperBashOperations(shell: RuntimeShell | undefined, local: Bas
       let processes = "", hidden = false;
       /** Once in the background, its output goes there. */
       let moved: ((data: Buffer) => void) | undefined;
+      /** The held command ended and its box to run outside the sandbox is open (decision 94). */
+      let deciding = false;
+      /** The person said yes and the run outside the sandbox starts: it gets the command's time afresh. */
+      const outside = Promise.withResolvers<"outside">();
       // Not for a command given its own timeout, nor one on Casper's ssh login (the other machine's work can't be seen).
       const stallSeconds = options.timeout === undefined && !login && !(asked && background) ? shell?.stallSeconds?.() : undefined;
-      const pid = stallSeconds ? pidFile(logDir) : undefined;
-      const watch = stallSeconds && pid ? watchStall({ seconds: stallSeconds, root: pid.root, onStall: () => {
-        stalled = stalledMessage(command, recent, stallSeconds);
-        stop.abort();
-      } }) : undefined;
+      /** The stall check for one run of the command: the held one, then a run outside the sandbox gets its own. */
+      let pid: ReturnType<typeof pidFile> | undefined, watch: ReturnType<typeof watchStall> | undefined;
+      const startWatch = () => {
+        watch?.stop(); pid?.remove();
+        pid = stallSeconds ? pidFile(logDir) : undefined;
+        const root = pid?.root;
+        watch = stallSeconds && root ? watchStall({ seconds: stallSeconds, root, onStall: () => {
+          stalled = stalledMessage(command, recent, stallSeconds);
+          stop.abort();
+        } }) : undefined;
+      };
+      startWatch();
       const onData = (data: Buffer) => {
         if (wrapped.id || wrapped.ssh?.afterAuthFail) tail = (tail + data.toString("utf8")).slice(-16_384);
         if (shell?.neededTerminal) last = (last + data.toString("utf8")).slice(-4_096);
@@ -1619,28 +1646,45 @@ export function casperBashOperations(shell: RuntimeShell | undefined, local: Bas
             ? pathFirst({ ...baseEnv(), ...wrapped.env, ...wrapped.ssh?.env, ...wrapped.sudo?.env }, wrapped.sudo?.pathFirst) : baseEnv(),
           // What this command's processes leave running on their own carries it (src/runtime/left-running.ts).
           [COMMAND_MARK]: marker };
-          let result: { exitCode: number | null };
-          try {
-            result = await local.exec(pid ? pid.run(wrapped.command) : wrapped.command, cwd, { ...options, signal: stop.signal, timeout: background ? undefined : limit, env, onData });
-          } catch (error) {
-            if (error instanceof ProcessCleanupError) {
-              shell?.onCleanupFailure?.(error);
-              // A command that finished keeps its output and exit code; the processes it left are a note.
-              if (error.exitCode === undefined || stalled) throw error;
-              onData(Buffer.from(`\n${CLEANUP_NOTE}\n`));
-              result = { exitCode: error.exitCode };
-            } else {
+          const execOnce = async (line: string, timeout = background ? undefined : limit): Promise<{ exitCode: number | null }> => {
+            try {
+              return await local.exec(line, cwd, { ...options, signal: stop.signal, timeout, env, onData });
+            } catch (error) {
+              if (error instanceof ProcessCleanupError) {
+                shell?.onCleanupFailure?.(error);
+                // A command that finished keeps its output and exit code; the processes it left are a note.
+                if (error.exitCode === undefined || stalled) throw error;
+                onData(Buffer.from(`\n${CLEANUP_NOTE}\n`));
+                return { exitCode: error.exitCode };
+              }
               if (!stalled) throw error;
               watch?.stop();
               onData(Buffer.from(stalled));
-              result = { exitCode: STALLED_EXIT_CODE };
+              return { exitCode: STALLED_EXIT_CODE };
+            }
+          };
+          let result = await execOnce(pid ? pid.run(wrapped.command) : wrapped.command);
+          if (wrapped.id && result.exitCode !== 0 && shell?.refused) {
+            // The command has ended: nothing is left to watch, and a box may wait for the person (decision 94). Until it
+            // is answered, the call is not moved to the background; one already there asks now, and its run outside
+            // writes to its job.
+            watch?.stop();
+            deciding = true;
+            let said: Awaited<ReturnType<NonNullable<RuntimeShell["refused"]>>>;
+            try { said = await shell.refused(wrapped.id, tail, { rerun: !stop.signal.aborted }); }
+            finally { deciding = false; }
+            if (typeof said === "string") onData(Buffer.from(`\n${said}\n`));
+            // The person said yes to this one command outside the sandbox: the same words, folder and environment, run
+            // once more without the sandbox's wrapper and with the command's time from now, as its first run had (it may
+            // move to the background the same way). Its exit code is the call's.
+            else if (said && !stop.signal.aborted) {
+              onData(Buffer.from(`\n${said.line}\n`));
+              outside.resolve("outside");
+              startWatch();
+              result = await execOnce(pid ? pid.run(command) : command);
             }
           }
           agentGuard.finished(command, result.exitCode);
-          if (wrapped.id && result.exitCode !== 0 && shell?.refused) {
-            const line = await shell.refused(wrapped.id, tail);
-            if (line) onData(Buffer.from(`\n${line}\n`));
-          }
           // Not only on a failure: `ps aux | grep … || echo none` ends 0 with no process list.
           if (hidden && !moved) onData(Buffer.from(`\n${PROCESS_LIST_NOTE}\n`));
           if (wrapped.ssh?.afterFail && result.exitCode !== 0) onData(Buffer.from(`\n${wrapped.ssh.afterFail}\n`));
@@ -1690,15 +1734,28 @@ export function casperBashOperations(shell: RuntimeShell | undefined, local: Bas
         return { exitCode: 0 };
       };
       let timer: ReturnType<typeof setTimeout> | undefined;
-      const late = new Promise<"late">((resolve) => { if (background) timer = setTimeout(() => resolve("late"), limit * 1000); });
+      let late!: Promise<"late">;
+      /** The command's time, from now: a run outside the sandbox gets it afresh. */
+      const startLimit = () => { clearTimeout(timer); late = new Promise((resolve) => { if (background) timer = setTimeout(() => resolve("late"), limit * 1000); }); };
+      startLimit();
       // A line the person sends moves it to the background now, as the limit does, so the AI reads the line: Pi reads
       // one only once every call of the step has ended. Not on Casper's ssh or sudo login, which may still ask for a password;
       // with no room in the background the command runs on and the line waits, as before. A wait is stopped instead.
       const line = Promise.withResolvers<"line">();
-      const unlisten = login && !waits ? undefined : shell?.whenSteered?.(() => line.resolve("line"));
+      // A line sent while the box to run it outside the sandbox is open waits: the run outside is not moved or stopped for it.
+      const unlisten = login && !waits ? undefined : shell?.whenSteered?.(() => { if (!deciding) line.resolve("line"); });
+      /** While the box to run it outside the sandbox is open the call waits for the answer (the command has ended). A
+       * yes restarts the command's time for the run outside; a line the person sends during that run moves it, as it would. */
+      let restarted = false;
+      const outsideRace = async (first: Awaited<typeof run> | "late" | "line" | "outside", lines: boolean) => {
+        if ((first === "late" || first === "line") && deciding) first = await Promise.race([run, outside.promise]);
+        if (first !== "outside") return first;
+        if (!restarted) { restarted = true; startLimit(); }
+        return await Promise.race([run, late, ...(lines ? [line.promise] : [])]);
+      };
       let first: Awaited<typeof run> | "late" | "line";
       try {
-        first = await Promise.race([run, late, line.promise]);
+        first = await outsideRace(await Promise.race([run, late, line.promise, outside.promise]), true);
         if (first === "line" && waits) {
           const after = Math.round((Date.now() - startedAt) / 1000);
           stop.abort();
@@ -1710,7 +1767,7 @@ export function casperBashOperations(shell: RuntimeShell | undefined, local: Bas
         if (first === "line") {
           const handed = adopt();
           if (handed) return moveOut(handed, `The person sent you a message, so after ${Math.round((Date.now() - startedAt) / 1000)} s this`);
-          first = await Promise.race([run, late]);
+          first = await outsideRace(await Promise.race([run, late, outside.promise]), false) as Awaited<typeof run> | "late";
         }
       } finally { clearTimeout(timer); unlisten?.(); }
       if (first !== "late" || !background) return first as Awaited<typeof run>;

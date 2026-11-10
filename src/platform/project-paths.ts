@@ -61,6 +61,10 @@ export function otherLoginFiles(home: string, env: Record<string, string | undef
  * you added and their record. */
 export const CASPER_PRIVATE_PATHS: readonly string[] = [".casper/projects", ".casper/mcp-consent.json", ".casper/skills-trust.json", ".casper/packs", ".casper/packs.json"];
 
+/** Casper's own private places: its logins, keys, MCP servers, profiles and records. Your sandbox.allowRead never opens
+ * them, whatever folder it names (/settings doesn't offer them either). */
+export const CASPER_OWN_PRIVATE_PATHS: readonly string[] = [...PRIVATE_PATHS.filter((entry) => entry.startsWith(".casper/")), ...CASPER_PRIVATE_PATHS];
+
 /** Home files the AI may read but never change: Casper's and Pi's own state, shell start-up files, git's settings. */
 export const PROTECTED_WRITE_PATHS: readonly string[] = [
   ".casper", ".pi", ".bashrc", ".bash_profile", ".bash_login", ".bash_logout", ".profile", ".zshrc", ".zshenv", ".zprofile", ".zlogin",
@@ -77,6 +81,8 @@ export interface PathContext {
   agentDir?: string;
   /** The project's sandbox.denyRead, as absolute paths: private to the file tools as well as to shell commands. */
   denyRead?: readonly string[];
+  /** Your sandbox.allowRead, as absolute paths: a built-in private place at or inside one is not private. */
+  allowRead?: readonly string[];
 }
 
 const UNICODE_SPACES = /[  -   　]/g;
@@ -176,20 +182,29 @@ function browserPictures(inside: string): boolean {
 export function privatePlaces(context: PathContext): PrivatePlace[] {
   const home = context.home ?? os.homedir();
   const why = "keys and logins";
-  const places: PrivatePlace[] = PRIVATE_PATHS.map((entry) => ({ shown: `~/${entry}`, paths: variants(path.join(home, entry)), why: privateReason(entry), below: true }));
+  const builtIn: PrivatePlace[] = PRIVATE_PATHS.map((entry) => ({ shown: `~/${entry}`, paths: variants(path.join(home, entry)), why: privateReason(entry), below: true }));
+  // Casper's own places, which your sandbox.allowRead never opens.
+  const own = new Set(builtIn.filter((_, index) => CASPER_OWN_PRIVATE_PATHS.includes(PRIVATE_PATHS[index]!)));
   for (const entry of CASPER_PRIVATE_PATHS) {
     const absolute = path.join(home, entry);
-    places.push({ shown: `~/${entry}`, paths: variants(absolute), why: "Casper's own records", below: true,
-      ...(entry === ".casper/projects" ? { open: browserPictures } : {}) });
+    const place: PrivatePlace = { shown: `~/${entry}`, paths: variants(absolute), why: "Casper's own records", below: true,
+      ...(entry === ".casper/projects" ? { open: browserPictures } : {}) };
+    builtIn.push(place); own.add(place);
   }
   for (const file of otherLoginFiles(home)) {
-    places.push({ shown: within(home, file) ? `~/${path.relative(home, file).split(path.sep).join("/")}` : file, paths: variants(file), why, below: true });
+    builtIn.push({ shown: within(home, file) ? `~/${path.relative(home, file).split(path.sep).join("/")}` : file, paths: variants(file), why, below: true });
   }
   if (context.agentDir) {
-    places.push({ shown: "Casper's login file (auth.json)", paths: variants(path.join(context.agentDir, "auth.json")), why, below: true });
-    places.push({ shown: "Casper's provider settings (models.json)", paths: variants(path.join(context.agentDir, "models.json")), why, below: true });
-    places.push({ shown: "Casper's saved conversations folder", paths: variants(path.join(context.agentDir, "sessions")), why: "Casper's own records", below: true });
+    const agent: PrivatePlace[] = [
+      { shown: "Casper's login file (auth.json)", paths: variants(path.join(context.agentDir, "auth.json")), why, below: true },
+      { shown: "Casper's provider settings (models.json)", paths: variants(path.join(context.agentDir, "models.json")), why, below: true },
+      { shown: "Casper's saved conversations folder", paths: variants(path.join(context.agentDir, "sessions")), why: "Casper's own records", below: true },
+    ];
+    builtIn.push(...agent); for (const place of agent) own.add(place);
   }
+  // Your sandbox.allowRead opens a built-in place, never one of Casper's own (nor the project's own denyRead, added below).
+  const readable = (context.allowRead ?? []).flatMap(variants);
+  const places = builtIn.filter((place) => own.has(place) || !place.paths.some((entry) => readable.some((allowed) => within(allowed, entry))));
   for (const entry of context.denyRead ?? []) {
     const inside = within(context.root, entry);
     const relative = (from: string) => path.relative(from, entry).split(path.sep).join("/");
@@ -491,7 +506,7 @@ export function privatePathCommand(command: string, context: PathContext): strin
   }
   // `cd ~/.ssh`, `cd $HOME` then a relative name: a command that goes home and names a private place by itself.
   if (/(?:^|[\s;&|(])cd\s+(?:~|\$HOME|\$\{HOME\}|"\$HOME")\/?(?=$|[\s;&|)])/.test(text)) {
-    const bare = PRIVATE_PATHS.find((entry) => new RegExp(`(?:^|[\\s'"=:(<>|;&])(?:\\./)?${entry.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?=$|[\\\\/\\s'";&|)])`).test(text));
+    const bare = PRIVATE_PATHS.filter((entry) => privatePlace(path.join(home, entry), context)).find((entry) => new RegExp(`(?:^|[\\s'"=:(<>|;&])(?:\\./)?${entry.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?=$|[\\\\/\\s'";&|)])`).test(text));
     if (bare) return privateRefusal(`~/${bare}`, privateReason(bare), home);
   }
   // PowerShell and cmd separate folders with \, which the shell reading below takes as an escape: read those once more with /.

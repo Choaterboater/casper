@@ -108,7 +108,7 @@ import { runVerification, checksPlan, saveFoundCheck } from "./app/verification"
 import type { AppSmokeTask } from "./app/try-it";
 import { runInteractive, handlePrompt, handleSlashCommand, cancelCurrent, writePrompt } from "./app/command-loop";
 import { leaveOnHangUp, type AwayJob, type WalkAwaySeams } from "./app/away";
-import { loadWorkspace, reloadReferences, reloadSkills, projectPrivatePaths, reportSkillWarnings, bannerChecks, reportNewerCasper } from "./app/wiring";
+import { loadWorkspace, reloadReferences, reloadSkills, projectPrivatePaths, userReadablePaths, reportSkillWarnings, bannerChecks, reportNewerCasper } from "./app/wiring";
 import { PendingPictures } from "./pictures/pending";
 import { acquireRuntime, ensureRuntime, checkSignIn, observeEdit } from "./app/runtime-start";
 import { keepHomeFilesYours, returnHomeFiles } from "./app/home-files";
@@ -618,6 +618,7 @@ export class CasperApp {
     sessionModel: () => { try { const status = this.session?.getStatus?.(); return status?.provider && status.model ? `${status.provider}/${status.model}` : undefined; } catch { return undefined; } },
     hideToolOutput: () => this.projectContext?.hideToolOutput !== false,
     privatePaths: () => projectPrivatePaths(this),
+    allowRead: () => userReadablePaths(this),
     // Inside tmux or iTerm2 each helper's steps show in the view-only steps pane; nowhere else.
     onActivity: (activity) => {
       this.terminal.updateCrew(activity, this.projectContext ? this.activeWorkspaceRoot() : undefined);

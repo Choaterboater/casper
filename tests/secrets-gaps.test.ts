@@ -177,3 +177,45 @@ test("an app's config.xml and compose labels hide secret values: <ApiKey>, apike
     expect(scrubPlainSecrets(plain).hidden).toBe(0);
   }
 });
+
+// Made-up values. A device config's lines above the tables turn the device rules on for a command's output.
+const SNMP_SECRETS = ["FixtureComm9", "Fake-Snmp-Pass-0001", "Fake-Snmp-Pass-0002", "Fake-Box-Secret-0003"];
+const SNMP_USERS = [
+  "hostname lab-sw1",
+  "snmp-server community FixtureComm9 RO",
+  "| User | Level | Auth | Priv | Group | Password |",
+  "|---|---|---|---|---|---|",
+  "| netops | priv | SHA | AES128 | netadmin | Fake-Snmp-Pass-0001 |",
+  "| backup | auth | MD5 | none | readonly | Fake-Snmp-Pass-0002 |",
+  "",
+  "│ user   │ auth │ priv │ secret │",
+  "│ netops │ SHA  │ AES  │ Fake-Box-Secret-0003 │",
+];
+
+test("a table bar is never a device rule's value: under a Priv or Secret header the Password column is still the one hidden", async () => {
+  const want = SNMP_USERS.map((line) => SNMP_SECRETS.reduce((out, secret) => out.replace(secret, "<secret hidden>"), line));
+  const scrub = async (tool: string, lines: string[]) => {
+    const input = tool === "read" ? { path: "backups/snmpv3-users.txt" } : { command: "./snmp-users.sh" };
+    const text = lines.join("\n");
+    return (await scrubToolOutput(scrubber, tool, input, [text], undefined, options))?.texts[0] ?? text;
+  };
+  // A device config file, and a command's output that looks like one: headers and bars stay as written.
+  for (const tool of ["read", "bash"]) expect([tool, (await scrub(tool, SNMP_USERS)).split("\n")]).toEqual([tool, want]);
+  // Every run of whole lines, as an output cut anywhere would be read, shows no secret and no secret's tail. A row
+  // whose header is above the run has no column to go by, so those runs are left out.
+  const tables = [{ header: 2, last: 5 }, { header: 7, last: 8 }];
+  let windows = 0;
+  for (const tool of ["read", "bash"]) {
+    for (let start = 0; start < SNMP_USERS.length; start++) {
+      for (let end = start + 1; end <= SNMP_USERS.length; end++) {
+        if (tables.some((table) => start > table.header && start <= table.last)) continue;
+        windows++;
+        const out = await scrub(tool, SNMP_USERS.slice(start, end));
+        for (const secret of SNMP_SECRETS) {
+          for (const part of [secret, secret.slice(-6)]) expect([tool, start, end, part, out.includes(part)]).toEqual([tool, start, end, part, false]);
+        }
+      }
+    }
+  }
+  expect(windows).toBeGreaterThan(50);
+});
