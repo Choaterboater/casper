@@ -1,10 +1,10 @@
 // `casper acp`: an Agent Client Protocol agent on stdin and stdout (agentclientprotocol.com), so an app or an editor
 // drives the real Casper. This process only routes: each session runs in a Casper process of its own
-// (src/acp/session.ts), started for session/new or session/load, so sessions run side by side without sharing a
-// folder or a sandbox. The client's messages go to the session they name; the session's updates, permission requests
-// and forms (elicitation/create) come back as they are. Each session is told the client's capabilities. A line the app
-// sends during a prompt (`_casper/steer`, decision 86) goes to its session as a prompt does, and so does its question
-// whether it may close an idle Casper (`_casper/idle`, decision 91).
+// (src/acp/session.ts), started for session/new, session/load or session/fork (decision 97), so sessions run side by
+// side without sharing a folder or a sandbox. The client's messages go to the session they name; the session's
+// updates, permission requests and forms (elicitation/create) come back as they are. Each session is told the client's
+// capabilities. A line the app sends during a prompt (`_casper/steer`, decision 86) goes to its session as a prompt
+// does, and so does its question whether it may close an idle Casper (`_casper/idle`, decision 91).
 
 import path from "node:path";
 import type { Subprocess } from "bun";
@@ -46,7 +46,7 @@ export function sessionArgs(argv: readonly string[]): string[] {
   return args;
 }
 
-/** What a session sends right after its reply to session/new or session/load (decision 96). */
+/** What a session sends right after its reply to session/new, session/load or session/fork (decisions 96 and 97). */
 const AFTER_REPLY = new Set(["available_commands_update", "session_info_update"]);
 
 /** How this Casper starts itself: the release program, or Bun with the checkout's cli.ts. */
@@ -66,7 +66,7 @@ export async function runAcpServer(argv: readonly string[], launchedFrom: string
   // What the client said it can do (forms, decision 83), passed to each session as it starts.
   let clientCapabilities: Json | undefined;
 
-  const start = async (method: "session/new" | "session/load", params: Json): Promise<Json> => {
+  const start = async (method: "session/new" | "session/load" | "session/fork", params: Json): Promise<Json> => {
     // Checked here too, so a wrong folder costs no process.
     const folder = await sessionFolder(params);
     if (method === "session/load" && typeof params.sessionId === "string" && sessions.has(params.sessionId)) {
@@ -91,7 +91,8 @@ export async function runAcpServer(argv: readonly string[], launchedFrom: string
     try {
       await connection.request("initialize", { protocolVersion: initializeResult().protocolVersion, ...(clientCapabilities ? { clientCapabilities } : {}) });
       const result = await connection.request(method, { ...params, cwd: folder }) as Json;
-      const id = method === "session/new" ? result.sessionId : params.sessionId;
+      // A fork's process holds the new conversation: the source keeps its own process, if it has one.
+      const id = method === "session/load" ? params.sessionId : result.sessionId;
       if (typeof id !== "string" || sessions.has(id)) throw new RpcFailure(RPC.internal, "The session did not start");
       sessions.set(id, session);
       void child.exited.then(() => { if (sessions.get(id) === session) sessions.delete(id); });
@@ -120,6 +121,7 @@ export async function runAcpServer(argv: readonly string[], launchedFrom: string
   });
   client.onRequest("session/new", (params) => start("session/new", params), (result) => release((result as Json | null)?.sessionId));
   client.onRequest("session/load", (params) => start("session/load", params), (_result, params) => release(params.sessionId));
+  client.onRequest("session/fork", (params) => start("session/fork", params), (result) => release((result as Json | null)?.sessionId));
   for (const method of SESSION_REQUESTS) client.onRequest(method, async (params) => route(params).connection.request(method, params));
   client.onNotification("session/cancel", (params) => { try { route(params).connection.notify("session/cancel", params); } catch { /* an unknown session has nothing to stop */ } });
 
