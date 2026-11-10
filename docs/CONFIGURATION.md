@@ -415,6 +415,10 @@ dev server, command, debugger, helper or checks are at work, a command's end not
 `~/.casper/config.yaml` (only there) keeps it open; it is read again at each check. /settings shows it as **Apps close
 idle Casper**.
 
+The app's chat gets Casper's own title for it, made from your first request with no model call
+([decision 96](adr/0002/96-an-acp-app-gets-casper-chat-title.md)). It has no setting: the app decides whether to
+show it.
+
 ### Asking less: /permissions
 
 `/permissions` prints a short screen: whether Casper is asking, one line per kind (state · how to change it) and what stays protected, then the numbered box

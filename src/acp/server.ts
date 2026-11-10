@@ -19,7 +19,7 @@ export const SESSION_ENV = "CASPER_ACP_SESSION";
 interface SessionProcess {
   child: Subprocess<"pipe", "pipe", "pipe">;
   connection: RpcConnection;
-  /** The session's command list, held until this router has written the reply that names the session. */
+  /** The session's command list and chat title, held until this router has written the reply that names the session. */
   held?: Json[];
 }
 
@@ -45,6 +45,9 @@ export function sessionArgs(argv: readonly string[]): string[] {
   }
   return args;
 }
+
+/** What a session sends right after its reply to session/new or session/load (decision 96). */
+const AFTER_REPLY = new Set(["available_commands_update", "session_info_update"]);
 
 /** How this Casper starts itself: the release program, or Bun with the checkout's cli.ts. */
 function selfCommand(): string[] {
@@ -78,8 +81,9 @@ export async function runAcpServer(argv: readonly string[], launchedFrom: string
     // What the session says for a person (Casper's transcript) goes to this process's stderr, as --json's does.
     void (async () => { for await (const chunk of child.stderr) process.stderr.write(chunk); })().catch(() => {});
     connection.onNotification("session/update", (update) => {
-      // The session sends its commands right after its own reply; the client gets them after this router's.
-      if (session.held && (update.update as Json | undefined)?.sessionUpdate === "available_commands_update") session.held.push(update);
+      // The session sends its commands and its chat's title right after its own reply; the client gets them after this
+      // router's.
+      if (session.held && AFTER_REPLY.has((update.update as Json | undefined)?.sessionUpdate as string)) session.held.push(update);
       else client.notify("session/update", update);
     });
     connection.onRequest("session/request_permission", (request) => client.request("session/request_permission", request));

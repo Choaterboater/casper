@@ -185,6 +185,11 @@ is idle only when nothing runs: no prompt, dev server, command, debugger, helper
 still being written. "Yes, for this session" and the access mode end with it. `acp_idle_exit: off` in
 `~/.casper/config.yaml` keeps Casper open. [Decision 91](docs/adr/0002/91-an-app-may-close-an-idle-casper.md).
 
+The app's chat gets Casper's own title for it, the same short name from your first request that the window title and
+`/resume` show. It costs no model call, so the app need not spend tokens or time naming the chat. A reopened chat
+gets its saved name, and a typed `/rename` sends the new one.
+[Decision 96](docs/adr/0002/96-an-acp-app-gets-casper-chat-title.md).
+
 Type `/help` for the commands. Ctrl+C stops the current work but keeps changes already made;
 Ctrl+D on an empty prompt exits. [Keys and commands](docs/TERMINAL_UX.md#quick-reference).
 
