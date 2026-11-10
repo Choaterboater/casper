@@ -6,13 +6,13 @@ import type { CasperEvent, PhaseEvent, ReceiptEvent } from "../app/json-events";
 import type { PlanStepReport } from "../flows/plan-build";
 import { tokenFields } from "../runtime/model-usage";
 import type { RuntimeEvent, RuntimeStatus, RuntimeUsage } from "../runtime/types";
-import { fileTextHoldsSecret } from "../secrets/tool-output";
+import { fileTextHoldsSecret, liveOutputHoldsSecret, showsPartOfSecret } from "../secrets/tool-output";
 import type { TaskResult } from "../task/result";
 import { lineText, redactPreview } from "../tui/format";
 import type { AcpCommand } from "./commands";
 import type { BoxStep } from "./permission";
 import type { Json } from "./rpc";
-import { endUpdate, startUpdate, stepFacts, type ShowRules, type StepFacts } from "./tool-content";
+import { endUpdate, liveLines, liveUpdate, startUpdate, stepFacts, type ShowRules, type StepFacts } from "./tool-content";
 
 const HIDDEN = "<secret hidden>";
 
@@ -146,6 +146,14 @@ export interface MapperOptions {
   /** The main runtime's usage and status, for the usage_update after each of its responses (decision 88). */
   usage?: () => RuntimeUsage | undefined;
   status?: () => RuntimeStatus | undefined;
+  /** Whether a running command's output goes out while it runs (decision 98): acp_live_output. Default: yes. */
+  liveOutput?: () => boolean;
+  /** Whether netconan is in use: it can't check text shown at once, so then no running output goes out. Default: no. */
+  netconan?: () => boolean;
+  /** Whether a running command's latest lines hold what its final output's scrub would hide, read after `before`, the
+   * output above them (`cut`: that does not start where the output did); default liveOutputHoldsSecret with Casper's own
+   * login files. */
+  liveHoldsSecret?: (text: string, cut: boolean, before: string) => boolean;
 }
 
 /** How a cost is paid: OpenRouter's is what it charged, another provider's a catalog estimate, a subscription's
@@ -179,13 +187,17 @@ export function usageUpdate(end: Extract<RuntimeEvent, { type: "assistant_respon
       model: { provider: status?.provider ?? null, model: status?.model ?? null }, cost: kind } } };
 }
 
+/** Whether a running step still sends its output as it runs (decision 98), and the content it sent last. */
+interface LiveState { on: boolean; last?: string }
+
 /** A plan step's status as ACP's: one not done is still open, and says why. */
 const STEP_STATUS: Record<PlanStepReport["status"], "pending" | "in_progress" | "completed"> = { pending: "pending", active: "in_progress", done: "completed", "not-done": "pending" };
 
 /**
  * Stateful, one per session. The model's text goes out a line at a time, so a secret is hidden whole, never split
  * across two chunks; the rest goes out when the message ends, before a tool starts, or at flush(). Tool steps come
- * from the runtime's own events (runtime()), with their arguments, output and diffs (src/acp/tool-content.ts).
+ * from the runtime's own events (runtime()), with their arguments, output and diffs (src/acp/tool-content.ts), and a
+ * running command's latest lines while it runs (decision 98).
  */
 export class UpdateMapper {
   private pending = "";
@@ -206,13 +218,15 @@ export class UpdateMapper {
   private lastHeadline?: string;
   /** The ACP id of each running tool, by the model's id: a model may use the same id again in a later turn. `box` is
    * what a box the step raises repeats (decision 85): the diffs and files its start showed, already hidden. */
-  private readonly running = new Map<string, { id: string; facts: StepFacts; box: Omit<BoxStep, "id"> }>();
+  private readonly running = new Map<string, { id: string; facts: StepFacts; box: Omit<BoxStep, "id">; live: LiveState }>();
   private readonly cwd: () => string;
   private readonly rules: ShowRules;
+  private readonly liveHoldsSecret: (text: string, cut: boolean, before: string) => boolean;
 
   constructor(private readonly hide: (text: string) => string, private readonly options: MapperOptions = {}) {
     this.cwd = options.cwd ?? (() => process.cwd());
     this.rules = { holdsSecret: options.holdsSecret ?? ((file, text) => fileTextHoldsSecret(file, text)), ...(options.unchecked ? { unchecked: options.unchecked } : {}) };
+    this.liveHoldsSecret = options.liveHoldsSecret ?? ((text, cut, before) => liveOutputHoldsSecret(text, { cut, before }));
   }
 
   /** The ACP toolCallId of the running tool the model calls `id`, if it is running. */
@@ -234,7 +248,8 @@ export class UpdateMapper {
     return found;
   }
 
-  /** A runtime event as updates: a tool step's start and end (every other event comes through map()). */
+  /** A runtime event as updates: a tool step's start, its running output and its end (every other event comes through
+   * map()). */
   runtime(event: RuntimeEvent): Json[] {
     if (event.type === "assistant_progress") {
       if (event.kind !== "thinking" || !event.headline || this.options.headlines?.() === false) return [];
@@ -265,12 +280,14 @@ export class UpdateMapper {
       const start = hideDeep(startUpdate(id, facts, this.rules), this.hide, { keys: true });
       if (event.toolCallId) {
         const diffs = Array.isArray(start.content) ? start.content.filter((item: Json) => item?.type === "diff") : [];
-        this.running.set(event.toolCallId, { id, facts, box: { diffs: structuredClone(diffs), ...(Array.isArray(start.locations) ? { locations: structuredClone(start.locations) } : {}) } });
+        this.running.set(event.toolCallId, { id, facts, box: { diffs: structuredClone(diffs), ...(Array.isArray(start.locations) ? { locations: structuredClone(start.locations) } : {}) },
+          live: { on: this.commandShown(facts) } });
       }
       const before = this.flush();
       this.tail = "";
       return [...before, start];
     }
+    if (event.type === "tool_progress") return this.live(event);
     if (event.type === "tool_end") {
       const step = event.toolCallId ? this.running.get(event.toolCallId) : undefined;
       if (!step) return [];
@@ -278,6 +295,41 @@ export class UpdateMapper {
       return [hideDeep(endUpdate(step.id, step.facts, event, this.rules), this.hide, { keys: true })];
     }
     return [];
+  }
+
+  /** A shell step whose start showed its command as it is: one the command rules or the session's hiding changed (a
+   * secret typed into it) may print that secret, so its output waits for its end. */
+  private commandShown(facts: StepFacts): boolean {
+    const command = facts.args.command;
+    return ["bash", "powershell"].includes(facts.tool) && typeof command === "string" && facts.input.command === command && this.hide(command) === command;
+  }
+
+  /** A running shell step's latest whole lines (decision 98), hidden as its end is. Nothing with acp_live_output off,
+   * while netconan is in use, for a step that is not running or whose command was hidden, or for lines that hold what
+   * the final scrub would hide: that step then sends no more until it ends, scrubbed. */
+  private live(event: Extract<RuntimeEvent, { type: "tool_progress" }>): Json[] {
+    const step = event.toolCallId ? this.running.get(event.toolCallId) : undefined;
+    if (!step?.live.on || this.options.liveOutput?.() === false || this.options.netconan?.() === true) return [];
+    const { before, lines, pending } = liveLines(event.text, event.cut === true);
+    // The lines that wait are read too: a step whose lines hold a secret sends no more, shown yet or not.
+    const read = lines + pending;
+    if (!read.trim()) return [];
+    let holds: boolean;
+    try {
+      // The session's hiding reads the end's output whole: a value of several lines only whole, and a name on a line
+      // above ("password:", "--token", "Bearer") hides the first word below it. Lines it would hide otherwise than
+      // alone wait for the end too.
+      holds = this.liveHoldsSecret(read, event.cut === true, before)
+        || showsPartOfSecret(read, { before, cut: event.cut === true }, (this.options.values?.() ?? []).filter((value) => value.length >= 6))
+        || this.hide(before + read) !== this.hide(before) + this.hide(read);
+    } catch { holds = true; }
+    if (holds) { step.live.on = false; return []; }
+    if (!lines.trim()) return [];
+    const update = hideDeep(liveUpdate(step.id, lines), this.hide, { keys: true });
+    const shown = JSON.stringify(update.content);
+    if (shown === step.live.last) return [];
+    step.live.last = shown;
+    return [update];
   }
 
   map(event: CasperEvent): Json[] {

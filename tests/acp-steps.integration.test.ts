@@ -5,7 +5,7 @@ import { existsSync, realpathSync } from "node:fs";
 import path from "node:path";
 import { isOutside } from "../src/platform/inside";
 import { systemTempDirs } from "../src/sandbox/policy";
-import { startAcp, type AcpClient } from "./support/acp-client";
+import { startAcp, until, type AcpClient } from "./support/acp-client";
 import { childTestLimit } from "./support/limits";
 import { cleanUpAfterEach, fixture, shellCheckTest, type Payload, type Step } from "./support/scripting";
 
@@ -196,5 +196,57 @@ shellCheckTest("Two parallel shell steps that each ask name their own step", asy
     expect(params.toolCall).not.toHaveProperty("locations");
     expect((params.toolCall.content ?? []).filter((item: { type: string }) => item.type === "diff")).toEqual([]);
   }
+  onlyProtocol(client);
+}, childTestLimit(1));
+
+/** A step's updates in order, by the title it started with: its start first. */
+const stepUpdates = (client: AcpClient, sessionId: string, title: string) => {
+  const updates = client.updates.filter((update) => update.sessionId === sessionId).map((update) => update.update);
+  const started = updates.find((update) => update.sessionUpdate === "tool_call" && update.title === title);
+  return started ? updates.filter((update) => update.toolCallId === started.toolCallId) : [];
+};
+const LIVE_COMMAND = "echo first; sleep 1; echo second; sleep 1";
+const allowOnce = (client: AcpClient) => client.answerPermissions((params) => ({ optionId: (params.options as Array<{ kind: string; optionId: string }>).find((choice) => choice.kind === "allow_once")!.optionId }));
+
+shellCheckTest("a running command's lines reach the app while it runs, in order, before its completed end (decision 98)", async () => {
+  const f = await fixture(byResults({ 0: { tools: [{ name: "bash", args: { command: LIVE_COMMAND } }] } }));
+  const client = open(f);
+  await client.request("initialize", INIT);
+  allowOnce(client);
+  const { sessionId } = await client.request("session/new", { cwd: f.project, mcpServers: [] });
+  const prompt = client.request("session/prompt", { sessionId, prompt: text("Print two lines slowly") });
+  // The first line shows while the command still runs: its step has not ended yet.
+  const seen = await until(() => {
+    const updates = stepUpdates(client, sessionId, `bash ${LIVE_COMMAND}`);
+    return updates.some((update) => update._meta?.casper?.live && update.content[0].content.text.includes("first")) && updates;
+  }, 30_000, "a live update with the first line");
+  expect(seen.some((update) => update.status === "completed" || update.status === "failed")).toBe(false);
+  expect((await prompt).stopReason).toBe("end_turn");
+  const updates = stepUpdates(client, sessionId, `bash ${LIVE_COMMAND}`);
+  const live = updates.filter((update) => update._meta?.casper?.live);
+  expect(live.length).toBeGreaterThanOrEqual(1);
+  for (const update of live) {
+    expect(update).toMatchObject({ sessionUpdate: "tool_call_update", status: "in_progress" });
+    expect(update.content[0].content.text).toStartWith("```text\nfirst\n");
+  }
+  // Start, the live lines, then the end: nothing live after it.
+  expect(updates[0].sessionUpdate).toBe("tool_call");
+  expect(updates.at(-1)).toMatchObject({ status: "completed" });
+  expect(updates.slice(updates.findIndex((update) => update.status === "completed")).some((update) => update._meta?.casper?.live)).toBe(false);
+  expect(updates.at(-1)!.content[0].content.text).toBe("```text\nfirst\nsecond\n```");
+  onlyProtocol(client);
+}, childTestLimit(1));
+
+shellCheckTest("with acp_live_output off a running command's output comes only at its end", async () => {
+  const f = await fixture(byResults({ 0: { tools: [{ name: "bash", args: { command: LIVE_COMMAND } }] } }));
+  await writeFile(path.join(f.home, ".casper/config.yaml"), "acp_live_output: off\n");
+  const client = open(f);
+  await client.request("initialize", INIT);
+  allowOnce(client);
+  const { sessionId } = await client.request("session/new", { cwd: f.project, mcpServers: [] });
+  expect((await client.request("session/prompt", { sessionId, prompt: text("Print two lines slowly") })).stopReason).toBe("end_turn");
+  const updates = stepUpdates(client, sessionId, `bash ${LIVE_COMMAND}`);
+  expect(updates.filter((update) => update._meta?.casper?.live)).toEqual([]);
+  expect(updates.at(-1)).toMatchObject({ status: "completed" });
   onlyProtocol(client);
 }, childTestLimit(1));

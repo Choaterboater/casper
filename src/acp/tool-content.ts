@@ -14,7 +14,7 @@ import { delegateEndFields, delegateFields, toolTarget, type DelegateEventFields
 import { nativeEditPath, type ToolObservationInput } from "../runtime/observation";
 import type { ToolDisplay } from "../runtime/types";
 import { hideCommandSecrets } from "../secrets/files";
-import { LINE_MARKER, SECRET_MARKER } from "../secrets/scrub";
+import { LINE_MARKER, mayBeAboveKeyEnd, SECRET_MARKER, waitsForNextLine } from "../secrets/scrub";
 import type { Json } from "./rpc";
 
 /** A string in the arguments is cut at a line past this. */
@@ -102,6 +102,42 @@ export function fence(text: string): string {
 }
 
 const textBlock = (words: string) => ({ type: "content", content: { type: "text", text: words } });
+
+/** How much of a running command's output its card shows (decision 98): its last 2,000 characters. */
+export const LIVE_CHARS = 2000;
+
+/** The whole lines a running command's card shows (decision 98), from its output so far (`cut`: Pi kept only its end),
+ * `before`, the output above them as it is, and `pending`, whole lines below them that wait. Left out: a first line
+ * that was cut, the lines down to a truncated mark in view and the line after it (which may be cut), and the last line
+ * still being written, so a secret is never half shown. Waiting (`pending`): a last run of lines shaped like a key's
+ * body (but a plain word at its top), since a key's END with no BEGIN, still to come, would hide them all; the line
+ * after them lets them out (waitsForNextLine). */
+export function liveLines(text: string, cut: boolean): { before: string; lines: string; pending: string } {
+  const done = text.slice(0, text.lastIndexOf("\n") + 1);
+  let from = Math.max(0, text.length - LIVE_CHARS);
+  let partial = from > 0 ? text[from - 1] !== "\n" : cut;
+  const mark = text.lastIndexOf(TRUNCATED);
+  if (mark >= 0 && mark + TRUNCATED.length >= from) { from = mark + TRUNCATED.length; partial = true; }
+  if (partial) {
+    const end = text.indexOf("\n", from);
+    from = end < 0 ? text.length : end + 1;
+  }
+  from = Math.min(from, done.length);
+  const lines = done.slice(from).split("\n");
+  // The line above the first one shown: one that was cut (or follows a mark) may have been anything.
+  const above = done.slice(0, from).split("\n").at(-2);
+  const topMayBeKey = partial || (above !== undefined && mayBeAboveKeyEnd(above));
+  let keep = lines.length - 1;
+  while (keep > 0 && waitsForNextLine(lines[keep - 1]!, keep > 1 ? mayBeAboveKeyEnd(lines[keep - 2]!) : topMayBeKey)) keep--;
+  const shown = keep ? `${lines.slice(0, keep).join("\n")}\n` : "";
+  return { before: done.slice(0, from), lines: shown, pending: done.slice(from + shown.length) };
+}
+
+/** A running shell step's latest lines (decision 98): a `tool_call_update` still `in_progress`, fenced, marked
+ * `_meta.casper.live`. Its content is replaced by the next one and by the step's end. */
+export function liveUpdate(id: string, lines: string): Json {
+  return { sessionUpdate: "tool_call_update", toolCallId: id, status: "in_progress", content: [textBlock(fence(lines))], _meta: { casper: { live: true } } };
+}
 const counted = (lines?: { added: number; removed: number }) => lines ? ` (+${lines.added} −${lines.removed})` : "";
 const tooLarge = (shown: string, lines?: { added: number; removed: number }) => `Changed ${shown}${counted(lines)}, too large to show here`;
 const holdsOne = (shown: string, lines?: { added: number; removed: number }) => `Changed ${shown}${counted(lines)}: not shown, it holds a secret`;

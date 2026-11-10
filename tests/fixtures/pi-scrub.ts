@@ -3,6 +3,7 @@ import { PiRuntime } from "../../src/runtime/pi";
 import type { RuntimeEvent } from "../../src/runtime/types";
 import { Scrubber } from "../../src/secrets/netconan";
 import { hiddenSecretGate } from "../../src/secrets/gate";
+import { recordScrubInput } from "../support/scrub-cases-recorder";
 import { scrubToolOutput } from "../../src/secrets/tool-output";
 import { dropDeniedGrepLines, reviewReadGate } from "../../src/security/review";
 import type { SecurityFinding } from "../../src/security/types";
@@ -45,7 +46,7 @@ try {
   // FIXTURE_SCRUB_THROW=1 makes the check itself fail.
   const scrub = (toolName: string, input: Record<string, unknown>, texts: string[], signal?: AbortSignal) =>
     process.env.FIXTURE_SCRUB_THROW === "1" ? Promise.reject(new Error("scrubber broke"))
-      : scrubToolOutput(scrubber, toolName, input, texts, signal, { configs: filesOn });
+      : (recordScrubInput(texts, { configs: filesOn }), scrubToolOutput(scrubber, toolName, input, texts, signal, { configs: filesOn }));
   // FIXTURE_REVIEW=1 starts the /security-review AI review's child the way the app does: its read gate, and grep
   // lines from files it may not read dropped before the scrubber. gitleaks "flagged" src/settings.py.
   const flagged: SecurityFinding[] = [{ tool: "gitleaks", file: "src/settings.py", line: 1, rule: "generic-api-key", severity: "high", text: "looks like a secret" }];

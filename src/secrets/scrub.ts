@@ -1,7 +1,7 @@
 import path from "node:path";
 import {
   AUTH_SERVER_BLOCK, CONFIG_ANCHORS, JUNOS_SNMP_BLOCK, KEY_BODY_LINE, KIND_ORDER, LINE_PREFIX, KIND_WORDS, PEM_BEGIN, PEM_END, SECRET_RULES,
-  keepLiterally, replaceSpans, windowedSpans, type SecretKind, type SecretRule,
+  TRUNCATED_MARK, keepLiterally, replaceSpans, windowedSpans, type SecretKind, type SecretRule,
 } from "./patterns";
 import { isSecretKeyName } from "./assignments";
 
@@ -71,9 +71,64 @@ function keyBodyLine(line: string): { prefix: string; body: string } | undefined
   return KEY_BODY_LINE.test(body) ? { prefix, body } : undefined;
 }
 
-/** `keysOnly`: private keys only, not the device rules (grep output that holds a key file's lines). */
-export function scrubText(text: string, options: { keyFile?: boolean; keysOnly?: boolean } = {}): ScrubTextResult {
+/** Whether a line may be one a key's END with no BEGIN, on a later line, hides with the lines above it (scrubText). */
+export function mayBeAboveKeyEnd(line: string): boolean {
+  return keyBodyLine(line) !== undefined;
+}
+
+/**
+ * Whether a running command's last line waits for the one after it (decision 98): a line a key's END with no BEGIN, on
+ * a later line, hides with the lines above it (scrubText). A plain word (letters only, in lowercase, with one capital
+ * first or all capitals, under 16 characters: "first", "Done", "PASS") waits only when the line above may be such a
+ * line too (`aboveMayBeKey`: it is one, or it was cut): it is no secret, but a key's body wrapped short may end with one.
+ */
+export function waitsForNextLine(line: string, aboveMayBeKey: boolean): boolean {
+  const part = keyBodyLine(line);
+  if (!part) return false;
+  return aboveMayBeKey || !(part.body.length < 16 && /^(?:[A-Z]?[a-z]+|[A-Z]+)$/.test(part.body));
+}
+
+/** Where a running command's lines are checked (decision 98): `cut` when they do not start where its output did. */
+export interface LiveScrub { cut: boolean }
+
+/** Whether a running command's line may be only the end of a line (decision 98): a cut text's first line, or the line
+ * after a truncated mark. */
+export function mayBeLineEnd(lines: readonly string[], index: number, live: LiveScrub | undefined): boolean {
+  return live !== undefined && (index === 0 ? live.cut : TRUNCATED_MARK.test(lines[index - 1]!));
+}
+
+/** A PEM or PGP armor header line, which comes right after a key's BEGIN: "Proc-Type: 4,ENCRYPTED", "Version: GnuPG v2". */
+const KEY_HEADER = /^(?:Proc-Type|DEK-Info|Version|Comment|Hash|Charset|MessageID):\s/;
+
+/**
+ * Whether a key-body-shaped line right after a break in a running command's lines may be a key's: 20 or more
+ * characters (an id of capitals and digits only from 27, past a ULID's 26), or a PGP checksum ("=AbCd").
+ */
+function mayBeKeyLine(body: string): boolean {
+  return body.length >= 27 || (body.length >= 20 && /[a-z+/=]/.test(body)) || /^=[A-Za-z0-9+/]{4}$/.test(body);
+}
+
+/**
+ * Whether a key-body-shaped line of 16 or more characters, with a digit and both cases, comes right after another such
+ * line of 16 or more: a key's body wrapped under 40 columns, whose END (with no BEGIN) may come next. ULIDs and other
+ * ids of capitals and digits, hashes in lowercase and paths of words are not such lines.
+ */
+function shortKeyRun(body: string, above: string | undefined): boolean {
+  if (body.length < 16 || !/\d/.test(body) || !/[a-z]/.test(body) || !/[A-Z]/.test(body) || above === undefined) return false;
+  const part = keyBodyLine(above.endsWith("\r") ? above.slice(0, -1) : above);
+  return part !== undefined && part.body.length >= 16;
+}
+
+/**
+ * `keysOnly`: private keys only, not the device rules (grep output that holds a key file's lines). `live`: a running
+ * command's latest lines (decision 98), read in the strictest state any line out of view could set: every line inside
+ * a RADIUS/TACACS server and a Junos snmp block, no certificate's body let through, a run of short key lines
+ * (shortKeyRun) read as a key's, and after a break (the start when `cut`, or a truncated mark) the lines may be inside a
+ * key whose BEGIN is gone, so its header lines and key lines (mayBeKeyLine) start its body.
+ */
+export function scrubText(text: string, options: { keyFile?: boolean; keysOnly?: boolean; live?: LiveScrub } = {}): ScrubTextResult {
   const lines = text.split("\n");
+  const source = options.live ? [...lines] : lines;
   const kinds = new Set<SecretKind>();
   let hidden = 0;
   let authIndent: number | undefined;
@@ -84,6 +139,14 @@ export function scrubText(text: string, options: { keyFile?: boolean; keysOnly?:
   let inBody = false;
   // A certificate or public key in a key file: its body is not a secret.
   let inOther = false;
+  const live = options.live;
+  // Live only: right after a break, still in the lines a key's BEGIN may be above.
+  let atBreak = live?.cut === true;
+  const hideBody = (index: number, prefix: string, carriage: boolean) => {
+    if (!inBody) { hidden++; kinds.add("private-key"); }
+    inBody = true;
+    lines[index] = prefix + SECRET_MARKER + (carriage ? "\r" : "");
+  };
   for (let index = 0; index < lines.length; index++) {
     const raw = lines[index]!;
     const carriage = raw.endsWith("\r");
@@ -96,6 +159,7 @@ export function scrubText(text: string, options: { keyFile?: boolean; keysOnly?:
     if (PEM_BEGIN.test(line)) {
       inPem = !PEM_END.test(line.slice(line.search(PEM_BEGIN) + 16));
       inBody = false;
+      atBreak = false;
       hidden++;
       kinds.add("private-key");
       if (!inPem) lines[index] = line.replace(/(-----BEGIN [A-Z0-9 ]*PRIVATE KEY(?: BLOCK)?-----)[\s\S]*?(-----END)/, `$1${SECRET_MARKER}$2`) + (carriage ? "\r" : "");
@@ -112,18 +176,26 @@ export function scrubText(text: string, options: { keyFile?: boolean; keysOnly?:
       }
       if (above < index - 1 && !inBody) { hidden++; kinds.add("private-key"); }
       inBody = false;
+      atBreak = false;
       continue;
     }
+    if (live && TRUNCATED_MARK.test(line)) { atBreak = true; inBody = false; continue; }
     // A certificate's or public key's armor line in a key file: the body after it is not a secret, but the device
     // rules still read the line itself (a log line or JSON that names a certificate may hold a community after it).
     const armor = options.keyFile === true && /-----(?:BEGIN|END) [A-Z0-9 ]+-----/.test(line);
-    if (armor) { inOther = line.includes("-----BEGIN"); inBody = false; }
+    if (armor) { inOther = !live && line.includes("-----BEGIN"); inBody = false; atBreak = false; }
     const part = options.keyFile && !armor && !inOther ? keyBodyLine(line) : undefined;
-    if (part && (inBody || part.body.length >= 40)) {
-      if (!inBody) { hidden++; kinds.add("private-key"); }
-      inBody = true;
-      lines[index] = part.prefix + SECRET_MARKER + (carriage ? "\r" : "");
+    if (part && (inBody || part.body.length >= 40 || (atBreak && mayBeKeyLine(part.body)) || (live && shortKeyRun(part.body, source[index - 1])))) {
+      hideBody(index, part.prefix, carriage);
       continue;
+    }
+    if (atBreak) {
+      const prefix = LINE_PREFIX.exec(line)?.[0] ?? "";
+      if (KEY_HEADER.test(line.slice(prefix.length))) { hideBody(index, prefix, carriage); continue; }
+      // A short key line or a blank one may still be in the key: the lines after it may be too. So may a cut text's
+      // first line or the line after a truncated mark, which may be the end of a line.
+      if (part || !line.trim()) continue;
+      if (!mayBeLineEnd(source, index, live)) atBreak = false;
     }
     inBody = false;
     if (options.keysOnly) continue;
@@ -131,8 +203,8 @@ export function scrubText(text: string, options: { keyFile?: boolean; keysOnly?:
     if (authIndent !== undefined && trimmed && (indentOf(line) <= authIndent || trimmed === "!")) authIndent = undefined;
     const auth = AUTH_SERVER_BLOCK.exec(line);
     const rules: SecretRule[] = [...LINE_RULES];
-    if (authIndent !== undefined) rules.push(...AUTH_SERVER_RULES);
-    if (snmpDepth !== undefined) rules.push(...JUNOS_SNMP_RULES);
+    if (authIndent !== undefined || live) rules.push(...AUTH_SERVER_RULES);
+    if (snmpDepth !== undefined || live) rules.push(...JUNOS_SNMP_RULES);
     if (auth) authIndent = auth[1]!.length;
     if (JUNOS_SNMP_BLOCK.test(line) && snmpDepth === undefined) snmpDepth = depth;
     for (const char of line) {

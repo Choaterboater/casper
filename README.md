@@ -129,6 +129,9 @@ shows the same question as the terminal: send without it, or switch for that req
 Each step the AI takes reaches the app with what it did: an edit's or a write's diff, a command's output and exit
 code, a read's lines, grep's matches by file, the files find and ls listed, and a web search's sources. Secrets stay
 hidden, and a file's text that holds one is not shown. [Decision 79](docs/adr/0002/79-an-acp-step-carries-its-output.md).
+While a command runs, its card shows its latest lines, whole lines only, about twice a second. Lines that may hold a
+secret wait for the command's end, and nothing shows while netconan is in use. `acp_live_output: off` in
+`~/.casper/config.yaml` shows the output only at the end. [Decision 98](docs/adr/0002/98-an-acp-step-streams-its-output.md).
 
 Casper's `/` commands, and your own from `~/.casper/commands`, appear in the app's `/` menu. A command's output is
 Casper's reply, in a monospace block. The ones that would move Casper to another conversation or folder (`/clear`,

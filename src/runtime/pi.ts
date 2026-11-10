@@ -59,6 +59,8 @@ import { gitGuardReason } from "./git-guard";
 import { classifyPath, displayPath, fileToolGate, gitInternalsCommand, privateCommandPlace, privateFilePlace, privateWriteKind, realpathLongest, resolveToolPath, shellTempPath } from "../platform/project-paths";
 /** The AI's tools that take a file or folder `path`. */
 const FILE_PATH_TOOLS = new Set(["read", "edit", "write", "grep", "find", "ls", "lsp"]);
+/** A running command's output as a progress event carries it: more than Pi keeps (50 KB), so it is all there. */
+const LIVE_OUTPUT_BYTES = 64 * 1024;
 import { withoutProviderKeys } from "../platform/environment";
 import { createOwnedBashOperations } from "./local-bash";
 import { TERMINAL_NEEDED } from "../terminal/needs-terminal";
@@ -744,13 +746,17 @@ class PiRuntimeSession implements RuntimeSession {
           break;
         }
         case "tool_execution_update": {
-          if (event.toolName !== "bash") break;
-          // At most ~2 a second per call: a chatty command must not flood the screen.
+          if (event.toolName !== "bash" && event.toolName !== "powershell") break;
+          // At most ~2 a second per call: a chatty command must not flood the screen. Pi's empty first update does not
+          // count, so a command's first lines are not held back by it.
           const now = Date.now();
           if (now - (this.progressAt.get(event.toolCallId) ?? 0) < 500) break;
+          // The output so far as Pi keeps it (its last 50 KB or 2,000 lines): `casper acp` reads its latest lines after it.
+          const { text, truncated } = observationOutput(event.partialResult, LIVE_OUTPUT_BYTES);
+          if (!text) break;
           if (this.progressAt.size < 64 || this.progressAt.has(event.toolCallId)) this.progressAt.set(event.toolCallId, now);
-          const text = observationOutput(event.partialResult).text;
-          if (text) this.emit({ type: "tool_progress", toolName: event.toolName, toolCallId: event.toolCallId, text: text.slice(-2000) });
+          // `cut`: the text does not start where the output did (Pi kept only its end).
+          this.emit({ type: "tool_progress", toolName: event.toolName, toolCallId: event.toolCallId, text, ...(truncated ? { cut: true as const } : {}) });
           break;
         }
         case "tool_execution_end": {

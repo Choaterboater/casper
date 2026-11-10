@@ -47,6 +47,10 @@ export type AcpIdleExitSetting = typeof ACP_IDLE_EXIT_SETTINGS[number];
  * images (decision 99). Unset: on. */
 export const MCP_PICTURES_SETTINGS = ["on", "off"] as const;
 export type McpPicturesSetting = typeof MCP_PICTURES_SETTINGS[number];
+/** `acp_live_output:` (in ~/.casper/config.yaml only) whether an ACP app sees a running command's output while it runs
+ * (decision 98). Unset: on. */
+export const ACP_LIVE_OUTPUT_SETTINGS = ["on", "off"] as const;
+export type AcpLiveOutputSetting = typeof ACP_LIVE_OUTPUT_SETTINGS[number];
 
 /** `showPages:` whether the AI is shown page screenshots after a UI change: ask once a session, always, or never. */
 export const SHOW_PAGES_SETTINGS = ["ask", "on", "off"] as const;
@@ -198,6 +202,8 @@ export interface LoadedConfiguration {
   acpIdleExit?: AcpIdleExitSetting;
   /** `mcp_pictures: on|off` in ~/.casper/config.yaml: whether MCP pictures reach a model that sees images (decision 99). Unset: on. */
   mcpPictures?: McpPicturesSetting;
+  /** `acp_live_output: on|off` in ~/.casper/config.yaml: whether an app sees a running command's output (decision 98). Unset: on. */
+  acpLiveOutput?: AcpLiveOutputSetting;
   /** `lsp_autostart: off` in your own config: your own language servers wait for /lsp connect. Unset: on. */
   lspAutostart?: boolean;
   /** `notifications: off` in your own config: no bell or desktop notification when a long task ends or a question waits. Unset: on. */
@@ -358,7 +364,7 @@ const POLICY_KEYS = {
 } as const;
 const ISOLATE_KEYS = ["parallelAgents", "riskyRefactor", "experimentalBranch"];
 const TOP_LEVEL_KEYS = new Set(["profile", "project", "languages", "frameworks", "packageManager", "commands", "architecture",
-  "conventions", "verify", "verification", "repair", "skills", "visualize", "policy", "services", "smoke", "pages", "lab", "suggestions", "updates", "sideQuestions", "localModels", "modelServers", "cache", "display", "theme", "showPages", "spend", "sandbox", "shell", "web", "reader", "delegate", "browser", "templates", "packs", "github", "telemetry", "tools", "ssh_login", "other_logins", "network_updates", "ai_pages", "open_pages", "pictures", "browser_clicks", "routine_commands", "plan_commands", "private_commands", "auto_mode", "hide_tool_output", "reasoning_headline", "lean_guidance", "compact_at", "slow_commands", "keep_going", "stalled_commands", "mcp_autoconnect", "acp_mcp", "acp_access", "acp_questions", "acp_idle_exit", "mcp_pictures", "lsp_autostart", "notifications", ...Object.keys(POLICY_KEYS)]);
+  "conventions", "verify", "verification", "repair", "skills", "visualize", "policy", "services", "smoke", "pages", "lab", "suggestions", "updates", "sideQuestions", "localModels", "modelServers", "cache", "display", "theme", "showPages", "spend", "sandbox", "shell", "web", "reader", "delegate", "browser", "templates", "packs", "github", "telemetry", "tools", "ssh_login", "other_logins", "network_updates", "ai_pages", "open_pages", "pictures", "browser_clicks", "routine_commands", "plan_commands", "private_commands", "auto_mode", "hide_tool_output", "reasoning_headline", "lean_guidance", "compact_at", "slow_commands", "keep_going", "stalled_commands", "mcp_autoconnect", "acp_mcp", "acp_access", "acp_questions", "acp_idle_exit", "acp_live_output", "mcp_pictures", "lsp_autostart", "notifications", ...Object.keys(POLICY_KEYS)]);
 
 /** Typos used to fall back silently to the defaults; the loader names them instead. */
 function unknownKeys(document: Mapping, label: string): string[] {
@@ -729,6 +735,21 @@ function mcpPicturesValue(value: unknown, label: string): McpPicturesSetting | u
  * file Casper can't read gives off: Casper stays open, and nothing is lost by staying. */
 export async function readAcpIdleExitSetting(homeDir = os.homedir()): Promise<AcpIdleExitSetting> {
   try { return acpIdleExitValue((await readYaml(path.join(homeDir, ".casper", "config.yaml"))).acp_idle_exit, "~/.casper/config.yaml") ?? "on"; }
+  catch { return "off"; }
+}
+
+/** `acp_live_output:` on or off (YAML's true and false too). */
+function acpLiveOutputValue(value: unknown, label: string): AcpLiveOutputSetting | undefined {
+  if (value === undefined || value === null) return undefined;
+  const setting = value === true ? "on" : value === false ? "off" : value;
+  if (!ACP_LIVE_OUTPUT_SETTINGS.some((known) => known === setting)) throw new Error(`${label}: acp_live_output must be ${alternatives(ACP_LIVE_OUTPUT_SETTINGS)}`);
+  return setting as AcpLiveOutputSetting;
+}
+
+/** `acp_live_output` from ~/.casper/config.yaml, read again at each prompt, so a change reaches a running session. A
+ * file Casper can't read gives off: the output still comes when the command ends. */
+export async function readAcpLiveOutputSetting(homeDir = os.homedir()): Promise<AcpLiveOutputSetting> {
+  try { return acpLiveOutputValue((await readYaml(path.join(homeDir, ".casper", "config.yaml"))).acp_live_output, "~/.casper/config.yaml") ?? "on"; }
   catch { return "off"; }
 }
 
@@ -1165,6 +1186,12 @@ export async function loadConfiguration(
     if (document.mcp_pictures !== undefined) throw new Error(`${label}: mcp_pictures is set in ~/.casper/config.yaml only`);
   }
   const mcpPictures = mcpPicturesValue(globalDocument.mcp_pictures, labels.global);
+  // Whether an app sees what a running command prints is yours too.
+  if (projectDocument.acp_live_output !== undefined) throw new Error("acp_live_output is a user setting (~/.casper/config.yaml); a project cannot choose whether an app sees a running command's output");
+  for (const [document, label] of [[profileDocument, labels.profile], [userProfileDocument, labels.userProfile]] as const) {
+    if (document.acp_live_output !== undefined) throw new Error(`${label}: acp_live_output is set in ~/.casper/config.yaml only`);
+  }
+  const acpLiveOutput = acpLiveOutputValue(globalDocument.acp_live_output, labels.global);
   // Whether your terminal rings or shows a notification is yours too.
   if (projectDocument.notifications !== undefined) throw new Error("notifications is a user setting (~/.casper/config.yaml); a project cannot turn Casper's notifications on or off");
   let notifications: boolean | undefined;
@@ -1269,6 +1296,7 @@ export async function loadConfiguration(
     ...(acpQuestions !== undefined ? { acpQuestions } : {}),
     ...(acpIdleExit !== undefined ? { acpIdleExit } : {}),
     ...(mcpPictures !== undefined ? { mcpPictures } : {}),
+    ...(acpLiveOutput !== undefined ? { acpLiveOutput } : {}),
     ...(lspAutostart !== undefined ? { lspAutostart } : {}),
     ...(notifications !== undefined ? { notifications } : {}),
     ...(pageChecks !== undefined ? { pageChecks } : {}),

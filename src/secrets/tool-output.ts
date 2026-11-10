@@ -1,8 +1,9 @@
 import { scrubNote, type Scrubber } from "./netconan";
-import { KIND_ORDER, type SecretKind } from "./patterns";
+import { KIND_ORDER, TRUNCATED_MARK, type SecretKind } from "./patterns";
 import path from "node:path";
-import { isKeyFile, isPgpassFile, isSecretFile, loginFileValues, networkLoginValues, scrubPlainSecrets } from "./files";
+import { exactSecretValues, isKeyFile, isPgpassFile, isSecretFile, livePlainScrubs, loginFileValues, networkLoginValues, scrubPlainSecrets } from "./files";
 import { casperAgentDir } from "../runtime/agent-store";
+import { terminalText } from "../tui/format";
 import { scrubText, shouldScrubCommandOutput, shouldScrubRead, type ScrubTextResult } from "./scrub";
 
 /**
@@ -98,6 +99,92 @@ export function fileTextHoldsSecret(filePath: string, text: string, options: Too
     ...options.networkLoginFile ? networkLoginValues(options.networkLoginFile) : []];
   return scrubPlainSecrets(text, { secretFile: isSecretFile(filePath), keyFile: isKeyFile(filePath), pgpass: isPgpassFile(filePath), values,
     ...(options.env ? { env: options.env } : {}) }).hidden > 0;
+}
+
+/**
+ * Whether a running command's latest lines (`casper acp`'s live output, decision 98) may hold anything its final output's
+ * scrub (scrubToolOutput above) hides there. When in doubt they do: the final output still comes, scrubbed.
+ * - JSON, while /secrets files is on: the device pass reads an output that is JSON whole string by string, with its \n
+ *   escapes read as line breaks, and hides everything under a secret-named key. Partial JSON can't be read that way,
+ *   so an output that starts as JSON, or shown lines that are a JSON value's ("key": lines, quoted list items), hold.
+ * - A secret value of more than one line is hidden only whole, and its last lines may not be out yet: a shown line
+ *   that may be one of its lines, as far as the lines next to it show, holds (showsPartOfValue).
+ * - The final scrub reads each line in a state other lines set: a line naming a key file anywhere, a key's BEGIN or a
+ *   device config anywhere, "tokenid" anywhere, a server or snmp block line or a table header above. Those lines may be
+ *   out of view, so the same always-on and device rules run here, at once, with Casper's own rules, in the strictest
+ *   state each could set (scrubPlainSecrets' `live`), over the output this step has so far: `before`, the lines above
+ *   the ones shown, then `text`, the ones shown (`cut`: `before` does not start where the output did), all in turn and
+ *   each alone (livePlainScrubs). Any change to a shown line means they hold one. /secrets files does not matter here:
+ *   a key's BEGIN out of view turns the device rules on even with it off.
+ */
+export function liveOutputHoldsSecret(text: string, options: ToolOutputScrubOptions & { cut?: boolean; before?: string } = {}): boolean {
+  if (!text.trim()) return false;
+  const whole = (options.before ?? "") + text;
+  if ((options.configs ?? true) && (JSON_START.test(whole) || text.split("\n").some((line) => JSON_START.test(line) || JSON_MEMBER.test(line)))) return true;
+  const values = [...loginFileValues(options.loginFile ?? path.join(casperAgentDir(), "auth.json")),
+    ...options.networkLoginFile ? networkLoginValues(options.networkLoginFile) : []];
+  const env = options.env ? { env: options.env } : {};
+  if (showsPartOfSecret(text, { before: options.before ?? "", cut: options.cut === true }, exactSecretValues({ values, ...env }))) return true;
+  const shown = text.split("\n").length;
+  const lines = whole.split("\n");
+  return livePlainScrubs(whole, { keyFile: true, values, live: { cut: options.cut === true }, ...env }).some((scrub) => {
+    const scrubbed = scrub();
+    if (scrubbed === whole) return false;
+    const after = scrubbed.split("\n");
+    return lines.length !== after.length || lines.slice(-shown).join("\n") !== after.slice(-shown).join("\n");
+  });
+}
+
+/** Whether a running command's shown lines (`text`, after `before`) may be part of one of `values` of more than one
+ * line, which the final output hides only whole (showsPartOfValue): Casper's own, or the ones the session hides. Read
+ * as they are (the final scrub reads them so) and as the session's hiding reads them (terminalText: no colour codes, a
+ * lone carriage return a line break), where a value split by colour codes or joined by a carriage return is whole. */
+export function showsPartOfSecret(text: string, around: { before: string; cut: boolean }, values: readonly string[]): boolean {
+  const several = values.filter((value) => value.includes("\n"));
+  if (!several.length || !text.trim()) return false;
+  const shown = terminalText(text);
+  return [[around.before, text], [terminalText(around.before), shown]].some(([before, lines]) => {
+    const all = (before! + lines!).split("\n").map((line) => line.endsWith("\r") ? line.slice(0, -1) : line);
+    const from = all.length - lines!.split("\n").length;
+    return several.some((value) => showsPartOfValue(all, from, around.cut, value));
+  });
+}
+
+/** A line that starts a JSON value: a lone brace or bracket, `{"`, `[{`, `["`, `[[`, or a list of numbers or words. */
+const JSON_START = /^\s*(?:[{[]\s*$|\{\s*["}]|\[\s*(?:["{[\]]|(?:-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?|true|false|null)\s*[,\]]))/;
+/** A line inside a JSON value as `jq .`, `curl` or ConvertTo-Json prints one: a "key": member or a quoted list item. */
+const JSON_MEMBER = /^\s*"(?:[^"\\]|\\.)*"\s*(?::|,?\s*$)/;
+
+/**
+ * Whether a shown line (`all` from `from` on: the output so far, its lines) may be one of the lines of `value`, a
+ * secret of more than one line: its first line ends with the value's first, a middle line is one of the value's, its
+ * last starts with the value's last. The lines next to it must fit the value's too, as far as they are in view: above
+ * a cut start or a truncated mark, or below the last line out, they may.
+ */
+function showsPartOfValue(all: string[], from: number, cut: boolean, value: string): boolean {
+  const parts = value.split("\n").map((part) => part.endsWith("\r") ? part.slice(0, -1) : part);
+  const last = parts.length - 1;
+  const fits = (line: string, at: number) => at === 0 ? line.endsWith(parts[0]!) : at === last ? line.startsWith(parts[last]!) : line === parts[at];
+  // Lines above that may not be the output's own: a cut text's first line (maybe cut), a truncated mark and the line
+  // after one (maybe cut). Above them the value's other lines may be gone; above the start of a cut text too.
+  const gone = (line: number) => (cut && line === 0) || TRUNCATED_MARK.test(all[line]!) || (line > 0 && TRUNCATED_MARK.test(all[line - 1]!));
+  for (let index = from; index < all.length; index++) {
+    for (let at = 0; at <= last; at++) {
+      if (!fits(all[index]!, at)) continue;
+      let ok = true;
+      for (let part = at - 1, line = index - 1; part >= 0; part--, line--) {
+        if (line < 0 || gone(line)) { ok = line >= 0 || cut; break; }
+        if (!(ok = fits(all[line]!, part))) break;
+      }
+      for (let part = at + 1, line = index + 1; ok && part <= last && line < all.length; part++, line++) {
+        // The text's last element is the line still being written (empty once the shown lines end): it may yet fit.
+        if (line === all.length - 1) break;
+        ok = fits(all[line]!, part);
+      }
+      if (ok) return true;
+    }
+  }
+  return false;
 }
 
 /**

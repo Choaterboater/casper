@@ -796,7 +796,7 @@ export class RuntimeEventView {
         if (!this.terminal.rich || event.toolName !== "bash") break;
         const step = this.steps.find(candidate => candidate.endedAt === undefined && (event.toolCallId ? candidate.id === event.toolCallId : candidate.toolName === event.toolName));
         if (!step) break;
-        step.tail = event.text;
+        step.tail = event.text.slice(-2000);
         if (this.level() === "quiet") break;
         // At most about once a second: the box's own one-second redraw shows a newer line in between.
         const now = this.now();
