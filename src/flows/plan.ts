@@ -16,10 +16,13 @@ import { remoteTargets } from "../sandbox/remote";
 import { CASE_TESTS, formatChecklistPrompt } from "../task/checklist";
 import { lineText } from "../tui/format";
 
-/** Pi's built-in tools that only look at files, and the web lookups, which only read. GitHub lookups, read-only
- * helpers and MCP tools (which the broker sends only when the call is a read) are let through by planToolGate; every
- * other tool (edit, write, services, the browser, builders...) is blocked while planning, whatever it says about itself. */
-export const PLANNING_TOOLS = new Set(["read", "grep", "find", "ls", "web_search", "web_fetch"]);
+/** Pi's built-in tools that only look at files, the web lookups, which only read, the AI's question to you (`ask`) and
+ * the reader (casper_read_untrusted: a path asks the private box as read does, a command must be a read-only one, an MCP
+ * source goes through the broker), as Claude Code's plan mode allows AskUserQuestion. GitHub lookups, lsp lookups,
+ * read-only helpers and MCP tools (which the broker sends only when the call is a read) are let through by planToolGate;
+ * every other tool (edit, write, lsp's rename, services, the browser, builders...) is blocked while planning, whatever it
+ * says about itself. */
+export const PLANNING_TOOLS = new Set(["read", "grep", "find", "ls", "web_search", "web_fetch", "ask", "casper_read_untrusted"]);
 
 /** Casper's own refusals start with this, so the screen says "— not run" and the receipt does not count them as failed. */
 const NOT_RUN = "Not run: ";
@@ -177,21 +180,26 @@ function isThisMachine(host: string): boolean {
 }
 
 /** The gate for a plan turn (and for Read only access, with `reason` READ_ONLY_BLOCKED), for every tool call. Undefined
- * lets the call run; a reason blocks it. */
+ * lets the call run; a reason blocks it. `asks` (plan_commands on, someone to answer; decision 95): a bash command that
+ * is not a look command goes on to the shell, which asks "Run this command?" first, as Claude Code's plan mode does.
+ * PowerShell has no such box behind it (casperBashOperations runs bash only), so its refusal stays. */
 export function planToolGate(toolName: string, input: Record<string, unknown> | undefined, capabilityTool?: (name: string) => boolean,
-  reason: string = PLANNING_BLOCKED): string | undefined {
+  reason: string = PLANNING_BLOCKED, asks = false): string | undefined {
   const during = reason === PLANNING_BLOCKED ? "While planning it" : "It";
   if (PLANNING_TOOLS.has(toolName)) return undefined;
   // MCP tools go on to the broker, which sends only reads while planning (a network device's state is research).
   if (capabilityTool?.(toolName)) return undefined;
   // Looking things up on GitHub (pull requests, one pull request, CI) only reads; a rerun starts work.
   if (toolName === "github" && ["prs", "pr", "ci"].includes(String(input?.verb))) return undefined;
+  // lsp's diagnostics, symbols, definitions and references only read (Claude Code's plan mode allows its LSP tool);
+  // its rename edits files, so it waits for Build as an edit does.
+  if (toolName === "lsp" && input?.operation !== "rename") return undefined;
   // Read-only helpers may research for the plan; a builder changes files in its copy, so it waits for Build.
   if (toolName === "delegate" && ["explorer", "reviewer"].includes(String(input?.role))) return undefined;
   if (toolName === "bash" || toolName === "powershell") {
     const command = typeof input?.command === "string" ? input.command : "";
     const part = refusedPart(command, toolName);
-    if (!part) return undefined;
+    if (!part || (asks && toolName === "bash")) return undefined;
     // Name the part that was refused: the step label on screen may leave it out (it drops set-up words such as cd).
     // The screen shows 240 characters of the refusal, so the reason stays short.
     const [name = "", ...args] = part;
@@ -204,8 +212,8 @@ export function planToolGate(toolName: string, input: Record<string, unknown> | 
       : name ? `${lineText(`${name}${sub ? ` ${sub}` : ""}`)}${listed ? " with these options" : ""} is not one.` : "";
     return `${NOT_RUN}${reason}. ${during} runs only look commands such as ls, cat, grep and git log.${why ? ` ${why}` : ""}`;
   }
-  if (toolName === "edit" || toolName === "write") return `${NOT_RUN}${reason}.`;
-  return `${NOT_RUN}${reason}. ${during} allows only read, grep, find, ls, web, GitHub and MCP lookups and read-only helpers, not ${toolName}.`;
+  if (toolName === "edit" || toolName === "write" || toolName === "lsp") return `${NOT_RUN}${reason}.`;
+  return `${NOT_RUN}${reason}. ${during} allows only read, grep, find, ls, lsp, the reader, questions, web, GitHub and MCP lookups and read-only helpers, not ${toolName}.`;
 }
 
 /** A person-facing plan. Designed specs need no implementation steps; `tests` also holds "Done means".

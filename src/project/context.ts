@@ -86,6 +86,10 @@ export interface ProjectContext {
   browserClicks?: boolean;
   /** `routine_commands: off` in the user's config: with no sandbox, routine shell commands ask too. Unset: on. */
   routineCommands?: boolean;
+  /** `plan_commands: off` in the user's config: while planning or Read only, a command that is not a look command is refused, not asked. Unset: on. */
+  planCommands?: boolean;
+  /** `private_commands: off` in the user's config: with the sandbox off, a command naming a private place is refused, not asked. Unset: on. */
+  privateCommands?: boolean;
   /** `auto_mode: off` in the user's config: no judge, every command that would show the box asks. Unset: on. */
   autoMode?: boolean;
   /** `hide_tool_output: off` stops new history masks. Unset: on. */
@@ -234,6 +238,8 @@ export async function loadProjectContext(
     ...(configuration.pictureModels ? { pictureModels: configuration.pictureModels } : {}),
     ...(configuration.browserClicks !== undefined ? { browserClicks: configuration.browserClicks } : {}),
     ...(configuration.routineCommands !== undefined ? { routineCommands: configuration.routineCommands } : {}),
+    ...(configuration.planCommands !== undefined ? { planCommands: configuration.planCommands } : {}),
+    ...(configuration.privateCommands !== undefined ? { privateCommands: configuration.privateCommands } : {}),
     ...(configuration.autoMode !== undefined ? { autoMode: configuration.autoMode } : {}),
     ...(configuration.hideToolOutput !== undefined ? { hideToolOutput: configuration.hideToolOutput } : {}),
     ...(configuration.reasoningHeadline !== undefined ? { reasoningHeadline: configuration.reasoningHeadline } : {}),

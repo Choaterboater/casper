@@ -743,6 +743,31 @@ test("a helper gets your sandbox.allowRead too: a private place you opened is op
   expect(child.options?.allowRead).toEqual(["/home/me/.aws"]);
 });
 
+test("a read-only helper's read of a private place asks in the session's box, named for it (decision 95)", async () => {
+  const child = new ChildRuntime();
+  const asked: string[] = [];
+  let can = true;
+  const agents = new SubagentManager({ runtimeFactory: () => child, cleanupGraceMs: 20, privateAsk: () => ({
+    asksPrivateFile: () => can,
+    askPrivate: async (_command, place) => { asked.push(place.question ?? ""); return "Not read: the user said no."; },
+  }) });
+  cleanup.push(() => agents.close());
+  await agents.run(task);
+  const ask = child.options!.privateAsk!;
+  expect(ask.asksPrivateFile!()).toBe(true);
+  const place = { shown: "~/.ssh", why: "keys and logins", refusal: "Not read: ~/.ssh is private.", question: "Read ~/.ssh/config? ~/.ssh is private (keys and logins)." };
+  expect(await ask.askPrivate!("read ~/.ssh/config", place)).toBe("Not read: the user said no.");
+  expect(asked).toEqual(["Helper explorer: Read ~/.ssh/config? ~/.ssh is private (keys and logins)."]);
+  can = false;
+  expect(ask.asksPrivateFile!()).toBe(false);
+  // No session box: the helper keeps the refusal.
+  const plain = new ChildRuntime();
+  const none = new SubagentManager({ runtimeFactory: () => plain, cleanupGraceMs: 20 });
+  cleanup.push(() => none.close());
+  await none.run(task);
+  expect(plain.options && "privateAsk" in plain.options).toBe(false);
+});
+
 test("each child is told the main session's model now, for a role that is not set", async () => {
   let model: string | undefined = "ollama/qwen3:8b";
   const child = new ChildRuntime();

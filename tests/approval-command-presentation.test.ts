@@ -70,7 +70,7 @@ async function fixture(terminal: unknown, preceding: string) {
   const project = path.join(base, "project"), home = path.join(base, "home");
   await mkdir(project); await mkdir(home);
   const app = { interactive: true, closing: false, planning: false, approvalQueue: Promise.resolve(), terminal,
-    responseText: preceding, projectContext: { routineCommands: false }, output: { write() {} } } as unknown as CasperApp;
+    responseText: preceding, projectContext: { routineCommands: false }, output: { write() {} }, changesBlocked: () => undefined } as unknown as CasperApp;
   const host = sandboxHost(app);
   const store = new SandboxStore(path.join(base, "state"));
   const sandbox = new ShellSandbox({ root: () => project, home, store, offByDefault: true,

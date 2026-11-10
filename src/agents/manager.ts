@@ -192,6 +192,8 @@ export interface SubagentManagerOptions {
   privatePaths?: () => readonly string[];
   /** Your sandbox.allowRead (absolute): private places you opened are open to a helper's file tools too. */
   allowRead?: () => readonly string[];
+  /** The session's private box (decision 95): a read-only helper's read of a private place asks there, named for it. */
+  privateAsk?: () => Pick<RuntimeShell, "asksPrivateFile" | "askPrivate"> | undefined;
   /** Each helper's start, steps and end, for the steps pane. Display only; never shown to a model. */
   onActivity?: (activity: HelperActivity) => void;
 }
@@ -842,8 +844,18 @@ export class SubagentManager {
             } } : {}) });
         } else {
           if (!runtime.startReadOnly) throw new Error("Runtime does not support enforced read-only subagents");
+          // Its read of a private place asks in your box under its name, as a builder's does (decision 95).
+          const ask = this.options.privateAsk;
+          const name = options.label ?? `Helper ${options.role}`;
+          const privateAsk: Pick<RuntimeShell, "asksPrivateFile" | "askPrivate"> | undefined = ask ? {
+            asksPrivateFile: () => ask()?.asksPrivateFile?.() ?? false,
+            askPrivate: async (command, place, signal) => {
+              const shell = ask();
+              return shell?.askPrivate ? shell.askPrivate(command, place.question ? { ...place, question: `${name}: ${place.question}` } : place, signal) : place.refusal;
+            },
+          } : undefined;
           session = await runtime.startReadOnly({ ...common, ...(options.modelRole ? { modelRole: options.modelRole } : {}),
-            ...(options.keepEffort ? { keepEffort: true } : {}) });
+            ...(options.keepEffort ? { keepEffort: true } : {}), ...(privateAsk ? { privateAsk } : {}) });
         }
         controller.signal.throwIfAborted();
         // A model that does not think ("off") says nothing.

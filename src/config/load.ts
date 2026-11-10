@@ -163,6 +163,12 @@ export interface LoadedConfiguration {
   browserClicks?: boolean;
   /** `routine_commands: off` in your own config: with no sandbox, every shell command that is not a plain read asks. Unset: on. */
   routineCommands?: boolean;
+  /** `plan_commands: off` in your own config: while planning or Read only, a bash command that is not a look command is
+   * refused instead of asking first (decision 95). Unset: on. */
+  planCommands?: boolean;
+  /** `private_commands: off` in your own config: with the sandbox off, a shell command that names a private place is
+   * refused instead of asking first (decision 95). Unset: on. */
+  privateCommands?: boolean;
   /** `auto_mode: off` in your own config: commands that would show "Run this command?" always ask, with no judge. Unset: on. */
   autoMode?: boolean;
   /** `hide_tool_output: off` stops new history masks. Unset: on; existing stubs stay permanent. */
@@ -352,7 +358,7 @@ const POLICY_KEYS = {
 } as const;
 const ISOLATE_KEYS = ["parallelAgents", "riskyRefactor", "experimentalBranch"];
 const TOP_LEVEL_KEYS = new Set(["profile", "project", "languages", "frameworks", "packageManager", "commands", "architecture",
-  "conventions", "verify", "verification", "repair", "skills", "visualize", "policy", "services", "smoke", "pages", "lab", "suggestions", "updates", "sideQuestions", "localModels", "modelServers", "cache", "display", "theme", "showPages", "spend", "sandbox", "shell", "web", "reader", "delegate", "browser", "templates", "packs", "github", "telemetry", "tools", "ssh_login", "other_logins", "network_updates", "ai_pages", "open_pages", "pictures", "browser_clicks", "routine_commands", "auto_mode", "hide_tool_output", "reasoning_headline", "lean_guidance", "compact_at", "slow_commands", "keep_going", "stalled_commands", "mcp_autoconnect", "acp_mcp", "acp_access", "acp_questions", "acp_idle_exit", "mcp_pictures", "lsp_autostart", "notifications", ...Object.keys(POLICY_KEYS)]);
+  "conventions", "verify", "verification", "repair", "skills", "visualize", "policy", "services", "smoke", "pages", "lab", "suggestions", "updates", "sideQuestions", "localModels", "modelServers", "cache", "display", "theme", "showPages", "spend", "sandbox", "shell", "web", "reader", "delegate", "browser", "templates", "packs", "github", "telemetry", "tools", "ssh_login", "other_logins", "network_updates", "ai_pages", "open_pages", "pictures", "browser_clicks", "routine_commands", "plan_commands", "private_commands", "auto_mode", "hide_tool_output", "reasoning_headline", "lean_guidance", "compact_at", "slow_commands", "keep_going", "stalled_commands", "mcp_autoconnect", "acp_mcp", "acp_access", "acp_questions", "acp_idle_exit", "mcp_pictures", "lsp_autostart", "notifications", ...Object.keys(POLICY_KEYS)]);
 
 /** Typos used to fall back silently to the defaults; the loader names them instead. */
 function unknownKeys(document: Mapping, label: string): string[] {
@@ -1102,7 +1108,12 @@ export async function loadConfiguration(
   // Whether routine shell commands run without asking is yours too.
   if (projectDocument.routine_commands !== undefined) throw new Error("routine_commands is a user setting (~/.casper/config.yaml); a project cannot change which shell commands run without asking");
   if (projectDocument.auto_mode !== undefined) throw new Error("auto_mode is a user setting (~/.casper/config.yaml); a project cannot turn on the judge that lets commands run without asking");
+  // So is whether a command asks while planning, and whether one that names a private place asks (decision 95).
+  if (projectDocument.plan_commands !== undefined) throw new Error("plan_commands is a user setting (~/.casper/config.yaml); a project cannot change which commands run while planning");
+  if (projectDocument.private_commands !== undefined) throw new Error("private_commands is a user setting (~/.casper/config.yaml); a project cannot let commands read your private places");
   let routineCommands: boolean | undefined;
+  let planCommands: boolean | undefined;
+  let privateCommands: boolean | undefined;
   let autoMode: boolean | undefined;
   if (projectDocument.reasoning_headline !== undefined) throw new Error("reasoning_headline is a user setting (~/.casper/config.yaml); a project cannot change what the status row shows of the model's reasoning");
   let reasoningHeadline: boolean | undefined;
@@ -1174,6 +1185,8 @@ export async function loadConfiguration(
     pictureModels = picturesSetting.models ?? pictureModels;
     browserClicks = onOffLayer(document.browser_clicks, label, "browser_clicks") ?? browserClicks;
     routineCommands = onOffLayer(document.routine_commands, label, "routine_commands") ?? routineCommands;
+    planCommands = onOffLayer(document.plan_commands, label, "plan_commands") ?? planCommands;
+    privateCommands = onOffLayer(document.private_commands, label, "private_commands") ?? privateCommands;
     autoMode = onOffLayer(document.auto_mode, label, "auto_mode") ?? autoMode;
     hideToolOutput = onOffLayer(document.hide_tool_output, label, "hide_tool_output") ?? hideToolOutput;
     reasoningHeadline = onOffLayer(document.reasoning_headline, label, "reasoning_headline") ?? reasoningHeadline;
@@ -1240,6 +1253,8 @@ export async function loadConfiguration(
     ...(pictureModels?.length ? { pictureModels } : {}),
     ...(browserClicks !== undefined ? { browserClicks } : {}),
     ...(routineCommands !== undefined ? { routineCommands } : {}),
+    ...(planCommands !== undefined ? { planCommands } : {}),
+    ...(privateCommands !== undefined ? { privateCommands } : {}),
     ...(autoMode !== undefined ? { autoMode } : {}),
     ...(hideToolOutput !== undefined ? { hideToolOutput } : {}),
     ...(reasoningHeadline !== undefined ? { reasoningHeadline } : {}),

@@ -52,14 +52,22 @@ export function sandboxHost(app: CasperApp): SandboxHost {
     canAsk: () => !app.readOnlyAccess && someoneAnswers(app) && app.terminal.canAsk && !app.closing,
     // The box to run a blocked command outside the sandbox asks in Read only too, as DeepSeek Harness's card does.
     outsideAsks: () => someoneAnswers(app) && app.terminal.canAsk && !app.closing,
+    // The boxes Read only lets through (decision 95) are asked while someone can answer, Read only or not.
+    canAskWhileReadOnly: () => someoneAnswers(app) && app.terminal.canAsk && !app.closing,
     pick: (question, options, signal, settings) => {
       const stop = signal ?? app.commandAbort?.signal;
-      return oneAtATime(app, async () => app.closing || (app.readOnlyAccess && !settings?.anyAccess) ? undefined
+      // Only the boxes decision 95 lets through, and the one to run a blocked command outside the sandbox, are asked while Read only.
+      return oneAtATime(app, async () => app.closing || (app.readOnlyAccess && !settings?.anyAccess && !settings?.whileReadOnly) ? undefined
         : app.terminal.pick(question, options, stop, settings?.record ? { record: settings.record } : {}));
     },
     write: (text) => { if (!app.closing) app.output.write(text); },
     // A plan turn or Read only access: the project is mounted read-only and no write is offered.
     planning: () => app.changesBlocked() !== undefined,
+    // Which, and whether its commands that are not look commands ask (plan_commands; decision 95). An app's Read only
+    // counts as Read only also while planning (its plan option), so its box is the one Read only lets through.
+    changesBlocked: () => ((reason) => reason === undefined ? undefined : { reason, readOnly: app.readOnlyAccess, asks: app.blockedCommandsAsk() })(app.changesBlocked()),
+    // A command that names a private place asks while the sandbox is off (private_commands; decision 95).
+    privateCommands: () => app.projectContext?.privateCommands !== false,
     // Only while a person can answer (a terminal, or the app that runs casper acp): a one-shot or --json run never
     // stops asking this way (it refuses, or takes --no-sandbox).
     stopAsking: () => app.stopAsking && someoneAnswers(app) && app.terminal.canAsk && !app.closing,

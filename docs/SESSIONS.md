@@ -244,7 +244,8 @@ run `/branch` and the policy says to isolate.
   this Casper session. Files in the project cannot type it.
 - A worktree keeps file changes apart; it is not a security boundary. Since
   v0.2.17 the shell sandbox holds shell commands to the folder you are in, and
-  the model's file tools stay out of private places (see
+  the model's file tools ask first in private places, naming the place, or are
+  refused there with Commands that read private places off (see
   [SECURITY.md](SECURITY.md)).
 
 State files use mode `0600` and are replaced in one step. If the names file is

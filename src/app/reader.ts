@@ -41,6 +41,8 @@ export function appReaderTool(source: AppReaderSource): RuntimeTool | undefined 
   if (!settings.enabled) return undefined;
   const shell = source.shell;
   return readerTool({
+    // A path into a private place asks the session's private box, as the AI's read does.
+    ...(shell ? { privateAsk: shell } : {}),
     root: source.root, home: source.home, ...(source.agentDir ? { agentDir: source.agentDir } : {}), privatePaths: source.privatePaths, ...(source.allowRead?.length ? { allowRead: source.allowRead } : {}), untrusted: settings.untrusted, onUsage: source.onUsage,
     ...(source.signal ? { signal: source.signal } : {}),
     complete: async (input) => {

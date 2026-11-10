@@ -274,6 +274,9 @@ export function settingRows(context: ProjectContext, home = os.homedir()): Setti
       "With the sandbox off, in a folder you trust, a model judge (your current model, at low effort) looks at each command that would ask \"Run this command?\": ordinary build work runs with a dim ✓ judge line, and anything doubtful asks you with its reason. It never refuses on its own, and if it fails it asks. MCP changes and Casper's other boxes still ask. Off: those commands ask, as before.",
       ["auto_mode"], false, "step"),
     blockedCommandsRow(context.sandbox?.user.commands ?? "ask"),
+    onOffRow("Commands while planning", context.planCommands !== false,
+      "While planning (/plan), a bash command that isn't a look command (ls, cat, grep, git log…) asks Run this command? first (1 No, 2 Yes this once, 3 Yes for this session); when an app set Read only it asks with 1 No, 2 Yes this once. A yes runs it as it would in Build. Off: those commands are refused, and the AI plans with look commands only.",
+      ["plan_commands"], true, "step"),
     onOffRow("Slow commands", context.slowCommands !== false,
       "A command the AI runs without its own time limit that is still running after 2 minutes moves to the background instead of being stopped: /tasks lists it, the AI gets a note when it ends, and it stops when Casper exits. Off: it is stopped at 2 minutes.",
       ["slow_commands"], true, "step"),
@@ -394,6 +397,9 @@ export function settingRows(context: ProjectContext, home = os.homedir()): Setti
     onOffRow("Private ssh passwords", context.sshLogin !== false,
       "When ssh you allowed asks for a password or key passphrase, Casper shows its own hidden box (1 No, 2 Yes once, 3 Yes for this session). The AI never sees what you type. Off: ssh gets no box and a login that needs a password fails.",
       ["ssh_login"], false, "step"),
+    onOffRow("Commands that read private places", context.privateCommands !== false,
+      "The AI's (or a helper's) read, grep, find, ls, edit or write into ~/.ssh, ~/.aws or another private place, and with the sandbox off a shell command that names one, asks first, naming the place (1 No, 2 Yes this once, 3 Yes for this session); edits and writes in ~/.casper stay refused. Off: those are refused before they run.",
+      ["private_commands"], true, "step"),
   ];
 }
 

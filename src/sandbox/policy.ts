@@ -2,7 +2,7 @@ import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { CASPER_OWN_PRIVATE_PATHS, CASPER_PRIVATE_PATHS, gitDirs, hooksPathTargets, otherLoginFiles, PRIVATE_PATHS, PROTECTED_WRITE_PATHS, realpathLongest, within } from "../platform/project-paths";
+import { ASKED_PROTECTED, CASPER_OWN_PRIVATE_PATHS, CASPER_PRIVATE_PATHS, gitDirs, hooksPathTargets, otherLoginFiles, PRIVATE_PATHS, PROTECTED_WRITE_PATHS, realpathLongest, within } from "../platform/project-paths";
 
 /**
  * What the shell sandbox lets a command touch. One policy feeds every shell path (the AI's bash, checks,
@@ -286,6 +286,15 @@ export function makeHoldingFolders(policy: Pick<SandboxPolicy, "allowWrite" | "d
 }
 
 export function sandboxPolicy(input: SandboxPolicyInput): SandboxPolicy {
+  return policyWithPrivateWrites(input).policy;
+}
+
+/** The policy, and the write denies a yes in the private box (decision 95) sets aside for the AI's edit or write: the
+ * ones there only because the place is private (the built-in private places, other tools' sign-ins, Casper's private
+ * records, Pi's own files, the project's sandbox.denyRead). One that any other deny also names or holds (git's files,
+ * ~/.casper and the other protected places but ~/.ssh, which asks, ~/.claude/debug, a moved agent store, the project's
+ * sandbox.denyWrite) is never set aside. */
+export function policyWithPrivateWrites(input: SandboxPolicyInput): { policy: SandboxPolicy; privateWrites: string[] } {
   const home = input.home ?? os.homedir();
   const root = path.resolve(input.root);
   const inHome = (entries: readonly string[]) => entries.flatMap((entry) => spellings(path.join(home, entry)));
@@ -312,7 +321,7 @@ export function sandboxPolicy(input: SandboxPolicyInput): SandboxPolicy {
     .concat(submodules.flatMap((found) => found.dirs))
     .flatMap((dir) => GIT_OWN_FILES.map((name) => path.join(dir, name)));
   const open = openWorktree(allowWrite, [root, ...extra]);
-  const denied = unique([
+  const gitDenies = [
     ...gitOwn.flatMap(spellings),
     ...shared.flatMap((dir) => GIT_SHARED_FILES.map((name) => path.join(dir, name))).flatMap(spellings),
     ...hooks.flatMap(spellings),
@@ -321,20 +330,23 @@ export function sandboxPolicy(input: SandboxPolicyInput): SandboxPolicy {
     // A missing one is denied too (a rule on a missing path holds on macOS; Linux has the sandbox remove a new one).
     ...[root, ...extra].flatMap((folder) => worktreeConfigFiles(gitDirs(folder).at(-1), open)).flatMap(spellings),
     ...submodules.flatMap((found) => found.pointers).flatMap(spellings),
-    ...inHome(PROTECTED_WRITE_PATHS),
-    ...inHome(PRIVATE_PATHS),
-    ...otherLogins,
+  ];
+  const protectedPlaces = inHome(PROTECTED_WRITE_PATHS);
+  const privatePlaces = [...inHome(PRIVATE_PATHS), ...otherLogins];
+  const otherDenies = [
     ...inHome(RUNTIME_EXTRA_WRITES),
     // A store moved with CASPER_AGENT_DIR is held like ~/.casper: its settings pick the model, its sessions are replayed.
     // Not when it is home, / or holds the project: that would make them read-only too.
     ...(input.agentDir && !within(path.resolve(input.agentDir), home) && !within(path.resolve(input.agentDir), root) ? spellings(input.agentDir) : []),
     ...(input.project?.denyWrite ?? []).map((entry) => resolveEntry(entry, root, home)).flatMap(spellings),
-  ]);
+  ];
+  const casperOwn = inHome([".casper/agent", ".casper/config.yaml"]);
+  const denied = unique([...gitDenies, ...protectedPlaces, ...privatePlaces, ...otherDenies]);
   // macOS applies the last matching rule, so a denied folder (~/.casper) that holds the project (a /branch session's
   // worktree is ~/.casper/worktrees/<key>/<branch>) would also deny the project. Its other entries are denied one by one.
   // Casper's own names stay denied even when one is not there yet (a rule on a missing path holds on macOS).
   const denyWrite = input.platform === "darwin"
-    ? unique([...denyAround(denied, openFolders(input, root)), ...inHome([".casper/agent", ".casper/config.yaml", ...CASPER_PRIVATE_PATHS])])
+    ? unique([...denyAround(denied, openFolders(input, root)), ...casperOwn, ...inHome(CASPER_PRIVATE_PATHS)])
     : denied;
   // Your sandbox.allowRead takes a built-in private place off the list, never one of Casper's own (nor the project's
   // own denyRead).
@@ -353,7 +365,15 @@ export function sandboxPolicy(input: SandboxPolicyInput): SandboxPolicy {
     ...(input.denyRead ?? []).flatMap(spellings),
   ]);
   const allowedDomains = unique([...REGISTRY_HOSTS, ...LOCAL_HOSTS, ...(input.user?.allowedDomains ?? []), ...(input.rememberedHosts ?? [])]);
-  return { allowWrite, denyWrite, denyRead, allowedDomains };
+  const notPrivate = [...gitDenies, ...inHome(PROTECTED_WRITE_PATHS.filter((entry) => !ASKED_PROTECTED.includes(entry))), ...otherDenies, ...casperOwn];
+  const privateWrites = unique([
+    ...privatePlaces,
+    ...inHome(CASPER_PRIVATE_PATHS),
+    ...agentOwn,
+    ...(input.project?.denyRead ?? []).map((entry) => resolveEntry(entry, root, home)).flatMap(spellings),
+    ...(input.denyRead ?? []).flatMap(spellings),
+  ]).filter((entry) => !notPrivate.some((place) => within(place, entry)));
+  return { policy: { allowWrite, denyWrite, denyRead, allowedDomains }, privateWrites };
 }
 
 /** The folders a deny must not cover: the project and the folders a command may also write (not ones you allowed in
@@ -419,6 +439,16 @@ export function writeFileToOffer(absolute: string, policy: Pick<SandboxPolicy, "
   const names = spellings(absolute);
   const real = realpathLongest(absolute);
   return offerable(names, policy, context) && !isFolder(real) ? real : undefined;
+}
+
+/** For the AI's edit or write of `absolute` outside the project that the private box (decision 95) names: true when it
+ * stays refused past a yes there, so the box doesn't ask. The yes answers only that the place is private: only the
+ * denies in `privateOnly` (policyWithPrivateWrites) are set aside, and a system folder, git's own files and every other denied
+ * place refuse it as writeFileToOffer does. */
+export function refusedPastPrivate(absolute: string, policy: Pick<SandboxPolicy, "denyWrite">, context: { root: string; home: string },
+  privateOnly: readonly string[]): boolean {
+  const aside = new Set(privateOnly);
+  return !offerable(spellings(absolute), { denyWrite: policy.denyWrite.filter((place) => !aside.has(place)), denyRead: [] }, context);
 }
 
 /** Not the project, a system folder, git's own files, or in a denied place. */
