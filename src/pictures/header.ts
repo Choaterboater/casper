@@ -1,7 +1,7 @@
 /** A picture's width and height from its header, read before it is decoded (decision 99): a small file can unpack to
- * gigabytes. Each size is the one a decoder makes room for, so a header that could hide a bigger one is malformed and
- * gives no size. A saved picture's web size keeps the looser `pictureSize` (./shrink): there a size only decides
- * whether to shrink. */
+ * gigabytes. Each bitstream or frame a decoder makes room for is checked (a GIF's first frame, every WebP frame), so a
+ * header that could hide a bigger one is malformed and gives no size. A saved picture's web size keeps the looser
+ * `pictureSize` (./shrink): there a size only decides whether to shrink. */
 
 type Size = { width: number; height: number };
 
@@ -64,36 +64,49 @@ function gifSize(bytes: Uint8Array): Size | undefined {
   return { width: Math.max(u16(6), u16(at + 5)), height: Math.max(u16(8), u16(at + 7)) };
 }
 
-/** A simple WebP's size is its VP8 or VP8L bitstream's. An extended one (VP8X) says a canvas, but a decoder makes room
- * for its first frame's own bitstream, then crops it: so the first VP8, VP8L or ANMF frame after it must be within
- * the canvas, or the size can't be read. Chunks are walked inside the file, with an odd-sized one's pad byte. */
+/** A WebP's canvas is its VP8X chunk's, or a simple one's single VP8 or VP8L bitstream's. A decoder makes room for
+ * each frame's own bitstream, wherever it sits, then crops it: so every chunk to the end of the file is walked (with an
+ * odd-sized one's pad byte), and every VP8 or VP8L frame must be within the canvas, and every ANMF frame inside it with
+ * its bitstream within the frame. A still picture has one frame and an animated one only ANMF frames; anything else,
+ * or a chunk that does not fit the file, gives no size. */
 function webpSize(bytes: Uint8Array): Size | undefined {
   const first = chunkAt(bytes, 12, bytes.length);
   if (!first) return undefined;
-  if (first.type !== "VP8X") return bitstreamSize(bytes, first);
-  if (first.size < 10) return undefined;
   const u24 = (at: number) => bytes[at]! | (bytes[at + 1]! << 8) | (bytes[at + 2]! << 16);
-  const canvas = { width: 1 + u24(first.data + 4), height: 1 + u24(first.data + 7) };
-  for (let chunk = chunkAt(bytes, first.next, bytes.length); chunk; chunk = chunkAt(bytes, chunk.next, bytes.length)) {
+  const canvas = first.type !== "VP8X" ? bitstreamSize(bytes, first)
+    : first.size >= 10 ? { width: 1 + u24(first.data + 4), height: 1 + u24(first.data + 7) } : undefined;
+  if (!canvas) return undefined;
+  let stills = 0, animated = 0;
+  const walked = walkChunks(bytes, first.type === "VP8X" ? first.next : 12, bytes.length, (chunk) => {
     if (chunk.type === "VP8 " || chunk.type === "VP8L") {
-      const frame = bitstreamSize(bytes, chunk);
-      return frame && frame.width <= canvas.width && frame.height <= canvas.height ? canvas : undefined;
+      return ++stills === 1 && within(bitstreamSize(bytes, chunk), canvas);
     }
-    if (chunk.type === "ANMF") {
-      if (chunk.size < 16) return undefined;
-      const x = 2 * u24(chunk.data), y = 2 * u24(chunk.data + 3);
-      const width = 1 + u24(chunk.data + 6), height = 1 + u24(chunk.data + 9);
-      if (x + width > canvas.width || y + height > canvas.height) return undefined;
-      const end = chunk.data + chunk.size;
-      for (let inner = chunkAt(bytes, chunk.data + 16, end); inner; inner = chunkAt(bytes, inner.next, end)) {
-        if (inner.type !== "VP8 " && inner.type !== "VP8L") continue;
-        const frame = bitstreamSize(bytes, inner);
-        return frame && frame.width <= width && frame.height <= height ? canvas : undefined;
-      }
-      return undefined;
-    }
+    if (chunk.type !== "ANMF") return true;
+    animated++;
+    if (chunk.size < 16) return false;
+    const x = 2 * u24(chunk.data), y = 2 * u24(chunk.data + 3);
+    const frame = { width: 1 + u24(chunk.data + 6), height: 1 + u24(chunk.data + 9) };
+    if (x + frame.width > canvas.width || y + frame.height > canvas.height) return false;
+    let bitstreams = 0;
+    const inside = walkChunks(bytes, chunk.data + 16, chunk.data + chunk.size, (inner) =>
+      (inner.type !== "VP8 " && inner.type !== "VP8L") || (++bitstreams === 1 && within(bitstreamSize(bytes, inner), frame)));
+    return inside && bitstreams === 1;
+  });
+  return walked && (stills === 1) !== (animated > 0) ? canvas : undefined;
+}
+
+const within = (inner: Size | undefined, outer: Size) =>
+  !!inner && inner.width <= outer.width && inner.height <= outer.height;
+
+/** Calls `check` on each RIFF chunk from `at` until `end`; false when a check fails or a chunk does not fit before
+ * `end`. The last chunk's pad byte may be missing. */
+function walkChunks(bytes: Uint8Array, at: number, end: number, check: (chunk: Chunk) => boolean): boolean {
+  while (at < end) {
+    const chunk = chunkAt(bytes, at, end);
+    if (!chunk || !check(chunk)) return false;
+    at = chunk.next;
   }
-  return undefined;
+  return true;
 }
 
 type Chunk = { type: string; data: number; size: number; next: number };

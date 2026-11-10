@@ -349,6 +349,43 @@ test("a WebP's first frame and a GIF's first frame can't hide behind a small can
   expect(asked).toBe(6);
 });
 
+test("every WebP frame is checked, not just the first: a later one can't hide a bigger size", async () => {
+  let asked = 0;
+  const counting = async (data: string, mimeType: string) => { asked++; return { image: { data, mimeType } }; };
+  const omittedFor = async (bytes: Buffer) => {
+    const taken = await takePictures({ content: [{ type: "image", data: bytes.toString("base64"), mimeType: "image/webp" }] }, counting, undefined, "site_map");
+    return ((taken.value as { content: Record<string, unknown>[] }).content[0]!).omitted;
+  };
+  const unread = "picture left out: site_map's picture (1 KB) was not opened: its size could not be read";
+  const anim = riffChunk("ANIM", Buffer.alloc(6));
+  const animated = vp8x(100, 100); animated[8] = 0x02;
+  // A decoder opens the plain frame and then a later frame's own bitstream at full size.
+  const cases = [
+    webp(vp8x(100, 100), vp8l(100, 100), anmf(0, 0, 100, 100, vp8l(16_000, 12_000))),
+    webp(vp8x(100, 100), vp8(100, 100), anmf(0, 0, 100, 100, vp8l(16_000, 12_000))),
+    webp(animated, anim, vp8l(100, 100), anmf(0, 0, 100, 100, vp8l(16_000, 12_000))),
+    webp(vp8x(100, 100), anmf(0, 0, 100, 100, vp8l(100, 100)), vp8l(16_000, 12_000)),
+    webp(animated, anim, anmf(0, 0, 100, 100, vp8l(100, 100)), anmf(0, 0, 100, 100, vp8l(16_000, 12_000))),
+    webp(animated, anim, anmf(0, 0, 100, 100, vp8l(100, 100)), anmf(0, 0, 16_000, 12_000, vp8l(100, 100))),
+    webp(vp8l(100, 100), vp8l(16_000, 12_000)),
+    // A still picture has one frame, and an animated one only ANMF frames.
+    webp(vp8x(100, 100), vp8l(100, 100), vp8l(100, 100)),
+    webp(vp8x(100, 100), vp8l(100, 100), anmf(0, 0, 100, 100, vp8l(100, 100))),
+    // A later chunk cut short, or bytes after the last chunk, can't be checked.
+    webp(vp8x(100, 100), vp8l(100, 100), vp8l(16_000, 12_000).subarray(0, 10)),
+    webp(vp8x(100, 100), vp8l(100, 100), Buffer.from("junk")),
+  ];
+  const omitted = [];
+  for (const bytes of cases) omitted.push(await omittedFor(bytes));
+  expect(omitted).toEqual(cases.map(() => unread));
+  expect(asked).toBe(0);
+  // Animated frames within the canvas, with an odd-sized chunk between them, still open.
+  const exif = riffChunk("EXIF", Buffer.from("abc"));
+  const ok = webp(animated, anim, anmf(0, 0, 100, 100, vp8l(100, 100)), exif, anmf(20, 40, 80, 60, vp8(80, 60)));
+  expect((await takePictures({ content: [{ type: "image", data: ok.toString("base64"), mimeType: "image/webp" }] }, counting)).images).toHaveLength(1);
+  expect(asked).toBe(1);
+});
+
 test("a picture whose header says it is over 16384 px a side or 40 megapixels, or has no size, is never decoded", async () => {
   let asked = 0;
   const counting = async (data: string, mimeType: string) => { asked++; return { image: { data, mimeType } }; };
