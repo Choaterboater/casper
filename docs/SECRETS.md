@@ -294,16 +294,19 @@ Casper.
   and the like), through any rule lines under it or between its rows. Rows whose header is not in
   the output are not hidden, and a table with no bars (PowerShell's `Format-Table`) is not read as
   one. A plain cell under such a header is hidden too. A key column stays where it names the rows (a
-  table whose header is just `key` and `value`) or an index (mysql's `EXPLAIN` and `DESCRIBE`), but only
-  in a table drawn with rule lines (mysql's, psql's, a grid): in a Markdown table it is hidden, as
-  Casper always read those. Beside any other column (`name | key | value`) it is hidden.
+  table whose header is just `key` and `value`) or an index (mysql's `EXPLAIN` and `DESCRIBE`), but
+  only in a table whose rule lines do not start with a bar (mysql's `+---+`, psql's own `---+---`, a
+  grid's `├──┼──┤`). In one whose rules start with a bar (Markdown's `|---|`, `|---+---|` in
+  tabulate's orgtbl and psql formats, rich's ASCII box) it is hidden, as Casper always read those.
+  Beside any other column (`name | key | value`) it is hidden.
 - Each table is read two ways, and a cell either way hides stays hidden: the way Casper first read
-  tables (a row of bars with a secret word in it starts one, and a line that does not start with a bar,
-  such as `+---+` or `├──┼──┤`, ends it) and the way that follows rule lines. The first way hides some words that are not secrets: in a mysql
-  or grid table whose header is `key | value`, a row named `password` or `token` right under a rule is
-  taken for a header, so the names below it (`api_key`, `host`) are hidden; and a header printed right
-  after Markdown rows is taken for one of their rows, so its word under the first table's secret column
-  (`user`) is hidden.
+  tables (a row of bars with a secret word in it starts one, and a line that does not start with a
+  bar, such as `+---+` or `├──┼──┤`, ends it) and the way that follows rule lines. The first way
+  hides some words that are not secrets. In a mysql or grid table, any row holding a header word (a
+  row named `password` in a `key | value` table, a user named `token` or `key`) is taken for a new
+  header, so the names in the rows below it (`api_key`, `host`, other users) are hidden. A header
+  printed right after Markdown rows is taken for one of their rows, so its word under the first
+  table's secret column (`user`) is hidden.
 - In a table whose header is two columns ending in `value` (`key | value`, `setting | value`), a row
   whose name holds a secret (`api_key`, `db_password`, `Secret Key`) hides its value, unless the value
   is a setting: `ON` or `OFF`, `Y` or `N`, yes or no, true or false, enabled or disabled, a whole number
