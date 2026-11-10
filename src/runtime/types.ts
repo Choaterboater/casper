@@ -129,6 +129,9 @@ export interface RuntimeShell {
    * with no sandbox too. `asked`: the private box named this file and you said yes (decision 95), so nothing more is
    * asked; the write is still recorded for the receipt. */
   outsideWrite?(absolute: string, options?: { asked?: boolean }): Promise<string | undefined>;
+  /** Before the private box asks about the AI's edit or write outside the project: a reason when it stays refused past a
+   * yes there (a system folder, git's files, a place denied for another reason), so no box asks; undefined asks. */
+  privateWriteRefused?(absolute: string): string | undefined;
   /** Before the AI's edit or write lands inside an app bundle (src/platform/bundles.ts), in the project or not: a reason
    * refuses it; undefined lets it run. */
   bundleWrite?(absolute: string): Promise<string | undefined>;

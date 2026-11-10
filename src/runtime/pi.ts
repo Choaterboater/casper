@@ -1161,6 +1161,12 @@ export class PiRuntime implements AgentRuntime {
       bounded?.signal.throwIfAborted();
       // ~ in tool paths stays the real home: Pi's own file tools expand it with os.homedir(), and the checks must agree.
       const pathContext = toolPathContext(cwd, os.homedir(), agentDir, options);
+      // Where the AI's edit or write of `named` lands outside the project (a link out of it: where it leads), or undefined.
+      // `asked`: the private box names it, so its place being private doesn't make it "private" here.
+      const outsideTarget = (named: string, asked: boolean) => {
+        const kind = asked ? privateWriteKind(named, pathContext) : classifyPath(named, pathContext, true);
+        return kind === "outside" ? named : kind === "linksOut" ? realpathLongest(named) : undefined;
+      };
       const checkChanges = new CheckChangeGuard(cwd, options.checkChanges);
       // Every tool's arguments get their shape repaired before Pi validates them (src/runtime/tool-repair.ts).
       const repair = new ToolArgumentRepair();
@@ -1271,6 +1277,14 @@ export class PiRuntime implements AgentRuntime {
             const reason = await withToolCall(event.toolCallId, () => options.shell?.askPrivate?.(command, privateRead, ctx.signal) ?? privateRead.refusal);
             if (reason) return { block: true, reason };
           }
+          // An edit or write outside the project that stays refused past the private box's yes (a system folder, git's
+          // files, a place denied for another reason) is refused before that box asks, so a yes is never for nothing.
+          const target = (event.toolName === "edit" || event.toolName === "write") && typeof event.input.path === "string"
+            ? outsideTarget(resolveToolPath(event.input.path, cwd, pathContext.home), Boolean(privateFile)) : undefined;
+          if (privateFile && target) {
+            const reason = options.shell?.privateWriteRefused?.(target);
+            if (reason) return { block: true, reason };
+          }
           if (privateFile) {
             const reason = await withToolCall(event.toolCallId, () => options.shell?.askPrivate?.(privateFile.key ?? event.toolName, privateFile, ctx.signal) ?? privateFile.refusal);
             if (reason) return { block: true, reason };
@@ -1286,16 +1300,10 @@ export class PiRuntime implements AgentRuntime {
           }
           // The private box above named this file and you said yes: the outside-write box doesn't ask about it again, but
           // the write is still recorded (the receipt's outside-writes line, the outside-change snapshot).
-          if ((event.toolName === "edit" || event.toolName === "write") && typeof event.input.path === "string" && options.shell?.outsideWrite) {
-            const named = resolveToolPath(event.input.path, cwd, pathContext.home);
-            const kind = privateFile ? privateWriteKind(named, pathContext) : classifyPath(named, pathContext, true);
-            // A link out of the project is asked about where it leads.
-            const absolute = kind === "linksOut" ? realpathLongest(named) : named;
-            if (kind === "outside" || kind === "linksOut") {
-              const reason = await withToolCall(event.toolCallId, () => options.shell?.outsideWrite?.(absolute, privateFile ? { asked: true } : undefined));
-              if (reason) return { block: true, reason };
-              outside.set(event.toolCallId, absolute);
-            }
+          if (target && options.shell?.outsideWrite) {
+            const reason = await withToolCall(event.toolCallId, () => options.shell?.outsideWrite?.(target, privateFile ? { asked: true } : undefined));
+            if (reason) return { block: true, reason };
+            outside.set(event.toolCallId, target);
           }
           // Last, so a call refused above never waits on a question first.
           if (options.beforeToolWait) {

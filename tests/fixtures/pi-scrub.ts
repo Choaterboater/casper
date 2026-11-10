@@ -28,7 +28,9 @@ const shell = outside || privateAnswer ? { wrap: async (command: string) => ({ c
   ...(privateAnswer ? { asksPrivate: () => process.env.FIXTURE_SANDBOX_ON !== "1", asksPrivateFile: () => true, askPrivate: async (command: string, place: { shown: string }) => {
     privateAsked.push(`${place.shown}: ${command}`);
     return privateAnswer === "no" ? `Not run: the user said no to reading ${place.shown}.` : undefined;
-  } } : {}),
+  },
+  // FIXTURE_PRIVATE_REFUSED=1: every edit or write outside the project stays refused past the private box's yes.
+  ...(process.env.FIXTURE_PRIVATE_REFUSED === "1" ? { privateWriteRefused: (absolute: string) => `Not done: ${absolute} stays refused.` } : {}) } : {}),
   // `asked`: the private box already said yes, so nothing is asked; the write is only recorded.
   outsideWrite: async (absolute: string, options?: { asked?: boolean }) => {
     if (options?.asked) { outsideRecorded.push(absolute); return undefined; }

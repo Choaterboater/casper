@@ -299,6 +299,7 @@ export function runtimeShell(host: SandboxHost, sandbox: ShellSandbox, given: Sa
   const store = sandbox.store ?? given;
   let logs: Promise<string> | undefined;
   const show = (entry: string) => displayPath(entry, sandbox.root, sandbox.home);
+  const writeNever = (absolute: string) => `Not done: ${show(absolute)} is outside this project, and Casper doesn't let the AI write there.`;
   /** App bundles the person let the AI write in for this session. */
   const bundlesAllowed = new Set<string>();
   /** Hosts you said "Yes, for this session" to. */
@@ -584,20 +585,21 @@ export function runtimeShell(host: SandboxHost, sandbox: ShellSandbox, given: Sa
       return writeAllowedLine(shown);
     },
     async outsideWrite(absolute, options) {
-      const never = `Not done: ${show(absolute)} is outside this project, and Casper doesn't let the AI write there.`;
       // The private box named this file and you said yes: no second box, but the receipt still names the file. The yes
-      // answers only that it is private: a system folder or a place the project denies writing stays refused.
+      // answers only that it is private: a write refused for another reason was refused before that box asked.
       if (options?.asked) {
-        if (sandbox.asksOutsideWrites && sandbox.refusedPastPrivate(absolute)) return never;
+        const refused = shell.privateWriteRefused!(absolute);
+        if (refused) return refused;
         sandbox.noteAskedWrite(absolute); return undefined;
       }
       if (!sandbox.asksOutsideWrites || sandbox.writeAllowed(absolute)) return undefined;
       const offer = sandbox.writeTarget(absolute);
-      if (!offer) return never;
+      if (!offer) return writeNever(absolute);
       const decision = await sandbox.decideWrite(offer.target, "ai", { file: offer.file });
       if (decision === "allowed" || decision === "once") return undefined;
       return `Not done: ${decision === "no" ? writeDeclined(show(offer.target)) : writeCantAsk(show(offer.target))}`;
     },
+    privateWriteRefused(absolute) { return sandbox.asksOutsideWrites && sandbox.refusedPastPrivate(absolute) ? writeNever(absolute) : undefined; },
     wroteOutside(absolute) { sandbox.noteOutsideWrite(absolute); },
     // Always the box, also with /permissions all on: a write in an app bundle can stop the app from opening.
     async bundleWrite(absolute) {

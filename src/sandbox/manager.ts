@@ -6,7 +6,7 @@ import path from "node:path";
 import { linuxSandboxProblem, quote, ripgrepPath } from "./linux";
 import { isOutside } from "../platform/inside";
 import { gitDirs, realpathLongest, within } from "../platform/project-paths";
-import { hostListed, hostName, makeHoldingFolders, refusedPastPrivate, resolveEntry, sandboxPolicy, submoduleGitDirs, systemTempDirs, worktreeConfigFiles, writeFileToOffer, writeFolderToOffer, type SandboxPolicy, type SandboxProjectSettings, type SandboxUserSettings } from "./policy";
+import { hostListed, hostName, makeHoldingFolders, policyWithPrivateWrites, refusedPastPrivate, resolveEntry, sandboxPolicy, submoduleGitDirs, systemTempDirs, worktreeConfigFiles, writeFileToOffer, writeFolderToOffer, type SandboxPolicy, type SandboxPolicyInput, type SandboxProjectSettings, type SandboxUserSettings } from "./policy";
 import { runtimeEngine, type SandboxEngine } from "./runtime";
 import { withoutToolCall } from "../runtime/tool-reason";
 import type { SandboxStore } from "./store";
@@ -249,7 +249,11 @@ export class ShellSandbox {
 
   /** The policy a command gets now. */
   policy(options: Pick<SandboxWrapOptions, "extraWrite" | "readOnlyProject"> = {}): SandboxPolicy {
-    return sandboxPolicy({
+    return sandboxPolicy(this.policyInput(options));
+  }
+
+  private policyInput(options: Pick<SandboxWrapOptions, "extraWrite" | "readOnlyProject">): SandboxPolicyInput {
+    return {
       root: this.options.root(), home: this.home, agentDir: this.options.agentDir, platform: this.platform,
       tempDirs: [...(this.options.tempDirs ?? systemTempDirs(this.platform)), ...(this.tempDir ? [this.tempDir] : [])],
       ...(this.options.settings?.user ? { user: this.options.settings.user } : {}),
@@ -257,7 +261,7 @@ export class ShellSandbox {
       rememberedHosts: this.remembered, sessionWrites: [...this.sessionWrites, ...this.nextWrites], ...(options.extraWrite ? { extraWrite: options.extraWrite } : {}),
       ...(options.readOnlyProject ? { readOnlyProject: true } : {}),
       ...(this.parent ? { copy: true, denyRead: this.parentDenyRead } : {}),
-    });
+    };
   }
 
   /** Hosts a command reaches without asking: the registry list, yours and this project's remembered ones. */
@@ -501,9 +505,10 @@ export class ShellSandbox {
     return file ? { target: file, file: true } : undefined;
   }
 
-  /** After a yes in the private box to the AI's edit or write of `absolute`: whether it stays refused (see refusedPastPrivate). */
+  /** The AI's edit or write of `absolute` that the private box names: whether it stays refused past a yes there (see refusedPastPrivate). */
   refusedPastPrivate(absolute: string): boolean {
-    return refusedPastPrivate(absolute, this.policy(), { root: this.options.root(), home: this.home }, this.options.settings?.project?.denyWrite);
+    const { policy, privateWrites } = policyWithPrivateWrites(this.policyInput({}));
+    return refusedPastPrivate(absolute, policy, { root: this.options.root(), home: this.home }, privateWrites);
   }
 
   /** Folders and files allowed this session, for /sandbox. */

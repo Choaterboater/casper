@@ -324,7 +324,7 @@ export function classifyPath(absolute: string, context: PathContext, write: bool
 
 /** Protected places that are private too, where the AI's edit or write asks in the private box instead of being
  * refused (decision 95). */
-const ASKED_PROTECTED: readonly string[] = [".ssh"];
+export const ASKED_PROTECTED: readonly string[] = [".ssh"];
 
 /** classifyPath for a place that is not checked for being private: a write into a private place still refused where
  * it is git's own or protected (~/.casper). `asked` names protected places left out (~/.ssh, which asks). */

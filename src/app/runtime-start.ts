@@ -284,6 +284,7 @@ export function currentShell(app: CasperApp): RuntimeShell {
       if (!refused) await app.outsideWork?.beforeWrite(absolute).catch(() => {});
       return refused;
     },
+    privateWriteRefused: (absolute) => app.shell?.privateWriteRefused?.(absolute),
     wroteOutside: (absolute) => app.shell?.wroteOutside?.(absolute),
     logDir: async () => app.shell?.logDir?.(),
     background: () => app.projectContext?.slowCommands === false ? undefined : backgroundCommands(app),

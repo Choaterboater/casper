@@ -379,6 +379,20 @@ posixOnly("the AI's write into ~/.aws or ~/.ssh asks the private box and then no
   expect(existsSync(path.join(home, ".casper/projects/x"))).toBe(false);
 }, 30_000);
 
+posixOnly("an edit or write the private box's yes would still refuse is refused before that box asks (decision 95)", async () => {
+  let home = "";
+  const setup = async (dirs: { home: string }) => { home = dirs.home; await mkdir(path.join(home, ".aws"), { recursive: true }); };
+  const tools = [{ name: "write", args: { path: "~/.aws/config", content: "[default]\n" } }];
+  const refused = await run(tools, { FIXTURE_PRIVATE: "yes", FIXTURE_OUTSIDE: "allow", FIXTURE_PRIVATE_REFUSED: "1" }, setup);
+  expect(refused.result.privateAsked).toEqual([]);
+  expect(refused.sent).toContain(`Not done: ${path.join(home, ".aws/config")} stays refused.`);
+  expect(existsSync(path.join(home, ".aws/config"))).toBe(false);
+  expect(refused.result.outsideRecorded).toEqual([]);
+  // A read there isn't a write: it still asks.
+  const read = await run([{ name: "read", args: { path: "~/.aws/config" } }], { FIXTURE_PRIVATE: "no", FIXTURE_OUTSIDE: "allow", FIXTURE_PRIVATE_REFUSED: "1" }, setup);
+  expect(read.result.privateAsked).toEqual(["~/.aws: read ~/.aws/config"]);
+}, 30_000);
+
 posixOnly("with the sandbox on, the AI's read of ~/.ssh/config still asks (its file tools run outside the sandbox); a command naming it is refused (decision 95)", async () => {
   const setup = async ({ home }: { home: string }) => {
     await mkdir(path.join(home, ".ssh"), { recursive: true });
