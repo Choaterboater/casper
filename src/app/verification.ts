@@ -116,7 +116,7 @@ export async function runVerification(app: CasperApp, checks: readonly CheckName
         // never "the model run failed": the task's own turn had finished.
         const failedBefore = app.taskRuntimeFailed;
         let repairFailed: unknown;
-        try { await session.prompt(prompt, controller.signal, { request, maxTurns: app.maxTurns }); }
+        try { await session.prompt(prompt, controller.signal, { request, maxTurns: app.maxTurns, followUp: true }); }
         catch (error) { repairFailed = error; }
         finally {
           // A picture the repair made is there before the checks run again.

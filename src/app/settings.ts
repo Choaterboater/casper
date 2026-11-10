@@ -273,7 +273,7 @@ export function settingRows(context: ProjectContext): Setting[] {
         value: context.leanGuidance === "off" ? "auto" : "off", shown: context.leanGuidance === "off" ? "auto" : "off" }] },
     compactAtRow(context.compactAt),
     onOffRow("Hide old tool output", context.hideToolOutput !== false,
-      "Once old reads, command output and screenshots fill a fifth of the model's window (or the prompt passes 60% of it), they become permanent stubs in the AI's history. The latest four rounds, recent references and failures stay. Each time rebuilds the cache once; in between earlier messages stay identical, and short tasks never pay. Off stops new hiding, not existing stubs. Saved output is unchanged.",
+      "Once old reads, command output, screenshots and the file bodies the AI wrote fill a fifth of the model's window (or the prompt passes 60% of it, or Casper starts a repair or review round), they become permanent stubs in the AI's history; a file body says to read the file again. The latest four rounds, recent references and failures stay. Each time rebuilds the cache once; in between earlier messages stay identical, and short tasks never pay. Off stops new hiding, not existing stubs. Saved output is unchanged.",
       ["hide_tool_output"], false, "step"),
     onOffRow("Local models", context.localModels !== false,
       "Casper looks for Ollama, LM Studio, llama.cpp and vLLM on this computer and lists their models in /model, with no sign-in and no models.json. Servers you added in /model stay either way. A change applies from the next start.",
