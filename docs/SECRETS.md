@@ -297,18 +297,27 @@ Casper.
   rows (a table whose header is just `key` and `value`) or an index (mysql's `EXPLAIN` and
   `DESCRIBE`); beside any other column (`name | key | value`) it is hidden.
 - In a table whose header is two columns ending in `value` (`key | value`, `setting | value`), a row
-  whose name holds a secret (`api_key`, `db_password`, `Secret Key`) hides its value. In other tables
-  a row is read by its name only when the name is a header word itself (`password`, `token`).
+  whose name holds a secret (`api_key`, `db_password`, `Secret Key`) hides its value, unless the value
+  is a setting: `ON` or `OFF`, yes or no, true or false, a number of up to five digits or a date (mysql's
+  `SHOW VARIABLES` lists `password_require_current OFF` and `password_history 1440`). So a PIN of five
+  digits or fewer in a row such as `db_password` is shown; a row named `password` or `token` still hides
+  it. In other tables, a three-column `key | value | description` among them, a row is read by its name
+  only when the name is a header word itself (`password`, `token`).
 - A line of dashes or `=` with no bar or cross ends a table unless it sits right under the header,
   and so does a grid's edge (`+---+`) below Markdown rows: the table after it is read by its own header.
+  A table printed straight after another is read by its own header when Markdown's rule (`|---|`) sits
+  under it, or a rule of `=`, `═` or `━` whose crosses are not in the same places as the first table's
+  bars. A new header with no rule under it, or with only a `+---+` or `─` rule, is not seen: its rows
+  are read by the first table's header, or by none.
 - A table does not escape a bar inside a value (psql prints it as it is), so a password that holds
   one makes its row a cell longer than the header. Casper then hides that row from its first secret
   cell to its end, the cells after the password with it. A Markdown row with no last bar is hidden
-  the same way, since a bar inside its value need not make it longer. A row with no header in view
-  has no such count to go by.
+  the same way, since a bar inside its value need not make it longer, and so is every row under a
+  header with no last bar. A row with no header in view has no such count to go by.
 - These table shapes are not read: psql's one-column and expanded (`\x`) output and its double
   header line (`═══╪═══`); rich tables with no outer bars (the `MINIMAL` and `SIMPLE` boxes,
-  `HORIZONTALS`, `box=None`, `show_edge=False`); tabulate's `jira`, `youtrack` and `textile`; Markdown
+  `HORIZONTALS`, `box=None`, `show_edge=False`); ClickHouse's `PrettyCompact`, whose header sits inside
+  its top edge (`┌─user─┬─password─┐`); tabulate's `jira`, `youtrack` and `textile`; Markdown
   rows with no leading bar or inside a `>` quote; and any table behind a `grep -n` or `cat -n` prefix.
 - A private key's body in command output is recognised by its BEGIN or END line; a
   piece of one with neither (`head -n 20 key.pem | tail -n 5`) is not. In a key file

@@ -349,8 +349,13 @@ test("a Markdown row with no last bar is hidden from its first secret cell to it
       lines: ["| user | password | role |", "|---|---|---|", "| app | Fake-Grid|Pass-0001"] },
     { name: "no bar inside the password", gone: ["Fake-Grid-Pass-0002"], stay: ["| app |"], lines: ["| user | password | role |", "|---|---|---|", "| app | Fake-Grid-Pass-0002"] },
     // A header with no last bar: its rows are read the same way. A row with a last bar keeps the cells after the secret.
-    { name: "no last bar anywhere", gone: ["Fake-Grid", "Pass-0001", "Fake-Grid-Pass-0002"], stay: ["| app |", "| backup |", "| ops | <secret hidden> | ro |"],
-      lines: ["| user | password | role", "|---|---|---", "| app | Fake-Grid|Pass-0001", "| backup | Fake-Grid-Pass-0002 | ro", "| ops | Fake-Grid-Pass-0003 | ro |"] },    // A line with one bar has no cells: it stays as it is.
+    { name: "no last bar anywhere", gone: ["Fake-Grid", "Pass-0001", "Fake-Grid-Pass-0002"], stay: ["| app |", "| backup |", "| ops | <secret hidden> |"],
+      lines: ["| user | password | role", "|---|---|---", "| app | Fake-Grid|Pass-0001", "| backup | Fake-Grid-Pass-0002 | ro", "| ops | Fake-Grid-Pass-0003 | ro |"] },
+    // A header with no last bar counts the text after its last bar as a cell, so a closed row with a bar inside its
+    // password is no longer than the header: it is hidden to its end too.
+    { name: "a header with no last bar, a closed row with a bar inside the password", gone: ["Fake-Grid", "Pass-0004"], stay: ["| app |", "| user | password | role"],
+      lines: ["| user | password | role", "|---|---|---", "| app | Fake-Grid|Pass-0004 |"] },
+    // A line with one bar has no cells: it stays as it is.
     { name: "a line with one bar", gone: [], stay: ["| a note on one bar"], lines: ["| user | password | role |", "|---|---|---|", "| a note on one bar"] },
   ]);
 });
@@ -389,6 +394,50 @@ test("a key and value table hides the value of any row whose name holds a secret
   // A table of names and what they mean is not a key and value table: its words stay.
   const docs = "| Option | Meaning |\n|---|---|\n| `client_secret` | The OAuth client's secret |\n| api_key | Your service key |";
   expect(scrubPlainSecrets(docs, { env: {} }).text).toBe(docs);
+});
+
+test("a table printed straight after another is read by its own header: a Markdown header rule, or a grid's = rule, starts it", async () => {
+  const logins = ["| user | password            |", "|------|---------------------|", "| b    | Fake-Grid-Pass-0002 |"];
+  const stay = ["| user | password            |", "| b    |"];
+  const gone = ["Fake-Grid-Pass-0001", "Fake-Grid-Pass-0002"];
+  const markdown = ["| password            | user |", "|---------------------|------|", "| Fake-Grid-Pass-0001 | a    |"];
+  const grid = ["+---------------------+-----+", "| password            | u   |", "+=====================+=====+", "| Fake-Grid-Pass-0001 | a   |", "+---------------------+-----+"];
+  const rich = ["┏━━━━━━━━━━━━━━━━━━━━━┳━━━━━┓", "┃ password            ┃ u   ┃", "┡━━━━━━━━━━━━━━━━━━━━━╇━━━━━┩", "│ Fake-Grid-Pass-0001 │ a   │", "└─────────────────────┴─────┘"];
+  await expectTables([
+    // print(tabulate(..., tablefmt='github')) twice: a settings table, then a table of logins.
+    { name: "setting and value, then logins", gone: ["Fake-Grid-Pass-0002"], stay: [...stay, "| port    | 5432  |"],
+      lines: ["| setting | value |", "|---------|-------|", "| port    | 5432  |", ...logins] },
+    { name: "Variable_name and Value, then logins", gone: ["Fake-Grid-Pass-0002"], stay,
+      lines: ["| Variable_name | Value |", "|---------------|-------|", "| port          | 3306  |", ...logins] },
+    { name: "a grid, then Markdown", gone, stay, lines: [...grid, ...logins] },
+    { name: "rich, then Markdown", gone, stay, lines: [...rich, ...logins] },
+    { name: "Markdown, then Markdown", gone, stay, lines: [...markdown, ...logins] },
+    { name: "Markdown, a lone rule, then Markdown", gone, stay, lines: [...markdown, "|----|", ...logins] },
+    { name: "Markdown, a lone bar, then Markdown", gone, stay, lines: [...markdown, " | ", ...logins] },
+    // A grid's bottom edge is the only rule before the next grid's header.
+    { name: "a grid, then a grid with no top edge", gone, stay: ["| user | password            |", "| b    |"],
+      lines: [...grid, "| user | password            |", "+======+=====================+", "| b    | Fake-Grid-Pass-0002 |", "+------+---------------------+"] },
+    // tabulate's heavy_grid and double_grid draw the rule under the header between the rows too: a row there that
+    // holds a header word is still a row of the same table.
+    { name: "heavy_grid, a user named token", gone, stay: ["┃ token  ┃", "┃ backup ┃"],
+      lines: ["┏━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━┓", "┃ user   ┃ password            ┃", "┣━━━━━━━━╋━━━━━━━━━━━━━━━━━━━━━┫", "┃ token  ┃ Fake-Grid-Pass-0001 ┃",
+        "┣━━━━━━━━╋━━━━━━━━━━━━━━━━━━━━━┫", "┃ backup ┃ Fake-Grid-Pass-0002 ┃", "┗━━━━━━━━┻━━━━━━━━━━━━━━━━━━━━━┛"] },
+    { name: "double_grid, key and value", gone: ["Fake-Grid-Pass-0001", "Fake-Api-Key-0001"], stay: ["║ password ║", "║ api_key  ║"],
+      lines: ["╔══════════╦═════════════════════╗", "║ key      ║ value               ║", "╠══════════╬═════════════════════╣", "║ password ║ Fake-Grid-Pass-0001 ║",
+        "╠══════════╬═════════════════════╣", "║ api_key  ║ Fake-Api-Key-0001   ║", "╚══════════╩═════════════════════╝"] },
+  ]);
+});
+
+test("a key and value table keeps a secret-named row's setting: ON or OFF, true or false, a small number or a date", async () => {
+  // mysql's SHOW VARIABLES and a user's settings: these rows name a password's rules, not a password.
+  const rows = [["password_require_current", "OFF"], ["password_reuse_interval", "0"], ["password_history", "1440"], ["default_password_lifetime", "365"],
+    ["caching_sha2_password_auto_generate_rsa_keys", "ON"], ["password_expired", "N"], ["password_last_changed", "2026-01-15 10:22:13"], ["check_password", "true"]];
+  const width = Math.max(...rows.map(([name]) => name!.length));
+  const line = (name: string, value: string) => `| ${name.padEnd(width)} | ${value.padEnd(20)} |`;
+  const rule = `+${"-".repeat(width + 2)}+${"-".repeat(22)}+`;
+  const table = [rule, line("Variable_name", "Value"), rule, ...rows.map(([name, value]) => line(name!, value!)),
+    line("report_password", "Fake-Report-Pass-01"), line("db_password", "123456"), rule];
+  await expectTables([{ name: "SHOW VARIABLES", gone: ["Fake-Report-Pass-01", "123456"], stay: rows.map(([name, value]) => line(name!, value!)), lines: table }]);
 });
 
 test("a file or branch name with login in it is not a login: the name after it stays", () => {
