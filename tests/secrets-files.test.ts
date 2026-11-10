@@ -230,7 +230,7 @@ test("a rule line under a table's header or between its rows keeps the Password 
   }
   expect(windows).toBeGreaterThan(200);
   // Under a device config's lines the device rules read the output first: the same columns go.
-  for (const [name, lines] of GRIDS.slice(0, 3)) {
+  for (const [name, lines] of GRIDS) {
     const text = ["hostname lab-sw1", "snmp-server community FixtureComm9 RO", ...lines].join("\n");
     const out = (await scrubToolOutput(scrubber, "bash", { command: "./logins.sh" }, [text], undefined, { env: {} }))!.texts[0]!;
     for (const secret of ["FixtureComm9", ...GRID_SECRETS]) expect([name, secret, out.includes(secret.slice(-6))]).toEqual([name, secret, false]);
