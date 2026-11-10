@@ -3,7 +3,7 @@ import { isRecord } from "../mcp/config";
 import type { MCPManager, MCPTool, ServerPolicy } from "../mcp/manager";
 import { ACCESS_TOOL, accessModelLines, parseAccessCheck, readOnlyLoginReason, writesOffReason } from "../mcp/access";
 import { approvalNotes, guardArguments, hasNoPreview, isHidden, tightenSafety } from "../mcp/presets";
-import type { RuntimeTool } from "../runtime/types";
+import type { RuntimeImage, RuntimeTool, RuntimeToolResult } from "../runtime/types";
 import { redactPreview, terminalText } from "../tui/format";
 import { scrubExactValues } from "../secrets/assignments";
 import { secretEnvValues } from "../secrets/files";
@@ -22,6 +22,8 @@ import { getsLogins, isNetworkProduct, PRODUCT_LABELS, type NetworkProduct } fro
 import {
   asksEveryTime, hitKindsFrom, isRiskyKind, KIND_TEXT, MAX_HITS_PER_SERVER, mergeHit, planKinds, withHitKinds, withKindFloor, type ChangeKind, type RouterHit,
 } from "./kinds";
+import { fitImage } from "../pictures/fit";
+import { picturesLine, takePictures } from "./pictures";
 import { boundCapabilityResult, capabilityErrorResult, NotExecutedError, OutcomeUnknownError, type BoundedCapabilityResult } from "./result";
 import { indexWords, termScore, tokenize } from "./search";
 import type { CompiledValidator } from "./validate";
@@ -281,6 +283,8 @@ export class CapabilityBroker {
   /** True while the app has set "Don't ask" (decision 82): it asks nothing then, so a change on a server it said asks
    * for itself (casper/clientAsks) gets Casper's change box again. One box either way. */
   private readonly clientAsksIgnored?: () => boolean;
+  /** MCP pictures (`mcp_pictures`, decision 99), read at each call. Off: every picture keeps today's note. Unset: on. */
+  private readonly pictures?: () => boolean;
   /** What each router server's find_tool said about its inner tools (kind, product), per server. Kept while the
    * server's definition stays the same, so the restart that turns writes on keeps them; a changed definition or a
    * server that is gone starts afresh. At most MAX_HITS_PER_SERVER names a server. */
@@ -289,7 +293,8 @@ export class CapabilityBroker {
     options: { writesGate?: boolean; scrubber?: ResultScrubber; onSessionCovered?: (server: string, realTool: string) => void; confirmKind?: ConfirmKind;
       onAllowAll?: (server: string, realTool: string) => void; onAllowAllStart?: (server: string) => void; onLoginMissing?: LoginMissingHandler;
       onChangeCall?: ChangeCallHandler; addedThisSession?: (server: string) => boolean; secretValues?: () => readonly string[]; planning?: () => boolean;
-      readOnly?: () => boolean; clientAsksIgnored?: () => boolean } = {}) {
+      readOnly?: () => boolean; clientAsksIgnored?: () => boolean; pictures?: () => boolean } = {}) {
+    if (options.pictures) this.pictures = options.pictures;
     if (options.planning) this.planning = options.planning;
     if (options.readOnly) this.readOnly = options.readOnly;
     if (options.clientAsksIgnored) this.clientAsksIgnored = options.clientAsksIgnored;
@@ -383,8 +388,21 @@ export class CapabilityBroker {
    * packages fill the marked seams in place:
    *   size check -> validate (WP3) -> hidden/argGuard (WP4) -> secret-marker gate (WP6)
    *   -> approval plan (WP2) -> call (call clock) -> scrub (WP6) -> bound the result.
+   * Pictures stay out with a note here (the reader's separate model call); the AI's own tools take them (answer).
    */
   async invoke(id: string, args: Record<string, unknown>, signal?: AbortSignal, bound: InvokeBound = AI_BOUND): Promise<BoundedCapabilityResult> {
+    return (await this.run(id, args, signal, bound, false)).result;
+  }
+
+  /** The same call for the AI's call_capability and direct tools: the result as text, then its pictures (decision 99).
+   * A model that can't see images, or MCP pictures off, gets today's note, with no time spent shrinking pictures. */
+  async answer(id: string, args: Record<string, unknown>, signal?: AbortSignal, seesImages = true): Promise<RuntimeToolResult> {
+    const { result, images } = await this.run(id, args, signal, AI_BOUND, seesImages && this.pictures?.() !== false);
+    return { text: JSON.stringify(result), isError: result.isError, ...(images.length ? { images } : {}) };
+  }
+
+  private async run(id: string, args: Record<string, unknown>, signal: AbortSignal | undefined, bound: InvokeBound, pictures: boolean)
+    : Promise<{ result: BoundedCapabilityResult; images: RuntimeImage[] }> {
     const combined = signal ? AbortSignal.any([signal, this.closed.signal]) : this.closed.signal;
     notCancelled(combined);
     this.sync();
@@ -548,7 +566,7 @@ export class CapabilityBroker {
     const login = missing ?? expired;
     if (login) {
       const text = await this.onLoginMissing!(capability.descriptor.source, login, combined, expired ? "expired" : "missing");
-      return { isError: true, executed: true, summary: text, truncated: false, originalBytes: Buffer.byteLength(text) };
+      return { result: { isError: true, executed: true, summary: text, truncated: false, originalBytes: Buffer.byteLength(text) }, images: [] };
     }
     // The AI asked access_check first: tell it Casper asks for a missing login, so it never asks in chat or suggests config.
     const missingNote = ownNetwork && capability.tool.name === ACCESS_TOOL ? missingLoginsNote(raw) : undefined;
@@ -559,12 +577,15 @@ export class CapabilityBroker {
     // A routed read shows a device offline: one line so the AI tries another way in before it ends blocked.
     const offline = capability.router && capability.tool.name.startsWith("invoke_read_tool") && showsDeviceOffline(raw);
     if (capability.router && capability.tool.name === "find_tool") this.rememberHits(capability.descriptor.source, raw);
-    // 7. Hide device secrets (passwords, keys, SNMP communities) before anything else reads the result.
-    const scrubbed = await this.scrub(raw, combined, capability.descriptor.source);
+    // 7. Pictures out first (base64 has no text to scrub), then hide device secrets (passwords, keys, SNMP
+    // communities) before anything else reads the result.
+    const taken = pictures ? await takePictures(raw, fitImage, combined, capability.tool.name) : { value: raw, images: [] };
+    const scrubbed = await this.scrub(taken.value, combined, capability.descriptor.source);
     if (capability.router) this.recentOn(capability.descriptor.source).remember(scrubbed.value);
     if (planMode(plan) === "preview") this.previews.set(this.previewSlot(capability, plan), { text: previewText(scrubbed.value), at: Date.now() });
     // 8. Bound: per-list limits, the next-page cursor kept, duplicate text dropped.
     const result = boundCapabilityResult(scrubbed.value, bound.maxBytes, bound.maxItems, { mcp: true });
+    if (taken.images.length) result.summary = `${result.summary} ${picturesLine(taken.images.length)}`;
     const note = scrubNote(scrubbed);
     if (scrubbed.hidden > 0) result.secretsHidden = scrubbed.hidden;
     if (note) result.summary = `${result.summary} ${note}`;
@@ -573,7 +594,7 @@ export class CapabilityBroker {
     if (offline) result.summary = `${result.summary}\n${OTHER_WAY_IN}`;
     // A login was forgotten or replaced while this call ran: the server answered from the old ones, and restarts after.
     if (this.manager.loginEpoch(capability.descriptor.source) !== loginEpoch) result.summary = `${result.summary}\n${LOGINS_CHANGED}`;
-    return result;
+    return { result, images: taken.images };
   }
 
   private recentOn(server: string): RecentObjects {
@@ -988,8 +1009,8 @@ export class CapabilityBroker {
     // A call that may need approval runs one at a time, so two approval prompts never race.
     const wrap = (name: string, description: string, inputSchema: Record<string, unknown>, execute: RuntimeTool["execute"], sequential = false): RuntimeTool => ({
       name, description, inputSchema, ...(sequential ? { sequential } : {}),
-      execute: async (args, signal) => {
-        try { return await execute(args, signal); }
+      execute: async (args, signal, context) => {
+        try { return await execute(args, signal, context); }
         catch (error) {
           // Local errors are controlled strings; raw transport errors are removed by the manager.
           // A refusal reads "Not executed (…)", never "Complete result".
@@ -1017,11 +1038,10 @@ export class CapabilityBroker {
       }),
       wrap("call_capability", "Call a capability by exact id and arguments after inspecting its schema with find_capability. Same safety checks as direct tools. Results bounded to 16 KB and 50 items per list; next_cursor is always kept. Never automatically retry consequential calls.", {
         type: "object", properties: { id: { type: "string" }, arguments: { type: "object", additionalProperties: true } }, required: ["id", "arguments"], additionalProperties: false,
-      }, async (args, signal) => {
+      }, async (args, signal, context) => {
         if (typeof args.id !== "string" || !args.id.trim()) throw new NotExecutedError('bad arguments: field "id" is missing');
         if (!isRecord(args.arguments)) throw new NotExecutedError('bad arguments: field "arguments" must be an object');
-        const result = await this.invoke(args.id, args.arguments, signal);
-        return { text: JSON.stringify(result), isError: result.isError };
+        return await this.answer(args.id, args.arguments, signal, context?.seesImages !== false);
       }, true),
     ];
     // Native routers are intentionally preferred over flattening their catalog.
@@ -1056,9 +1076,8 @@ export class CapabilityBroker {
         : `[${capability.descriptor.safety}; ${capability.descriptor.id}] `;
       tools.push(wrap(capability.runtimeName,
         `${lead}${capability.descriptor.description}\nBounded result; non-read calls require confirmation.`,
-        withoutTitles(structuredClone(capability.tool.inputSchema)) as Record<string, unknown>, async (args, signal) => {
-          const result = await this.invoke(capability.descriptor.id, args, signal);
-          return { text: JSON.stringify(result), isError: result.isError };
+        withoutTitles(structuredClone(capability.tool.inputSchema)) as Record<string, unknown>, async (args, signal, context) => {
+          return await this.answer(capability.descriptor.id, args, signal, context?.seesImages !== false);
         // Routers and non-read tools may ask; a read tool asks only when the AI set confirm itself (the app queues those).
         }, capability.descriptor.safety !== "read" || capability.router));
     }

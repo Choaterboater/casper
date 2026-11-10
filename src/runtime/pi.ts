@@ -1413,9 +1413,10 @@ export class PiRuntime implements AgentRuntime {
           prepareArguments: repair.hook(tool.name, tool.inputSchema, (args) => args as Record<string, unknown>),
           ...(tool.sequential ? { executionMode: "sequential" as const } : {}),
           execute: async (id, args, signal, _update, ctx) => {
-            const result = await withToolCall(id, () => withToolReason(reasons.get(id) ?? "", () => tool.execute(args, signal, { withFileLocks })));
+            const seesImages = Boolean(ctx?.model?.input?.includes("image"));
+            const result = await withToolCall(id, () => withToolReason(reasons.get(id) ?? "", () => tool.execute(args, signal, { withFileLocks, seesImages })));
             if (result.isError) throw new Error(result.text);
-            return { content: toolContent(result, Boolean(ctx?.model?.input?.includes("image"))), details: {} };
+            return { content: toolContent(result, seesImages), details: {} };
           },
         });
         for (const tool of tools.current()) { register(tool); owned.add(tool.name); }

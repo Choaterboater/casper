@@ -7,6 +7,9 @@ const empty = { type: "object" as const, properties: {}, additionalProperties: f
 const site = { type: "object" as const, properties: { site: { type: "string" } }, required: ["site"], additionalProperties: false };
 const read = (name: string, description: string, inputSchema: Tool["inputSchema"] = empty): Tool => ({ name, description, inputSchema, annotations: { readOnlyHint: true } });
 
+/** A 1x1 PNG, base64. */
+export const FIXTURE_PIXEL = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
+
 /** Synthetic router catalogs. Never contacts devices or external services. */
 export function fixtureServer(mode = "generic") {
   const server = new Server({ name: "casper-fixture", version: "1" }, { capabilities: { tools: { listChanged: true } } });
@@ -125,6 +128,10 @@ export function fixtureServer(mode = "generic") {
   if (mode === "own") {
     // A server of your own that is not a network product: a plain change and a delete (a risky kind).
     tools.push({ name: "delete_site", description: "Delete a site", inputSchema: site, annotations: { readOnlyHint: false } });
+  }
+  if (mode === "pictures") {
+    // A server whose answers hold pictures, audio and a binary resource (decision 99).
+    tools = [read("snapshot", "Take a picture of the site map"), read("snapshot_failed", "A failed picture")];
   }
   if (mode === "pins") {
     // An app's server (casper acp) that asks for six of its tools to stay in front of the model; one more it doesn't.
@@ -281,6 +288,14 @@ export function fixtureServer(mode = "generic") {
     if (name === "env_read") value = { supplied: process.env.FIXTURE_VALUE ?? "absent" };
     // Like hpe-networking-mcp list_devices: the cursor sits under _pagination, after the items.
     if (name === "large_read") value = { items: Array.from({ length: 2000 }, (_, i) => ({ i, text: "👻".repeat(1000) })), _pagination: { next_cursor: "provider-read-cursor" } };
+    if (name === "snapshot" || name === "snapshot_failed") {
+      return { ...(name === "snapshot_failed" ? { isError: true } : {}), content: [
+        { type: "text", text: "Site map" },
+        { type: "image", data: FIXTURE_PIXEL, mimeType: "image/png" },
+        { type: "audio", data: "UklGRgAAAABXQVZF", mimeType: "audio/wav" },
+        { type: "resource", resource: { uri: "fixture://map.bin", blob: "AAEC", mimeType: "application/octet-stream" } },
+      ] };
+    }
     if (name === "error_read") return { isError: true, content: [{ type: "text", text: "Fixture rejected the read" }] };
     return { content: [{ type: "text", text: JSON.stringify(value) }] };
   });

@@ -342,12 +342,12 @@ conversation still doesn't fit, or there is nothing older to summarise, does the
 ### Hide old tool output
 
 On by default. Old reads and successful command output of at least 8,000 characters, and old tool
-screenshots, become short permanent stubs **only in requests to the AI**. This waits until hiding pays:
+screenshots and MCP pictures, become short permanent stubs **only in requests to the AI**. This waits until hiding pays:
 the hideable output fills a fifth of the model's context window (and eight rounds have passed since the
 last time), or the prompt passes 60% of the window, and it is more than the cache has to re-read after the
 first stub. So a short task never pays a cache rebuild, and one rebuild takes several old reads at once.
 The last four rounds, errors, unfinished or stopped commands and recently referenced output stay visible.
-Browser check text stays; only its old pictures can be hidden. User pictures, MCP responses
+Browser check text and MCP text stay; only their old pictures can be hidden. User pictures, other MCP responses
 and verification results are not hidden.
 
 The same goes for the file bodies the AI sent: the content of an old `write`, the text of an old `edit`, and
@@ -415,6 +415,11 @@ on. Turn them off with `/settings` (**My MCP servers** writes `mcp_autoconnect: 
 servers** `lsp_autostart: false`): every server then waits for `/mcp connect` or `/lsp connect`, and
 an MCP server starts with writes off with every change asking in the box. They apply from the next
 start. A project file can't set them.
+
+A picture an MCP server returns goes to a model that can see images
+([MCP.md](MCP.md#lifecycle-and-results)). `mcp_pictures: off` in `~/.casper/config.yaml` (only there, not a
+profile or project) leaves every picture out with a note, and the AI gets the text only. /settings shows it as
+**MCP pictures**; a change applies from the next step.
 
 An app that starts `casper acp` can hand Casper its own MCP servers for that session
 ([MCP.md](MCP.md#servers-an-app-hands-casper)). `acp_mcp` in `~/.casper/config.yaml` (only there, not a
@@ -605,7 +610,7 @@ loading.
 **Profile trust.** A repository's `profile:` may select one of your existing profiles, including
 its rules, MCP/LSP server definitions, reference sources and the settings a project file may set
 anyway. Your own settings (`sandbox`, `shell`, `web`, `lab`, `spend`, `cache`, `display`, `theme`,
-`showPages`, `hide_tool_output`, `reasoning_headline`, `lean_guidance`, `compact_at`, `suggestions`, `updates`, `sideQuestions`, `localModels`, `modelServers` (from `~/.casper/config.yaml` only), `telemetry`, `ssh_login`, `other_logins`, `network_updates`, `ai_pages`, `open_pages`, `tools.downloads`, `pages: off`, `browser`, `packs`, `skills.imports`, `skills.bundled`, `repair.bigModelLastTry`, `delegate.build`, `mcp_autoconnect`, `lsp_autostart`, `acp_mcp`, `acp_access`, `acp_questions`, `acp_idle_exit`, `notifications`)
+`showPages`, `hide_tool_output`, `reasoning_headline`, `lean_guidance`, `compact_at`, `suggestions`, `updates`, `sideQuestions`, `localModels`, `modelServers` (from `~/.casper/config.yaml` only), `telemetry`, `ssh_login`, `other_logins`, `network_updates`, `ai_pages`, `open_pages`, `tools.downloads`, `pages: off`, `browser`, `packs`, `skills.imports`, `skills.bundled`, `repair.bigModelLastTry`, `delegate.build`, `mcp_autoconnect`, `lsp_autostart`, `acp_mcp`, `acp_access`, `acp_questions`, `acp_idle_exit`, `mcp_pictures`, `notifications`)
 stay those of the profile you chose yourself (or `~/.casper/config.yaml`), so a repository can't
 turn your sandbox off or your web lookups on by picking or naming a profile; the banner says
 `[config] .casper/project.yaml picked profile lab: …`. `CASPER_PROFILE=lab` (or `profile: lab` in
