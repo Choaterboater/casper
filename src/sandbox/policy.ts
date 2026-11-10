@@ -421,6 +421,17 @@ export function writeFileToOffer(absolute: string, policy: Pick<SandboxPolicy, "
   return offerable(names, policy, context) && !isFolder(real) ? real : undefined;
 }
 
+/** After a yes in the private box (decision 95) to the AI's edit or write of `absolute` outside the project: true when
+ * it stays refused anyway. The yes answers only that the place is private (the policy's denyRead), so a system folder,
+ * git's own files and every other denied place, the project's sandbox.denyWrite (`denyWrite`) among them, refuse it as
+ * writeFileToOffer does. */
+export function refusedPastPrivate(absolute: string, policy: Pick<SandboxPolicy, "denyWrite" | "denyRead">, context: { root: string; home: string },
+  denyWrite: readonly string[] = []): boolean {
+  const kept = new Set(denyWrite.map((entry) => resolveEntry(entry, context.root, context.home)).flatMap(spellings));
+  const privateOnly = new Set(policy.denyRead.filter((place) => !kept.has(place)));
+  return !offerable(spellings(absolute), { denyWrite: policy.denyWrite.filter((place) => !privateOnly.has(place)), denyRead: [] }, context);
+}
+
 /** Not the project, a system folder, git's own files, or in a denied place. */
 function offerable(names: string[], policy: Pick<SandboxPolicy, "denyWrite" | "denyRead">, context: { root: string }): boolean {
   const inside = (places: string[]) => places.some((place) => names.some((name) => within(place, name)));

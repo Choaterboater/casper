@@ -74,13 +74,18 @@ Those files are not edited here; this decision is the one to read.
     Claude Code asks whatever its sandbox says. An edit or write in `~/.ssh` asks in the same box (`Change
     ~/.ssh/config? …`), as the shell's `>> ~/.ssh/config` does and as Claude Code asks before an edit outside the
     workspace (the owner's call). An edit or write where the private place is also Casper's own or git's
-    (`~/.casper`, a `.git` folder) keeps that separate refusal. `lsp` asks only for a private file inside the
+    (`~/.casper`, a `.git` folder) keeps that separate refusal. The yes answers only that the place is private: a
+    write the outside-write rules never offer for another reason (a system folder such as `/etc`, git's own files, the
+    project's `sandbox.denyWrite`) is still refused after it, so a project's `sandbox.denyRead` naming such a path
+    never turns it into a one-box write. `lsp` asks only for a private file inside the
     project: outside it the LSP layer refuses the call anyway. The reader's `casper_read_untrusted` with a `path`
     asks as `read` does (the same session yes).
   - A read-only helper's (explorer, reviewer) read asks in the session's box too, named for it (`Helper explorer:
     Read ~/.ssh/config? …`), after its own gate; Claude Code sends a foreground helper's prompts to the person.
   - A builder's command or read asks in the session's box under its name (`Builder 2: Run this command? It uses
     ~/.ssh…`), as its other commands do; Claude Code's foreground helpers send their prompts to the person too.
+    An app over `casper acp` answers a `/crew` builder's boxes too, but while it set Read only that builder asks
+    nothing, as before: its boxes are No without a card, and its commands that need a yes are refused (decision 82).
   - While an app set Read only, this box is let through as a card, as the plan box is.
 
 ## Guard rails
@@ -93,12 +98,15 @@ Those files are not edited here; this decision is the one to read.
   whose `denyRead` hides private places from every command; the AI's file tools still ask, being outside it.
 - The AI's `edit` and `write` never change `~/.casper` or git's own files, whatever the switch says (protected places).
   `~/.ssh` asks, in the private box only: No first, never answered by `/permissions all` or the judge.
-- A project can't set either key. Off restores today's behaviour exactly.
+- A project can't set either key. Off restores today's behaviour exactly. A project's `sandbox.denyRead` adds private
+  places, but the private box's yes never opens a write the outside-write rules refuse for another reason.
 
 ## Findings
 
 - Not a finding: a command naming a private place runs after the person said yes in its box, or a non-look command
   runs while planning after a yes.
 - Not a finding: the AI's edit or write in `~/.ssh` after a yes in its private box.
-- A finding: either runs with no box while someone could answer, a box defaults to yes, `/permissions all` or the
+- A finding: either runs with no box while someone could answer, a yes in the private box lets the AI write in a
+  system folder or a place the project's `sandbox.denyWrite` names, a `/crew` builder's box reaches an app that set
+  Read only, a box defaults to yes, `/permissions all` or the
   judge answers one, a project file turns one on or off, or the AI's edit or write changes `~/.casper`.

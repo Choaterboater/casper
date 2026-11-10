@@ -2018,12 +2018,14 @@ async function runCrew(host: CommandHost, argument: string): Promise<void> {
 
 /** The session's box a /crew builder's commands ask in (src/crew/shell.ts names them for it). */
 export function crewBuilderHost(host: Pick<CommandHost, "blockOnCleanupFailure" | "interactive" | "remoteApprovals" | "terminal" | "closing" | "commandAbort" | "output" | "stopAsking"
-  | "projectContext">): SandboxHost {
+  | "projectContext" | "readOnlyAccess">): SandboxHost {
   // You at the terminal, or an app over casper acp that answers its boxes (as the AI's own builders ask, src/app/wiring.ts).
+  // An app's Read only (decision 82) asks nothing here either, and only the boxes it lets through reach the app.
   return {
     onCleanupFailure: host.blockOnCleanupFailure,
-    canAsk: () => someoneAnswers(host) && host.terminal.canAsk && !host.closing,
-    pick: (question, options, signal, settings) => host.terminal.pick(question, options, signal ?? host.commandAbort?.signal, settings?.record ? { record: settings.record } : {}),
+    canAsk: () => !host.readOnlyAccess && someoneAnswers(host) && host.terminal.canAsk && !host.closing,
+    pick: async (question, options, signal, settings) => host.readOnlyAccess && !settings?.anyAccess && !settings?.whileReadOnly ? undefined
+      : host.terminal.pick(question, options, signal ?? host.commandAbort?.signal, settings?.record ? { record: settings.record } : {}),
     write: (text) => { if (!host.closing) host.output.write(text); },
     planning: () => false,
     stopAsking: () => host.stopAsking && someoneAnswers(host) && host.terminal.canAsk && !host.closing,

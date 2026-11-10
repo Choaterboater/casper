@@ -6,7 +6,7 @@ import path from "node:path";
 import { linuxSandboxProblem, quote, ripgrepPath } from "./linux";
 import { isOutside } from "../platform/inside";
 import { gitDirs, realpathLongest, within } from "../platform/project-paths";
-import { hostListed, hostName, makeHoldingFolders, resolveEntry, sandboxPolicy, submoduleGitDirs, systemTempDirs, worktreeConfigFiles, writeFileToOffer, writeFolderToOffer, type SandboxPolicy, type SandboxProjectSettings, type SandboxUserSettings } from "./policy";
+import { hostListed, hostName, makeHoldingFolders, refusedPastPrivate, resolveEntry, sandboxPolicy, submoduleGitDirs, systemTempDirs, worktreeConfigFiles, writeFileToOffer, writeFolderToOffer, type SandboxPolicy, type SandboxProjectSettings, type SandboxUserSettings } from "./policy";
 import { runtimeEngine, type SandboxEngine } from "./runtime";
 import { withoutToolCall } from "../runtime/tool-reason";
 import type { SandboxStore } from "./store";
@@ -499,6 +499,11 @@ export class ShellSandbox {
     if (folder) return { target: folder, file: false };
     const file = writeFileToOffer(absolute, this.policy(), { root: this.options.root(), home: this.home });
     return file ? { target: file, file: true } : undefined;
+  }
+
+  /** After a yes in the private box to the AI's edit or write of `absolute`: whether it stays refused (see refusedPastPrivate). */
+  refusedPastPrivate(absolute: string): boolean {
+    return refusedPastPrivate(absolute, this.policy(), { root: this.options.root(), home: this.home }, this.options.settings?.project?.denyWrite);
   }
 
   /** Folders and files allowed this session, for /sandbox. */

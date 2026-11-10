@@ -584,11 +584,16 @@ export function runtimeShell(host: SandboxHost, sandbox: ShellSandbox, given: Sa
       return writeAllowedLine(shown);
     },
     async outsideWrite(absolute, options) {
-      // The private box named this file and you said yes: no second box, but the receipt still names the file.
-      if (options?.asked) { sandbox.noteAskedWrite(absolute); return undefined; }
+      const never = `Not done: ${show(absolute)} is outside this project, and Casper doesn't let the AI write there.`;
+      // The private box named this file and you said yes: no second box, but the receipt still names the file. The yes
+      // answers only that it is private: a system folder or a place the project denies writing stays refused.
+      if (options?.asked) {
+        if (sandbox.asksOutsideWrites && sandbox.refusedPastPrivate(absolute)) return never;
+        sandbox.noteAskedWrite(absolute); return undefined;
+      }
       if (!sandbox.asksOutsideWrites || sandbox.writeAllowed(absolute)) return undefined;
       const offer = sandbox.writeTarget(absolute);
-      if (!offer) return `Not done: ${show(absolute)} is outside this project, and Casper doesn't let the AI write there.`;
+      if (!offer) return never;
       const decision = await sandbox.decideWrite(offer.target, "ai", { file: offer.file });
       if (decision === "allowed" || decision === "once") return undefined;
       return `Not done: ${decision === "no" ? writeDeclined(show(offer.target)) : writeCantAsk(show(offer.target))}`;

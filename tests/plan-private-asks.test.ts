@@ -220,6 +220,29 @@ test("/crew's builder asks the private box in your box under its name; private_c
   await sandbox.close();
 });
 
+test("/crew's builder under an app's Read only: its command box isn't shown and the command is refused, as before decision 95", async () => {
+  const { home, project, context } = await fixture();
+  const picked: string[] = [];
+  const builderHost = crewBuilderHost({ interactive: false, remoteApprovals: true, readOnlyAccess: true, closing: false, stopAsking: false, output: { write() {} },
+    projectContext: context, terminal: { canAsk: true, pick: async (question: string) => { picked.push(question); return "Yes, this once"; } } } as unknown as Parameters<typeof crewBuilderHost>[0]);
+  const session = host([]);
+  const sandbox = createSessionSandbox(session.value, context, { root: () => project, home, seams: { engine: fakeEngine(), platform: "win32" } });
+  expect(sandbox.asksFirst).toBe(true);
+  const builder = crewShell(sandbox, project, () => {}, { host: builderHost, label: "Builder 1" })!;
+  expect(await builder.approve!("npm install left-pad")).toBe(SHELL_CANT_ASK);
+  // Its private-place box is refused too, and a box that isn't one Read only lets through never reaches the app.
+  const place = privateCommandPlace("cat ~/.ssh/config", { root: project, home })!;
+  expect(await builder.askPrivate!("cat ~/.ssh/config", place)).toBe(place.refusal);
+  expect(await builderHost.pick("Write ~/elsewhere/file.txt?", [{ label: "No" }, { label: "Yes, this once" }])).toBeUndefined();
+  expect(picked).toEqual([]);
+  // The boxes Read only lets through (decision 95), and the one to run a blocked command outside (decision 94), still ask.
+  expect(await builderHost.pick("Run this command outside the sandbox?", [{ label: "No" }, { label: "Yes, this once" }], undefined, { anyAccess: true })).toBe("Yes, this once");
+  expect(await builderHost.pick("Run this command? The app set Read only.", [{ label: "No" }, { label: "Yes, this once" }], undefined, { whileReadOnly: true })).toBe("Yes, this once");
+  expect(picked).toHaveLength(2);
+  await builder.close();
+  await sandbox.close();
+});
+
 test("with the sandbox on, a command you said yes to while planning gets the project as Build does; look commands keep it read-only", async () => {
   const { home, project, context } = await fixture();
   const engine = fakeEngine();

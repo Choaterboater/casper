@@ -9,6 +9,7 @@ import { inspectProject } from "../src/project/inspect";
 import type { ShellSandboxOptions } from "../src/sandbox/manager";
 import { SandboxStore } from "../src/sandbox/store";
 import { formatReceipt, formatTaskResult } from "../src/task/result";
+import { privateFilePlace } from "../src/platform/project-paths";
 import { fakeEngine } from "./support/sandbox-fakes";
 import { posixOnly } from "./support/platform";
 import { removeTempDir } from "./support/temp-dir";
@@ -131,6 +132,34 @@ test("the AI's write into ~/.aws after a yes in the private box asks nothing mor
     expect(outsideWritesReceipt(s.sandbox)).toEqual({});
     expect(s.sandbox.writeAllowed(file)).toBe(false);
     await s.sandbox.close();
+  }
+});
+
+test("a yes in the private box answers only that the place is private: a system folder or the project's denyWrite stays refused (decision 95)", async () => {
+  const dirs = await fixture();
+  const system = path.resolve("/etc/casper-placeholder.conf");
+  const denied = path.join(dirs.home, "notes", "plan.txt"), onlyPrivate = path.join(dirs.home, "notes", "draft.txt");
+  // A project's sandbox.denyRead makes its entries private places, so each of these asks the private box.
+  const context = { ...dirs.context, sandbox: { user: dirs.context.sandbox?.user ?? {}, project: { denyRead: [system, denied, onlyPrivate], denyWrite: [denied] } } };
+  for (const platform of ["win32", "linux"] as const) {
+    const terminal = host(["Yes, this once", "Yes, this once", "Yes, this once"]);
+    const sandbox = createSessionSandbox(terminal.value, context, { root: () => dirs.project, home: dirs.home,
+      seams: { engine: fakeEngine(), problem: () => undefined, platform, tempDirs: [] } });
+    const shell = runtimeShell({ ...terminal.value, privateCommands: () => true }, sandbox, new SandboxStore(context.stateDirectory));
+    const pathContext = { root: dirs.project, home: dirs.home, denyRead: sandbox.policy().denyRead };
+    for (const file of [system, denied, onlyPrivate]) {
+      const place = privateFilePlace("write", { path: file }, pathContext)!;
+      expect(place.question).toStartWith("Change ");
+      expect(await shell.askPrivate!(place.key!, place)).toBeUndefined();
+    }
+    expect(terminal.asked).toHaveLength(3);
+    // The other checks still run: as without the yes, a system folder and a place the project denies writing are refused.
+    expect(await shell.outsideWrite!(system, { asked: true })).toBe(`Not done: ${system} is outside this project, and Casper doesn't let the AI write there.`);
+    expect(await shell.outsideWrite!(denied, { asked: true })).toBe("Not done: ~/notes/plan.txt is outside this project, and Casper doesn't let the AI write there.");
+    // A place that is only private: that yes was the one box.
+    expect(await shell.outsideWrite!(onlyPrivate, { asked: true })).toBeUndefined();
+    expect(terminal.asked).toHaveLength(3);
+    await sandbox.close();
   }
 });
 
