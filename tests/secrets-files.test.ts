@@ -309,6 +309,88 @@ test("a key column is kept only in a two-column key and value table; psql's tabl
   }
 });
 
+/** Each case: its lines, what must not show (a secret, or the pieces a bar cuts it into), what must stay. Made-up values. */
+type TableCase = { name: string; lines: string[]; gone: string[]; stay: string[] };
+async function expectTables(cases: TableCase[]): Promise<void> {
+  for (const { name, lines, gone, stay } of cases) {
+    for (const end of ["\n", "\r\n"]) {
+      const out = scrubPlainSecrets(lines.join(end), { env: {} }).text;
+      const shown = (await scrubToolOutput(scrubber, "bash", { command: "./report.py" }, [lines.join(end)], undefined, { env: {} }))?.texts[0] ?? lines.join(end);
+      for (const text of [out, shown]) {
+        for (const part of gone) expect([name, end, part, text.includes(part), text.includes(part.slice(-6))]).toEqual([name, end, part, false, false]);
+        for (const word of stay) expect([name, end, word, text.includes(word)]).toEqual([name, end, word, true]);
+      }
+    }
+  }
+}
+
+test("a table printed after a line of dashes, or a grid's top edge right under Markdown rows, is read by its own header", async () => {
+  const pipe = (first: string[], second: string[]) => [...first, ...second];
+  const logins = ["| password            | user |", "|---------------------|------|", "| Fake-Grid-Pass-0001 | a    |"];
+  const swapped = ["| user | password            |", "|------|---------------------|", "| b    | Fake-Grid-Pass-0002 |"];
+  const grid = ["+------+---------------------+", "| user | password            |", "+======+=====================+", "| b    | Fake-Grid-Pass-0002 |", "+------+---------------------+"];
+  const gone = ["Fake-Grid-Pass-0001", "Fake-Grid-Pass-0002"];
+  await expectTables([
+    // A Python script printing tabulate's pipe or github tables with print('-' * 40) between them.
+    { name: "pipe tables with a line of dashes between", gone, stay: ["| user | password            |", "| b    |", "| a    |"], lines: pipe(logins, ["-".repeat(40), ...swapped]) },
+    { name: "pipe tables with a line of = between", gone, stay: ["| user | password            |", "| b    |"], lines: pipe(logins, ["=".repeat(40), ...swapped]) },
+    { name: "grid tables with a line of dashes between", gone, stay: ["| user | password            |", "| b    |"],
+      lines: pipe(["+---------------------+------+", "| password            | user |", "+=====================+======+", "| Fake-Grid-Pass-0001 | a    |", "+---------------------+------+"], ["-".repeat(40), ...grid]) },
+    // Markdown rows and then straight away a grid's single top edge.
+    { name: "Markdown rows and then a grid", gone, stay: ["| user | password            |", "| b    |"], lines: pipe(logins, grid) },
+    // A bare rule right under the header is the header's rule: the rows below it are still read.
+    { name: "a line of dashes under the header", gone: ["Fake-Grid-Pass-0001"], stay: ["| a    |"], lines: ["| password            | user |", "-".repeat(30), "| Fake-Grid-Pass-0001 | a    |"] },
+  ]);
+});
+
+test("a Markdown row with no last bar is hidden from its first secret cell to its end, so a bar inside the value hides no less", async () => {
+  await expectTables([
+    { name: "a bar inside the password", gone: ["Fake-Grid", "Pass-0001"], stay: ["| app |", "| user | password | role |"],
+      lines: ["| user | password | role |", "|---|---|---|", "| app | Fake-Grid|Pass-0001"] },
+    { name: "no bar inside the password", gone: ["Fake-Grid-Pass-0002"], stay: ["| app |"], lines: ["| user | password | role |", "|---|---|---|", "| app | Fake-Grid-Pass-0002"] },
+    // A header with no last bar: its rows are read the same way. A row with a last bar keeps the cells after the secret.
+    { name: "no last bar anywhere", gone: ["Fake-Grid", "Pass-0001", "Fake-Grid-Pass-0002"], stay: ["| app |", "| backup |", "| ops | <secret hidden> | ro |"],
+      lines: ["| user | password | role", "|---|---|---", "| app | Fake-Grid|Pass-0001", "| backup | Fake-Grid-Pass-0002 | ro", "| ops | Fake-Grid-Pass-0003 | ro |"] },    // A line with one bar has no cells: it stays as it is.
+    { name: "a line with one bar", gone: [], stay: ["| a note on one bar"], lines: ["| user | password | role |", "|---|---|---|", "| a note on one bar"] },
+  ]);
+});
+
+test("mysql's EXPLAIN and DESCRIBE keep their key column: it names an index there, not a secret", async () => {
+  const explain = ["+----+-------------+-------+------+---------------+-----------+---------+-------+------+-------+",
+    "| id | select_type | table | type | possible_keys | key       | key_len | ref   | rows | Extra |",
+    "+----+-------------+-------+------+---------------+-----------+---------+-------+------+-------+",
+    "|  1 | SIMPLE      | users | ref  | idx_email     | idx_email | 1022    | const |    1 | NULL  |",
+    "+----+-------------+-------+------+---------------+-----------+---------+-------+------+-------+"];
+  const describe = ["+-------+--------------+------+-----+---------+----------------+", "| Field | Type         | Null | Key | Default | Extra          |",
+    "+-------+--------------+------+-----+---------+----------------+", "| id    | int          | NO   | PRI | NULL    | auto_increment |",
+    "| email | varchar(255) | YES  | UNI | NULL    |                |", "| team  | int          | YES  | MUL | NULL    |                |",
+    "+-------+--------------+------+-----+---------+----------------+"];
+  for (const lines of [explain, describe]) expect(scrubPlainSecrets(lines.join("\n"), { env: {} }).text).toBe(lines.join("\n"));
+  // Any other table's key column is still hidden.
+  await expectTables([{ name: "a key column beside a table name", gone: ["Fake-Api-Key-0001"], stay: ["billing"],
+    lines: ["+---------+-------------------+", "| table   | key               |", "+---------+-------------------+", "| billing | Fake-Api-Key-0001 |", "+---------+-------------------+"] }]);
+});
+
+test("a key and value table hides the value of any row whose name holds a secret: api_key, db_password, Secret Key", async () => {
+  const rows = [["api_key", "Fake-Api-Key-0001"], ["db_password", "Fake-Grid-Pass-0001"], ["client_secret", "Fake-Client-Sec-0001"],
+    ["secret_key", "Fake-Secret-Key-0001"], ["Secret Key", "Fake-Secret-Key-0002"], ["token_type", "bearer-fixture"], ["host", "db.example.test"]];
+  const gone = rows.slice(0, 5).map(([, value]) => value!);
+  const stay = ["api_key", "Secret Key", "bearer-fixture", "db.example.test"];
+  const boxed = (head: string) => ["+---------------+----------------------+", `| ${head.padEnd(13)} | value                |`, "+---------------+----------------------+",
+    ...rows.map(([key, value]) => `| ${key!.padEnd(13)} | ${value!.padEnd(20)} |`), "+---------------+----------------------+"];
+  await expectTables([
+    { name: "key and value", gone, stay, lines: boxed("key") },
+    { name: "setting and value", gone, stay, lines: boxed("setting") },
+    { name: "psql: key and value", gone, stay,
+      lines: ["      key      |        value         ", "---------------+----------------------", ...rows.map(([key, value]) => ` ${key!.padEnd(13)} | ${value}`), "(7 rows)"] },
+    { name: "setting and value, a bar inside the value", gone: ["Fake-Grid", "Pass-0009"], stay: ["db_password", "| port        | 5432 |"],
+      lines: ["| setting     | value |", "|---|---|", "| port        | 5432 |", "| db_password | Fake-Grid|Pass-0009 |"] },
+  ]);
+  // A table of names and what they mean is not a key and value table: its words stay.
+  const docs = "| Option | Meaning |\n|---|---|\n| `client_secret` | The OAuth client's secret |\n| api_key | Your service key |";
+  expect(scrubPlainSecrets(docs, { env: {} }).text).toBe(docs);
+});
+
 test("a file or branch name with login in it is not a login: the name after it stays", () => {
   for (const command of [
     "git log origin/fix/login-expired origin/fix/minors",

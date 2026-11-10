@@ -293,13 +293,23 @@ Casper.
 - A table's secret column is known by its header (`Password`, `Secret`, `Token`, `Key`, `Community`
   and the like), through any rule lines under it or between its rows. Rows whose header is not in
   the output are not hidden, and a table with no bars (PowerShell's `Format-Table`) is not read as
-  one. A plain cell under such a header is hidden too: the `Key` column of mysql's `DESCRIBE` shows
-  `<secret hidden>`. Only in a table whose header is just `key` and `value` does the key column
-  stay: it names the rows there. Beside any other column (`name | key | value`) a key column is hidden.
+  one. A plain cell under such a header is hidden too. A key column stays only where it names the
+  rows (a table whose header is just `key` and `value`) or an index (mysql's `EXPLAIN` and
+  `DESCRIBE`); beside any other column (`name | key | value`) it is hidden.
+- In a table whose header is two columns ending in `value` (`key | value`, `setting | value`), a row
+  whose name holds a secret (`api_key`, `db_password`, `Secret Key`) hides its value. In other tables
+  a row is read by its name only when the name is a header word itself (`password`, `token`).
+- A line of dashes or `=` with no bar or cross ends a table unless it sits right under the header,
+  and so does a grid's edge (`+---+`) below Markdown rows: the table after it is read by its own header.
 - A table does not escape a bar inside a value (psql prints it as it is), so a password that holds
   one makes its row a cell longer than the header. Casper then hides that row from its first secret
-  cell to its end, the cells after the password with it. A row with no header in view has no such
-  count to go by.
+  cell to its end, the cells after the password with it. A Markdown row with no last bar is hidden
+  the same way, since a bar inside its value need not make it longer. A row with no header in view
+  has no such count to go by.
+- These table shapes are not read: psql's one-column and expanded (`\x`) output and its double
+  header line (`═══╪═══`); rich tables with no outer bars (the `MINIMAL` and `SIMPLE` boxes,
+  `HORIZONTALS`, `box=None`, `show_edge=False`); tabulate's `jira`, `youtrack` and `textile`; Markdown
+  rows with no leading bar or inside a `>` quote; and any table behind a `grep -n` or `cat -n` prefix.
 - A private key's body in command output is recognised by its BEGIN or END line; a
   piece of one with neither (`head -n 20 key.pem | tail -n 5`) is not. In a key file
   (`*.pem`, `*.key`, `*.p8`, `id_rsa`, `id_ed25519_deploy`) every long base64 line is hidden, so a certificate read

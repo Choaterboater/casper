@@ -1,4 +1,5 @@
 import { keepLiterally, KIND_ORDER, replaceSpans, windowedSpans, type SecretKind } from "./patterns";
+import { isSecretName } from "./assignments";
 import { SECRET_MARKER, type ScrubTextResult } from "./scrub";
 
 /**
@@ -133,6 +134,10 @@ const TABLE_ROW = /^\s*[|│┃║]/;
 const TABLE_RULE = /^(?=.*\S)[\s|:+=\-\u2500-\u257F]+$/;
 /** A table's top or bottom edge: a rule with no bar at its start (+---+---+, └──┴──┘, ┌──┬──┐). */
 const edge = (line: string) => TABLE_RULE.test(line) && !TABLE_ROW.test(line);
+/** A rule with no bar or cross (a line of dashes or =): right under a header it is the header's rule; anywhere else it ends the table. */
+const BARE_RULE = /^(?=.*[-=─━═])[\s\-=─━═]+$/;
+/** Whether a row's last cell ends in a bar. */
+const closed = (line: string) => /[|│┃║]/.test(line.trimEnd().slice(-1));
 /** psql's rule under its header (----+----, ────┼────): its rows have no bar at either end. A CR may end the line. */
 const OPEN_RULE = /^[-─]+(?:[+┼][-─]+)+\s*$/;
 const cellText = (cell: string) => cell.trim().replace(/^[*_`]+|[*_`]+$/g, "").trim();
@@ -140,10 +145,14 @@ const marks = (line: string, mark: RegExp) => [...line.matchAll(mark)].map((matc
 
 interface Cell { start: number; end: number; text: string }
 
-/** The cells of a table row, with their start and end in the line. `open`: the line's ends are cell edges too. */
+/**
+ * The cells of a table row, with their start and end in the line. `open`: the line's ends are cell edges too. A row
+ * of two bars or more with text after its last bar (Markdown may leave the last bar out) has that text as a cell.
+ */
 function cells(line: string, open = false): Cell[] {
   const out: Cell[] = [];
-  const bars = open ? [-1, ...marks(line, BAR), line.length] : marks(line, BAR);
+  const found = marks(line, BAR);
+  const bars = open ? [-1, ...found, line.length] : found.length > 1 && !closed(line) ? [...found, line.length] : found;
   for (let index = 0; index + 1 < bars.length; index++) {
     const raw = line.slice(bars[index]! + 1, bars[index + 1]!);
     const lead = raw.length - raw.trimStart().length;
@@ -155,11 +164,18 @@ function cells(line: string, open = false): Cell[] {
 
 const secretHeader = (row: Cell[]) => row.some((cell) => SECRET_HEADER.test(cellText(cell.text)));
 
-/** The columns a header row names as secret. A header of just "key" and "value": the key column names the rows. */
+/** A header of two columns, the second named value: the first names the rows (key, setting, name ...). */
+const keyValueHeader = (row: Cell[]) => row.length === 2 && /^values?$/i.test(cellText(row[1]!.text));
+
+/**
+ * The columns a header row names as secret. A key column stays where it names the rows (a header of just "key" and
+ * "value") or an index (mysql's EXPLAIN, with possible_keys or key_len, and DESCRIBE, with Field and Type).
+ */
 function secretColumns(row: Cell[]): number[] {
   const names = row.map((cell) => cellText(cell.text));
-  const named = names.length === 2 && names.some((name) => /^keys?$/i.test(name)) && names.some((name) => /^values?$/i.test(name));
-  return names.flatMap((name, at) => SECRET_HEADER.test(name) && !(named && /^keys?$/i.test(name)) ? [at] : []);
+  const has = (name: RegExp) => names.some((cell) => name.test(cell));
+  const keepKey = (keyValueHeader(row) && has(/^keys?$/i)) || has(/^(?:possible_keys|key_len)$/i) || (has(/^field$/i) && has(/^type$/i));
+  return names.flatMap((name, at) => SECRET_HEADER.test(name) && !(keepKey && /^keys?$/i.test(name)) ? [at] : []);
 }
 
 /** The rule hits in one line (or one window of a long line). */
@@ -195,6 +211,12 @@ export function scrubProseSecrets(text: string): ScrubTextResult {
   let width = 0;
   // psql's table: known by the rule under its header, and read until a line with no bar.
   let open = false;
+  // A key and value table: a row whose name holds a secret (api_key, Secret Key) hides its value.
+  let keyValue = false;
+  // The header's line, and whether the rule under it starts with a bar (Markdown's |---|).
+  let headerAt = -1;
+  let barRules = false;
+  const end = () => { columns = undefined; open = false; keyValue = false; headerAt = -1; barRules = false; };
   // The line above, as it was written.
   let above = "";
   for (let index = 0; index < lines.length; index++) {
@@ -204,32 +226,40 @@ export function scrubProseSecrets(text: string): ScrubTextResult {
     const spans: Span[] = windowedSpans(line, ruleSpans);
     // The bars of psql's header sit right above the crosses of its rule.
     const psql: Cell[] = !columns && OPEN_RULE.test(line) && marks(before, BAR).join() === marks(line, /[+┼]/g).join() ? cells(before, true) : [];
-    if (secretHeader(psql)) { columns = secretColumns(psql); width = psql.length; open = true; }
-    else if (TABLE_RULE.test(line)) {
-      // A bottom edge and then a top edge: the next table is read by its own header.
-      if (edge(line) && edge(before)) { columns = undefined; open = false; }
+    if (secretHeader(psql) || keyValueHeader(psql)) {
+      columns = secretColumns(psql); width = psql.length; open = true; keyValue = keyValueHeader(psql); headerAt = index - 1;
+    } else if (TABLE_RULE.test(line)) {
+      const under = headerAt >= 0 && index === headerAt + 1;
+      if (under) barRules = TABLE_ROW.test(line);
+      // A bottom edge and then a top edge, a bare rule below the rows (print('-' * 40) between two tables), or a
+      // grid's edge below Markdown rows: the next table is read by its own header.
+      if ((edge(line) && edge(before)) || (BARE_RULE.test(line) && !under) || (barRules && !under && edge(line))) end();
     } else if (open ? line.search(BAR) >= 0 : TABLE_ROW.test(line)) {
       const row = cells(line, open);
-      if (!columns && secretHeader(row)) { columns = secretColumns(row); width = row.length; }
-      else {
+      if (!columns && (secretHeader(row) || keyValueHeader(row))) {
+        columns = secretColumns(row); width = row.length; keyValue = keyValueHeader(row); headerAt = index;
+      } else {
         // A row longer than its header: the bar inside a value moved the cells after it, so the row goes from its
-        // first secret cell to its end.
-        const rest = columns && row.length > width ? row.at(-1)!.end : undefined;
+        // first secret cell to its end. So does a row with no last bar (Markdown may leave it out): a bar inside a
+        // value need not make that row longer.
+        const rest = columns && row.length && (row.length > width || (!open && !closed(line))) ? row.at(-1)!.end : undefined;
         for (const column of columns ?? []) {
           const cell = row[column];
           if (cell && rest !== undefined) { spans.push({ start: cell.start, end: rest, kind: "password" }); break; }
           if (cell && anyValue(cellText(cell.text)) && !cell.text.includes(SECRET_MARKER)) spans.push({ start: cell.start, end: cell.end, kind: "password" });
         }
-        // A key/value table: "│ value │ <uuid> │" after pveum's token add, "| password | X |".
+        // A key/value table: "│ value │ <uuid> │" after pveum's token add, "| password | X |". Under a key and value
+        // header any secret name counts: api_key, db_password, "Secret Key".
         for (let at = 0; at + 1 < row.length; at++) {
           const key = cellText(row[at]!.text).toLowerCase();
           const next = row[at + 1]!;
-          if ((SECRET_HEADER.test(key) || (tokenTable && key === "value")) && anyValue(cellText(next.text)) && !next.text.includes(SECRET_MARKER)) {
+          const named = SECRET_HEADER.test(key) || (keyValue && at === 0 && isSecretName(key)) || (tokenTable && key === "value");
+          if (named && anyValue(cellText(next.text)) && !next.text.includes(SECRET_MARKER)) {
             spans.push({ start: next.start, end: rest ?? next.end, kind: key === "value" ? "key" : "password" });
           }
         }
       }
-    } else { columns = undefined; open = false; }
+    } else end();
     if (tokenTable) {
       // pveum's --output-format json or yaml: "value": "<uuid>", value: <uuid>.
       const json = new RegExp(String.raw`"?\bvalue"?\s*:\s*"?(${UUID})`, "gd");
