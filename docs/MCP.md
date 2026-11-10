@@ -1344,8 +1344,9 @@ the background.
   `1 picture follows this result.` The limits are a request's own: at most 8
   pictures per result and 20 MB each, then shrunk as `read` shrinks a picture (at
   most 2000 px and 4.5 MB). Casper reads each picture's width and height from its
-  header first and never opens one over 16384 px a side or 40 megapixels, or one
-  whose size it can't read: a small file can unpack to gigabytes. A picture the
+  header first (a GIF's or WebP's first frame too, which can be bigger than the
+  size the file says) and never opens one over 16384 px a side or 40 megapixels,
+  or one whose size it can't read: a small file can unpack to gigabytes. A picture the
   image library can't open stays out, since a provider refuses the whole request
   over a broken one. With no image library at all, a picture is sent as it is only
   when its header says it is already within 2000 px and 4.5 MB (the browser's own

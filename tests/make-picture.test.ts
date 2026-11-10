@@ -362,6 +362,15 @@ test.skipIf(!posix)("without sips, ImageMagick on PATH shrinks it (a .png asked 
   expect(pictureSize(bigPng(3000, 2000))).toEqual({ width: 3000, height: 2000 });
 });
 
+test("a saved picture's web size reads a JPEG as main does: a frame segment cut short still gives its size, so a wide one is shrunk", async () => {
+  // Here a size only decides whether to shrink; the strict reading before decoding is headerSize (decision 99).
+  const cutFrame = new Uint8Array([0xff, 0xd8, 0xff, 0xc0, 0, 17, 8, 2000 >> 8, 2000 & 0xff, 3000 >> 8, 3000 & 0xff, 3]);
+  expect(pictureSize(cutFrame)).toEqual({ width: 3000, height: 2000 });
+  const base = await folder();
+  expect(await webSize(cutFrame, false, { platform: "linux", env: { PATH: path.join(base, "empty") } }))
+    .toEqual({ bytes: cutFrame, note: "kept at full size (3000x2000, 0 KB): no sips or ImageMagick here to shrink it" });
+});
+
 test("make_picture is offered for picture and web-page requests when something can make one, and pictures: off takes it away", async () => {
   expect(picturesRequested("Build a landing page for my bakery with photos")).toBe(true);
   for (const task of ["Make a website for a cafe", "create a portfolio site", "add a hero image", "a logo for the app"]) expect({ task, offered: picturesRequested(task) }).toEqual({ task, offered: true });

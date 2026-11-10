@@ -1,20 +1,12 @@
 /** A picture a tool hands the model, at the size the model may take: the browser's screenshots and MCP pictures. */
 
 import type { RuntimeImage } from "../runtime/types";
-import { pictureSize } from "./shrink";
+import { headerSize } from "./header";
 
 /** Base64 size a picture may have: Pi's read tool keeps the same headroom below Anthropic's 5 MB per image. */
 export const PICTURE_MAX_BASE64 = 4.5 * 1024 * 1024;
 /** Longest side a picture may have: Pi's read tool shrinks to the same. */
 export const PICTURE_MAX_SIDE = 2000;
-
-/** Width and height from a PNG, JPEG, GIF or WebP header, without decoding it; undefined when it can't be read or
- * says 0 px. */
-export function headerSize(bytes: Uint8Array): { width: number; height: number } | undefined {
-  const gif = bytes.length >= 10 && ["GIF87a", "GIF89a"].includes(Buffer.from(bytes.subarray(0, 6)).toString("latin1"));
-  const size = gif ? { width: bytes[6]! | (bytes[7]! << 8), height: bytes[8]! | (bytes[9]! << 8) } : pictureSize(bytes);
-  return size && size.width > 0 && size.height > 0 ? size : undefined;
-}
 
 /** A picture shrunk to fit, or null when it was not: no image library here, or a body the library can't decode. */
 export type Resize = (bytes: Buffer, mimeType: string) => Promise<{ image: RuntimeImage; note?: string } | null>;

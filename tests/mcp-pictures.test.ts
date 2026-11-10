@@ -79,11 +79,60 @@ function pngWithFakeFirstChunk(width: number, height: number): Buffer {
   return Buffer.concat([real.subarray(0, 8), fake, real.subarray(8)]);
 }
 
-/** A GIF that is only a header: its logical screen size, no frames. */
-function gifHeader(width: number, height: number): Buffer {
-  const out = Buffer.alloc(14);
-  out.write("GIF89a", 0, "latin1"); out.writeUInt16LE(width, 6); out.writeUInt16LE(height, 8); out[13] = 0x3b;
-  return out;
+/** A GIF that is only headers: a logical screen, then a 2-colour global table, a graphic control and a comment
+ * extension, and one frame's image descriptor (by default the screen's size) with no pixels. With `frame: null`, no
+ * frame at all. */
+function gifHeader(width: number, height: number, frame: { width: number; height: number } | null = { width, height }): Buffer {
+  const screen = Buffer.alloc(13);
+  screen.write("GIF89a", 0, "latin1"); screen.writeUInt16LE(width, 6); screen.writeUInt16LE(height, 8); screen[10] = 0x80;
+  const table = Buffer.from([0, 0, 0, 255, 255, 255]);
+  const extensions = Buffer.from([0x21, 0xf9, 4, 0, 0, 0, 0, 0, 0x21, 0xfe, 3, ...Buffer.from("map"), 0]);
+  const descriptor = Buffer.alloc(10);
+  if (frame) { descriptor[0] = 0x2c; descriptor.writeUInt16LE(frame.width, 5); descriptor.writeUInt16LE(frame.height, 7); }
+  return Buffer.concat([screen, table, extensions, ...(frame ? [descriptor] : []), Buffer.from([0x3b])]);
+}
+
+/** One RIFF chunk, with the pad byte an odd-sized one has. */
+function riffChunk(type: string, data: Buffer): Buffer {
+  const head = Buffer.alloc(8);
+  head.write(type, 0, "latin1"); head.writeUInt32LE(data.length, 4);
+  return Buffer.concat([head, data, Buffer.alloc(data.length % 2)]);
+}
+
+/** A lossless VP8L chunk that is only its header (5 bytes, so it is padded): a decoder makes room for this size. */
+function vp8l(width: number, height: number): Buffer {
+  const data = Buffer.alloc(5);
+  data[0] = 0x2f; data.writeUInt32LE((width - 1) | ((height - 1) << 14), 1);
+  return riffChunk("VP8L", data);
+}
+
+/** A lossy VP8 chunk that is only its frame header. */
+function vp8(width: number, height: number): Buffer {
+  const data = Buffer.alloc(10);
+  data.set([0x9d, 0x01, 0x2a], 3); data.writeUInt16LE(width, 6); data.writeUInt16LE(height, 8);
+  return riffChunk("VP8 ", data);
+}
+
+/** An animation frame: its place and size on the canvas, then its own bitstream. */
+function anmf(x: number, y: number, width: number, height: number, frame: Buffer): Buffer {
+  const head = Buffer.alloc(16);
+  head.writeUIntLE(x / 2, 0, 3); head.writeUIntLE(y / 2, 3, 3); head.writeUIntLE(width - 1, 6, 3); head.writeUIntLE(height - 1, 9, 3);
+  return riffChunk("ANMF", Buffer.concat([head, frame]));
+}
+
+/** A WebP: RIFF, then these chunks. */
+function webp(...chunks: Buffer[]): Buffer {
+  const body = Buffer.concat([Buffer.from("WEBP"), ...chunks]);
+  const head = Buffer.alloc(8);
+  head.write("RIFF", 0, "latin1"); head.writeUInt32LE(body.length, 4);
+  return Buffer.concat([head, body]);
+}
+
+/** An extended WebP's VP8X chunk: its canvas size. */
+function vp8x(width: number, height: number): Buffer {
+  const data = Buffer.alloc(10);
+  data.writeUIntLE(width - 1, 4, 3); data.writeUIntLE(height - 1, 7, 3);
+  return riffChunk("VP8X", data);
 }
 
 const CORRUPT = Buffer.from("not a zlib stream, so the picture can't be decoded");
@@ -245,6 +294,9 @@ test("a JPEG's fill bytes before a marker and a PNG's chunk before IHDR can't hi
   // A segment whose length runs past the end of the file: malformed, so its size can't be read.
   const cut = jpegWithFill(100, 100).subarray(0, 1000);
   expect(await omittedFor(cut, "image/jpeg")).toBe("picture left out: site_map's picture (1 KB) was not opened: its size could not be read");
+  // The same for the frame itself: a SOF0 that says 17 bytes, cut short after its width, height and component count.
+  const cutFrame = Buffer.from([0xff, 0xd8, 0xff, 0xc0, 0, 17, 8, 0x4e, 0x20, 0x4e, 0x20, 3]);
+  expect(await omittedFor(cutFrame, "image/jpeg")).toBe("picture left out: site_map's picture (1 KB) was not opened: its size could not be read");
   // A PNG's size is IHDR's, and IHDR must come first with 13 bytes.
   const unread = "picture left out: site_map's picture (1 KB) was not opened: its size could not be read";
   expect(await omittedFor(pngWithFakeFirstChunk(30_000, 10), "image/png")).toBe(unread);
@@ -254,6 +306,47 @@ test("a JPEG's fill bytes before a marker and a PNG's chunk before IHDR can't hi
   // The same JPEG with a size within the limits still opens.
   expect((await takePictures({ content: [{ type: "image", data: jpegWithFill(1000, 800).toString("base64"), mimeType: "image/jpeg" }] }, counting)).images).toHaveLength(1);
   expect(asked).toBe(1);
+});
+
+test("a WebP's first frame and a GIF's first frame can't hide behind a small canvas or screen", async () => {
+  let asked = 0;
+  const counting = async (data: string, mimeType: string) => { asked++; return { image: { data, mimeType } }; };
+  const omittedFor = async (bytes: Buffer, mimeType: string) => {
+    const taken = await takePictures({ content: [{ type: "image", data: bytes.toString("base64"), mimeType }] }, counting, undefined, "site_map");
+    return ((taken.value as { content: Record<string, unknown>[] }).content[0]!).omitted;
+  };
+  const unread = "picture left out: site_map's picture (1 KB) was not opened: its size could not be read";
+  // An odd-sized chunk before the frame: its pad byte is skipped.
+  const icc = riffChunk("ICCP", Buffer.from("abc"));
+  // A decoder makes room for the frame's own size, then crops it to the canvas: a frame past the canvas is malformed.
+  for (const bytes of [
+    webp(vp8x(100, 100), icc, vp8l(16_000, 12_000)),
+    webp(vp8x(100, 100), vp8(16_000, 12_000)),
+    webp(vp8x(100, 100), anmf(0, 0, 100, 100, vp8l(16_000, 12_000))),
+    webp(vp8x(100, 100), anmf(0, 0, 16_000, 12_000, vp8l(100, 100))),
+    webp(vp8x(100, 100), anmf(2, 0, 100, 100, vp8l(100, 100))),
+    // No frame, or a chunk that runs past the end of the file.
+    webp(vp8x(100, 100), icc),
+    webp(vp8x(100, 100), icc, vp8l(100, 100)).subarray(0, 40),
+  ]) expect(await omittedFor(bytes, "image/webp")).toBe(unread);
+  // A GIF's first frame is sized by its own descriptor, after the colour table and extensions: each side is the larger
+  // of the screen's and the frame's.
+  expect(await omittedFor(gifHeader(100, 100, { width: 8000, height: 6000 }), "image/gif"))
+    .toBe("picture left out: site_map's picture (8000x6000 px, 1 KB) was not opened: over 16384 px a side or 40 megapixels");
+  expect(await omittedFor(gifHeader(100, 20_000, { width: 20_000, height: 100 }), "image/gif"))
+    .toBe("picture left out: site_map's picture (20000x20000 px, 1 KB) was not opened: over 16384 px a side or 40 megapixels");
+  expect(await omittedFor(gifHeader(100, 100, null), "image/gif")).toBe(unread);
+  expect(await omittedFor(gifHeader(100, 100).subarray(0, 25), "image/gif")).toBe(unread);
+  expect(asked).toBe(0);
+  // Frames within the canvas or screen still open.
+  for (const [bytes, mimeType] of [
+    [webp(vp8x(1000, 800), icc, vp8l(1000, 800)), "image/webp"], [webp(vp8x(1000, 800), vp8(1000, 800)), "image/webp"],
+    [webp(vp8x(1000, 800), anmf(100, 100, 500, 400, vp8l(500, 400))), "image/webp"], [webp(vp8l(1000, 800)), "image/webp"],
+    [gifHeader(1000, 800, { width: 500, height: 400 }), "image/gif"], [gifHeader(100, 100, { width: 3000, height: 2000 }), "image/gif"],
+  ] as const) {
+    expect((await takePictures({ content: [{ type: "image", data: bytes.toString("base64"), mimeType }] }, counting)).images).toHaveLength(1);
+  }
+  expect(asked).toBe(6);
 });
 
 test("a picture whose header says it is over 16384 px a side or 40 megapixels, or has no size, is never decoded", async () => {

@@ -20,14 +20,25 @@ to a model that declares image input, and DeepSeek Harness drops the pictures of
   `picture left out: at most 8 per result`, `over 20 MB`, or
   `<tool>'s picture (<W>x<H> px, <N> KB) was not sent: it could not be shrunk to 2000 px and 4.5 MB`.
 - **Sizes are read before a picture is opened.** A small file can unpack to gigabytes, and up to 8 decode at once.
-  So the width and height come from the picture's header first (PNG IHDR, GIF logical screen, WebP VP8/VP8L/VP8X,
-  JPEG SOFn: `headerSize` in `src/pictures/fit.ts`, using `pictureSize` from `src/pictures/shrink.ts`). They are read
-  as a decoder reads them: a PNG's first chunk must be IHDR, 13 bytes long; a JPEG's size is its first SOFn after
-  skipping any 0xFF fill bytes before each marker, and every segment must fit in the file. A header that breaks
-  these is malformed, so its size can't be read. One over
-  16384 px a side or 40 megapixels, or one whose size can't be read, is never decoded and stays out with
+  So the width and height come from the picture's header first (`headerSize` in `src/pictures/header.ts`). Each is
+  at least the size a decoder makes room for, so a header that could hide a bigger one is malformed and gives no size:
+  - PNG: IHDR's, and IHDR must be the first chunk, 13 bytes long.
+  - JPEG: the first SOFn's, after skipping any 0xFF fill bytes before each marker. Every segment up to and with the
+    frame must fit in the file, and a marker with no length before the frame is malformed.
+  - GIF: a decoder makes room for the first frame at its image descriptor's size, which may be bigger than the
+    logical screen. So Casper walks past the global colour table and any extension blocks to that descriptor, and
+    takes the larger of the screen and the frame for each side (a real GIF whose frame overflows its screen still
+    opens). No frame, or a file cut short before it, gives no size.
+  - WebP: a simple one's VP8 or VP8L bitstream size. An extended one (VP8X) says a canvas, but a decoder opens its
+    first frame's own bitstream at full size, then crops it. So the first VP8, VP8L or ANMF frame after it is read
+    too (chunks walked inside the file, with an odd-sized one's pad byte), and the canvas counts only when that frame
+    is within it.
+
+  One over 16384 px a side or 40 megapixels, or one whose size can't be read, is never decoded and stays out with
   `<tool>'s picture (…) was not opened: over 16384 px a side or 40 megapixels` (or `its size could not be read`).
   This is the one limit added beyond a request's own: a pasted picture comes from you, an MCP picture from a server.
+  A saved picture's web size (`webSize`, used by `make_picture`) keeps main's looser reading (`pictureSize` in
+  `src/pictures/shrink.ts`): there a size only decides whether sips or ImageMagick shrinks the picture.
 - **A broken picture stays out; never sent unshrunk past 2000 px.** Pi's resize gives nothing both when no image
   library loads and when it can't decode the body (it catches every error), so when it gives nothing Casper checks
   once whether the library loads by resizing a 1x1 PNG (`imageLibraryLoads`). It loads: the library could not open
@@ -77,7 +88,7 @@ to a model that declares image input, and DeepSeek Harness drops the pictures of
 ## A finding
 
 A picture's base64 in the result text; more than 8 pictures, or one over 20 MB, sent; a picture decoded whose header
-says over 16384 px a side or 40 megapixels, or has no size; a picture sent unshrunk whose header says over 2000 px; a
+says over 16384 px a side or 40 megapixels, or has no size (a GIF's or WebP's first frame counted); a picture sent unshrunk whose header says over 2000 px; a
 picture the image library loaded and could not open sent; a
 picture sent to a model without image input, or shrunk for one; a picture sent or shrunk with `mcp_pictures: off`; a
 type taken from the declared `mimeType` instead of the bytes; a picture from an `isError` result or the reader's call

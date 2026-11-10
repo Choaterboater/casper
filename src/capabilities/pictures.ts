@@ -8,7 +8,8 @@
 
 import { imageMimeType, MAX_IMAGE_BYTES, MAX_IMAGES } from "../app/images";
 import { isRecord } from "../mcp/config";
-import { fitImage, headerSize, PICTURE_MAX_BASE64, PICTURE_MAX_SIDE } from "../pictures/fit";
+import { fitImage, PICTURE_MAX_BASE64, PICTURE_MAX_SIDE } from "../pictures/fit";
+import { headerSize } from "../pictures/header";
 import type { RuntimeImage } from "../runtime/types";
 
 /** A picture at the size the model may take; `unopened` when the image library could not open it. */
