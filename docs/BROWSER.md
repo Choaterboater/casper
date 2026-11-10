@@ -291,16 +291,36 @@ port may differ) at the same viewport, with at least as many steps and assertion
 of each kind as the old one, so a check that the page merely loads can't stand in
 for one that caught a real bug. The old check's reason then reads
 `selector too wide (replaced by "<new name>", <new-id>)`, and the replacement
-decides the result in its place. A new check that stops part
+decides the result in its place. A refused `replacedBy` names every reason at once
+(another page, another viewport, fewer steps or assertions of a kind, not passed)
+and what a replacement must be.
+
+Both steps can be one call: `check` with `replaces`,
+`{"action":"check","replaces":"<old-id>","reason":"selector too wide","scenario":{...}}`.
+Casper first checks that the old check can be replaced (it exists, it did not pass, it
+is not withdrawn) and that the new scenario is of the same page and viewport with at
+least as many steps and assertions of each kind; otherwise nothing is recorded and the
+refusal names every reason and what a replacement must be. The new check then runs as
+any new check. Once it passes, the old one is withdrawn naming it, under the same
+`replacedBy` rules, and the result says so under `replaced`; the reason is optional
+there (`written wrong` when left out). A replacement that does not pass is kept as a
+check of its own, the old one stays, and `replaced.note` says how to finish. A
+`withdraw` refused after a change says all of this in one message, such as `replay
+it, or replace it in one call: record a check of / at 1280×800 with at least 1 fill
+step, 1 click step and 1 text assertion that passes, with replaces: "<id>"`
+([decision 101](adr/0002/101-browser-checks-in-fewer-rounds.md)). A new check that stops part
 way (a step's element is not there yet) still returns its id in the error: replay
 it once the page is ready, or withdraw it while no edit or command has run since.
 A check whose recording never finished (no server answered yet) is recorded by
 its first finished run, so a failure there can be withdrawn like one from a
 recording.
 A new check whose step or assertion selector matches several elements is not kept at all: the
-error says how many it matched (`assertion 1's selector matches 2 elements: name one element
-and record the check again (nothing was recorded)`), and the check is recorded again with one
-element. A replay where one matches several is a check written wrong, not a failure of the page:
+error says how many it matched and lists each one, its tag, `data-testid`, first text and a
+selector that matches it alone (`assertion 1's selector matches 2 elements (matches: p "2 left" =
+p:nth-of-type(1); p "0 done" = p:nth-of-type(2)): name one element and record the check again
+(nothing was recorded)`), so the check is recorded again with one element the first time. A
+step or action whose selector matches nothing lists the elements most like it the same way,
+under `near:`; inside a web component the selector reads `host >>> inner`. A replay where one matches several is a check written wrong, not a failure of the page:
 incomplete with the reason `Written wrong: …`, no repair, and the receipt says
 `1 written wrong: <name> (assertion 1's selector matches 2 elements)`
 ([decision 55](adr/0002/55-restart-a-checks-service-for-the-end-replay.md)). So is a text assertion that has
@@ -338,9 +358,8 @@ wait. Assertions poll for up to one second each. When a selector matches no elem
 or a text does not match, the failed assertion also lists under `near` up to 3
 real elements on the page most like the one asked for (by id, class, tag or
 text), such as `h1#page-title "Hello Casper"`. On a replay it also has a
-`hint`: `If the check itself is wrong, record a corrected check of this page and
-withdraw this one (replacedBy: its id once it passes); if the page is wrong, fix
-it.` (not on the run that records it, or the first finished run of one that never
+`hint`: `If the check itself is wrong, record a corrected check of this page with
+replaces: this check's id; if the page is wrong, fix it.` (not on the run that records it, or the first finished run of one that never
 finished: a check recorded before the edit is meant to fail then). When the
 expected text is exactly the text of an element inside the matched one (a whole
 confirmation box compared with its heading), the hint on any run is instead `The expected text is
@@ -411,9 +430,9 @@ Casper gives the model **one repair turn**, using the same budget as command,
 page-note and proof repairs. Incomplete or stale results, and failures from checks
 not replayed by this task, do not start that turn. A check recorded in this task that stopped part way (a step whose
 element wasn't built yet) is replayed at the end too, on the final app. One still unfinished after that gets one turn,
-not a repair: `↻ finish: a browser check the AI recorded never finished`, asking the AI to replay its id, or first record a
-correct check of the same page and, once it passes, withdraw the old one with `replacedBy` (every listed id must end
-replayed or withdrawn), without changing the app; then the checks replay again. A check
+not a repair: `↻ finish: a browser check the AI recorded never finished`, asking the AI to replay its id, or record a
+correct check of the same page with `replaces: <its id>`, which withdraws the old one once it passes (every listed id
+must end replayed or withdrawn), without changing the app; then the checks replay again. A check
 written wrong, answered Cancel, whose server is gone, or that couldn't be replayed keeps its reason and gets no turn. A failing check that was already failing when it was recorded
 (its baseline was a failure) gets a line, `– Save was already failing when it was recorded`, and the same repair turn,
 with no question first ([decision 72](adr/0002/72-restore-full-checking.md)): every such check was recorded in this
@@ -572,7 +591,7 @@ After a forced SIGKILL of Casper or a power loss, cleanup may not happen.
 ## Bounds and artifacts
 
 - Serialized operations; 200 operations and 24 immutable scenarios per session (past 24, replay the ids you have).
-- Scenarios: 16 KiB, 12 steps, 1–8 assertions; total arguments: 20,000 bytes.
+- Scenarios: 16 KiB, 30 steps, 1–8 assertions; total arguments: 20,000 bytes.
 - Operation deadline: 15 seconds (30 for check/replay), including approval wait;
   navigation/server readiness: 10 seconds.
 - Chrome that crashes or is killed: checks it passed become stale, the next action says

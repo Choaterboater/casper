@@ -1203,7 +1203,7 @@ function finishChecksPrompt(checks: readonly BrowserCheck[]): string {
   return [
     "Casper: browser checks you recorded in this task never finished.",
     ...checks.map((check) => `- ${check.name} (id ${check.id})${check.reason ? `: ${check.reason}` : ""}`),
-    "Replay each id with the browser tool now that the page is ready. If a check is wrong (it needs data or steps it doesn't set up), first record a correct check of the same page; once it passes, withdraw this one with replacedBy: the new check's id. One that went to a sign-in page never saw its page: withdraw it, no replacedBy needed, and if its page isn't checked yet, record a check that signs in through its steps. Every id above must end replayed or withdrawn. Don't change the app in this turn. Casper replays the checks again after it.",
+    "Replay each id with the browser tool now that the page is ready. If a check is wrong (it needs data or steps it doesn't set up), record a correct check of the same page with replaces: its id; once that passes, the old one is withdrawn. One that went to a sign-in page never saw its page: withdraw it, no replacedBy needed, and if its page isn't checked yet, record a check that signs in through its steps. Every id above must end replayed or withdrawn. Don't change the app in this turn. Casper replays the checks again after it.",
   ].join("\n");
 }
 

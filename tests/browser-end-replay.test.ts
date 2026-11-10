@@ -170,7 +170,7 @@ test("a check that never finished gets one turn to finish or withdraw it, then a
   expect(turns.at(-1)).toBe(ROUND_MAX_TURNS);
   expect(prompts.at(-1)).toContain("- Save (id c1)");
   // A run's AI withdrew first, got "replacedBy must be the id of another check", and the old check stayed: the order is said.
-  expect(prompts.at(-1)).toContain("first record a correct check of the same page; once it passes, withdraw this one with replacedBy: the new check's id");
+  expect(prompts.at(-1)).toContain("record a correct check of the same page with replaces: its id; once that passes, the old one is withdrawn");
   expect(prompts.at(-1)).toContain("Every id above must end replayed or withdrawn");
   expect(prompts.at(-1)).toContain("Don't change the app in this turn");
   // Still unfinished: the receipt says so, as before.
