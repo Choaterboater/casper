@@ -44,7 +44,7 @@ function fakeHost(home: string, project: string, answers: (string | undefined)[]
   };
 }
 
-const rowsFor = async (home: string, project: string) => settingRows(await loadProjectContext(await inspectProject(project), { homeDir: home }));
+const rowsFor = async (home: string, project: string) => settingRows(await loadProjectContext(await inspectProject(project), { homeDir: home }), home);
 const valueOf = async (home: string, project: string, label: string) => (await rowsFor(home, project)).find((row) => row.label === label)!.value;
 
 test("Updates row: auto by default, Keep first, and every mode saves as text and reloads", async () => {
@@ -585,4 +585,59 @@ test("Keep going row: on by default, a pick writes keep_going: false; it loads f
   expect((await load()).keepGoing).toBe(true);
   await writeFile(projectFile, "keep_going: off\n");
   await expect(load()).rejects.toThrow("keep_going is a user setting");
+});
+
+test("Readable private places row: none by default; opening one and making it private again save sandbox.allowRead beside sandbox: on", async () => {
+  const { home, project, config } = await folders();
+  const row = (await rowsFor(home, project)).find((candidate) => candidate.label === "Readable private places")!;
+  expect(row.value).toBe("none");
+  expect(row.question).toContain("as Claude Code's sandbox.filesystem.allowRead does");
+  expect(row.choices.map((choice) => choice.label)).toContain("Open ~/.aws");
+  // Casper's own keys and records are not offered here (your config can still name one).
+  expect(row.choices.some((choice) => choice.label.startsWith("Open ~/.casper/"))).toBe(false);
+  expect(settingsArea("Readable private places")).toBe(SETTINGS_AREAS.findIndex((area) => area.name === "Privacy & sign-ins"));
+  await writeFile(config, "sandbox: on\n");
+  await runSettings(fakeHost(home, project, ["Open ~/.aws"]), undefined, "Readable private places");
+  expect(await readFile(config, "utf8")).toBe("sandbox:\n  enabled: true\n  allowRead:\n    - ~/.aws\n");
+  expect(await valueOf(home, project, "Readable private places")).toBe("~/.aws");
+  expect((await loadConfiguration({ projectRoot: project, homeDir: home })).sandbox.user).toMatchObject({ off: false, allowRead: ["~/.aws"] });
+  // A place already open (or inside one that is) is not offered again; the open one can be made private again.
+  await writeFile(config, "sandbox:\n  allowRead: [~/.config, ~/.aws]\n");
+  const open = (await rowsFor(home, project)).find((candidate) => candidate.label === "Readable private places")!;
+  expect(open.value).toBe("~/.config, ~/.aws");
+  expect(open.choices.slice(0, 2).map((choice) => [choice.label, choice.value])).toEqual([["Make ~/.config private again", ["~/.aws"]], ["Make ~/.aws private again", ["~/.config"]]]);
+  expect(open.choices.map((choice) => choice.label)).not.toContain("Open ~/.config/gh");
+  await runSettings(fakeHost(home, project, ["Make ~/.aws private again"]), undefined, "Readable private places");
+  expect(await valueOf(home, project, "Readable private places")).toBe("~/.config");
+});
+
+test("Readable private places row: a profile's entries are shown and stay; $HOME and full-path spellings count as open", async () => {
+  const { home, project, config } = await folders();
+  await mkdir(path.join(home, ".casper/profiles/default"), { recursive: true });
+  await writeFile(path.join(home, ".casper/profiles/default/config.yaml"), "sandbox:\n  allowRead: [~/.kube]\n");
+  await writeFile(config, `sandbox:\n  allowRead: [$HOME/.aws, ${path.join(home, ".docker")}]\n`);
+  const row = (await rowsFor(home, project)).find((candidate) => candidate.label === "Readable private places")!;
+  expect(row.value).toBe(`$HOME/.aws, ${path.join(home, ".docker")}, ~/.kube (profile)`);
+  const labels = row.choices.map((choice) => choice.label);
+  // Only your own file's entries can be made private here; the profile's stays.
+  expect(labels).not.toContain("Make ~/.kube private again");
+  for (const place of ["~/.aws", "~/.docker", "~/.kube"]) expect(labels).not.toContain(`Open ${place}`);
+  await runSettings(fakeHost(home, project, ["Make $HOME/.aws private again"]), undefined, "Readable private places");
+  expect(await readFile(config, "utf8")).toBe(`sandbox:\n  allowRead:\n    - ${path.join(home, ".docker")}\n`);
+});
+
+test("Blocked commands row: ask by default, as Claude Code and DeepSeek Harness; outside and inside save beside sandbox: on", async () => {
+  const { home, project, config } = await folders();
+  const row = (await rowsFor(home, project)).find((candidate) => candidate.label === "Blocked commands")!;
+  expect(row.value).toBe("ask");
+  expect(row.keep).toBe("Keep ask");
+  expect(row.choices.map((choice) => [choice.label, choice.value])).toEqual([["Run it outside", "outside"], ["Keep it blocked", "inside"]]);
+  expect(row.question).toContain("as Claude Code and DeepSeek Harness do");
+  expect(settingsArea("Blocked commands")).toBe(SETTINGS_AREAS.findIndex((area) => area.name === "Commands & checks"));
+  // `sandbox: on` becomes a mapping that keeps it on.
+  await writeFile(config, "sandbox: on\n");
+  await runSettings(fakeHost(home, project, ["Keep it blocked"]), undefined, "Blocked commands");
+  expect(await readFile(config, "utf8")).toBe("sandbox:\n  enabled: true\n  commands: inside\n");
+  expect(await valueOf(home, project, "Blocked commands")).toBe("inside");
+  expect((await loadConfiguration({ projectRoot: project, homeDir: home })).sandbox.user.off).toBe(false);
 });

@@ -735,6 +735,14 @@ test("review: a helper gets the project's denyRead as private paths, like the ma
   expect(child.options?.privatePaths).toEqual(["/data/greencli-logs"]);
 });
 
+test("a helper gets your sandbox.allowRead too: a private place you opened is open to its file tools", async () => {
+  const child = new ChildRuntime();
+  const agents = new SubagentManager({ runtimeFactory: () => child, cleanupGraceMs: 20, allowRead: () => ["/home/me/.aws"] });
+  cleanup.push(() => agents.close());
+  await agents.run(task);
+  expect(child.options?.allowRead).toEqual(["/home/me/.aws"]);
+});
+
 test("each child is told the main session's model now, for a role that is not set", async () => {
   let model: string | undefined = "ollama/qwen3:8b";
   const child = new ChildRuntime();

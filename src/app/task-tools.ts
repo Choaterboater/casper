@@ -25,7 +25,7 @@ import { appReaderTool } from "./reader";
 import { casperSessionTool } from "./session-tool";
 import { githubTool } from "../github/tool";
 import { ownSecretValues } from "./network-host";
-import { projectPrivatePaths, sandboxHost } from "./wiring";
+import { projectPrivatePaths, sandboxHost, userReadablePaths } from "./wiring";
 import { appAgentDir, observeEdit } from "./runtime-start";
 import { autoBuilders, builderAvailability } from "../crew/auto";
 import { crewShell } from "../crew/shell";
@@ -48,7 +48,7 @@ export async function prepareCapabilities(app: CasperApp, task: string, options:
     check: app.checkTask?.tool(), lsp: app.lsp!, confirmRename: app.confirmRename,
     references: app.references!, ...(app.web ? { web: webTools(app.web, app.commandAbort?.signal, { browser: () => app.offeredTools.has("browser") }) } : {}), visualization: app.visualization!, showDiagram: (rendered) => showDiagramPage(app, rendered), projectRoot: app.activeWorkspaceRoot(), privatePaths: projectPrivatePaths(app),
     page: pageToolFor(app), picture: await pictureToolFor(app, picturesRequested(task) || app.offeredTools.has("make_picture")),
-    reader: appReaderTool({ context: app.projectContext, session: () => app.session, shell: app.shell, broker: app.broker, root: app.activeWorkspaceRoot(), home: app.homeDir(), agentDir: appAgentDir(app), privatePaths: projectPrivatePaths(app), onUsage: (usage) => app.observations.recordModelCall(usage), signal: app.commandAbort?.signal }),
+    reader: appReaderTool({ context: app.projectContext, session: () => app.session, shell: app.shell, broker: app.broker, root: app.activeWorkspaceRoot(), home: app.homeDir(), agentDir: appAgentDir(app), privatePaths: projectPrivatePaths(app), allowRead: userReadablePaths(app), onUsage: (usage) => app.observations.recordModelCall(usage), signal: app.commandAbort?.signal }),
     browserReady: app.browser?.status().state === "ready", browserInstalled: await app.browserInstalled, browser: () => browserSession(app),
     browserSignal: app.commandAbort?.signal, browserOff: app.projectContext?.browser === false, diagramOff: app.projectContext?.diagrams === false,
     services: { declared: Object.keys(app.projectContext?.services ?? {}).length > 0, live: (app.services?.live({ detected: false }) ?? false) || Boolean(app.backgroundCommands?.list().length) },
@@ -78,7 +78,7 @@ export async function prepareCapabilities(app: CasperApp, task: string, options:
 export function taskServiceTool(app: CasperApp): RuntimeTool {
   const tool = serviceTool(() => serviceManager(app), app.commandAbort?.signal, () => app.smokeTask,
     app.shell?.approve ? (command, signal, options) => app.shell!.approve!(command, signal, options) : undefined, () => app.backgroundCommands,
-    app.steerWaits.listen);
+    app.steerWaits.listen, () => userReadablePaths(app));
   return { ...tool, async execute(args, signal, context) {
     const running = new Set(app.services?.status().filter(service => service.state === "ready" || service.state === "starting").map(service => service.name));
     const result = await tool.execute(args, signal, context);

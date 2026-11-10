@@ -231,3 +231,14 @@ test("a plain loopback URL that is no service is reachable, and large bodies are
   expect(huge.data.body).toContain("[truncated: more than 65536 bytes, first 8192 shown]");
   expect(Buffer.byteLength(huge.text)).toBeLessThanOrEqual(16_384);
 }, 30_000);
+
+test("an ad-hoc service command naming a private place is refused unless your sandbox.allowRead opens it", async () => {
+  const manager = new ServiceManager({ projectRoot: await realpath(os.tmpdir()), services: {} });
+  cleanups.push(() => manager.close().catch(() => {}));
+  // The approve step stands in for the usual next step, so nothing starts.
+  const approve = async () => "reached the usual box";
+  const run = async (opened: readonly string[]) => (await serviceTool(() => manager, undefined, undefined, approve, undefined, undefined, () => opened)
+    .execute({ action: "start", command: "cat ~/.aws/config" }, new AbortController().signal)).text;
+  expect(await run([])).toContain("~/.aws");
+  expect(await run([path.join(os.homedir(), ".aws")])).toContain("reached the usual box");
+});

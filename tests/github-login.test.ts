@@ -238,7 +238,7 @@ test("a session yes kept from the Next row (/allowed keep) is kept in ~/.casper,
   await allowedCommand("/allowed", store, (chunk) => { text += chunk; });
   expect(text).toContain("1. git push commands, outside the sandbox with your GitHub login");
   const view = { githubLogin: ["git push"], sandboxOn: true } as Partial<PermissionsView>;
-  expect(permissionsScreen({ ...BASE_VIEW, ...view })).toContain("GitHub login: the sandbox hides it; a plain git push/pull/fetch/clone/ls-remote or gh pr/issue/run/repo/api/auth status asks 'Run outside the sandbox with your GitHub login?' (not answered by /permissions all; a merge, close, reopen, ready, review, checkout, rerun or cancel asks every time). Allowed: git push (/allowed forget <n>).");
+  expect(permissionsScreen({ ...BASE_VIEW, ...view })).toContain("GitHub login: the sandbox hides it; a plain git push/pull/fetch/clone/ls-remote or gh pr/issue/run/repo/api/auth status asks 'Run outside the sandbox with your GitHub login?' (not answered by /permissions all; a merge, close, reopen, ready, review, checkout, rerun or cancel asks every time; a blocked command you let run outside the sandbox uses your login as typed). Allowed: git push (/allowed forget <n>).");
   text = "";
   await allowedCommand("/allowed forget 1", store, (chunk) => { text += chunk; });
   expect(text).toContain("Forgot 1: git push commands");

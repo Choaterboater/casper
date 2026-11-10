@@ -190,6 +190,8 @@ export interface SubagentManagerOptions {
   hideToolOutput?: () => boolean;
   /** The project's sandbox.denyRead (absolute): a helper's file tools refuse them like the main session's. */
   privatePaths?: () => readonly string[];
+  /** Your sandbox.allowRead (absolute): private places you opened are open to a helper's file tools too. */
+  allowRead?: () => readonly string[];
   /** Each helper's start, steps and end, for the steps pane. Display only; never shown to a model. */
   onActivity?: (activity: HelperActivity) => void;
 }
@@ -825,6 +827,7 @@ export class SubagentManager {
           ...(this.options.guidance ? { guidance: this.options.guidance } : {}),
           ...((model) => model ? { sessionModel: model } : {})(this.options.sessionModel?.()),
           ...(privatePaths.length ? { privatePaths: [...privatePaths, ...inCopy] } : {}),
+          ...((allowRead) => allowRead.length ? { allowRead } : {})(this.options.allowRead?.() ?? []),
           systemPromptAppend: options.systemPromptAppend,
         };
         if (options.builder) {
