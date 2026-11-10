@@ -6,7 +6,7 @@ import { PassThrough } from "node:stream";
 import { CasperApp } from "../src/app";
 import { allowedCommand } from "../src/app/allowed";
 import { updateFooter } from "../src/app/footer";
-import { parsePermissions, permissionsScreen, permissionsSummary, READ_ONLY_LINE, type PermissionsView } from "../src/app/permissions";
+import { parsePermissions, permissionsScreen, permissionsSummary, readOnlyLine, type PermissionsView } from "../src/app/permissions";
 import { canonicalLine } from "../src/tui/commands";
 import { createSessionSandbox, runtimeShell, type SandboxHost } from "../src/app/sandbox";
 import { sandboxHost } from "../src/app/wiring";
@@ -202,7 +202,7 @@ test("/permissions is short: the state first, one line per kind, what stays prot
   const { output } = await session(d, ["/permissions"], []);
   const screen = output.slice(output.indexOf("Asking is on:"), output.indexOf("Stop asking until you quit?"));
   for (const line of ["Asking is on: Casper asks before", "  Shell: ", "  Other machines (ssh, scp): asks", "  Writes outside the project: asks · allowed: none · /permissions write <folder>",
-    "  Network devices (MCP): writes off", "Protected whatever you pick: ~/.ssh, ~/.casper", "/permissions details shows everything"]) {
+    "  Network devices (MCP): writes off", "Protected: ~/.ssh, cloud logins and Casper's own logins and records are private", "/permissions details shows everything"]) {
     expect(screen).toContain(line);
   }
   expect(screen.trim().split("\n").length).toBeLessThanOrEqual(12);
@@ -226,15 +226,67 @@ test("the short screen's Network devices line says which servers have writes on 
   expect(permissionsSummary({ ...view, mcpWritesOn: ["central"] })).toContain("writes on: central · each change asks");
 });
 
+test("Protected says what can't be read and what can't be changed; the blocked-command words only while the sandbox is on", () => {
+  const view: PermissionsView = {
+    shell: "", scripts: "", asking: true, sandboxOn: false, outsideWritesAsk: true, commandsSession: 0, commandsSaved: 0, listedHosts: 0, rememberedHosts: [], reachHosts: [],
+    labDevices: 0, labAsks: undefined, checks: "ask", checksRemembered: false, writesForGood: [], writesSession: [], mcpWritesOn: [], mcpAllowAll: [],
+    web: true, github: true, sshLogin: true, downloads: true, show: (folder) => folder,
+  };
+  for (const text of [permissionsSummary(view), permissionsScreen(view)]) {
+    expect(text).toContain("Protected: ~/.ssh, cloud logins and Casper's own logins and records are private: the AI's file tools and a command naming one ask first, naming the place");
+    expect(text).toContain("~/.casper, shell start-up files and git's own files can be read, but the AI's edit and write can't change them, and a command that does is like any other command (Run this command?);");
+    expect(text).not.toContain("a command the sandbox blocks");
+  }
+  expect(permissionsScreen(view)).toContain("unless sandbox: allowRead in ~/.casper/config.yaml (Readable private places in /settings) opens one;");
+  for (const text of [permissionsSummary({ ...view, sandboxOn: true }), permissionsScreen({ ...view, sandboxOn: true })]) {
+    expect(text).toContain("can't change them, and the sandbox blocks a command that does (a command the sandbox blocks can run once outside it: it asks);");
+  }
+});
+
 test("with Read only set by the app, /permissions and its details name it first", () => {
   const view: PermissionsView = {
     shell: "", scripts: "", asking: true, sandboxOn: false, outsideWritesAsk: true, commandsSession: 0, commandsSaved: 0, listedHosts: 0, rememberedHosts: [], reachHosts: [],
     labDevices: 0, labAsks: undefined, checks: "ask", checksRemembered: false, writesForGood: [], writesSession: [], mcpWritesOn: [], mcpAllowAll: [],
     web: true, github: true, sshLogin: true, downloads: true, show: (folder) => folder,
   };
-  expect(permissionsSummary(view)).not.toContain(READ_ONLY_LINE);
-  expect(permissionsSummary({ ...view, readOnly: true }).split("\n")[0]).toBe(READ_ONLY_LINE);
-  expect(permissionsScreen({ ...view, readOnly: true }).split("\n")[1]).toBe(READ_ONLY_LINE);
+  const line = readOnlyLine(view);
+  expect(permissionsSummary(view)).not.toContain(line);
+  expect(permissionsSummary({ ...view, readOnly: true }).split("\n")[0]).toBe(line);
+  expect(permissionsScreen({ ...view, readOnly: true }).split("\n")[1]).toBe(line);
+  // It names the boxes Read only still asks (decisions 94 and 95), following plan_commands, private_commands and
+  // sandbox.commands. With the sandbox off there is no proxy or write hold, so no new-host or write box for a command you
+  // said yes to, and nothing the sandbox blocks.
+  expect(line).toBe("Read only (set by the app): Casper looks and answers. Edits, writes, checks and MCP changes are not run. A command that may change files asks first, and so do a private place, another machine and a look command reading outside the project. Pick another access in the app to change it.");
+  expect(readOnlyLine({ ...view, sandboxOn: true })).toContain("and so do a private place, another machine, the GitHub login and a look command the sandbox blocked (to run it once outside), and a new host or write of a command you said yes to.");
+  for (const commands of ["outside", "inside"] as const) expect(readOnlyLine({ ...view, sandboxOn: true, commands })).not.toContain("the sandbox blocked");
+  // plan_commands off: ssh, scp, git push and gh are not look commands, so they are refused before another machine or
+  // the GitHub login could ask.
+  expect(readOnlyLine({ ...view, planCommands: false })).toBe("Read only (set by the app): Casper looks and answers. Edits, writes, changing commands, checks and MCP changes are not run; a private place and a look command reading outside the project still ask. Pick another access in the app to change it.");
+  expect(readOnlyLine({ ...view, planCommands: false, privateCommands: false })).toContain("not run; a look command reading outside the project still asks.");
+  expect(readOnlyLine({ ...view, planCommands: false, sandboxOn: true })).toContain("not run; a private place and a look command the sandbox blocked (to run it once outside) still ask.");
+  expect(readOnlyLine({ ...view, planCommands: false, sandboxOn: true, privateCommands: false })).toContain("not run; a look command the sandbox blocked (to run it once outside) still asks.");
+  expect(readOnlyLine({ ...view, planCommands: false, sandboxOn: true, privateCommands: false, commands: "inside" })).toContain("MCP changes are not run. Pick another access");
+  for (const sandboxOn of [false, true]) expect(readOnlyLine({ ...view, planCommands: false, sandboxOn })).not.toMatch(/another machine|GitHub login/);
+  expect(line).not.toContain("nothing asks");
+});
+
+test("private places ask first with private_commands on, naming what stays refused; off, they stay out of the AI's reach", () => {
+  const view: PermissionsView = {
+    shell: "", scripts: "", asking: true, sandboxOn: false, outsideWritesAsk: true, commandsSession: 0, commandsSaved: 0, listedHosts: 0, rememberedHosts: [], reachHosts: [],
+    labDevices: 0, labAsks: undefined, checks: "ask", checksRemembered: false, writesForGood: [], writesSession: [], mcpWritesOn: [], mcpAllowAll: [],
+    web: true, github: true, sshLogin: true, downloads: true, show: (folder) => folder,
+  };
+  expect(permissionsSummary(view)).toContain("Protected: ~/.ssh, cloud logins and Casper's own logins and records are private: the AI's file tools and a command naming one ask first, naming the place (Commands that read private places in /settings), unless sandbox.allowRead opens one;");
+  expect(permissionsSummary({ ...view, sandboxOn: true })).toContain("are private: the AI's file tools ask first, naming the place, and the sandbox hides them from commands (Commands that read private places in /settings), unless");
+  expect(permissionsScreen(view)).toContain("the AI's file tools and a command naming one ask first, naming the place, also with /permissions all; where nobody can answer they are refused (Commands that read private places in /settings), unless sandbox: allowRead");
+  for (const text of [permissionsSummary(view), permissionsScreen(view)]) {
+    expect(text).toContain("~/.casper, shell start-up files and git's own files can be read, but the AI's edit and write can't change them");
+    expect(text).not.toContain("are refused, sandbox or not");
+  }
+  const off = { ...view, privateCommands: false };
+  for (const text of [permissionsSummary(off), permissionsScreen(off)]) {
+    expect(text).toContain("are private: the AI's file tools and a command naming one are refused, sandbox or not (Commands that read private places is off in /settings), unless");
+  }
 });
 
 test("your own servers that started with writes on are named apart: their changes don't ask, a network product's still do", () => {
@@ -254,7 +306,7 @@ test("/permissions details is the full screen: every fact and every way to be as
   const d = await dirs();
   const { output } = await session(d, ["/permissions details"], []);
   for (const line of ["What Casper may do here, and how to change it. Asking is on.", "To stop being asked about one command: answer 3", "Writes outside the project: Casper asks (1 No · 2 Yes, this once · 3 Yes, for this session; the Next row offers to keep it for this project)",
-    "/permissions write <folder>", "To turn everything on: there is no single switch, on purpose.", "Protected whatever you pick: ~/.ssh, ~/.casper", "/verify and /services may execute project scripts"]) {
+    "/permissions write <folder>", "To turn everything on: there is no single switch, on purpose.", "Protected: ~/.ssh, cloud logins and Casper's own logins and records are private", "/verify and /services may execute project scripts"]) {
     expect(output).toContain(line);
   }
   expect(output).not.toContain("Stop asking until you quit?");

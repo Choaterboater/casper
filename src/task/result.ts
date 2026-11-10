@@ -828,7 +828,7 @@ function receiptParts(task: TaskResult, options: ReceiptOptions, onScreen = fals
     const own = task.changedPaths?.filter((file) => !movedAway.has(file));
     // A few files are named; more are counted, with where most of them are (line 1 is not a file list).
     const only = (what: string) => `only ${what} changed${here}${!own?.length ? "" : own.length <= 3 ? ` (${pathList(own, safe, false)})` : ` (${filesFolders(own, safe)})`}`;
-    if (task.readOnlyAccess) why(`– Not checked — ${READ_ONLY_CHECKS}: Casper blocked the changes it could see and ran no checks.`, "Not checked", READ_ONLY_CHECKS);
+    if (task.readOnlyAccess) why(`– Not checked — ${READ_ONLY_CHECKS}: Casper blocked or asked about each change it could see and ran no checks.`, "Not checked", READ_ONLY_CHECKS);
     else if (task.autoSkipped === "no-checks") {
       if (options.checksHintShown) why("– Not verified — no checks set up", "Not verified", "no checks set up");
       else if (task.testsWithoutCommand) why(TESTS_WITHOUT_COMMAND_LINE, "Not checked", undefined, SET_UP_TEST_COMMAND);

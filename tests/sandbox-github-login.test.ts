@@ -70,7 +70,7 @@ needsSandbox("a sandboxed gh can't read your login; the plain gh you said yes to
     // As the AI's shell does: what the sandbox refused is read before the run is let go.
     const note = await shell.refused!(held.id!, inside.out);
     shell.finished!(held.id!);
-    expect(note === GITHUB_LOGIN_HINT || note?.endsWith(GITHUB_LOGIN_HINT.replace(/^\[sandbox\] /, ""))).toBe(true);
+    expect(note === GITHUB_LOGIN_HINT || (typeof note === "string" && note.endsWith(GITHUB_LOGIN_HINT.replace(/^\[sandbox\] /, "")))).toBe(true);
     // Plain, and you said yes: it runs outside the sandbox, with your login.
     expect(await shell.approve!("gh auth status")).toBeUndefined();
     const outside = await shell.wrap("gh auth status", root);

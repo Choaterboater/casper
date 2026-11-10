@@ -6,7 +6,7 @@ import path from "node:path";
 import { linuxSandboxProblem, quote, ripgrepPath } from "./linux";
 import { isOutside } from "../platform/inside";
 import { gitDirs, realpathLongest, within } from "../platform/project-paths";
-import { hostListed, hostName, makeHoldingFolders, sandboxPolicy, submoduleGitDirs, systemTempDirs, worktreeConfigFiles, writeFileToOffer, writeFolderToOffer, type SandboxPolicy, type SandboxProjectSettings, type SandboxUserSettings } from "./policy";
+import { hostListed, hostName, makeHoldingFolders, policyWithPrivateWrites, refusedPastPrivate, resolveEntry, sandboxPolicy, submoduleGitDirs, systemTempDirs, worktreeConfigFiles, writeFileToOffer, writeFolderToOffer, type SandboxPolicy, type SandboxPolicyInput, type SandboxProjectSettings, type SandboxUserSettings } from "./policy";
 import { runtimeEngine, type SandboxEngine } from "./runtime";
 import { withoutToolCall } from "../runtime/tool-reason";
 import type { SandboxStore } from "./store";
@@ -119,6 +119,9 @@ export class ShellSandbox {
   private readonly blockedSaid = new Set<string>();
   /** Hosts you said yes to for one command (ssh to a host you named), until that command ends. */
   private readonly runHosts = new Map<string, string[]>();
+  /** Held commands running now, and the hosts the person said No to in the host box while each one ran (the proxy
+   * can't tell whose command asked, so each running command gets the No): a refusal of that host is their answer. */
+  private readonly heldRuns = new Map<string, Set<string>>();
   private remembered: string[] = [];
   /** Folders outside the project you allowed writes to, this session only (the shell's and the AI's tools'). */
   private readonly sessionWrites: string[] = [];
@@ -236,6 +239,9 @@ export class ShellSandbox {
    * (--no-sandbox, sandbox: off): then they go through as before. */
   get asksOutsideWrites(): boolean { return this.state.kind !== "off"; }
   get user(): SandboxUserSettings { return this.options.settings?.user ?? {}; }
+
+  /** Your sandbox.allowRead as absolute paths. */
+  readablePaths(): string[] { return (this.user.allowRead ?? []).map((entry) => resolveEntry(entry, this.options.root(), this.home)); }
   /** --allow-reach: machines allowed for this run. */
   get allowedReach(): readonly string[] { return this.options.allowReach ?? []; }
   /** What this project's answers keep in ~/.casper (hosts, machines ssh may reach, commands). */
@@ -243,7 +249,11 @@ export class ShellSandbox {
 
   /** The policy a command gets now. */
   policy(options: Pick<SandboxWrapOptions, "extraWrite" | "readOnlyProject"> = {}): SandboxPolicy {
-    return sandboxPolicy({
+    return sandboxPolicy(this.policyInput(options));
+  }
+
+  private policyInput(options: Pick<SandboxWrapOptions, "extraWrite" | "readOnlyProject">): SandboxPolicyInput {
+    return {
       root: this.options.root(), home: this.home, agentDir: this.options.agentDir, platform: this.platform,
       tempDirs: [...(this.options.tempDirs ?? systemTempDirs(this.platform)), ...(this.tempDir ? [this.tempDir] : [])],
       ...(this.options.settings?.user ? { user: this.options.settings.user } : {}),
@@ -251,7 +261,7 @@ export class ShellSandbox {
       rememberedHosts: this.remembered, sessionWrites: [...this.sessionWrites, ...this.nextWrites], ...(options.extraWrite ? { extraWrite: options.extraWrite } : {}),
       ...(options.readOnlyProject ? { readOnlyProject: true } : {}),
       ...(this.parent ? { copy: true, denyRead: this.parentDenyRead } : {}),
-    });
+    };
   }
 
   /** Hosts a command reaches without asking: the registry list, yours and this project's remembered ones. */
@@ -307,6 +317,7 @@ export class ShellSandbox {
     const network = options.network ?? "ask";
     if (this.platform === "linux") makeHoldingFolders(policy, this.home);
     const wrapped = await this.engine.wrap(command, policy, { id, cwd: options.cwd, network, prefix });
+    this.heldRuns.set(id, new Set());
     this.parent?.crewRuns.set(id, this);
     return { command: IPV6_MISSING && network === "ask" && wrapped !== command ? `SOCAT_DEFAULT_LISTEN_IP=4; export SOCAT_DEFAULT_LISTEN_IP; ${wrapped}` : wrapped, id, held: true };
   }
@@ -384,7 +395,7 @@ export class ShellSandbox {
 
   /** Run `id` has ended: the sandbox cleans up after it (see SandboxEngine.finished). Safe to call more than once. */
   finished(id: string | undefined): void {
-    if (id) { this.runHosts.delete(id); this.parent?.crewRuns.delete(id); this.engine.finished(id); this.sayNewExecs(id); }
+    if (id) { this.runHosts.delete(id); this.heldRuns.delete(id); this.parent?.crewRuns.delete(id); this.engine.finished(id); this.sayNewExecs(id); }
     // A commondir the run wrote is gone when it ends, even if the watch missed it (macOS can drop an event that
     // comes just after a watch starts).
     for (const dotGit of this.gitGuards.keys()) this.guardGit(path.dirname(dotGit));
@@ -417,6 +428,21 @@ export class ShellSandbox {
   /** What the sandbox refused for run `id`, in plain words: "wanted to write /etc/hosts", "wanted to reach api.mist.com".
    * On Linux's own bubblewrap line there is no monitor, so a read-only-file-system error names the file instead. */
   refused(id: string, output = ""): string[] {
+    return this.allRefused(id, output).slice(0, 3);
+  }
+
+  /** The hosts run `id` was refused that the person said No to in the host box while it ran, whatever else was
+   * refused: their No stands for the whole command. Undefined when there is none (a host nobody was asked about). */
+  declinedHosts(id: string, output = ""): string[] | undefined {
+    const declined = this.heldRuns.get(id);
+    if (!declined?.size) return undefined;
+    const hosts = this.allRefused(id, output).flatMap((line) => /^wanted to reach (\S+)$/.exec(line)?.[1] ?? [])
+      .filter((host) => declined.has(hostName(host)));
+    return hosts.length ? [...new Set(hosts)] : undefined;
+  }
+
+  /** Everything the sandbox refused for run `id`, as `refused` says it but not cut to three. */
+  allRefused(id: string, output = ""): string[] {
     const plain = new Set<string>();
     for (const line of this.engine.violations(id)) {
       const network = /network-outbound\s+(\S+?)(?::\d+)?(?:\s|$)/.exec(line);
@@ -435,7 +461,17 @@ export class ShellSandbox {
         if (file) plain.add(`wanted to write ${file}`);
       }
     }
-    return [...plain].slice(0, 3);
+    return [...plain];
+  }
+
+  /** The sandbox's own denial words in a failed command's output, as DeepSeek Harness reads them (decision 94):
+   * macOS's "Operation not permitted"; on Linux "Read-only file system" (bubblewrap mounts what commands may not write
+   * read-only) and "Operation not permitted" (its seccomp filter refuses Unix sockets). Undefined: none, or no
+   * sandbox here. */
+  deniedWords(output: string): string | undefined {
+    const words = this.platform === "darwin" ? ["Operation not permitted"] : this.platform === "linux" ? ["Read-only file system", "Operation not permitted"] : [];
+    const lower = output.toLowerCase();
+    return words.find((word) => lower.includes(word.toLowerCase()));
   }
 
   /** "blocked by the sandbox (wanted to write /etc/hosts)", or undefined when it refused nothing. */
@@ -467,6 +503,12 @@ export class ShellSandbox {
     if (folder) return { target: folder, file: false };
     const file = writeFileToOffer(absolute, this.policy(), { root: this.options.root(), home: this.home });
     return file ? { target: file, file: true } : undefined;
+  }
+
+  /** The AI's edit or write of `absolute` that the private box names: whether it stays refused past a yes there (see refusedPastPrivate). */
+  refusedPastPrivate(absolute: string): boolean {
+    const { policy, privateWrites } = policyWithPrivateWrites(this.policyInput({}));
+    return refusedPastPrivate(absolute, policy, { root: this.options.root(), home: this.home }, privateWrites);
   }
 
   /** Folders and files allowed this session, for /sandbox. */
@@ -519,6 +561,13 @@ export class ShellSandbox {
     if (once >= 0) this.onceTargets.splice(once, 1);
   }
 
+  /** Another box (the private box, decision 95) allowed the AI's edit or write of `absolute` outside the project: once it
+   * lands, noteOutsideWrite names the file on the receipt, as for a write box's Yes, this once. Allows nothing itself. */
+  noteAskedWrite(absolute: string): void {
+    const real = realpathLongest(absolute);
+    if (!this.writeTargetAllowed(real) && !this.onceTargets.includes(real)) this.onceTargets.push(real);
+  }
+
   /** You allowed a shell command to write `folder`: the receipt says allowed, not written (the sandbox can't tell). */
   noteOutsideAllow(folder: string): void { this.allowedOutside.add(folder); }
 
@@ -568,8 +617,15 @@ export class ShellSandbox {
         }
         return false;
       }
-      const choice = await answer.catch((): HostAnswer => "no");
-      if (choice === "no") return false;
+      let failed = false;
+      const choice = await answer.catch((): HostAnswer => { failed = true; return "no"; });
+      if (choice === "no") {
+        // The person's No (not a box that failed): every command running now keeps it, not just its first request.
+        if (!failed) for (const declined of this.heldRuns.values()) declined.add(name);
+        return false;
+      }
+      // A later yes to the same host undoes that No for the commands running now.
+      for (const declined of this.heldRuns.values()) declined.delete(name);
       if (choice === "once") return true;
       this.sessionHosts.add(name);
       if (choice === "project") await this.remember(name);

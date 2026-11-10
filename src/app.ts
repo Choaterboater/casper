@@ -108,7 +108,7 @@ import { runVerification, checksPlan, saveFoundCheck } from "./app/verification"
 import type { AppSmokeTask } from "./app/try-it";
 import { runInteractive, handlePrompt, handleSlashCommand, cancelCurrent, writePrompt } from "./app/command-loop";
 import { leaveOnHangUp, type AwayJob, type WalkAwaySeams } from "./app/away";
-import { loadWorkspace, reloadReferences, reloadSkills, projectPrivatePaths, reportSkillWarnings, bannerChecks, reportNewerCasper } from "./app/wiring";
+import { loadWorkspace, reloadReferences, reloadSkills, projectPrivatePaths, userReadablePaths, reportSkillWarnings, bannerChecks, reportNewerCasper } from "./app/wiring";
 import { PendingPictures } from "./pictures/pending";
 import { acquireRuntime, ensureRuntime, checkSignIn, observeEdit } from "./app/runtime-start";
 import { keepHomeFilesYours, returnHomeFiles } from "./app/home-files";
@@ -541,6 +541,12 @@ export class CasperApp {
   changesBlocked(): string | undefined {
     return this.planning ? PLANNING_BLOCKED : this.readOnlyAccess ? READ_ONLY_BLOCKED : undefined;
   }
+  /** While changes are blocked, a bash command that is not a look command asks "Run this command?" instead of being
+   * refused (plan_commands, on unless turned off; decision 95): only while someone can answer and the AI's shell asks. */
+  blockedCommandsAsk(): boolean {
+    return this.projectContext?.planCommands !== false && this.shell?.approve !== undefined
+      && (this.interactive || this.remoteApprovals) && this.terminal.canAsk && !this.closing;
+  }
   planBuild?: import("./flows/plan-build").PlanBuild;
   /** Flow warnings (a user's flow that could not be used) are said once. */
   readonly flowWarnings = new Set<string>();
@@ -618,6 +624,9 @@ export class CasperApp {
     sessionModel: () => { try { const status = this.session?.getStatus?.(); return status?.provider && status.model ? `${status.provider}/${status.model}` : undefined; } catch { return undefined; } },
     hideToolOutput: () => this.projectContext?.hideToolOutput !== false,
     privatePaths: () => projectPrivatePaths(this),
+    allowRead: () => userReadablePaths(this),
+    // A helper's read of a private place asks in the conversation shell's box (decision 95).
+    privateAsk: () => this.shell,
     // Inside tmux or iTerm2 each helper's steps show in the view-only steps pane; nowhere else.
     onActivity: (activity) => {
       this.terminal.updateCrew(activity, this.projectContext ? this.activeWorkspaceRoot() : undefined);

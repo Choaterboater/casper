@@ -24,6 +24,7 @@ import type { GuidanceSetting } from "../runtime/guidance";
 import { DISPLAY_LEVELS, type DisplayLevel } from "../tui/display";
 import { DEFAULT_SPEND_LIMITS, type SpendLimits } from "../task/spend";
 import { isOutside } from "../platform/inside";
+import { CASPER_OWN_PRIVATE_PATHS, PRIVATE_PATHS, within } from "../platform/project-paths";
 
 
 /** `acp_mcp:` (in ~/.casper/config.yaml only) whether the MCP servers an ACP client lists connect for its session, and
@@ -158,6 +159,12 @@ export interface LoadedConfiguration {
   browserClicks?: boolean;
   /** `routine_commands: off` in your own config: with no sandbox, every shell command that is not a plain read asks. Unset: on. */
   routineCommands?: boolean;
+  /** `plan_commands: off` in your own config: while planning or Read only, a bash command that is not a look command is
+   * refused instead of asking first (decision 95). Unset: on. */
+  planCommands?: boolean;
+  /** `private_commands: off` in your own config: with the sandbox off, a shell command that names a private place is
+   * refused instead of asking first (decision 95). Unset: on. */
+  privateCommands?: boolean;
   /** `auto_mode: off` in your own config: commands that would show "Run this command?" always ask, with no judge. Unset: on. */
   autoMode?: boolean;
   /** `hide_tool_output: off` stops new history masks. Unset: on; existing stubs stay permanent. */
@@ -345,7 +352,7 @@ const POLICY_KEYS = {
 } as const;
 const ISOLATE_KEYS = ["parallelAgents", "riskyRefactor", "experimentalBranch"];
 const TOP_LEVEL_KEYS = new Set(["profile", "project", "languages", "frameworks", "packageManager", "commands", "architecture",
-  "conventions", "verify", "verification", "repair", "skills", "visualize", "policy", "services", "smoke", "pages", "lab", "suggestions", "updates", "sideQuestions", "localModels", "modelServers", "cache", "display", "theme", "showPages", "spend", "sandbox", "shell", "web", "reader", "delegate", "browser", "templates", "packs", "github", "telemetry", "tools", "ssh_login", "other_logins", "network_updates", "ai_pages", "open_pages", "pictures", "browser_clicks", "routine_commands", "auto_mode", "hide_tool_output", "reasoning_headline", "lean_guidance", "compact_at", "slow_commands", "keep_going", "stalled_commands", "mcp_autoconnect", "acp_mcp", "acp_access", "acp_questions", "acp_idle_exit", "lsp_autostart", "notifications", ...Object.keys(POLICY_KEYS)]);
+  "conventions", "verify", "verification", "repair", "skills", "visualize", "policy", "services", "smoke", "pages", "lab", "suggestions", "updates", "sideQuestions", "localModels", "modelServers", "cache", "display", "theme", "showPages", "spend", "sandbox", "shell", "web", "reader", "delegate", "browser", "templates", "packs", "github", "telemetry", "tools", "ssh_login", "other_logins", "network_updates", "ai_pages", "open_pages", "pictures", "browser_clicks", "routine_commands", "plan_commands", "private_commands", "auto_mode", "hide_tool_output", "reasoning_headline", "lean_guidance", "compact_at", "slow_commands", "keep_going", "stalled_commands", "mcp_autoconnect", "acp_mcp", "acp_access", "acp_questions", "acp_idle_exit", "lsp_autostart", "notifications", ...Object.keys(POLICY_KEYS)]);
 
 /** Typos used to fall back silently to the defaults; the loader names them instead. */
 function unknownKeys(document: Mapping, label: string): string[] {
@@ -566,7 +573,7 @@ function projectOverrides(document: Mapping): ProjectModelOverrides {
   };
 }
 
-const SANDBOX_USER_KEYS = ["enabled", "allowedDomains", "allowWrite", "allowUnixSockets", "checks"];
+const SANDBOX_USER_KEYS = ["enabled", "allowedDomains", "allowWrite", "allowRead", "allowUnixSockets", "checks", "commands"];
 const SANDBOX_PROJECT_KEYS = ["denyRead", "denyWrite"];
 
 function pathList(value: unknown, label: string): string[] | undefined {
@@ -587,9 +594,27 @@ function toolsLayer(document: Mapping, label: string, warnings: string[]): boole
   return onOffLayer(value.downloads, label, "tools.downloads");
 }
 
+/** What loading says about an allowRead entry, if anything. One inside a private place (`~/.ssh/config` is inside
+ * `~/.ssh`) opens nothing, since only the place itself or a folder holding it does; Casper's own places stay private
+ * whatever the entry names (`~`, `~/.casper`). */
+function allowReadWarning(entry: string, home: string, label: string): string | undefined {
+  const expanded = entry.replace(/^(?:~|\$HOME|\$\{HOME\})(?=\/|$)/, home);
+  if (!path.isAbsolute(expanded)) return undefined;
+  const relative = path.relative(home, path.resolve(expanded)).split(path.sep).join("/");
+  const said = `${label}: sandbox.allowRead ${entry}`;
+  const own = CASPER_OWN_PRIVATE_PATHS.find((place) => relative === place || relative.startsWith(`${place}/`));
+  if (own) return `${said} is in Casper's own private place ~/${own}, which stays private, so it opens nothing`;
+  if (within(path.resolve(expanded), home) || CASPER_OWN_PRIVATE_PATHS.some((place) => place.startsWith(`${relative}/`))) {
+    return `${said} holds Casper's own logins, keys and records, which stay private; the rest of it opens`;
+  }
+  if (isOutside(relative)) return undefined;
+  const place = PRIVATE_PATHS.find((candidate) => relative.startsWith(`${candidate}/`));
+  return place ? `${said} is inside the private place ~/${place}, so it opens nothing; name ~/${place} (or a folder holding it) to open it` : undefined;
+}
+
 /** `sandbox:` and `shell.keepEnv` from your own file or a profile: `sandbox: off`, or a mapping that adds hosts,
  * write folders and sockets. Later layers add to earlier ones; `off` in any of them turns it off. */
-function sandboxUserLayer(document: Mapping, label: string, into: SandboxUserSettings, warnings: string[]): void {
+function sandboxUserLayer(document: Mapping, label: string, into: SandboxUserSettings, warnings: string[], home: string): void {
   const value = document.sandbox;
   // Which file turned it off, for the banner and the receipt.
   const setOff = (off: boolean) => { into.off = off; if (off) into.offSource = label; else delete into.offSource; };
@@ -601,14 +626,20 @@ function sandboxUserLayer(document: Mapping, label: string, into: SandboxUserSet
       if (typeof value.enabled !== "boolean") throw new Error(`${label}: sandbox.enabled must be true or false`);
       setOff(!value.enabled);
     }
-    const add = (key: "allowedDomains" | "allowWrite" | "allowUnixSockets") => {
+    const add = (key: "allowedDomains" | "allowWrite" | "allowRead" | "allowUnixSockets") => {
       const list = pathList(value[key], `${label}: sandbox.${key}`);
       if (list) into[key] = [...new Set([...(into[key] ?? []), ...list])];
     };
-    add("allowedDomains"); add("allowWrite"); add("allowUnixSockets");
-    if (value.checks !== undefined && value.checks !== null) {
-      if (value.checks !== "ask" && value.checks !== "outside" && value.checks !== "inside") throw new Error(`${label}: sandbox.checks must be ask, outside or inside`);
-      into.checks = value.checks;
+    add("allowedDomains"); add("allowWrite"); add("allowRead"); add("allowUnixSockets");
+    for (const entry of pathList(value.allowRead, `${label}: sandbox.allowRead`) ?? []) {
+      const warning = allowReadWarning(entry, home, label);
+      if (warning) warnings.push(warning);
+    }
+    for (const key of ["checks", "commands"] as const) {
+      const mode = value[key];
+      if (mode === undefined || mode === null) continue;
+      if (mode !== "ask" && mode !== "outside" && mode !== "inside") throw new Error(`${label}: sandbox.${key} must be ask, outside or inside`);
+      into[key] = mode;
     }
   } else if (value !== undefined && value !== null) throw new Error(`${label}: sandbox must be on, off or a mapping`);
   const shell = document.shell;
@@ -1006,8 +1037,9 @@ export async function loadConfiguration(
   const pages = pageChecks === false ? "off" : projectPages;
   const sandboxWarnings: string[] = [];
   const sandboxUser: SandboxUserSettings = {};
-  sandboxUserLayer(globalDocument, labels.global, sandboxUser, sandboxWarnings);
-  sandboxUserLayer(userProfileDocument, labels.userProfile, sandboxUser, sandboxWarnings);
+  sandboxUserLayer(globalDocument, labels.global, sandboxUser, sandboxWarnings, homeDir);
+  if (sandboxUser.allowRead) sandboxUser.ownAllowRead = [...sandboxUser.allowRead];
+  sandboxUserLayer(userProfileDocument, labels.userProfile, sandboxUser, sandboxWarnings, homeDir);
   const sandboxProject = sandboxProjectLayer(projectDocument, labels.project, sandboxWarnings);
   // What the AI may reach on the web, and which paid provider it uses, is your choice, never a repository's.
   if (projectDocument.web !== undefined) throw new Error("web is a user setting (~/.casper/config.yaml); a project cannot turn web lookups on or off or pick a search provider");
@@ -1062,7 +1094,12 @@ export async function loadConfiguration(
   // Whether routine shell commands run without asking is yours too.
   if (projectDocument.routine_commands !== undefined) throw new Error("routine_commands is a user setting (~/.casper/config.yaml); a project cannot change which shell commands run without asking");
   if (projectDocument.auto_mode !== undefined) throw new Error("auto_mode is a user setting (~/.casper/config.yaml); a project cannot turn on the judge that lets commands run without asking");
+  // So is whether a command asks while planning, and whether one that names a private place asks (decision 95).
+  if (projectDocument.plan_commands !== undefined) throw new Error("plan_commands is a user setting (~/.casper/config.yaml); a project cannot change which commands run while planning");
+  if (projectDocument.private_commands !== undefined) throw new Error("private_commands is a user setting (~/.casper/config.yaml); a project cannot let commands read your private places");
   let routineCommands: boolean | undefined;
+  let planCommands: boolean | undefined;
+  let privateCommands: boolean | undefined;
   let autoMode: boolean | undefined;
   if (projectDocument.reasoning_headline !== undefined) throw new Error("reasoning_headline is a user setting (~/.casper/config.yaml); a project cannot change what the status row shows of the model's reasoning");
   let reasoningHeadline: boolean | undefined;
@@ -1128,6 +1165,8 @@ export async function loadConfiguration(
     pictureModels = picturesSetting.models ?? pictureModels;
     browserClicks = onOffLayer(document.browser_clicks, label, "browser_clicks") ?? browserClicks;
     routineCommands = onOffLayer(document.routine_commands, label, "routine_commands") ?? routineCommands;
+    planCommands = onOffLayer(document.plan_commands, label, "plan_commands") ?? planCommands;
+    privateCommands = onOffLayer(document.private_commands, label, "private_commands") ?? privateCommands;
     autoMode = onOffLayer(document.auto_mode, label, "auto_mode") ?? autoMode;
     hideToolOutput = onOffLayer(document.hide_tool_output, label, "hide_tool_output") ?? hideToolOutput;
     reasoningHeadline = onOffLayer(document.reasoning_headline, label, "reasoning_headline") ?? reasoningHeadline;
@@ -1194,6 +1233,8 @@ export async function loadConfiguration(
     ...(pictureModels?.length ? { pictureModels } : {}),
     ...(browserClicks !== undefined ? { browserClicks } : {}),
     ...(routineCommands !== undefined ? { routineCommands } : {}),
+    ...(planCommands !== undefined ? { planCommands } : {}),
+    ...(privateCommands !== undefined ? { privateCommands } : {}),
     ...(autoMode !== undefined ? { autoMode } : {}),
     ...(hideToolOutput !== undefined ? { hideToolOutput } : {}),
     ...(reasoningHeadline !== undefined ? { reasoningHeadline } : {}),

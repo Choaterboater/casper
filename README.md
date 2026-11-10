@@ -140,9 +140,11 @@ levels. A pick changes Casper's model for the next message and is saved as your 
 `/model` typed into Casper moves the badge. [Decision 81](docs/adr/0002/81-an-acp-app-picks-casper-model-and-effort.md).
 A conversation the app reopens goes on with its own model and effort, without changing your default.
 
-The app's access chip reaches Casper. Read only stops Casper changing anything it can see and runs no checks; Ask
-first is Casper's usual boxes; Don't ask equals `/permissions all`, and then a change on the app's own server asks in
-Casper's box instead of the app's. Picking Read only during a prompt closes its open boxes as No. A typed
+The app's access chip reaches Casper. Read only stops Casper's edits, asks first before a command that may change
+files and before the AI's read of a private place ([decision 95](docs/adr/0002/95-plan-and-private-commands-ask.md)), and runs no checks.
+A command naming a private place asks only with the sandbox off (`sandbox: off`); with it on, as it starts for an app,
+the sandbox hides the place and the command is refused. Ask first is Casper's usual boxes; Don't ask equals
+`/permissions all`, and then a change on the app's own server asks in Casper's box instead of the app's. Picking Read only during a prompt closes its open boxes as No. A typed
 `/permissions all` or "Yes to everything this session" shows in the app. `acp_access: off` in `~/.casper/config.yaml`
 keeps Don't ask from apps. [Decision 82](docs/adr/0002/82-an-acp-app-sets-casper-access.md).
 
@@ -217,7 +219,8 @@ Ctrl+D on an empty prompt exits. [Keys and commands](docs/TERMINAL_UX.md#quick-r
   and Done means checks; new apps, sites and games get a first-version spec, not forced steps. Then
   `1 Stop · 2 Build · 3 Change the plan` (an open question adds `2 Answer the question`): say what to change
   ("drop step 2") or answer, and the model rewrites it. Enter never
-  builds. Ctrl+T shows Details; Ctrl+G opens saved Markdown in `VISUAL` or `EDITOR` and rereads it on return.
+  builds. While planning, edits wait for Build and a command that isn't a look command asks first
+  (**Commands while planning**). Ctrl+T shows Details; Ctrl+G opens saved Markdown in `VISUAL` or `EDITOR` and rereads it on return.
   `/plan` alone reopens recent gitignored plans. Build gets the checklist; progress is a **model report**.
   The receipt reports each item from Steps (or First version in a spec): completed items as done, not-done
   items with reasons, labelled **model report**, not check proof.
@@ -280,11 +283,17 @@ Ctrl+D on an empty prompt exits. [Keys and commands](docs/TERMINAL_UX.md#quick-r
 - **Sandbox, off unless you turn it on.** Until you do, the AI's shell asks before each command that changes
   something, but routine work runs as in Claude Code's auto mode (`npm test`, `git commit`, a push without force,
   `bun install`; **Routine commands** in `/settings`), and a write outside the project asks first. `sudo`,
-  `curl … | sh`, a force push, deleting outside the project and a new package still ask. `sandbox: on` in `~/.casper/config.yaml` (or `/sandbox on`
+  `curl … | sh`, a force push, deleting outside the project and a new package still ask, and so does a command that
+  names `~/.ssh` or another private place, naming it (**Commands that read private places**). `sandbox: on` in `~/.casper/config.yaml` (or `/sandbox on`
   for a session) turns it on, on macOS and Linux: then the AI's shell and your checks write only the project, temp and
   package caches, can't read `~/.ssh` or cloud logins, and reach only listed hosts. Casper's network server runs in a
   sandbox of its own either way, reaching only your login hosts. A one-shot or `--json` run, which can't ask, keeps the
-  sandbox where one can run (Linux needs `sudo apt install bubblewrap socat`). [Sandbox](docs/SECURITY.md)
+  sandbox where one can run (Linux needs `sudo apt install bubblewrap socat`). A command the sandbox blocks asks to
+  run once outside it (No · Yes, this once), in the terminal and in an app, as Claude Code and DeepSeek Harness do;
+  Don't ask runs it outside without asking, and **Blocked commands** in `/settings` (`sandbox.commands: ask | outside
+  | inside`) changes that; **Readable private places** in `/settings` (`sandbox.allowRead`) opens a private place
+  you name (the place itself, such as `~/.aws`, or a folder holding it). [Sandbox](docs/SECURITY.md) ·
+  [Decision 94](docs/adr/0002/94-a-blocked-command-asks-to-run-outside-the-sandbox.md)
 - **Private ssh passwords.** When an `ssh` or `scp` you allowed asks for a password or a key's passphrase, Casper
   shows its own hidden box (1 No · 2 Yes, this once · 3 Yes, for this session) and the password goes to ssh only,
   never to the AI, and is hidden wherever the AI reads. Nothing is saved; `ssh_login: off` turns it off.

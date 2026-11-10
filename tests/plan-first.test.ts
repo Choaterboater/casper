@@ -165,7 +165,9 @@ test("/plan: the plan turn refuses changes; 2 builds the plan", async () => {
     expect(f.prompts[0]).toContain(findFlow(bundledFlows(), "plan-first")!.body.trim());
     const reasons = Object.fromEntries(f.gate.map(({ tool, reason }) => [tool.split(" ")[0] + (tool.includes("rm ") ? " rm" : tool.includes("ls ") ? " ls" : ""), reason]));
     expect(reasons.edit).toStartWith("Not run: Planning only: Casper blocks file changes until you choose Build");
-    expect(reasons["bash rm"]).toStartWith("Not run: Planning only");
+    // rm is not a look command: it goes on to the shell's "Run this command?" box (plan_commands, decision 95).
+    expect(reasons["bash rm"]).toBeUndefined();
+    expect(f.screen.output.replace(/\s+/g, " ")).toContain("Casper blocks edits until you choose Build, and asks before a command that may change files");
     expect(reasons["bash ls"]).toBeUndefined();
     expect(reasons.mcp).toStartWith("Not run: Planning only");
     expect(reasons.read).toBeUndefined();
@@ -312,6 +314,18 @@ test("/plan in a run that cannot ask shows the plan and builds nothing", async (
   } finally { await f.close(); }
 }, 60_000);
 
+test("/plan with plan_commands: off: a command that is not a look command is refused, as before, and the screen says Casper blocks changes", async () => {
+  const f = await fixture(true, { homeConfig: "plan_commands: off\n" });
+  try {
+    f.input.write(`/plan ${REQUEST}\r`);
+    await f.screen.until(waiting("Build this plan?"));
+    const reasons = Object.fromEntries(f.gate.map(({ tool, reason }) => [tool.split(" ")[0] + (tool.includes("rm ") ? " rm" : tool.includes("ls ") ? " ls" : ""), reason]));
+    expect(reasons["bash rm"]).toBe("Not run: Planning only: Casper blocks file changes until you choose Build. While planning it runs only look commands such as ls, cat, grep and git log. rm is not one.");
+    expect(reasons["bash ls"]).toBeUndefined();
+    expect(f.screen.output.replace(/\s+/g, " ")).toContain("Casper blocks the file changes it can see until you choose Build");
+  } finally { await f.close(); }
+}, 60_000);
+
 test("a file that changes while planning anyway is named, and the receipt keeps it", async () => {
   const f = await fixture(true, { planWrites: true });
   try {
@@ -419,9 +433,9 @@ test.each(["xterm-256color", "dumb"])("after a change request the model rewrites
     expect(shown).toContain(term === "dumb" ? "  1 Stop" : "❯ 1. Stop");
     expect(shown).toContain(term === "dumb" ? "  2 Build" : "  2. Build");
     expect(shown).toContain(term === "dumb" ? "  3 Change the plan" : "  3. Change the plan");
-    // No build occurred, and the rewrite still refuses edits and MCP writes.
+    // No build occurred, and the rewrite still refuses edits and MCP writes (rm goes on to the shell's box).
     expect(shown).not.toContain("Built.");
-    expect(f.gate.slice(5, 10).filter(({ reason }) => reason !== undefined)).toHaveLength(3);
+    expect(f.gate.slice(5, 10).filter(({ reason }) => reason !== undefined)).toHaveLength(2);
     f.input.write(`2${term === "dumb" ? "\n" : ""}`);
     await f.screen.until(term === "dumb" ? output => output.includes("Built.") && />$/.test(output.trimEnd()) : idleAfter("Built."));
     expect(f.prompts).toHaveLength(3);

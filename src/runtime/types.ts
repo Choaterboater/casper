@@ -57,6 +57,8 @@ export interface RuntimeStartOptions {
   privatePaths?: readonly string[];
   /** The same list read fresh at each tool call, for a conversation that outlives a workspace rebind. */
   currentPrivatePaths?: () => readonly string[];
+  /** Your sandbox.allowRead (absolute): built-in private places there are not refused to the file tools either. */
+  allowRead?: readonly string[];
   /** How long the provider keeps the prompt cache (`cache:` in ~/.casper/config.yaml). Unset: auto. */
   cache?: PromptCacheSetting;
   /** Shorter guidance for model servers/small windows. Read fresh for /settings; unset: auto. */
@@ -88,6 +90,9 @@ export interface SshRun {
   pathFirst?: string;
 }
 
+/** A held command the sandbox blocked, run once more outside it on the person's yes or on Don't ask (RuntimeShell.refused). */
+export interface OutsideRun { outside: true; line: string }
+
 /** The AI's shell, as Casper holds it (see src/sandbox/manager.ts). */
 export interface RuntimeShell {
   /** The command as the sandbox runs it (`id` set), or as it is when nothing holds it. `env` is added to this command's
@@ -103,14 +108,30 @@ export interface RuntimeShell {
   onCleanupFailure?(error?: ProcessCleanupError): void;
   /** A held command has ended (the sandbox cleans up after it). */
   finished?(id: string): void;
-  /** After a held command failed: what the sandbox refused, as one line the AI reads, or undefined. */
-  refused?(id: string, output: string): Promise<string | undefined>;
+  /** After a held command failed: what the sandbox refused, as one line the AI reads, or undefined. `outside`: run
+   * that same command once more outside the sandbox (the person said "Yes, this once", or Don't ask is on: decision
+   * 94); `line` goes before that run's output. `rerun: false` (the command was stopped): never asked. */
+  refused?(id: string, output: string, options?: { rerun?: boolean }): Promise<string | OutsideRun | undefined>;
   /** When no sandbox runs: a numbered question first; a reason refuses the command. `reached`: this command's
    * "Reach <host>?" was already answered (a service start asked before the sandbox failed on it); not asked again. */
   approve?(command: string, signal?: AbortSignal, options?: { reached?: boolean }): Promise<string | undefined>;
+  /** A command naming a private place may ask first instead of being refused (private_commands, on unless turned off;
+   * decision 95): true while it can (the sandbox off, someone to answer). Unset or false keeps the refusal. */
+  asksPrivate?(): boolean;
+  /** The same for the AI's read, grep, find, ls, lsp, edit or write into a private place: true while someone can answer,
+   * sandbox on or off, since those tools run in Casper's own process. Unset or false keeps fileToolGate's refusal. */
+  asksPrivateFile?(): boolean;
+  /** The box for a command that names a private place: undefined runs it (approve then asks nothing more of it but the
+   * machine it reaches); a reason refuses it. It refuses with `place.refusal` when it can't ask. The AI's read, grep, find
+   * or ls into one asks here too, in its own words (`place.question`, `place.declined`; `place.key` for the session yes). */
+  askPrivate?(command: string, place: { shown: string; why: string; refusal: string; question?: string; declined?: string; key?: string }, signal?: AbortSignal): Promise<string | undefined>;
   /** Before the AI's edit or write lands outside the project: a reason refuses it; undefined lets it run. Works
-   * with no sandbox too. */
-  outsideWrite?(absolute: string): Promise<string | undefined>;
+   * with no sandbox too. `asked`: the private box named this file and you said yes (decision 95), so nothing more is
+   * asked; the write is still recorded for the receipt. */
+  outsideWrite?(absolute: string, options?: { asked?: boolean }): Promise<string | undefined>;
+  /** Before the private box asks about the AI's edit or write outside the project: a reason when it stays refused past a
+   * yes there (a system folder, git's files, a place denied for another reason), so no box asks; undefined asks. */
+  privateWriteRefused?(absolute: string): string | undefined;
   /** Before the AI's edit or write lands inside an app bundle (src/platform/bundles.ts), in the project or not: a reason
    * refuses it; undefined lets it run. */
   bundleWrite?(absolute: string): Promise<string | undefined>;
@@ -158,6 +179,9 @@ export interface RuntimeReadOnlyStartOptions {
   scrubToolOutput?: RuntimeStartOptions["scrubToolOutput"];
   /** A reason refuses the call before it runs (the security review keeps key and .env files from its child). */
   beforeToolGate?: RuntimeStartOptions["beforeToolGate"];
+  /** The session's private box (private_commands, decision 95): a read, grep, find or ls into a private place asks there
+   * while it can, after beforeToolGate. Unset, or while it can't ask: refused. */
+  privateAsk?: Pick<RuntimeShell, "asksPrivateFile" | "askPrivate">;
   /** The parent's live guidance switch; unset: auto. Child prompts are already role-specific. */
   guidance?: RuntimeStartOptions["guidance"];
   /** The parent's live history-hiding switch; unset: on. */
@@ -166,6 +190,8 @@ export interface RuntimeReadOnlyStartOptions {
   cache?: PromptCacheSetting;
   /** The project's sandbox.denyRead (absolute), as for the main session. */
   privatePaths?: readonly string[];
+  /** Your sandbox.allowRead (absolute), as for the main session. */
+  allowRead?: readonly string[];
 }
 
 /** A crew builder: a bounded child that may edit and run commands, but only in its own copy of the project (`cwd`).

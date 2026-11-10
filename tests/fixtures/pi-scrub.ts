@@ -19,8 +19,23 @@ const filesOn = process.env.FIXTURE_FILES_OFF !== "1";
 const outside = process.env.FIXTURE_OUTSIDE;
 const outsideAsked: string[] = [];
 const outsideWrote: string[] = [];
-const shell = outside ? { wrap: async (command: string) => ({ command }), keepEnv: [],
-  outsideWrite: async (absolute: string) => { outsideAsked.push(absolute); return outside === "no" ? "Not done: the user said no to writing it. Don't retry it or work around it." : undefined; },
+const outsideRecorded: string[] = [];
+// FIXTURE_PRIVATE=yes|no stands in for the box a command naming a private place gets with the sandbox off (decision 95).
+// FIXTURE_SANDBOX_ON=1: the sandbox on, which hides those places from commands; the file tools still ask.
+const privateAnswer = process.env.FIXTURE_PRIVATE;
+const privateAsked: string[] = [];
+const shell = outside || privateAnswer ? { wrap: async (command: string) => ({ command }), keepEnv: [],
+  ...(privateAnswer ? { asksPrivate: () => process.env.FIXTURE_SANDBOX_ON !== "1", asksPrivateFile: () => true, askPrivate: async (command: string, place: { shown: string }) => {
+    privateAsked.push(`${place.shown}: ${command}`);
+    return privateAnswer === "no" ? `Not run: the user said no to reading ${place.shown}.` : undefined;
+  },
+  // FIXTURE_PRIVATE_REFUSED=1: every edit or write outside the project stays refused past the private box's yes.
+  ...(process.env.FIXTURE_PRIVATE_REFUSED === "1" ? { privateWriteRefused: (absolute: string) => `Not done: ${absolute} stays refused.` } : {}) } : {}),
+  // `asked`: the private box already said yes, so nothing is asked; the write is only recorded.
+  outsideWrite: async (absolute: string, options?: { asked?: boolean }) => {
+    if (options?.asked) { outsideRecorded.push(absolute); return undefined; }
+    outsideAsked.push(absolute); return outside === "no" ? "Not done: the user said no to writing it. Don't retry it or work around it." : undefined;
+  },
   wroteOutside: (absolute: string) => { outsideWrote.push(absolute); },
   // The same answer for a write inside an app bundle (src/platform/bundles.ts).
   bundleWrite: async (absolute: string) => { const bundle = signedBundle(absolute); if (!bundle) return undefined; bundleAsked.push(absolute);
@@ -44,7 +59,8 @@ try {
         return scrub(toolName, input, kept, signal).then((result) => result ?? (kept === texts ? undefined : { texts: kept }));
       } })
     : process.env.FIXTURE_READ_ONLY === "1"
-    ? await runtime.startReadOnly({ cwd, signal: new AbortController().signal, maxTurns: 4, maxToolCalls: 4, scrubToolOutput: scrub })
+    ? await runtime.startReadOnly({ cwd, signal: new AbortController().signal, maxTurns: 4, maxToolCalls: 4, scrubToolOutput: scrub,
+      ...(shell?.askPrivate ? { privateAsk: shell } : {}) })
     : await runtime.start({
       // A stand-in for Casper's service tool: its logs are command output too.
       cwd, tools: [{ name: "service", description: "Service logs", inputSchema: { type: "object", properties: { action: { type: "string" } } },
@@ -59,7 +75,8 @@ try {
   try { await session.prompt("Read the files."); } catch (error) { promptError = String(error); }
   console.log("SCRUB_RESULT=" + JSON.stringify({
     toolEnds: events.filter(event => event.type === "tool_end"),
-    ...(outside ? { outsideAsked, outsideWrote, bundleAsked } : {}),
+    ...(outside ? { outsideAsked, outsideWrote, outsideRecorded, bundleAsked } : {}),
+    ...(privateAnswer ? { privateAsked } : {}),
     ...(promptError ? { promptError } : {}),
   }));
 } finally { await runtime.dispose(); }

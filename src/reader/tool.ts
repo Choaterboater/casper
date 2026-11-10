@@ -1,13 +1,14 @@
 /**
  * casper_read_untrusted: the AI names where untrusted text is (a file, a read-only command, an MCP tool) and the
  * JSON shape it wants. Casper gets the text itself and hands it to the quarantined reader (quarantine.ts); the AI
- * gets back only JSON that matched its schema, never the text. It changes nothing and never asks on its own; an
- * MCP source goes through the broker, so that tool's own approval still applies.
+ * gets back only JSON that matched its schema, never the text. It changes nothing; a path into a private place asks the
+ * session's private box as the AI's read does (private_commands, decision 95), and an MCP source goes through the
+ * broker, so that tool's own approval still applies.
  */
 import { lstat, open } from "node:fs/promises";
 import { NotExecutedError, type BoundedCapabilityResult } from "../capabilities/result";
-import { displayPath, fileToolGate, resolveToolPath } from "../platform/project-paths";
-import type { RuntimeTool } from "../runtime/types";
+import { displayPath, fileToolGate, privateFilePlace, resolveToolPath } from "../platform/project-paths";
+import type { RuntimeShell, RuntimeTool } from "../runtime/types";
 import { readOnlyCommand } from "../sandbox/read-only";
 import { formatTerminalJSON } from "../tui/json";
 import { looksLikeInstructions, MAX_TEXT_BYTES, readUntrusted, type ReaderComplete } from "./quarantine";
@@ -22,6 +23,11 @@ export interface ReaderToolOptions {
   agentDir?: string;
   /** The project's sandbox.denyRead (absolute). */
   privatePaths?: readonly string[];
+  /** Your sandbox.allowRead (absolute): private places you opened, as for the read tool. */
+  allowRead?: readonly string[];
+  /** The session's private box: a path into a private place asks there while it can, as the AI's read does. Unset, or
+   * while it can't ask: refused in the read tool's words. */
+  privateAsk?: Pick<RuntimeShell, "asksPrivateFile" | "askPrivate">;
   /** The separate model call (RuntimeSession.complete). Unset: the tool says the runtime can't make one. */
   complete?: ReaderComplete;
   /** Runs a read-only command the way the AI's bash runs (the shell sandbox). Unset: commands are not offered. */
@@ -66,10 +72,13 @@ function size(bytes: number): string {
 
 /** Reads a file that is in the project and not private; a file over the size cap is read from its end (a log's
  * newest lines), from the first whole line, with a note. Errors are Casper's own words. */
-async function readPath(given: string, options: ReaderToolOptions): Promise<{ text: string; source: string; note?: string } | { error: string }> {
+async function readPath(given: string, options: ReaderToolOptions, signal?: AbortSignal): Promise<{ text: string; source: string; note?: string } | { error: string }> {
   const context = { root: options.root, ...(options.home ? { home: options.home } : {}), ...(options.agentDir ? { agentDir: options.agentDir } : {}),
-    ...(options.privatePaths?.length ? { denyRead: options.privatePaths } : {}) };
-  const refused = fileToolGate("read", { path: given }, context);
+    ...(options.privatePaths?.length ? { denyRead: options.privatePaths } : {}), ...(options.allowRead?.length ? { allowRead: options.allowRead } : {}) };
+  const place = options.privateAsk?.asksPrivateFile?.() ? privateFilePlace("read", { path: given }, context) : undefined;
+  const box = options.privateAsk;
+  const refused = !place ? fileToolGate("read", { path: given }, context)
+    : box?.askPrivate ? await box.askPrivate(place.key ?? "read", place, signal) : place.refusal;
   if (refused) return { error: refused };
   const absolute = resolveToolPath(given, options.root, options.home);
   const source = displayPath(absolute, options.root, options.home);
@@ -123,13 +132,14 @@ export function readerTool(options: ReaderToolOptions): RuntimeTool {
       let cut: Record<string, unknown> | undefined;
       const notes: string[] = [];
       if (typeof args.path === "string") {
-        const read = await readPath(args.path, options);
+        const read = await readPath(args.path, options, combined);
         if ("error" in read) return failure(read.error);
         ({ text, source } = read);
         if (read.note) notes.push(read.note);
       } else if (typeof args.command === "string" && options.runCommand) {
         const command = args.command.trim();
-        const place = { root: options.root, ...(options.home ? { home: options.home } : {}), ...(options.privatePaths?.length ? { denyRead: options.privatePaths } : {}) };
+        const place = { root: options.root, ...(options.home ? { home: options.home } : {}), ...(options.privatePaths?.length ? { denyRead: options.privatePaths } : {}),
+          ...(options.allowRead?.length ? { allowRead: options.allowRead } : {}) };
         if (!readOnlyCommand(command, place)) return failure("Not run: the reader runs only commands that read files in the project (cat, tail, head, grep, git log and the like). For other output, save it to a file with bash first (docker logs --tail 500 app > tmp/app.log 2>&1), then use path.");
         source = `command: ${command.slice(0, 200)}`;
         let ran;

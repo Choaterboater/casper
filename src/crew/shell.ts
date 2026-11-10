@@ -12,10 +12,12 @@ const named = (label: string, question: string) =>
 /**
  * A builder's shell: the session's sandbox around its copy, as the main session's mode would run it. A command that
  * needs your yes (no sandbox holds commands, a machine to reach) is asked in the session's box, named for the builder,
- * and /permissions all and your remembered answers count as for your own. A host or a write outside the copy is never
- * asked, and with `ask` unset or a run that can't ask (one-shot) nothing is: it is not run, the builder reads why and goes
- * on, and `note` gets the line for the crew's report (as Claude Code does for background helpers). Undefined when the
- * session has no sandbox store to read your remembered answers from.
+ * and /permissions all and your remembered answers count as for your own. A host or a write outside the copy gets no
+ * box of its own, but a command the sandbox blocked asks to run once outside it (decision 94) in the same box under the
+ * builder's name, and on Don't ask runs there without one, as the main session's does and as Claude Code's subagents
+ * ask in the main session. With `ask` unset or a run that can't ask (one-shot) nothing asks: it is not run, the builder
+ * reads why and goes on, and `note` gets the line for the crew's report (as Claude Code does for background helpers).
+ * Undefined when the session has no sandbox store to read your remembered answers from.
  */
 export function crewShell(sandbox: ShellSandbox, copy: string, note: (line: string) => void, ask?: CrewAsk): (RuntimeShell & { close(): Promise<void> }) | undefined {
   if (!sandbox.store) return undefined;
@@ -33,6 +35,8 @@ export function crewShell(sandbox: ShellSandbox, copy: string, note: (line: stri
     planning: () => false,
     ...(ask?.host.stopAsking ? { stopAsking: () => ask.host.stopAsking!() } : {}),
     ...(ask?.host.routineCommands ? { routineCommands: () => ask.host.routineCommands!() } : {}),
+    // A command or read that names a private place asks in the session's box too, under the builder's name (decision 95).
+    ...(ask?.host.privateCommands ? { privateCommands: () => ask.host.privateCommands!() } : {}),
   }, held, sandbox.store);
   return { ...shell, onCleanupFailure: ask?.host.onCleanupFailure, close: async () => { await shell.close(); await held.close(); } };
 }

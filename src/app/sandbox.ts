@@ -4,9 +4,10 @@ import os from "node:os";
 import path from "node:path";
 import { existsSync } from "node:fs";
 import type { ProjectContext } from "../project/context";
-import type { RuntimeShell, SshRun } from "../runtime/types";
+import type { OutsideRun, RuntimeShell, SshRun } from "../runtime/types";
 import { casperAgentDir } from "../runtime/agent-store";
 import { displayPath, realpathLongest, within } from "../platform/project-paths";
+import { isOutside } from "../platform/inside";
 import { describeSandbox, ShellSandbox, type HostAnswer, type ShellSandboxOptions, type WriteAsker } from "../sandbox/manager";
 import { REGISTRY_HOSTS } from "../sandbox/policy";
 import { SandboxStore } from "../sandbox/store";
@@ -33,6 +34,8 @@ import { githubLoginCommand, githubRunEnv, LOGIN_FAILED, startsGitOrGh, type Git
 import { answerKey, readOnlyCommand, testRunKey } from "../sandbox/read-only";
 import { routineCommand } from "../sandbox/routine";
 import { commandPreview } from "../tui/command-preview";
+import { isPlanningCommand, planToolGate } from "../flows/plan";
+import { privateDeclined } from "../platform/project-paths";
 
 /**
  * The session's shell sandbox, as the app uses it: the host question, the ask-only fallback for the AI's shell
@@ -45,11 +48,23 @@ export interface SandboxHost {
   onCleanupFailure?(error?: ProcessCleanupError): void;
   /** Someone can answer a question now (an interactive session at a terminal, not closing). */
   canAsk(): boolean;
+  /** Someone can answer the box to run a blocked command outside the sandbox (decision 94): as canAsk, and in Read only
+   * too, as DeepSeek Harness's read-only mode offers its escalation card. Unset: canAsk. */
+  outsideAsks?(): boolean;
+  /** Someone can answer one of the boxes Read only lets through (decision 95): as canAsk, also while an app set Read
+   * only. Unset: canAsk. */
+  canAskWhileReadOnly?(): boolean;
   /** `record`: the line a box answered with that choice leaves instead of "<question> → <answer>" ("" for none; undefined keeps it). */
   pick(question: string, options: Array<{ label: string; description?: string }>, signal?: AbortSignal, settings?: PickSettings): Promise<string | undefined>;
   write(text: string): void;
   /** A plan turn: the project is read-only for the shell. */
   planning(): boolean;
+  /** A plan turn or Read only access (`readOnly`), with its refusal; `asks`: its commands that are not look commands ask
+   * first (plan_commands on, someone to answer; decision 95). Unset or undefined: changes are not blocked. */
+  changesBlocked?(): { reason: string; readOnly: boolean; asks: boolean } | undefined;
+  /** private_commands (on unless turned off; decision 95): with the sandbox off, a command naming a private place (or the
+   * AI's read, grep, find or ls into one) asks first. Unset: refused. A builder's shell takes the session's. */
+  privateCommands?(): boolean;
   /** /permissions all is on: the questions below are answered "Yes, for this session" without being shown. */
   stopAsking?(): boolean;
   /** A plain read in your own folders under home runs without the box (docs/adr/0002/46-home-reads.md). Only the main
@@ -88,7 +103,14 @@ export interface TerminalLender {
   lend<T>(note: string, run: () => Promise<T>): Promise<T>;
 }
 
-export interface PickSettings { record?: (answer: string) => string | undefined }
+export interface PickSettings {
+  record?: (answer: string) => string | undefined;
+  /** Shown in Read only too (the box to run a blocked command outside the sandbox, decision 94). */
+  anyAccess?: boolean;
+  /** A box Read only lets through (decision 95): a command that may change files, a private place, then the machine or
+   * GitHub login such a command you said yes to uses. */
+  whileReadOnly?: boolean;
+}
 
 /** The private ssh login for one run: `on` reads the user's `ssh_login` setting each time; `start` and `attach` are test seams. */
 export interface SshLoginSettings {
@@ -182,6 +204,20 @@ export const SHELL_CANT_ASK_SCREEN = "Shell commands need your OK here, and this
 /** Said to the person once a session (stderr with --json) the first time a command is refused for want of a box. */
 export const SHELL_CANT_ASK_NOTE = "[shell] This run can't ask before the AI's shell commands, so they are not run. --no-sandbox allows them for one run.";
 export const SHELL_DECLINED = "Not run: the user said no to this command. Don't run it again; ask the user what to do instead.";
+/** The box for a command that is not a look command while planning or Read only (decision 95). */
+export const planCommandQuestion = (readOnly: boolean, command: string, preceding?: string) => commandQuestion(readOnly
+  ? "Run this command? The app set Read only, and it may change files." : "Run this command? You're planning, and it may change files before you choose Build.", command, preceding);
+export const planCommandDeclined = (readOnly: boolean) => readOnly
+  ? "Not run: the user said no to this command while Read only. Don't run it again; answer without it or ask the user."
+  : "Not run: the user said no to this command while planning. Don't run it again; plan without it or ask the user.";
+/** The box for a command that names a private place, with the sandbox off (decision 95): it may read, write or delete there. */
+export const privateCommandQuestion = (shown: string, why: string, command: string, preceding?: string) =>
+  commandQuestion(`Run this command? It uses ${terminalText(shown)}, which is private (${why}).`, command, preceding);
+/** The same box for the AI's read, grep, find or ls (`question` names the call and the place), with the model's line. */
+export const privateFileQuestion = (question: string, preceding?: string) => {
+  const reason = commandReason(preceding);
+  return reason ? `${terminalText(question)}\n${MODEL_REASON_PREFIX}${reason}` : terminalText(question);
+};
 /** Said once a session, after the third shell box answered yes. */
 export const STOP_ASKING_HINT = 'Tip: 4 Yes to everything this session (or type "stop asking") stops these questions until you quit (/permissions ask turns them back on).';
 /** A remembered exact command, as its one short line shows it. */
@@ -193,33 +229,62 @@ export const SANDBOX_REFUSED = "The sandbox refuses this every time. Don't retry
 export const writeAllowedLine = (folder: string) => `[sandbox] The user allowed writes to ${folder} for this session. Run the command again.`;
 export const writeOnceLine = (folder: string) => `[sandbox] The user allowed writes to ${folder} for the next command only. Run the command again.`;
 export const writeDeclined = (folder: string) => `The user said no to writing ${folder}. Don't retry it or work around it.`;
+/** The person answered No in the host box for this command: the refusal is their answer, as the write box's No is. */
+export const hostDeclined = (hosts: string) => `The user said no to reaching ${hosts}. Don't retry it or work around it.`;
 export const writeCantAsk = (folder: string) => `${folder} is outside this project and this run can't ask. To allow it for one run: --allow-write ${folder}.`;
+/** "Run it outside the sandbox?  touch ../notes.txt": the box for a held command the sandbox refused (decision 94), after
+ * why: the sandbox's report, or the denial words the command printed. */
+export const outsideRunQuestion = (why: string, command: string, preceding?: string) =>
+  commandQuestion(`${terminalText(why)} Run this command outside the sandbox?`, command, preceding);
+/** What the sandbox refused, for that box: reads first (only private places are hidden from a command), at most three,
+ * then "+N more", so a read never hides behind earlier writes. */
+function blockedList(refusals: readonly string[]): string {
+  const ordered = [...refusals.filter((line) => line.startsWith("wanted to read ")), ...refusals.filter((line) => !line.startsWith("wanted to read "))];
+  const shown = ordered.slice(0, 3);
+  return [...shown, ...(ordered.length > shown.length ? [`+${ordered.length - shown.length} more`] : [])].join("; ");
+}
+/** Read by the AI before the output of the run outside the sandbox. */
+export const OUTSIDE_RUN_LINE = "[sandbox] The user allowed this one command outside the sandbox, so Casper ran it again there. That run's output follows; its exit code is the result.";
+export const OUTSIDE_RUN_DECLINED = "The user said no to running it outside the sandbox. Don't retry it or work around it.";
+/** Don't ask (/permissions all): the run outside without the box, as Claude Code's bypass mode does. */
+export const OUTSIDE_RUN_UNASKED_LINE = "[sandbox] Don't ask is on, so Casper ran this command again outside the sandbox. That run's output follows; its exit code is the result.";
+/** `sandbox.commands: outside` in your config: the run outside without the box. */
+export const OUTSIDE_RUN_SETTING_LINE = "[sandbox] Your config says sandbox.commands: outside, so Casper ran this command again outside the sandbox. That run's output follows; its exit code is the result.";
 export const PI_SANDBOX_IGNORED = "[sandbox] Ignored .pi/sandbox.json: a project can't loosen the sandbox.";
 
 /** --allow-host, --allow-write and --allow-reach: what this run allows without asking (folders absolute). */
 export interface RunAllowances { hosts?: string[]; writes?: string[]; reach?: string[] }
 
+/** Sandboxed runs of commands you said yes to while Read only (decision 95), by sandbox: while one runs, the new-host and
+ * write boxes it raises are asked as in Build, in a box Read only lets through. */
+const readOnlyYesRuns = new WeakMap<ShellSandbox, Set<string>>();
+
 export function createSessionSandbox(host: SandboxHost, context: ProjectContext, options: { root: () => string; home: string; noSandbox?: boolean;
   allow?: RunAllowances; seams?: Partial<ShellSandboxOptions>; offByDefault?: boolean }): ShellSandbox {
   const store = new SandboxStore(context.stateDirectory);
-  return new ShellSandbox({
+  // The proxy can't tell whose command reached out: while a command you said yes to runs, its boxes are asked.
+  const yesRunning = () => host.changesBlocked?.()?.readOnly === true && (readOnlyYesRuns.get(created)?.size ?? 0) > 0;
+  const canAsk = () => host.canAsk() || (yesRunning() && Boolean(host.canAskWhileReadOnly?.()));
+  const settings = (): PickSettings | undefined => yesRunning() ? { whileReadOnly: true } : undefined;
+  const created: ShellSandbox = new ShellSandbox({
     root: options.root, home: options.home, agentDir: casperAgentDir(), settings: context.sandbox ?? {}, store, ...(options.offByDefault ? { offByDefault: true } : {}),
     ...(options.noSandbox ? { noSandboxFlag: true } : {}),
     ...(options.allow?.hosts?.length ? { allowHosts: options.allow.hosts } : {}),
     ...(options.allow?.writes?.length ? { allowWrites: options.allow.writes } : {}),
     ...(options.allow?.reach?.length ? { allowReach: options.allow.reach } : {}),
-    askHost: (name) => host.canAsk() ? sessionYesOr(host, hostQuestion(name), [...HOST_CHOICES]).then((answer): HostAnswer =>
+    askHost: (name) => canAsk() ? sessionYesOr(host, hostQuestion(name), [...HOST_CHOICES], undefined, settings()).then((answer): HostAnswer =>
       answer === YES_ONCE ? "once" : answer === YES_SESSION ? "session" : "no") : undefined,
     stopAsking: () => Boolean(host.stopAsking?.()),
     askWrite: (targets, from) => {
-      if (!host.canAsk()) return undefined;
+      if (!canAsk()) return undefined;
       const shown = writePlaces(targets.map((target) => displayPath(target, options.root(), options.home)));
-      return sessionYesOr(host, writeQuestion(from, shown), writeChoices(shown)).then((answer) => answer === YES_SESSION ? true : answer === YES_ONCE ? "once" : false);
+      return sessionYesOr(host, writeQuestion(from, shown), writeChoices(shown), undefined, settings()).then((answer) => answer === YES_SESSION ? true : answer === YES_ONCE ? "once" : false);
     },
     note: (line) => host.write(`${line}\n`),
     seccompPath: () => seccompHelper({ home: options.home }),
     ...options.seams,
   });
+  return created;
 }
 
 /** The startup notes: a repo's own .pi/sandbox.json is never read. */
@@ -234,6 +299,7 @@ export function runtimeShell(host: SandboxHost, sandbox: ShellSandbox, given: Sa
   const store = sandbox.store ?? given;
   let logs: Promise<string> | undefined;
   const show = (entry: string) => displayPath(entry, sandbox.root, sandbox.home);
+  const writeNever = (absolute: string) => `Not done: ${show(absolute)} is outside this project, and Casper doesn't let the AI write there.`;
   /** App bundles the person let the AI write in for this session. */
   const bundlesAllowed = new Set<string>();
   /** Hosts you said "Yes, for this session" to. */
@@ -245,6 +311,8 @@ export function runtimeShell(host: SandboxHost, sandbox: ShellSandbox, given: Sa
   const cleared = new Map<string, RemoteTarget[]>();
   /** git and gh commands you said yes to just now: wrap runs them outside the sandbox with your GitHub login. */
   const githubCleared = new Set<string>();
+  /** Held commands as the AI sent them, by run id, until they end: the box to run one outside asks about the words it sent. */
+  const heldCommands = new Map<string, { command: string; cwd: string; preceding?: string }>();
   /** Plain git and gh commands a run that can't ask kept in the sandbox: their failure note says so. */
   const githubUnasked = new Set<string>();
   /** Held runs of git or gh: if one fails for want of the login, the AI is told how to run it with your yes. */
@@ -255,6 +323,10 @@ export function runtimeShell(host: SandboxHost, sandbox: ShellSandbox, given: Sa
   /** What each hand-over's note shows (the command as the AI sent it, not the sandbox's wrapper), by what runs. */
   const handOverShown = new Map<string, string>();
   const canHandOver = () => Boolean(host.handOver?.can());
+  /** An app set Read only (decision 82): only the boxes decision 95 names are asked, and they say whileReadOnly. */
+  const readOnlyNow = () => host.changesBlocked?.()?.readOnly === true;
+  const canAskNow = () => readOnlyNow() && host.canAskWhileReadOnly ? host.canAskWhileReadOnly() : host.canAsk();
+  const readOnlyPick = (): PickSettings | undefined => readOnlyNow() ? { whileReadOnly: true } : undefined;
   /** --allow-reach: a machine allowed for this run, by the name the command typed or the address it resolves to. */
   // An alias from ~/.ssh/config counts by its real address too.
   const runReach = sandbox.allowedReach.flatMap((entry) => [entry.toLowerCase(), ...remoteTargets(`ssh ${entry}`, sandbox.home).map((target) => target.host)]);
@@ -291,8 +363,8 @@ export function runtimeShell(host: SandboxHost, sandbox: ShellSandbox, given: Sa
     // A command that types its own address could send the project anywhere, and a merge, close or rerun can't be taken
     // back: they ask every time, whatever was remembered for another kind.
     if (!found.once && (store.sessionGithub.has(found.action) || await store.allowsGithub(found.action))) { githubCleared.add(command); return undefined; }
-    if (!host.canAsk()) { githubUnasked.add(command); return undefined; }
-    const answer = await host.pick(githubLoginQuestion(command, preceding), githubLoginChoices(found.action, !found.once), signal);
+    if (!canAskNow()) { githubUnasked.add(command); return undefined; }
+    const answer = await host.pick(githubLoginQuestion(command, preceding), githubLoginChoices(found.action, !found.once), signal, readOnlyPick());
     if (answer === YES_SESSION && !found.once) {
       store.sessionGithub.add(found.action);
       store.offerKeep(`${found.action} with your GitHub login`, () => store.addGithub(found.action));
@@ -300,6 +372,41 @@ export function runtimeShell(host: SandboxHost, sandbox: ShellSandbox, given: Sa
     githubCleared.add(command);
     return undefined;
   };
+  /** A held command that failed where the sandbox refused something (decision 94) asks to run once more outside it,
+   * as Claude Code and DeepSeek Harness do: `why` names what was refused. Only No and Yes, this once: nothing is kept,
+   * and the next command is held again. Don't ask, or your `sandbox.commands: outside`, runs it outside without the
+   * box, as Claude Code's bypass mode does; `sandbox.commands: inside` keeps it blocked, as Claude Code's
+   * `allowUnsandboxedCommands: false`. Undefined: nobody can answer here, or the command was stopped; the refusal stays
+   * as it was. No (or no answer): `today` (what the AI read before, if anything), and that the person said no. */
+  const runOutside = async (id: string, why: string, output: string, options?: { rerun?: boolean }, today?: string): Promise<OutsideRun | string | undefined> => {
+    const held = heldCommands.get(id);
+    const mode = sandbox.user.commands ?? "ask";
+    if (options?.rerun === false || !held || mode === "inside") return undefined;
+    const unasked = mode === "outside" ? OUTSIDE_RUN_SETTING_LINE : host.stopAsking?.() ? OUTSIDE_RUN_UNASKED_LINE : undefined;
+    if (!unasked) {
+      if (!(host.outsideAsks ?? host.canAsk)()) return undefined;
+      const answer = await host.pick(outsideRunQuestion(why, held.command, held.preceding), [{ label: NO }, { label: YES_ONCE }], undefined, { anyAccess: true });
+      if (answer !== YES_ONCE) return today ? `${today} ${OUTSIDE_RUN_DECLINED}` : `[sandbox] ${OUTSIDE_RUN_DECLINED}`;
+    }
+    // The receipt names the folders outside the project the sandbox said it wanted to write, as for a folder you allowed
+    // (no undo copy). Linux's bubblewrap reports nothing, so its output's "Read-only file system" lines name them.
+    const root = realpathLongest(sandbox.root);
+    for (const line of sandbox.allRefused(id, output)) {
+      const file = /^wanted to write (\/.*)$/.exec(line)?.[1];
+      if (file && isOutside(path.relative(root, realpathLongest(file)))) sandbox.noteOutsideAllow(path.dirname(file));
+    }
+    return { outside: true, line: unasked ?? OUTSIDE_RUN_LINE };
+  };
+  /** Commands you said yes to while planning or Read only, just now: wrap gives them the project as Build does. */
+  const planCleared = new Set<string>();
+  /** Their sandbox runs, so a write refused there may be asked about (and, while Read only, its new hosts and writes). */
+  const planWritable = readOnlyYesRuns.get(sandbox) ?? new Set<string>();
+  readOnlyYesRuns.set(sandbox, planWritable);
+  /** Exact commands you said "Yes, for this session" to while planning. */
+  const planSession = new Set<string>();
+  /** Commands naming a private place you said yes to just now (approve asks nothing more), and those for this session. */
+  const privateCleared = new Set<string>();
+  const privateSession = new Set<string>();
   /** Shell boxes answered yes this session: the third one also says how to stop them (/permissions all). */
   let shellYeses = 0;
   const sayOnce = (line: string) => { if (said.has(line)) return; said.add(line); host.write(`${line}\n`); };
@@ -311,11 +418,11 @@ export function runtimeShell(host: SandboxHost, sandbox: ShellSandbox, given: Sa
     for (const target of targets) {
       // A machine named as $HOST could be any machine: it always asks.
       if (!target.unclear && (sessionReach.has(target.host) || allowedForRun(target) || (await store.reachHosts()).includes(target.host) || await onLabList(target))) continue;
-      if (!host.canAsk()) {
+      if (!canAskNow()) {
         sayOnce(`[shell] Not run: the AI's command reaches ${targetLabel(target)}, and this run can't ask you. Nothing was sent.`);
         return { refused: reachCantAsk(target), asked };
       }
-      const answer = await sessionYesOr(host, reachQuestion(target, command, preceding), [...REACH_CHOICES], signal);
+      const answer = await sessionYesOr(host, reachQuestion(target, command, preceding), [...REACH_CHOICES], signal, readOnlyPick());
       asked = true;
       // A machine the command names as $HOST could be any machine next time: that yes counts for this command only.
       if (answer === YES_SESSION) {
@@ -362,6 +469,8 @@ export function runtimeShell(host: SandboxHost, sandbox: ShellSandbox, given: Sa
     async wrap(command, cwd) {
       const targets = cleared.get(command);
       cleared.delete(command);
+      // A command you said yes to while planning gets the project as Build does; look commands keep it read-only.
+      const planYes = planCleared.delete(command);
       // The password you typed for "Yes, this once" has done its job once the next command starts.
       forgetOnceSecrets();
       // A command that needs the person gets Casper's terminal, right after its usual box (none of its own).
@@ -397,7 +506,7 @@ export function runtimeShell(host: SandboxHost, sandbox: ShellSandbox, given: Sa
       }
       const unplain = shape ? {} : notPlain(targets);
       let wrapped;
-      try { wrapped = await sandbox.wrap(command, { cwd, network: "ask", ...(host.planning() ? { readOnlyProject: true } : {}) }); }
+      try { wrapped = await sandbox.wrap(command, { cwd, network: "ask", ...(host.planning() && !planYes ? { readOnlyProject: true } : {}) }); }
       catch (error) {
         // The sandbox failed to start on this command (it said so): from now on the AI's shell asks, this one too.
         if (!sandbox.failure) throw error;
@@ -407,6 +516,8 @@ export function runtimeShell(host: SandboxHost, sandbox: ShellSandbox, given: Sa
         return lend ? handed({ command }) : { command, ...unplain };
       }
       if (wrapped.held && startsGitOrGh(command)) heldGithub.set(wrapped.id, { unasked });
+      if (wrapped.held) { const preceding = host.precedingText?.(); heldCommands.set(wrapped.id, { command, cwd, ...(preceding ? { preceding } : {}) }); }
+      if (wrapped.held && planYes) planWritable.add(wrapped.id);
       if (targets && wrapped.held) {
         sandbox.allowForRun(wrapped.id, targets.flatMap((target) => [target.host, target.typed]));
         // ssh inside the sandbox goes through its proxy only on Linux (socat); nc, telnet and socat never do.
@@ -433,37 +544,62 @@ export function runtimeShell(host: SandboxHost, sandbox: ShellSandbox, given: Sa
       handOverNext.add(command);
       return TERMINAL_RETRY_LINE;
     },
-    finished(id) { heldGithub.delete(id); sandbox.finished(id); },
-    async refused(id, output) {
+    finished(id) { heldGithub.delete(id); heldCommands.delete(id); planWritable.delete(id); sandbox.finished(id); },
+    async refused(id, output, options) {
       const reason = await blockedBySandbox(sandbox, id, output);
       const git = heldGithub.get(id);
       heldGithub.delete(id);
       // git or gh failed for want of your login (Linux hides the files without a report, so the output says it).
       const github = git && LOGIN_FAILED.test(`${output}\n${reason ?? ""}`) ? (git.unasked ? GITHUB_LOGIN_CANT_ASK : GITHUB_LOGIN_HINT) : undefined;
-      if (!reason) return github;
+      // Nothing the sandbox named: the command's own denial words still ask (see deniedWords).
+      if (!reason) {
+        if (github) return github;
+        const words = sandbox.deniedWords(output);
+        return words ? await runOutside(id, `The command said "${words}"; the sandbox may have blocked it.`, output, options) : undefined;
+      }
       const blocked = `[sandbox] ${reason[0]!.toUpperCase()}${reason.slice(1)}.`;
       if (github) return `${blocked} ${github.replace(/^\[sandbox\] /, "")}`;
+      // A host the person said No to in the host box while it ran, whatever else was refused: that No stands, as the
+      // write box's does, and the command is not offered (or, with sandbox.commands: outside, run) outside the sandbox.
+      const declined = sandbox.declinedHosts(id, output);
+      if (declined) return `${blocked} ${hostDeclined(declined.map(terminalText).join(", "))}`;
       // Refused only for writes to folders Casper may offer: one question for all of them (the next command gets
       // the new policy).
-      const writes = sandbox.refused(id, output).map((line) => /^wanted to write (\/.*)$/.exec(line)?.[1]);
+      const refusals = sandbox.allRefused(id, output);
+      const why = `The sandbox blocked it (${blockedList(refusals)}).`;
+      const writes = refusals.map((line) => /^wanted to write (\/.*)$/.exec(line)?.[1]);
       const folders = writes.map((file) => file === undefined ? undefined : sandbox.writeFolder(file));
-      if (host.planning() || !folders.length || folders.some((folder) => folder === undefined)) return `${blocked} ${SANDBOX_REFUSED}`;
+      // Your sandbox.commands: outside runs it outside before any write box, also where nobody can answer. While
+      // planning, only a command you said yes to (decision 95) gets the write box; a look command asks to run outside.
+      if (sandbox.user.commands === "outside" || (host.planning() && !planWritable.has(id)) || !folders.length || folders.some((folder) => folder === undefined)) {
+        return await runOutside(id, why, output, options, `${blocked} ${SANDBOX_REFUSED}`) ?? `${blocked} ${SANDBOX_REFUSED}`;
+      }
       const unique = [...new Set(folders as string[])];
       const shown = writePlaces(unique.map(show));
       const decision = await sandbox.decideWrite(unique, "shell");
-      if (decision !== "allowed" && decision !== "once") return `${blocked} ${decision === "no" ? writeDeclined(shown) : writeCantAsk(shown)}`;
+      if (decision === "no") return `${blocked} ${writeDeclined(shown)}`;
+      // The write box can't ask here: the box to run it outside asks where it can.
+      if (decision === "cant-ask") return await runOutside(id, why, output, options, `${blocked} ${writeCantAsk(shown)}`) ?? `${blocked} ${writeCantAsk(shown)}`;
       for (const folder of unique) sandbox.noteOutsideAllow(folder);
       if (decision === "once") { sandbox.allowNextCommand(unique); return writeOnceLine(shown); }
       return writeAllowedLine(shown);
     },
-    async outsideWrite(absolute) {
+    async outsideWrite(absolute, options) {
+      // The private box named this file and you said yes: no second box, but the receipt still names the file. The yes
+      // answers only that it is private: a write refused for another reason was refused before that box asked.
+      if (options?.asked) {
+        const refused = shell.privateWriteRefused!(absolute);
+        if (refused) return refused;
+        sandbox.noteAskedWrite(absolute); return undefined;
+      }
       if (!sandbox.asksOutsideWrites || sandbox.writeAllowed(absolute)) return undefined;
       const offer = sandbox.writeTarget(absolute);
-      if (!offer) return `Not done: ${show(absolute)} is outside this project, and Casper doesn't let the AI write there.`;
+      if (!offer) return writeNever(absolute);
       const decision = await sandbox.decideWrite(offer.target, "ai", { file: offer.file });
       if (decision === "allowed" || decision === "once") return undefined;
       return `Not done: ${decision === "no" ? writeDeclined(show(offer.target)) : writeCantAsk(show(offer.target))}`;
     },
+    privateWriteRefused(absolute) { return sandbox.asksOutsideWrites && sandbox.refusedPastPrivate(absolute) ? writeNever(absolute) : undefined; },
     wroteOutside(absolute) { sandbox.noteOutsideWrite(absolute); },
     // Always the box, also with /permissions all on: a write in an app bundle can stop the app from opening.
     async bundleWrite(absolute) {
@@ -478,6 +614,26 @@ export function runtimeShell(host: SandboxHost, sandbox: ShellSandbox, given: Sa
       if (answer === YES_ONCE || answer === YES_SESSION) return undefined;
       return `Not done: ${show(absolute)} is inside ${name}, and the user said no. ${BUNDLE_ELSEWHERE}`;
     },
+    asksPrivate() { return host.privateCommands?.() === true && !sandbox.on && canAskNow(); },
+    // The AI's file tools run in Casper's own process, not in the sandbox, so their box asks with the sandbox on too.
+    asksPrivateFile() { return host.privateCommands?.() === true && canAskNow(); },
+    // Always the box, also with /permissions all on, as for an app bundle: it names the place (decision 95). A file
+    // tool's call (place.question) has its own words, and no shell box follows it.
+    async askPrivate(command, place, signal) {
+      if (!(place.question ? shell.asksPrivateFile!() : shell.asksPrivate!())) return place.refusal;
+      const key = place.key ?? command;
+      if (!privateSession.has(key)) {
+        const record = (answer: string) => answer === YES_ONCE ? "" : answer === YES_SESSION ? `✓ allowed until you quit: ${shortCommand(key)}` : undefined;
+        const preceding = host.precedingText?.();
+        const question = place.question ? privateFileQuestion(place.question, preceding) : privateCommandQuestion(place.shown, place.why, command, preceding);
+        const answer = await host.pick(question, [{ label: NO }, { label: YES_ONCE },
+          { label: YES_SESSION, description: place.question ? "this exact call, until you quit" : "this exact command, until you quit" }], signal, { record, ...readOnlyPick() });
+        if (answer === YES_SESSION) privateSession.add(key);
+        else if (answer !== YES_ONCE) return place.declined ?? privateDeclined(place.shown, sandbox.home);
+      }
+      if (!place.question) privateCleared.add(command);
+      return undefined;
+    },
     async approve(command, signal, options) {
       // Refused before any box: nobody is at a terminal to hand it to.
       if (terminalNeed(command) === "interactive" && !canHandOver()) return HAND_OVER_CANT;
@@ -485,19 +641,41 @@ export function runtimeShell(host: SandboxHost, sandbox: ShellSandbox, given: Sa
       if (options?.reached) return remoteTargets(command, sandbox.home).length ? undefined : shell.approve!(command, signal);
       // Capture before waiting for another box: a later response must not retitle this command.
       const preceding = host.precedingText?.();
+      // You said yes to the private place this command names: no second box, only the machine it reaches.
+      const privateYes = privateCleared.delete(command);
+      // While planning or Read only, a command that is not a look command asks first (decision 95), sandbox or not, and
+      // not answered by /permissions all or the judge: plan and bypass are separate modes, as in Claude Code.
+      const blocked = host.changesBlocked?.();
+      // approve serves the AI's bash only, so only the bash reading makes a look command.
+      const planAsked = Boolean(blocked) && !isPlanningCommand(command);
+      // A yes in the private box named this command already: it is not asked again for planning (with plan_commands off
+      // the plan gate refused it before that box).
+      if (blocked && planAsked && !(privateYes && blocked.asks)) {
+        if (!blocked.asks) return planToolGate("bash", { command }, undefined, blocked.reason) ?? planCommandDeclined(blocked.readOnly);
+        if (blocked.readOnly || !planSession.has(command)) {
+          const record = (answer: string) => answer === YES_ONCE ? "" : answer === YES_SESSION ? `✓ allowed while planning until you quit: ${shortCommand(command)}` : undefined;
+          const answer = await host.pick(planCommandQuestion(blocked.readOnly, command, preceding), blocked.readOnly ? [{ label: NO }, { label: YES_ONCE }]
+            : [{ label: NO }, { label: YES_ONCE }, { label: YES_SESSION, description: "this exact command while planning, until you quit" }],
+          signal, { record, ...(blocked.readOnly ? { whileReadOnly: true } : {}) });
+          if (answer === YES_SESSION && !blocked.readOnly) planSession.add(command);
+          else if (answer !== YES_ONCE) return planCommandDeclined(blocked.readOnly);
+        }
+        planCleared.add(command);
+      }
       const remote = await reach(command, signal, preceding);
       if (remote.refused) return remote.refused;
       // A plain git or gh command that needs your GitHub login, which the sandbox hides: asked here, run outside it.
       if (sandbox.on) { const refused = await githubLogin(command, signal, preceding); if (refused) return refused; }
       if (!sandbox.asksFirst) return undefined;
-      // The host question showed this command and you said yes: it is not asked twice.
-      if (remote.asked) return undefined;
+      // The host question, the planning box or the private box showed this command and you said yes: it is not asked twice.
+      if (remote.asked || planAsked || privateYes) return undefined;
       // Commands that only read run without a box, like they would in the sandbox.
-      const where = { root: sandbox.root, home: sandbox.home, denyRead: sandbox.policy().denyRead };
+      const where = { root: sandbox.root, home: sandbox.home, denyRead: sandbox.policy().denyRead, allowRead: sandbox.readablePaths() };
       if (readOnlyCommand(command, where)) return undefined;
       // A plain read in your own folders (~/Documents, ~/Projects…), as the AI's read tool reads there: no box, one line
       // saying so. Private places, hidden folders, app data and anything that is not a plain read still ask.
-      if (host.homeReads?.() && host.canAsk() && readOnlyCommand(command, { ...where, homeReads: true })) {
+      // While Read only (decision 95) a look command that reads outside the project asks in a box Read only lets through.
+      if (host.homeReads?.() && canAskNow() && readOnlyCommand(command, { ...where, homeReads: true })) {
         host.write(`[read] outside this project, no box (a plain read in your own folders): ${shortCommand(command)}\n`);
         return undefined;
       }
@@ -510,7 +688,7 @@ export function runtimeShell(host: SandboxHost, sandbox: ShellSandbox, given: Sa
       const testRun = testRunKey(command, where);
       if (sessionCommands.has(command) || sessionCommands.has(exact) || (testRun && sessionTestRuns.has(testRun))) return undefined;
       if (await store.allowsCommand(command, exact)) return undefined;
-      if (!host.canAsk()) { sayOnce(SHELL_CANT_ASK_NOTE); return SHELL_CANT_ASK; }
+      if (!canAskNow()) { sayOnce(SHELL_CANT_ASK_NOTE); return SHELL_CANT_ASK; }
       // Auto mode: the judge lets ordinary build work run, and asks you about the rest (with its reason). Not while
       // /permissions all is on, which answers the box itself.
       // A fixed list always shows the box, whatever the judge would say (src/sandbox/always-asks.ts): sudo, a download run
@@ -521,7 +699,9 @@ export function runtimeShell(host: SandboxHost, sandbox: ShellSandbox, given: Sa
       const kept = testRun ? "bun test (project test files)" : shortCommand(exact);
       // A yes leaves no line of its own (the command's own line shows it ran); a remembered one leaves one short line.
       const record = (answer: string) => answer === YES_ONCE || answer === YES_EVERYTHING ? "" : answer === YES_SESSION ? `✓ allowed until you quit: ${kept}` : undefined;
-      const answer = await sessionYesOr(host, shellQuestion(command, preceding, judged?.reason), [...SHELL_COMMAND_CHOICES], signal, { record });
+      // While Read only "Yes to everything" is not offered: the app set Read only, not Don't ask.
+      const answer = await sessionYesOr(host, shellQuestion(command, preceding, judged?.reason),
+        readOnlyNow() ? SHELL_COMMAND_CHOICES.filter((choice) => choice.label !== YES_EVERYTHING) : [...SHELL_COMMAND_CHOICES], signal, { record, ...readOnlyPick() });
       if (answer === YES_EVERYTHING) { host.askNoMore?.(); return undefined; }
       if (answer !== undefined && answer !== NO && !host.stopAsking?.() && ++shellYeses === 3) sayOnce(STOP_ASKING_HINT);
       if (answer === YES_ONCE) return undefined;
@@ -581,6 +761,13 @@ export function sandboxBannerLine(sandbox: ShellSandbox): string {
   return sandboxStatusLine(sandbox);
 }
 
+/** sandbox.commands, as /sandbox says it (decision 94). */
+const BLOCKED_WORDS = {
+  ask: "Casper asks to run it once outside the sandbox (No · Yes, this once); Don't ask runs it without the box",
+  outside: "it runs once more outside the sandbox without asking",
+  inside: "it stays blocked, never run outside the sandbox",
+} as const;
+
 const ALLOWED_POINTER = "Shell commands you said yes to (for this session or always for this project): /allowed lists them and takes them back.";
 
 /** /sandbox: what the sandbox holds, on this machine, now. `reach`: machines ssh may reach without asking. */
@@ -600,12 +787,14 @@ export function sandboxReport(sandbox: ShellSandbox, root: string, reach: readon
   const policy = sandbox.policy();
   lines.push(`Writes:  ${[...new Set(policy.allowWrite.map(show))].join(", ")}`);
   lines.push(`Private: ${[...new Set(policy.denyRead.map(show))].slice(0, 12).join(", ")}${policy.denyRead.length > 12 ? ` … +${policy.denyRead.length - 12} more` : ""}`);
+  if (sandbox.user.allowRead?.length) lines.push(`Readable anyway (your sandbox.allowRead): ${sandbox.user.allowRead.join(", ")}`);
   lines.push(`Hosts:   ${REGISTRY_HOSTS.join(", ")}, localhost${sandbox.user.allowedDomains?.length ? `; yours: ${sandbox.user.allowedDomains.join(", ")}` : ""}`);
   const remembered = sandbox.rememberedHosts();
   lines.push(`Remembered for this project: ${remembered.length ? `${remembered.join(", ")} (/sandbox forget <host>)` : "none"}`);
   lines.push("Other hosts: Casper asks (1 No · 2 Yes, this once · 3 Yes, for this session; the Next row offers to keep it for this project); a run that can't ask blocks them.");
   const folders = sandbox.allowedWriteFolders();
   lines.push(`Other writes outside the project: Casper asks (1 No · 2 Yes, this once · 3 Yes, for this session)${folders.length ? `; allowed this session: ${[...new Set(folders.map(show))].join(", ")}` : ""}.`);
+  lines.push(`A command the sandbox blocks: ${BLOCKED_WORDS[sandbox.user.commands ?? "ask"]} (Blocked commands in /settings, sandbox: commands: ask | outside | inside).`);
   lines.push(machines);
   lines.push(ALLOWED_POINTER);
   lines.push("Not in the sandbox: MCP servers, language servers, the debugger, the browser and lab checks.");

@@ -25,7 +25,7 @@ import { networkLoginFile } from "./network-host";
 import { footerJob, updateFooter } from "./footer";
 import { spendNote, spendGate } from "./spend-gate";
 import { ensureSessionWorkspace } from "./session-branches";
-import { projectPrivatePaths } from "./wiring";
+import { projectPrivatePaths, userReadablePaths } from "./wiring";
 import { severalModelsMessage } from "./model-words";
 import { BackgroundCommands } from "../runtime/background-commands";
 import { tellJobEnded } from "./background-ended";
@@ -71,8 +71,9 @@ export async function ensureRuntime(app: CasperApp): Promise<RuntimeSession> {
         systemPromptAppend: systemPromptAppend(context),
         leanSystemPromptAppend: systemPromptAppend(context, true),
         // A plan turn, and Read only access (decision 82), refuse every tool but reading, whatever the tool says about
-        // itself (an MCP call's own label, not what it says, decides in the broker).
-        beforeToolGate: (toolName, input, cwd) => ((blocked) => blocked ? planToolGate(toolName, input, (name) => app.broker?.ownsTool(name) ?? false, blocked) : undefined)(app.changesBlocked())
+        // itself (an MCP call's own label, not what it says, decides in the broker). A shell command that is not a look
+        // command goes on to the shell's box while it can ask (decision 95).
+        beforeToolGate: (toolName, input, cwd) => ((blocked) => blocked ? planToolGate(toolName, input, (name) => app.broker?.ownsTool(name) ?? false, blocked, app.blockedCommandsAsk()) : undefined)(app.changesBlocked())
           ?? hiddenSecretGate(toolName, input, cwd)
           ?? ((changes) => changes ? editGateReason(app, changes) : undefined)(fileChangeTool(toolName, input)),
         // At the spend pause the next tool call waits for the answer (Stop here is the Enter choice).
@@ -93,6 +94,8 @@ export async function ensureRuntime(app: CasperApp): Promise<RuntimeSession> {
         // The project's sandbox.denyRead (GreenCLI lists its data and log folders there): the file tools refuse them too.
         privatePaths: projectPrivatePaths(app),
         currentPrivatePaths: () => projectPrivatePaths(app),
+        // Your sandbox.allowRead: the private places you opened are open to the file tools too.
+        allowRead: userReadablePaths(app),
       });
       // A plain start begins a new conversation, as Claude Code, Codex, Copilot CLI and Pi do: --continue, --resume,
       // /continue, /resume and the start's "1 Continue …" row pick an earlier one. A /branch experiment folder still
@@ -267,16 +270,21 @@ export function currentShell(app: CasperApp): RuntimeShell {
     },
     finished: (id) => { const shell = wrappedBy.get(id); wrappedBy.delete(id); shell?.finished?.(id); },
     // refused() is followed by finished() for the same command, so only finished() forgets which shell wrapped it.
-    refused: async (id, output) => wrappedBy.get(id)?.refused?.(id, output),
+    refused: async (id, output, options) => wrappedBy.get(id)?.refused?.(id, output, options),
     approve: async (command, signal, options) => app.shell?.approve?.(command, signal, options),
+    // A command or file tool that names a private place asks in the current shell's box (decision 95).
+    asksPrivate: () => app.shell?.asksPrivate?.() ?? false,
+    asksPrivateFile: () => app.shell?.asksPrivateFile?.() ?? false,
+    askPrivate: async (command, place, signal) => app.shell?.askPrivate ? app.shell.askPrivate(command, place, signal) : place.refusal,
     handOver: async (command, cwd, env, signal) => app.shell?.handOver ? app.shell.handOver(command, cwd, env, signal)
       : { exitCode: 1, text: "Not run: Casper's shell closed before the command started." },
     neededTerminal: (command) => app.shell?.neededTerminal?.(command),
-    outsideWrite: async (absolute) => {
-      const refused = await app.shell?.outsideWrite?.(absolute);
+    outsideWrite: async (absolute, options) => {
+      const refused = await app.shell?.outsideWrite?.(absolute, options);
       if (!refused) await app.outsideWork?.beforeWrite(absolute).catch(() => {});
       return refused;
     },
+    privateWriteRefused: (absolute) => app.shell?.privateWriteRefused?.(absolute),
     wroteOutside: (absolute) => app.shell?.wroteOutside?.(absolute),
     logDir: async () => app.shell?.logDir?.(),
     background: () => app.projectContext?.slowCommands === false ? undefined : backgroundCommands(app),

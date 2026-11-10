@@ -13,7 +13,7 @@ casper-flow:
 Adapted and trimmed from obra/superpowers writing-plans (MIT, Copyright (c) 2025 Jesse Vincent).
 
 The user asked you to plan before building. Do not change any file in this turn. Casper blocks
-file changes it can see until the user chooses Build and lists any that changed anyway.
+edits until Build, asks first or refuses other commands, lists any file that changed.
 Read named files, nearby code and tests. Follow project patterns. Never ask what they answer.
 If the work waits on an open PR or branch, say so first.
 

@@ -49,9 +49,9 @@ test("the settings list shows each switch and where it stands", async () => {
   await writeFile(config, "web: off\nupdates: false\nspend:\n  pauseAt: 5\n");
   const context = await loadProjectContext(await inspectProject(project), { homeDir: home });
   expect(settingRows(context).map((row) => `${row.label}: ${row.value}`)).toEqual([
-    "Web lookups: off", "Browser tool: on", "Browser clicks: on", "Routine commands: on", "Auto mode: on", "Slow commands: on", "Stalled commands: on", "Keep going: on", "Starter templates: on", "Diagram tool: on", "Pages the AI makes: on", "Pictures the AI makes: on", "Open pages in the browser: on", "Updates: off", "Notifications: on", "Suggestions: on", "Side questions with ?: on", "Built-in skills: on", "GitHub tool: on", "Packs: on", "Spend notes: at $1 a task", "Spend pause: at $5 a task",
+    "Web lookups: off", "Browser tool: on", "Browser clicks: on", "Routine commands: on", "Auto mode: on", "Blocked commands: ask", "Commands while planning: on", "Slow commands: on", "Stalled commands: on", "Keep going: on", "Starter templates: on", "Diagram tool: on", "Pages the AI makes: on", "Pictures the AI makes: on", "Open pages in the browser: on", "Updates: off", "Notifications: on", "Suggestions: on", "Side questions with ?: on", "Built-in skills: on", "GitHub tool: on", "Packs: on", "Spend notes: at $1 a task", "Spend pause: at $5 a task",
     "Prompt cache: auto", "Lean guidance: auto", "Compact at: auto", "Hide old tool output: on", "Local models: on", "Page checks: on", "Show the AI the pages: ask once a session",
-    "Work shown: normal", "Reasoning headline: on", "Theme: default", "Untrusted-text reader: on", "Helpers that build: off", "Playwright tests: on", "Compose files: on", "Send Casper's name to OpenRouter: on", "Sign-ins from other tools: on", "Network server updates: on", "My MCP servers: on", "Apps' MCP servers: on", "Apps' access modes: on", "Apps answer the AI's questions: on", "Apps close idle Casper: on", "My language servers: on", "Private ssh passwords: on",
+    "Work shown: normal", "Reasoning headline: on", "Theme: default", "Untrusted-text reader: on", "Helpers that build: off", "Playwright tests: on", "Compose files: on", "Send Casper's name to OpenRouter: on", "Sign-ins from other tools: on", "Readable private places: none", "Network server updates: on", "My MCP servers: on", "Apps' MCP servers: on", "Apps' access modes: on", "Apps answer the AI's questions: on", "Apps close idle Casper: on", "My language servers: on", "Private ssh passwords: on", "Commands that read private places: on",
   ]);
   expect(settingRows(context).find((row) => row.label === "Playwright tests")!.question).toBe("Casper runs a project's own Playwright tests (the e2e check) after each change, once they are installed. They are on.");
   const question = (label: string, rows = settingRows(context)) => rows.find((row) => row.label === label)!.question;
@@ -161,6 +161,26 @@ test("/settings hiding and guidance switches reach an already-started runtime ev
     await reloadProject(app, { own: true });
     expect(start?.hideToolOutput?.()).toBe(true);
     expect(start?.guidance?.()).toBe("auto");
+  } finally { await app.close(); }
+});
+
+test("Commands while planning, Commands that read private places and Auto mode apply now, also after a task changed the project file", async () => {
+  const { home, project } = await place();
+  const app = new CasperApp({ output: { write() {} }, runtimeFactory() { throw new Error("No model expected"); }, sessionHomeDir: home,
+    loadProjectContext: (info) => loadProjectContext(info, { homeDir: home }) });
+  try {
+    await app.runOnce("/settings", project);
+    // The project file is no longer the one Casper trusted: only your own settings are read again.
+    await mkdir(path.join(project, ".casper"), { recursive: true });
+    await writeFile(path.join(project, ".casper", "project.yaml"), "languages: [typescript]\n");
+    await editUserConfig(home, ["plan_commands"], false);
+    await editUserConfig(home, ["private_commands"], false);
+    await editUserConfig(home, ["auto_mode"], false);
+    await reloadProject(app, { own: true });
+    expect(app.projectContext).toMatchObject({ planCommands: false, privateCommands: false, autoMode: false });
+    await editUserConfig(home, ["plan_commands"], true);
+    await reloadProject(app, { own: true });
+    expect(app.projectContext?.planCommands).toBe(true);
   } finally { await app.close(); }
 });
 

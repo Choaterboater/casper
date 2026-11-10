@@ -25,6 +25,7 @@ Tools & browser
   GitHub tool                           on
   Packs                                 on
   Untrusted-text reader                 on
+  Helpers that build                    off
 
 Web lookups are on (DuckDuckGo).
 ↑/↓ move · Enter/Space change · ←/→/Tab area · type to search · Esc close
@@ -121,6 +122,36 @@ outside the project, a new package (`npm install left-pad`) and copying or commi
 (`cp .env x`) still ask. It is on. Turn it off with
 `/settings` (it writes `routine_commands: false`) and every command that is not a plain read asks.
 A project file can't set it. See [SECURITY.md](SECURITY.md) for the full list.
+
+### Commands while planning
+
+While planning (`/plan`), or when an app that runs `casper acp` set Read only, a bash command that
+isn't a look command (`ls`, `cat`, `grep`, `git log` and the like) asks first, as Claude Code's plan
+mode does (a PowerShell one is refused: there is no box behind it): `Run this command? You're planning, and it may change files before you choose Build.` with
+`1 No · 2 Yes, this once · 3 Yes, for this session` (Read only offers No and Yes, this once). Enter is No.
+A yes runs it as it would in Build, a new host or a write outside the project asking as there; files it
+changes are still named (`– Changed while planning: …`). A command whose private place you said yes to
+(below) is not asked again here.
+`/permissions all` and auto mode's judge don't answer this box. Edits and writes still wait for Build.
+It is on. Turn it off with `/settings` (it writes `plan_commands: false`) and those commands are
+refused, so the AI plans with look commands only. A run that can't ask refuses them either way. A
+project file can't set it ([decision 95](adr/0002/95-plan-and-private-commands-ask.md)).
+
+### Commands that read private places
+
+With the sandbox off, a shell command that names `~/.ssh`, `~/.aws` or another private place (the list
+in [SECURITY.md](SECURITY.md)), to read, write or delete there, asks first, naming the place: `Run this
+command? It uses ~/.ssh, which is private (keys and logins).` with `1 No · 2 Yes, this once · 3 Yes, for
+this session`. Enter is No, and `/permissions all` doesn't answer it. The AI's `read`, `grep`, `find`,
+`ls`, `edit` and `write` into one ask the same way in their own words, sandbox on or off, since they run in
+Casper itself (`Read ~/.ssh/config? ~/.ssh is private (keys and logins).`, `Change ~/.ssh/config? ~/.ssh is
+private (keys and logins).`); edits and writes in `~/.casper`, which holds Casper's own logins and
+records, and in git's own files stay refused. A builder or a read-only helper asks in your box under
+its name, and while an app set Read only the box is
+let through as a card. It is on. Turn it off with `/settings` (it writes `private_commands: false`) and
+those are refused before they run. With the sandbox on, the sandbox hides these places from commands and
+a command naming one is refused as before; so is everything here in a run that can't ask. A project file
+can't set it ([decision 95](adr/0002/95-plan-and-private-commands-ask.md)).
 
 ### Auto mode
 
@@ -690,8 +721,10 @@ keeps its own sandbox either way.
 sandbox:
   allowedDomains: [api.mist.com, "*.central.arubanetworks.com"]  # reached without asking
   allowWrite: [~/shared-build-cache]                              # more folders commands may write
+  allowRead: [~/.aws]                                             # private places commands and the AI may read
   allowUnixSockets: [/var/run/docker.sock]                        # macOS only; Linux can't filter by path
   checks: ask                                                     # ask (default) | outside | inside
+  commands: ask                                                   # a blocked AI command: ask (default) | outside | inside
 shell:
   keepEnv: [OPENAI_API_KEY]   # an AI provider key your own tests need
 ```
@@ -701,8 +734,27 @@ sandbox and, when one fails because the sandbox blocked something (`EPERM`), ask
 (`/allowed` lists and forgets a saved "always for this project"); `outside` always runs them outside; `inside` never does
 and never asks. A project file cannot set it.
 
-Your GitHub login (`~/.config/gh`, `~/.git-credentials` and the like) stays hidden from sandboxed commands, and there is no
-setting that opens it. Instead the AI's plain `git push`, `pull`, `fetch`, `clone` or `ls-remote`, or `gh pr`, `issue`,
+`sandbox.commands` (**Blocked commands** in `/settings`) says what happens to one of the AI's shell commands the sandbox
+blocked ([decision 94](adr/0002/94-a-blocked-command-asks-to-run-outside-the-sandbox.md)). `ask` (the default) asks
+`Run this command outside the sandbox?` (No · Yes, this once), as Claude Code and DeepSeek Harness do, and Don't ask
+runs it outside without the box; `outside` runs it once more outside the sandbox without asking, also where nobody can
+answer and before any write box; `inside` keeps it blocked, like Claude Code's `allowUnsandboxedCommands: false` (the
+box to allow writes to a folder still asks). A change applies from the next start.
+
+`sandbox.allowRead` (**Readable private places** in `/settings`) takes a built-in private place (`~/.ssh`, `~/.aws`,
+another tool's sign-in) off the hidden list for shell commands and the AI's file tools (helpers', the untrusted-text
+reader's and dev services' too), as Claude Code's `sandbox.filesystem.allowRead`. Name the place itself or a folder
+holding it (`~/.ssh`, not `~/.ssh/config`): an entry inside a private place opens nothing, and loading your config
+says so. Casper's own logins, keys and records (its provider login, MCP servers, profiles, saved conversations) stay
+private whatever an entry names, `~` and `~/.casper` included; loading says that too. It opens reading only: sandboxed commands, and the AI's `edit` and `write` while the sandbox is on or in its
+default "off unless you turn it on" state, still can't change an opened place. With `sandbox: off` (or
+`--no-sandbox`), `edit` and `write` treat it like any other place outside the project and change it without asking,
+except `~/.ssh`, which they never change. `/settings` changes only the entries in `~/.casper/config.yaml`; a profile's
+own entries are shown and stay. A project's own `denyRead` stays.
+`/sandbox` lists it. A project file cannot set either.
+
+Your GitHub login (`~/.config/gh`, `~/.git-credentials` and the like) stays hidden from sandboxed commands unless your
+`sandbox.allowRead` names it. Without that, the AI's plain `git push`, `pull`, `fetch`, `clone` or `ls-remote`, or `gh pr`, `issue`,
 `run`, `repo view|clone`, `api` (GET) or `auth status`, asks `Run outside the sandbox with your GitHub login?` and, after
 your yes, runs as typed outside the sandbox with your own login; the AI reads only its output. 3 at that box covers
 that kind of command (`git push`) for the session, and the Next row after the task offers to keep it for this project; `/allowed` lists a saved one and
@@ -1661,8 +1713,9 @@ user skill folder needs an explicit review.
 
 **What this does not protect.** Review controls which skills Casper adds to the prompt, not what
 the model can read or run. Skills grant no permissions, and Casper never runs a skill's helper
-scripts. Since v0.2.17 the model's file tools stay out of private places and its shell runs in
-the shell sandbox where one can run (see [SECURITY.md](SECURITY.md)); policy is prompt guidance.
+scripts. The model's file tools ask first in private places (refused with Commands that read private
+places off) and its shell runs in the shell sandbox where one can run (see [SECURITY.md](SECURITY.md));
+policy is prompt guidance.
 Trust covers `SKILL.md` only, not the scripts or files it points to; check those yourself.
 Blocking a skill stops future use; it does not remove text already in a conversation.
 `maxActive` limits new skills per request, not the whole conversation.

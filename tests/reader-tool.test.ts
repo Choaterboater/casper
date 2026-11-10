@@ -86,6 +86,41 @@ test("private places are refused like the read tool, before any model call", asy
   expect(sent).toHaveLength(0);
 });
 
+test("a private place you opened with sandbox.allowRead is read like the read tool reads it", async () => {
+  const { home, repo } = await project();
+  const { complete } = fake("{}");
+  const opened = tool({ root: repo, home, complete, allowRead: [path.join(home, ".ssh")] });
+  const result = await opened.execute({ path: "~/.ssh/id_rsa", schema });
+  expect(result.text).not.toContain("private");
+});
+
+test("with the session's private box (private_commands on, someone to answer), a private read asks it as the read tool does; No and can't-ask keep the refusal", async () => {
+  const { home, repo } = await project();
+  const { complete, sent } = fake(JSON.stringify({ failed: false }));
+  const asked: Array<{ key: string; question?: string }> = [];
+  let answer: string | undefined = "Not read: the user said no to reading ~/.ssh/id_rsa. Don't try it another way; ask the user instead.";
+  let canAsk = true;
+  const made = tool({ root: repo, home, complete, privateAsk: {
+    asksPrivateFile: () => canAsk,
+    askPrivate: async (key, place) => { asked.push({ key, ...(place.question ? { question: place.question } : {}) }); return answer; },
+  } });
+  const no = await made.execute({ path: "~/.ssh/id_rsa", schema });
+  expect(no.isError).toBe(true);
+  expect(JSON.parse(no.text).error).toBe(answer);
+  expect(asked).toEqual([{ key: "read ~/.ssh/id_rsa", question: "Read ~/.ssh/id_rsa? ~/.ssh is private (keys and logins)." }]);
+  expect(sent).toHaveLength(0);
+  // A yes reads it.
+  answer = undefined;
+  const yes = await made.execute({ path: "~/.ssh/id_rsa", schema });
+  expect(yes.isError, yes.text).toBeUndefined();
+  expect(sent.join("")).toContain("PRIVATE");
+  // Nobody to answer: refused in the read tool's words, with no box.
+  canAsk = false;
+  const refused = await made.execute({ path: "~/.ssh/id_rsa", schema });
+  expect(JSON.parse(refused.text).error).toBe("Not read: ~/.ssh is private (keys and logins). Casper keeps it from the AI.");
+  expect(asked).toHaveLength(2);
+});
+
 test("a missing file, a folder and a binary file are plain errors", async () => {
   const { home, repo } = await project();
   await writeFile(path.join(repo, "bin.dat"), Buffer.from([1, 0, 2]));

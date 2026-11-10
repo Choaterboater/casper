@@ -50,13 +50,24 @@ export function sandboxHost(app: CasperApp): SandboxHost {
     // Read only (decision 82) asks nothing: a box queued behind an open one is No too, so it is checked again when its
     // turn comes (two of the AI's commands may ask at once, before the switch).
     canAsk: () => !app.readOnlyAccess && someoneAnswers(app) && app.terminal.canAsk && !app.closing,
+    // The box to run a blocked command outside the sandbox asks in Read only too, as DeepSeek Harness's card does.
+    outsideAsks: () => someoneAnswers(app) && app.terminal.canAsk && !app.closing,
+    // The boxes Read only lets through (decision 95) are asked while someone can answer, Read only or not.
+    canAskWhileReadOnly: () => someoneAnswers(app) && app.terminal.canAsk && !app.closing,
     pick: (question, options, signal, settings) => {
       const stop = signal ?? app.commandAbort?.signal;
-      return oneAtATime(app, async () => app.closing || app.readOnlyAccess ? undefined : app.terminal.pick(question, options, stop, settings?.record ? { record: settings.record } : {}));
+      // Only the boxes decision 95 lets through, and the one to run a blocked command outside the sandbox, are asked while Read only.
+      return oneAtATime(app, async () => app.closing || (app.readOnlyAccess && !settings?.anyAccess && !settings?.whileReadOnly) ? undefined
+        : app.terminal.pick(question, options, stop, settings?.record ? { record: settings.record } : {}));
     },
     write: (text) => { if (!app.closing) app.output.write(text); },
     // A plan turn or Read only access: the project is mounted read-only and no write is offered.
     planning: () => app.changesBlocked() !== undefined,
+    // Which, and whether its commands that are not look commands ask (plan_commands; decision 95). An app's Read only
+    // counts as Read only also while planning (its plan option), so its box is the one Read only lets through.
+    changesBlocked: () => ((reason) => reason === undefined ? undefined : { reason, readOnly: app.readOnlyAccess, asks: app.blockedCommandsAsk() })(app.changesBlocked()),
+    // A command that names a private place asks while the sandbox is off (private_commands; decision 95).
+    privateCommands: () => app.projectContext?.privateCommands !== false,
     // Only while a person can answer (a terminal, or the app that runs casper acp): a one-shot or --json run never
     // stops asking this way (it refuses, or takes --no-sandbox).
     stopAsking: () => app.stopAsking && someoneAnswers(app) && app.terminal.canAsk && !app.closing,
@@ -271,6 +282,13 @@ export function projectPrivatePaths(app: CasperApp): string[] {
   if (!app.projectContext) return [];
   const root = app.activeWorkspaceRoot();
   return (app.projectContext.sandbox?.project.denyRead ?? []).map((entry) => resolveEntry(entry, root, app.sessionHomeDir ?? os.homedir()));
+}
+
+/** Your sandbox.allowRead as absolute paths, resolved like the shell sandbox does. */
+export function userReadablePaths(app: CasperApp): string[] {
+  if (!app.projectContext) return [];
+  const root = app.activeWorkspaceRoot();
+  return (app.projectContext.sandbox?.user.allowRead ?? []).map((entry) => resolveEntry(entry, root, app.sessionHomeDir ?? os.homedir()));
 }
 
 /** Where the skill warnings already said on this computer are kept (hashes, never the text), so a start says only new ones. */
