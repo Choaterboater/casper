@@ -14,11 +14,62 @@ when releasing. Existing historical notes below stay as written; feature tests c
 reference docs, not a per-PR release-note or roadmap entry. Release-prep checks verify the version and
 installer targets (`tests/release-install.test.ts`, `tests/release-targets.test.ts`).
 
-Casper distributes an unsigned **v0.4.13 preview**, not a stable release. The installers
-download from `https://github.com/Choaterboater/casper/releases/download/v0.4.13`,
+Casper distributes an unsigned **v0.4.14 preview**, not a stable release. The installers
+download from `https://github.com/Choaterboater/casper/releases/download/v0.4.14`,
 because GitHub's `latest/download` link skips preview releases. The first published
 preview was **v0.1.0**. A published release is never changed; every fix ships under a
 new version.
+
+## v0.4.14: apps and editors drive Casper over ACP, and a blocked command can run outside the sandbox
+
+### Added
+
+- `casper acp` lets apps and editors drive Casper over the Agent Client Protocol, with its checks, receipt and approval boxes.
+- An app over ACP gets pictures, each step's diff and output, `/` commands, Casper's models and its access modes.
+- An app over ACP can hand Casper its own MCP servers for that session, never saved, with `acp_mcp` to turn it off.
+- An app over ACP shows the AI's questions as forms and reviews a `/plan` in a card with Build.
+- An app over ACP can steer a running task and sees the model's thoughts, context left and cost.
+- An app over ACP may close Casper once nothing runs, unless `acp_idle_exit: off` keeps it open.
+- An app over ACP gets Casper's own chat title and can fork a conversation, whole or cut at an earlier message.
+- An app over ACP sees a running command's latest lines while it runs, unless `acp_live_output: off` is set.
+- With the sandbox on, a command it blocked asks to run once outside it, as Claude Code and DeepSeek Harness do.
+- **Blocked commands** in `/settings` runs such a command outside without asking, or keeps it blocked.
+- `sandbox.allowRead` opens a built-in private place to commands and file tools, but never Casper's own logins.
+- `/mcp update <name> --timeout 5m` gives a server's calls longer, and the AI can change a server's variables through the box.
+- Pictures an MCP server returns reach a model that can see images, shrunk and capped like pasted ones.
+
+### Changed
+
+- While planning or in Read only, a bash command that isn't a look command asks first instead of being refused; PowerShell still is.
+- A file tool, or a command with the sandbox off, reaching a private place asks first, with an off switch; edits in `~/.casper` stay refused.
+- The AI's edit or write inside a macOS app bundle asks first, since it breaks the app's signature.
+- The AI can't read DeepSeek Harness's sign-in file, as it can't read Claude Code's or Codex's.
+- A question gets an answer rather than a change, and commands for your own terminal use absolute paths.
+- Skills are picked from your own words only, not from a mentioned chat or words about the conversation.
+- A skill is named only by its whole name as a phrase, and a request over six words needs three of its description's words.
+- A chat an app mentions goes to the model as a labelled record, so the AI does not follow its requests.
+- An MCP tool whose name says it only looks, such as `inspect_macho`, gets no change row.
+- Settings files a review round's runs wrote for testing are put back as the AI left them.
+- A check that could not start beside passing checks says what passed, not that nothing was tested.
+- A server file that writes its own HTML page gets the page check, and its build gets the review.
+- A reviewer asked about files the task changed gets their diff and judges from it.
+- Browser checks take fewer rounds: a selector error lists each match, `replaces:` swaps a check, and a check may have 30 steps.
+- A page build's finish turn also takes checks written wrong or answered Cancel, a page with no check left, and a build with none.
+- Old file bodies the AI wrote become short stubs in later requests, and Casper's own repair and review rounds send fewer tokens.
+- More database tables keep their Password column hidden: mysql, psql, sqlite3, rich and tabulate layouts and psql's expanded records.
+- The engine is Pi 1.5.0, an OpenAI key starts on gpt-6.1-sol, and the AI reads which tool argument was wrong.
+
+### Fixed
+
+- When the AI only answers in words, `/undo` and the checks leave another program's changes alone.
+- A review that says nothing is left undone is no longer counted as an unfinished item.
+- An installed Casper lists every model a ChatGPT plan offers, such as GPT-6.1 Sol.
+- On macOS, stopping `sleep 5; next` no longer lets `next` run during the Stop.
+- Two sandboxed commands started at once on Linux no longer fail on a missing `~/.pi` folder.
+- A file written with a heredoc is no longer refused when a line in it starts with `/login`.
+- A certificate's BEGIN or END line in a key file no longer lets a community on the same line through.
+- A table's bar after Priv or Secret in its header no longer moves which column is hidden.
+- For contributors, slow CI tests finish in time again, three rare flaky tests are listed, and PRs are grouped by area.
 
 ## v0.4.13: a clean build ends clean, its browser checks finished
 

@@ -78,6 +78,7 @@
           </li>
           <li><a href="#released">Released</a>
             <ul>
+              <li><a href="#v0414">v0.4.14: apps drive Casper</a></li>
               <li><a href="#v0413">v0.4.13: clean builds end clean</a></li>
               <li><a href="#v0412">v0.4.12: builds reviewed</a></li>
               <li><a href="#v0411">v0.4.11: remove, update servers</a></li>
@@ -148,7 +149,7 @@
         <h2 id="next-h">Next release</h2>
         <aside class="callout soon">
           <strong class="callout-title">Built, not released</strong>
-          <p>Nothing on the main branch is waiting: everything built so far is in v0.4.13. New work shows here before the next preview.</p>
+          <p>Nothing on the main branch is waiting: everything built so far is in v0.4.14. New work shows here before the next preview.</p>
         </aside>
       </section>
 
@@ -390,10 +391,25 @@
         and on the <a href="https://github.com/Choaterboater/casper/releases">Releases page</a>.</p>
         <div class="stack">
 
+        <details class="card release" id="v0414" aria-labelledby="v0414-h" open>
+          <summary class="release-heading">
+            <h3 id="v0414-h">v0.4.14 · Apps and editors drive Casper over ACP, and a blocked command can run outside the sandbox</h3>
+            <span class="badge ok">current preview</span>
+          </summary>
+          <ul>
+            <li><strong>Apps drive Casper.</strong> <code>casper acp</code> speaks the Agent Client Protocol: an app or editor gets Casper's checks, receipt and boxes, pictures, step diffs and live output, <code>/</code> commands, models, access modes, question forms, a <code>/plan</code> card, steering, forks and its own MCP servers for the session.</li>
+            <li><strong>Run it outside.</strong> With the sandbox on, a command it blocked asks to run once outside it, as Claude Code and DeepSeek Harness do; <strong>Blocked commands</strong> in <code>/settings</code> changes that, and <code>sandbox.allowRead</code> opens a private place, never Casper's own logins.</li>
+            <li><strong>Asks, not refusals.</strong> While planning or in Read only a bash command that isn't a look command asks first, and so does a file tool, or a command with the sandbox off, reaching a private place. A write inside a macOS app bundle asks too.</li>
+            <li><strong>Checks in fewer rounds.</strong> A selector error lists each match, <code>replaces:</code> swaps a check, a check may have 30 steps, and a page build's finish turn takes checks written wrong, a page with no check left and a build with none.</li>
+            <li><strong>Secrets in tables.</strong> mysql, psql, sqlite3, rich and tabulate tables, and psql's expanded records, keep their Password column hidden.</li>
+            <li><strong>Pi 1.5.0.</strong> The engine is Pi 1.5.0, MCP pictures reach a model that can see them, old file bodies become stubs in later requests, and <code>/mcp update &lt;name&gt; --timeout 5m</code> gives a server longer.</li>
+          </ul>
+        </details>
+
         <details class="card release" id="v0413" aria-labelledby="v0413-h" open>
           <summary class="release-heading">
             <h3 id="v0413-h">v0.4.13 · A clean build ends clean, its browser checks finished</h3>
-            <span class="badge ok">current preview</span>
+            <span class="badge">previous preview</span>
           </summary>
           <ul>
             <li><strong>Checks finish.</strong> Casper's end replay finishes a browser check the AI recorded that stopped part way, and one still unfinished gets one turn for the AI to replay or withdraw it.</li>
@@ -406,7 +422,7 @@
         <details class="card release" id="v0412" aria-labelledby="v0412-h" open>
           <summary class="release-heading">
             <h3 id="v0412-h">v0.4.12 · A build is reviewed before it is done, and new folders are checked</h3>
-            <span class="badge">previous preview</span>
+            <span class="badge">released</span>
           </summary>
           <ul>
             <li><strong>Builds review themselves.</strong> When a build's checks pass, the AI checks every requirement, then looks once more at transactions, input types, ordering ties and the README. In Sonnet tracker builds the gap to omp fell from 17.7 points to 6.0, at about 15% more tokens. <code>verification.review: false</code> turns it off.</li>
@@ -416,7 +432,7 @@
           </ul>
         </details>
 
-        <details class="card release" id="v0411" aria-labelledby="v0411-h" open>
+        <details class="card release" id="v0411" aria-labelledby="v0411-h">
           <summary class="release-heading">
             <h3 id="v0411-h">v0.4.11 · Remove and update MCP servers, and long Claude subscription turns that finish</h3>
             <span class="badge">released</span>
@@ -1654,7 +1670,7 @@
   <footer class="site-footer">
     <div class="container footer-inner">
       <div>
-        <p><strong>Casper 0.4.13</strong> · early preview, unsigned</p>
+        <p><strong>Casper 0.4.14</strong> · early preview, unsigned</p>
         <p><a href="https://github.com/Choaterboater/casper/blob/main/LICENSE">MIT licence</a> · © 2026 Choaterboater</p>
         <p>Built on the <a href="https://github.com/earendil-works/pi">Pi SDK</a>. Other parts keep their own licences (<a href="https://github.com/Choaterboater/casper/blob/main/THIRD_PARTY_NOTICES.txt">notices</a>).</p>
       </div>
