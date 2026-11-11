@@ -4,7 +4,7 @@ import path from "node:path";
 import { Scrubber } from "../../src/secrets/netconan";
 import { KEY_BODY_LINE, LINE_PREFIX } from "../../src/secrets/patterns";
 import { mayBeAboveKeyEnd, shouldScrubCommandOutput, waitsForNextLine } from "../../src/secrets/scrub";
-import { liveOutputHoldsSecret, scrubToolOutput, type ToolOutputScrubOptions } from "../../src/secrets/tool-output";
+import { liveOutputHoldsSecret, liveOutputReading, scrubToolOutput, type ToolOutputScrubOptions } from "../../src/secrets/tool-output";
 import { forgetTypedSecrets, rememberTypedSecret } from "../../src/secrets/typed";
 import { CASES_FILE, type ScrubCases } from "./scrub-cases";
 import { removeTempDir } from "./temp-dir";
@@ -94,8 +94,14 @@ export async function missedWindows(text: string, options: ToolOutputScrubOption
     if (!found) seen.scrubs.set(part, found = finalScrub(part, options));
     return found;
   };
+  // A window read after the lines above it is read with them, so the windows that end on one line share its reading.
+  const readings = new Map<number, (text: string, before: string) => boolean>();
   const holdsAfterLines = (start: number, end: number, window: string) => {
-    const read = () => liveOutputHoldsSecret(window, { ...options, before: start ? `${before.slice(0, start).join("\n")}\n` : "" });
+    const read = () => {
+      let reading = readings.get(end);
+      if (!reading) readings.set(end, reading = liveOutputReading(before.slice(0, end).join("\n"), options));
+      return window.trim() ? reading(window, start ? `${before.slice(0, start).join("\n")}\n` : "") : false;
+    };
     if (!seen?.afterLines) return read();
     const key = `${start},${end}`;
     let found = seen.afterLines.get(key);

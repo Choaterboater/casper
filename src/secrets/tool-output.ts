@@ -119,20 +119,39 @@ export function fileTextHoldsSecret(filePath: string, text: string, options: Too
  */
 export function liveOutputHoldsSecret(text: string, options: ToolOutputScrubOptions & { cut?: boolean; before?: string } = {}): boolean {
   if (!text.trim()) return false;
-  const whole = (options.before ?? "") + text;
-  if ((options.configs ?? true) && (JSON_START.test(whole) || text.split("\n").some((line) => JSON_START.test(line) || JSON_MEMBER.test(line)))) return true;
+  const before = options.before ?? "";
+  return liveOutputReading(before + text, options)(text, before);
+}
+
+/**
+ * liveOutputHoldsSecret for the windows of shown lines that end where `whole` (the output so far) ends: `text`, the
+ * shown lines, after `before`, the ones above them, with `before` + `text` being `whole`. The live scrubs read `whole`
+ * whichever lines are shown, so each runs once, when a window first needs it.
+ */
+export function liveOutputReading(whole: string, options: ToolOutputScrubOptions & { cut?: boolean } = {}): (text: string, before: string) => boolean {
+  const cut = options.cut === true;
   const values = [...loginFileValues(options.loginFile ?? path.join(casperAgentDir(), "auth.json")),
     ...options.networkLoginFile ? networkLoginValues(options.networkLoginFile) : []];
   const env = options.env ? { env: options.env } : {};
-  if (showsPartOfSecret(text, { before: options.before ?? "", cut: options.cut === true }, exactSecretValues({ values, ...env }))) return true;
-  const shown = text.split("\n").length;
+  const exact = exactSecretValues({ values, ...env });
   const lines = whole.split("\n");
-  return livePlainScrubs(whole, { keyFile: true, values, live: { cut: options.cut === true }, ...env }).some((scrub) => {
-    const scrubbed = scrub();
-    if (scrubbed === whole) return false;
-    const after = scrubbed.split("\n");
-    return lines.length !== after.length || lines.slice(-shown).join("\n") !== after.slice(-shown).join("\n");
-  });
+  const scrubs = livePlainScrubs(whole, { keyFile: true, values, live: { cut }, ...env });
+  // Each scrub's lines once it has run; null when it changed nothing.
+  const done: Array<string[] | null | undefined> = [];
+  const scrubbed = (index: number) => {
+    if (done[index] === undefined) { const after = scrubs[index]!(); done[index] = after === whole ? null : after.split("\n"); }
+    return done[index];
+  };
+  return (text, before) => {
+    if (!text.trim()) return false;
+    if ((options.configs ?? true) && (JSON_START.test(whole) || text.split("\n").some((line) => JSON_START.test(line) || JSON_MEMBER.test(line)))) return true;
+    if (showsPartOfSecret(text, { before, cut }, exact)) return true;
+    const shown = text.split("\n").length;
+    return scrubs.some((_, index) => {
+      const after = scrubbed(index);
+      return !!after && (lines.length !== after.length || lines.slice(-shown).join("\n") !== after.slice(-shown).join("\n"));
+    });
+  };
 }
 
 /** Whether a running command's shown lines (`text`, after `before`) may be part of one of `values` of more than one
