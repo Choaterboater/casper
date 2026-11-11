@@ -122,7 +122,7 @@ test("the schema lists exactly the fields the validator reads, and each field na
     expect({ field, note: schema.properties[field]!.description?.startsWith(`${takers.join(", ")}`) }).toEqual({ field, note: true });
   }
   expect(tool.description).toContain("Send only your action's fields");
-  expect(tool.description).toContain("check its fix with replaces: its id or withdraw (reason)");
+  expect(tool.description).toContain("check its fix with replaces: its id until one passes");
   // The four fields shared by click, fill, press and serve are named in the description instead.
   expect(tool.description).toContain("click, fill, press and select take a CSS selector (all but click a value too); these and serve take impact (reason optional)");
   // The policy the model needs before it acts stays; the rest is said when an action is refused.

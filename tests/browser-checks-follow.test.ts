@@ -165,7 +165,10 @@ browserTest("a check that fails after Casper answered Cancel to a confirm dialog
   const url = `http://127.0.0.1:${page.port}/`;
   const clicked = (expected: string) => ({ name: `after the click: ${expected}`, url, steps: [{ action: "click", selector: "#go", impact: "local-test" }], assertions: [{ kind: "text", selector: "h1", expected }] });
   const needsOk = await session.run({ action: "check", scenario: clicked("Cleared") });
+  // Read before toMatchObject, which leaves its matcher in the field it matched.
+  const { id, reason } = needsOk as { id: string; reason: string };
   expect(needsOk).toMatchObject({ status: "incomplete", cancelled: "confirm", reason: expect.stringContaining('Casper answered Cancel, so this check can\'t see what OK does. On this computer\'s pages, record it again with dialog: "accept"') });
+  expect(reason).toEndWith(`with dialog: "accept" on that step and replaces: "${id}".`);
   // A check that expects what Cancel does still passes.
   expect(await session.run({ action: "check", scenario: clicked("Two items") })).toMatchObject({ status: "pass" });
   const report = await session.report();
@@ -280,4 +283,29 @@ browserTest("a text assertion whose selector holds more than its expected text, 
   const wrong = await session.run({ action: "check", scenario: { name: "wrong", url, steps: [], assertions: [{ kind: "text", selector: "h1", expected: "Away" }] } });
   expect(wrong.status).toBe("fail");
   expect((await session.report()).status).toBe("fail");
+}, 45_000);
+
+// A sign-up build: a check that registered an account was refused as written wrong ("nothing was recorded"), and the
+// next one with the same email failed because the account was already there.
+browserTest("a new check written wrong whose steps fill a fixed email says its steps ran and their data stays; one with {run} says nothing was recorded", async () => {
+  const { session } = await setup();
+  const page = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => new Response(`<!doctype html><input id="email"><button id="go">Join</button><ul><li class="row">Row</li><li class="row">Row</li></ul><input class="e"><input class="e"><button class="b">A</button><button class="b">B</button>`,
+    { headers: { "content-type": "text/html; charset=utf-8" } }) });
+  cleanup.push(() => page.stop(true));
+  const signUp = (email: string) => ({ name: "sign up", url: `http://127.0.0.1:${page.port}/`,
+    steps: [{ action: "fill", selector: "#email", value: email, impact: "local-test" }, { action: "click", selector: "#go", impact: "local-test" }],
+    assertions: [{ kind: "text", selector: "li.row", expected: "Row" }] });
+  const fixed = await session.run({ action: "check", scenario: signUp("new@example.com") }).catch((error: Error) => error.message);
+  expect(fixed).toContain("name one element and record the check again (nothing was recorded, but its steps ran: what they saved, such as a sign-up, stays in the app; use {run} in fill values)");
+  const fresh = await session.run({ action: "check", scenario: signUp("new-{run}@example.com") }).catch((error: Error) => error.message);
+  expect(fresh).toEndWith("name one element and record the check again (nothing was recorded)");
+  // A step refused for several matches: only the steps before it ran, and the fill itself refused ran nothing.
+  const step = (steps: unknown[]) => session.run({ action: "check", scenario: { ...signUp("new@example.com"), steps, assertions: [{ kind: "visible", selector: "#go" }] } })
+    .catch((error: Error) => error.message);
+  const fill = { action: "fill", selector: "#email", value: "new@example.com", impact: "local-test" };
+  expect(await step([fill, { action: "click", selector: "button.b", impact: "local-test" }])).toEndWith(
+    "name one element and record the check again (nothing was recorded, but step 1 ran: what it saved, such as a sign-up, stays in the app; use {run} in fill values)");
+  expect(await step([{ ...fill, selector: "input.e" }, { action: "click", selector: "#go", impact: "local-test" }])).toEndWith(
+    "name one element and record the check again (nothing was recorded)");
+  expect((await session.report()).checks).toEqual([]);
 }, 45_000);

@@ -231,7 +231,7 @@ browserTest("check with replaces records the corrected check and, once it passes
   expect(await checks()).toBe(1);
   // A replacement that fails is recorded on its own; the old check stays, and the result says how to finish.
   const failing = await f.session.run({ action: "check", replaces: wrong.id, scenario: scenario("Still wrong", "#done p") }) as { id: string; status: string; replaced: Record<string, unknown> };
-  expect(failing).toMatchObject({ status: "fail", replaced: { id: wrong.id, status: "incomplete", note: expect.stringContaining(`Not replaced: this check did not pass. If the page is wrong, fix it and replay this check, then withdraw ${wrong.id} with replacedBy: "${failing.id}"`) } });
+  expect(failing).toMatchObject({ status: "fail", replaced: { id: wrong.id, status: "incomplete", note: `Not replaced: this check did not pass, so ${wrong.id} still stands (written wrong) and decides the result. If this check is wrong too, fix what its reason says and record it again with replaces: "${failing.id}" (that also replaces ${wrong.id}); if the page is wrong, fix it and replay ${failing.id}: once it passes, ${wrong.id} is withdrawn.` } });
   // One that passes takes the old check's place in the same call, with the reason given (or "written wrong").
   const fixed = await f.session.run({ action: "check", replaces: wrong.id, reason: "selector too wide", scenario: scenario("Booking fixed", "#done h2") }) as { id: string; replaced: Record<string, unknown> };
   expect(fixed).toMatchObject({ status: "pass", replaced: { id: wrong.id, status: "withdrawn", reason: `selector too wide (replaced by "Booking fixed", ${fixed.id})` } });
@@ -272,7 +272,7 @@ browserTest("on a broken page every new way through still fails: the listed sele
   await expect(f.session.run({ action: "withdraw", id: first.id, reason: "wrong" })).rejects.toThrow("with at least 28 fill steps, 1 click step, 1 press step and 1 text assertion that passes");
   // 5. A replacement written right fails too on the broken page: the old check is not withdrawn and the result fails.
   const replacement = await f.session.run({ action: "check", replaces: first.id, scenario: scenario("Save again", "button:nth-of-type(1)") }) as { id: string };
-  expect(replacement).toMatchObject({ status: "fail", replaced: { id: first.id, status: "fail", note: expect.stringContaining("Not replaced: this check did not pass") } });
+  expect(replacement).toMatchObject({ status: "fail", replaced: { id: first.id, status: "fail", note: expect.stringContaining(`Not replaced: this check did not pass, so ${first.id} still stands (fail) and decides the result`) } });
   // A replacement that only checks the page loads is refused before it runs; nothing is withdrawn.
   await expect(f.session.run({ action: "check", replaces: first.id, scenario: { ...scenario("Loads", "h1"), steps: [], assertions: [{ kind: "visible", selector: "h1" }] } }))
     .rejects.toThrow("it has fewer fill steps, click steps, press steps, text assertions");
@@ -450,7 +450,10 @@ browserTest("a new check that stops part way gives its id back, and can be withd
     steps: [{ action: "click", selector: "#save", impact: "local-test", reason: "Test" }], assertions: [{ kind: "visible", selector: "h1" }] };
   const error = await f.session.run({ action: "check", scenario }).catch((e: Error) => e.message);
   const id = /check id ([\w-]+)/.exec(String(error))?.[1];
-  expect(error).toContain("replay it once the page is ready, or withdraw it if the check is wrong");
+  expect(error).toContain(`replay it once the page is ready; if the check is wrong, record a corrected one with replaces: "${id}", or withdraw it with a reason while no edit or command has run since)`);
+  // One that tests what the request never asked for can't be replaced by less: the refusal says withdraw still works.
+  await expect(f.session.run({ action: "check", replaces: id, scenario: { ...scenario, steps: [] } })).rejects.toThrow(
+    `(nothing was recorded). If ${id} tests what the request doesn't ask for, withdraw it with a reason instead, then record this check without replaces`);
   expect(await f.session.report()).toMatchObject({ status: "incomplete", checks: [{ id, status: "incomplete" }] });
   expect(await f.session.run({ action: "withdraw", id, reason: "wrong selector" })).toMatchObject({ status: "withdrawn" });
   expect(await f.session.report()).toMatchObject({ checks: [{ id, status: "withdrawn" }] });
@@ -707,4 +710,100 @@ browserTest("the end replay leaves a check written wrong, a cancelled one and a 
   const replayed: string[] = [];
   await f.session.replayStale(0, undefined, name => replayed.push(name));
   expect(replayed).toEqual([]);
+}, 30_000);
+
+// A tracker build: a check written wrong, a replacement written wrong too, then one that passed; the first stayed and
+// the task ended Incomplete.
+browserTest("a passing check that replaces a failed replacement also replaces the check that one was recorded to replace", async () => {
+  const f = await fixture();
+  await writeFile(f.sourceFile, '<!doctype html><section id="done"><h2>Booked</h2><p>Monday 09:00</p></section>');
+  const scenario = (name: string, selector: string, extra: Record<string, unknown> = {}) => ({ name, url: f.url, scope: { inputs: ["index.html"] }, steps: [],
+    assertions: [{ kind: "text", selector, expected: "Booked" }], ...extra });
+  const first = await f.session.run({ action: "check", scenario: scenario("Booking", "#done") }) as { id: string };
+  expect(first).toMatchObject({ status: "incomplete", writtenWrong: expect.any(String) });
+  const second = await f.session.run({ action: "check", replaces: first.id, scenario: scenario("Booking 2", "#done") }) as { id: string; replaced: { note: string } };
+  expect(second).toMatchObject({ status: "incomplete", replaced: { id: first.id, status: "incomplete" } });
+  expect(second.replaced.note).toStartWith(`Not replaced: this check did not pass, so ${first.id} still stands (written wrong) and decides the result.`);
+  expect(second.replaced.note).toContain(`record it again with replaces: "${second.id}" (that also replaces ${first.id})`);
+  const third = await f.session.run({ action: "check", replaces: second.id, scenario: scenario("Booking fixed", "#done h2") }) as { id: string };
+  expect(third).toMatchObject({ status: "pass", replaced: { id: second.id, status: "withdrawn", alsoWithdrawn: [first.id] } });
+  const report = await f.session.report();
+  expect(report.checks.map(check => [check.id, check.status, check.withdrawn])).toEqual([
+    [first.id, "withdrawn", `written wrong (replaced by "Booking fixed", ${third.id})`],
+    [second.id, "withdrawn", `written wrong (replaced by "Booking fixed", ${third.id})`],
+    [third.id, "pass", undefined]]);
+  expect(report.status).toBe("pass");
+}, 40_000);
+
+browserTest("a link of a replaces chain that can't be replaced stays, and the result names it", async () => {
+  const f = await fixture();
+  await writeFile(f.sourceFile, '<!doctype html><section id="done"><h2>Booked</h2><p>Monday 09:00</p></section>');
+  const scenario = (name: string, selector: string, extra: Record<string, unknown> = {}) => ({ name, url: f.url, scope: { inputs: ["index.html"] }, steps: [],
+    assertions: [{ kind: "text", selector, expected: "Booked" }], ...extra });
+  const phone = await f.session.run({ action: "check", scenario: scenario("Phone", "#done", { viewport: { width: 390, height: 844 } }) }) as { id: string };
+  const first = await f.session.run({ action: "check", scenario: scenario("Booking", "#done") }) as { id: string };
+  const second = await f.session.run({ action: "check", replaces: first.id, scenario: scenario("Booking 2", "#done") }) as { id: string };
+  // replaces never links checks of two viewports (replaceable refuses it): the link is set by hand to reach withdraw's refusal.
+  (f.session as unknown as { scenarios: Map<string, { replacing?: string }> }).scenarios.get(first.id)!.replacing = phone.id;
+  const third = await f.session.run({ action: "check", replaces: second.id, scenario: scenario("Booking fixed", "#done h2") }) as { replaced: { note: string } };
+  expect(third).toMatchObject({ status: "pass", replaced: { id: second.id, status: "withdrawn", alsoWithdrawn: [first.id] } });
+  expect(third.replaced.note).toStartWith(`${phone.id} was not replaced: replacedBy must check the page at the same viewport as this one (390×844)`);
+  const report = await f.session.report();
+  expect(report.checks.map(check => check.status)).toEqual(["incomplete", "withdrawn", "withdrawn", "pass"]);
+  expect(report.status).toBe("incomplete");
+}, 40_000);
+
+browserTest("a replacement that stopped part way and passes on a replay replaces the check it was recorded to replace", async () => {
+  const f = await fixture();
+  await writeFile(f.sourceFile, '<!doctype html><section id="done"><h2>Booked</h2><p>Monday 09:00</p></section>');
+  const scenario = (name: string, selector: string, steps: unknown[] = []) => ({ name, url: f.url, scope: { inputs: ["index.html"] }, steps,
+    assertions: [{ kind: "text", selector, expected: "Booked" }] });
+  const first = await f.session.run({ action: "check", scenario: scenario("Booking", "#done") }) as { id: string };
+  expect(first).toMatchObject({ status: "incomplete", writtenWrong: expect.any(String) });
+  // The Book button isn't built yet: the replacement stops part way, and the first check still stands.
+  const error = await f.session.run({ action: "check", replaces: first.id, scenario: scenario("Booking fixed", "#done h2", [{ action: "click", selector: "#book", impact: "local-test" }]) })
+    .catch((e: Error) => e.message);
+  const second = /check id ([\w-]+)/.exec(String(error))?.[1];
+  expect(error).toContain(`${first.id} is not replaced until a check that replaces it passes`);
+  await writeFile(f.sourceFile, '<!doctype html><section id="done"><h2>Booked</h2><p>Monday 09:00</p></section><button id="book">Book</button>');
+  f.session.invalidate();
+  expect(await f.session.run({ action: "replay", id: second })).toMatchObject({ status: "pass", replaced: { alsoWithdrawn: [first.id] } });
+  const report = await f.session.report();
+  expect(report.checks.map(check => [check.id, check.status, check.withdrawn])).toEqual([
+    [first.id, "withdrawn", `written wrong (replaced by "Booking fixed", ${second})`], [second, "pass", undefined]]);
+  expect(report.status).toBe("pass");
+}, 40_000);
+
+browserTest("a withdraw with replacedBy also replaces what the withdrawn check was recorded to replace", async () => {
+  const f = await fixture();
+  await writeFile(f.sourceFile, '<!doctype html><section id="done"><h2>Bookd</h2><p>Monday 09:00</p></section>');
+  const scenario = (name: string, selector: string) => ({ name, url: f.url, scope: { inputs: ["index.html"] }, steps: [],
+    assertions: [{ kind: "text", selector, expected: "Booked" }] });
+  const first = await f.session.run({ action: "check", scenario: scenario("Booking", "#done") }) as { id: string };
+  // The page is broken: the replacement fails and keeps the link to the first check.
+  const second = await f.session.run({ action: "check", replaces: first.id, scenario: scenario("Booking 2", "#done h2") }) as { id: string };
+  expect(second).toMatchObject({ status: "fail" });
+  const third = await f.session.run({ action: "check", scenario: scenario("Booking 3", "#done h2") }) as { id: string };
+  await writeFile(f.sourceFile, '<!doctype html><section id="done"><h2>Booked</h2><p>Monday 09:00</p></section>');
+  f.session.invalidate();
+  expect(await f.session.run({ action: "replay", id: third.id })).toMatchObject({ status: "pass" });
+  expect(await f.session.run({ action: "withdraw", id: second.id, reason: "kept the old selector", replacedBy: third.id }))
+    .toMatchObject({ status: "withdrawn", alsoWithdrawn: [first.id] });
+  const report = await f.session.report();
+  expect(report.checks.map(check => check.status)).toEqual(["withdrawn", "withdrawn", "pass"]);
+  expect(report.status).toBe("pass");
+}, 40_000);
+
+browserTest("a bare withdraw of the only check of a page says none of that page is left; with another check of it, today's words", async () => {
+  const f = await fixture();
+  await writeFile(f.sourceFile, "<!doctype html><h1>Hello Casper</h1>");
+  const scenario = (name: string, expected: string) => ({ name, url: f.url, scope: { inputs: ["index.html"] }, steps: [], assertions: [{ kind: "text", selector: "h1", expected }] });
+  const only = await f.session.run({ action: "check", scenario: scenario("Heading", "Hello Caspr") });
+  expect(await f.session.run({ action: "withdraw", id: only.id, reason: "typo" })).toMatchObject({ status: "withdrawn",
+    guidance: "It no longer decides the result, and no check of / is left: record a corrected check of / (no replaces) that passes, or the receipt says Incomplete." });
+  const right = await f.session.run({ action: "check", scenario: scenario("Heading b", "Hello Casper") });
+  expect(right).toMatchObject({ status: "pass" });
+  const wrong = await f.session.run({ action: "check", scenario: scenario("Heading c", "Hello Caspr") });
+  expect(await f.session.run({ action: "withdraw", id: wrong.id, reason: "typo" })).toMatchObject({ status: "withdrawn",
+    guidance: "It no longer decides the result; the receipt names it with your reason. Record a corrected check for what it meant to test." });
 }, 30_000);

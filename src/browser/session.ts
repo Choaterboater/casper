@@ -7,7 +7,7 @@ import { readReferenceFile, referenceText } from "../references/files";
 import { type InputState, workspaceState } from "../verify/workspace-state";
 import { appDataFile } from "../services/app-data";
 import { type AppData, restoreAppData, sameAppData, settingsFile, snapshotAppData } from "./app-data";
-import { parseScenario, scopeOf, viewport, type BrowserScenario, type BrowserCheck, type BrowserReport, type BrowserStep } from "./scenario";
+import { localURL, parseScenario, scopeOf, viewport, type BrowserScenario, type BrowserCheck, type BrowserReport, type BrowserStep } from "./scenario";
 import { mkdtemp, realpath, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -88,9 +88,6 @@ export function screenAvailable(platform: NodeJS.Platform = process.platform, en
 export interface BrowserApproval { action: string; url: string; selector: string; target: string; value?: string; reason: string; impact: string }
 const INTERACTIONS = ["click", "fill", "press", "select"];
 const DANGEROUS = /\b(delete|remove|destroy|purchase|pay|checkout|buy|send|publish|deploy|sign.?in|log.?in|password|credit.?card)\b/i;
-function localURL(source: string): boolean {
-  try { return ["localhost", "127.0.0.1", "[::1]"].includes(new URL(source).hostname); } catch { return false; }
-}
 /** Whether starting a package.json dev or start script asks first. With browser clicks on (allowAll) only a script
  * that runs a download through a shell or uses sudo asks, as Claude Code's auto mode also stops those; off, any
  * effect other than local-test and any obvious risky command asks. */
@@ -1047,6 +1044,14 @@ function shapeProblems(was: BrowserScenario, is: BrowserScenario): string[] {
 /** A replay whose page's server no longer answers and no server of Casper's stands in: nothing was checked. */
 /** A new check written wrong (a selector that matches several elements): nothing is recorded. */
 class WrittenWrong extends Error {}
+/** How a refused new check says nothing was recorded: when the steps that ran fill a fixed email or name, that they
+ * ran, so what they saved stays in the app. `refusedAt` is the index of the step that was refused, when one was: only
+ * the steps before it ran. */
+function notRecorded(steps: BrowserStep[], refusedAt?: number): string {
+  if (!fixedIdentity(refusedAt === undefined ? steps : steps.slice(0, refusedAt))) return "(nothing was recorded)";
+  const ran = refusedAt === undefined ? "its steps ran: what they" : refusedAt === 1 ? "step 1 ran: what it" : `steps 1–${refusedAt} ran: what they`;
+  return `(nothing was recorded, but ${ran} saved, such as a sign-up, stays in the app; use {run} in fill values)`;
+}
 /** " (matches: a; b)" for an error: the elements a selector matched, each with a selector for it alone. */
 function matchList(listed: readonly string[] | undefined, label = "matches"): string {
   return listed?.length ? ` (${label}: ${listed.join("; ")})` : "";
@@ -1091,7 +1096,10 @@ interface RecordedCheck { scenario: BrowserScenario; check: BrowserCheck; finger
   /** The AI's other services that ran when it was recorded (a mock its page fetched): the end replay starts them too. */
   companions?: Array<{ name: string; spec?: ServiceSpec }>
   /** How it last ended on its own server (not a stand-in): what a failure on a stand-in is compared with. */
-  ownStatus?: BrowserCheck["status"] }
+  ownStatus?: BrowserCheck["status"]
+  /** The check it was recorded to replace and did not (it did not pass): a check that replaces this one and passes
+   * replaces that one too, through withdraw and its replacedBy rules. */
+  replacing?: string }
 
 /** A check for the next task's browser (BrowserSessionOptions.carried): what it runs, its last result and its data. */
 export interface CarriedCheck { readonly scenario: BrowserScenario; readonly check: BrowserCheck; readonly data?: AppData; readonly service?: string }
@@ -1805,6 +1813,8 @@ export class BrowserSession {
     entry.check = check; entry.fingerprint = undefined; entry.revision = this.revision; entry.ranAt = performance.now();
     const startedAt = performance.now();
     let opened: Page | undefined;
+    /** The step running, by index: one refused (its selector matches several elements) and those after it never ran. */
+    let stepAt = 0;
     try {
       const before = await inputState(this.options.projectRoot, scenario, signal);
       if (recording && localURL(scenario.url)) {
@@ -1828,6 +1838,7 @@ export class BrowserSession {
       /** A dialog that wanted OK, which Casper answered with Cancel, and the step that met it. */
       let cancelled: { type: "confirm" | "prompt"; step: number; message: string } | undefined;
       for (const [index, step] of scenario.steps.entries()) {
+        stepAt = index;
         signal.throwIfAborted();
         const value = step.value !== undefined && (step.action === "fill" || step.action === "select") ? step.value.replaceAll("{run}", token) : step.value;
         this.acceptDialog = step.dialog === "accept";
@@ -1917,7 +1928,7 @@ export class BrowserSession {
       if (several) {
         const what = `assertion ${several.index + 1}'s selector matches ${several.found} elements`;
         const which = matchList(listedMatches[several.index]);
-        if (input.action === "check") { this.scenarios.delete(id); throw new WrittenWrong(`${what}${which}: name one element and record the check again (nothing was recorded)`); }
+        if (input.action === "check") { this.scenarios.delete(id); throw new WrittenWrong(`${what}${which}: name one element and record the check again ${notRecorded(scenario.steps)}`); }
         check.status = "incomplete"; check.writtenWrong = what;
         check.reason = `Written wrong: ${what}${which}. Name one element and record the check again with replaces: "${id}".`;
       }
@@ -1930,7 +1941,7 @@ export class BrowserSession {
       // failure, so it starts no repair; the reason says how to check it instead.
       if (cancelled && check.status === "fail") {
         check.status = "incomplete"; check.cancelled = cancelled.type;
-        check.reason = `Not checked: step ${cancelled.step} opened a ${cancelled.type} dialog (${JSON.stringify(cancelled.message.slice(0, 80))}) and Casper answered Cancel, so this check can't see what OK does. On this computer's pages, record it again with dialog: "accept" on that step, and withdraw this one.`;
+        check.reason = `Not checked: step ${cancelled.step} opened a ${cancelled.type} dialog (${JSON.stringify(cancelled.message.slice(0, 80))}) and Casper answered Cancel, so this check can't see what OK does. On this computer's pages, record it again with dialog: "accept" on that step and replaces: "${id}".`;
       }
       // Its own server is gone and Casper's server for the project, which may hold other data, failed a check that passed
       // there: stale, not failed. Its result can't say the page is broken, so it never starts a repair (one did, and the
@@ -1941,8 +1952,10 @@ export class BrowserSession {
         check.reason = `Stale, not failed: the server it ran on (${notOpened.standIn}) is gone, and Casper's server for the project, which may hold other data, did not pass it. Replay it with its own server running to count it.`;
       }
       if (recording) { check.baseline = check.status; entry.recordedRevision = entry.revision; }
-      const replaced = replaces !== undefined ? await this.replaceWith(replaces, id, input.reason) : undefined;
-      const result = { ...structuredClone(check) as unknown as Record<string, unknown>, ...(replaced ? { replaced } : {}) };
+      // A replay that passes replaces what this check was recorded to replace (a replacement that stopped part way).
+      const replaced = replaces !== undefined ? await this.replaceWith(replaces, id, input.reason)
+        : check.status === "pass" && entry.replacing !== undefined ? await this.withdrawLinks(entry.replacing, id) : undefined;
+      const result = { ...structuredClone(check) as unknown as Record<string, unknown>, ...(replaced && Object.keys(replaced).length ? { replaced } : {}) };
       // The check is decided: reading the page after it can't change that, fail it or make it overrun.
       if (performance.now() - startedAt > FINAL_PAGE_AFTER_MS) return result;
       return { ...result, ...await this.finalPage(page, signal, FINAL_RESULT_BYTES - Buffer.byteLength(JSON.stringify(result))).catch(() => ({})) };
@@ -1963,11 +1976,14 @@ export class BrowserSession {
       // kept, so it can't hold the result at incomplete. One that matches nothing may be a feature not built yet.
       if (input.action === "check" && error instanceof Error && /exactly one element; it matches ([2-9]|\d{2,})/.test(error.message)) {
         this.scenarios.delete(id);
-        throw new Error(`${error.message}: name one element and record the check again (nothing was recorded)`);
+        throw new Error(`${error.message}: name one element and record the check again ${notRecorded(scenario.steps, stepAt)}`);
       }
-      // A new check that stopped part way still gets its id back: replay it once the page is ready, or withdraw it.
-      if (input.action === "check" && error instanceof Error && !signal.aborted)
-        throw new Error(`${error.message} (check id ${id}: replay it once the page is ready, or withdraw it if the check is wrong${replaces !== undefined ? `; ${replaces} is not replaced until a check that replaces it passes` : ""})`);
+      // A new check that stopped part way still gets its id back: replay it once the page is ready, or replace it. One
+      // that replaces this one and passes replaces what this one was recorded to replace too.
+      if (input.action === "check" && error instanceof Error && !signal.aborted) {
+        if (replaces !== undefined) entry.replacing = replaces;
+        throw new Error(`${error.message} (check id ${id}: replay it once the page is ready; if the check is wrong, record a corrected one with replaces: "${id}", or withdraw it with a reason while no edit or command has run since${replaces !== undefined ? `; ${replaces} is not replaced until a check that replaces it passes` : ""})`);
+      }
       throw error;
     }
   }
@@ -2111,6 +2127,15 @@ export class BrowserSession {
    * decides the result in its place. The check stays in the report as withdrawn, with the reason.
    */
   private async withdraw(input: Record<string, unknown>): Promise<Record<string, unknown>> {
+    const result = await this.withdrawOne(input);
+    if (input.replacedBy === undefined) return result;
+    // What this check was recorded to replace, and did not, is replaced by the same passing check.
+    const id = String(result.id);
+    return { ...result, ...await this.withdrawLinks(this.scenarios.get(id)?.replacing, text(input.replacedBy, "replacedBy", 64)) };
+  }
+
+  /** withdraw, for one check: its links are walked by withdraw. */
+  private async withdrawOne(input: Record<string, unknown>): Promise<Record<string, unknown>> {
     const id = text(input.id, "id", 64);
     const reason = oneLine(input.reason, "reason", 200);
     const entry = this.scenarios.get(id);
@@ -2126,8 +2151,7 @@ export class BrowserSession {
       delete entry.carried;
       entry.check = { ...entry.check, status: "withdrawn", withdrawn };
       return { id, name: entry.check.name, status: "withdrawn", reason: withdrawn,
-        guidance: replacement ? "It no longer decides the result; its replacement does, and the receipt names both."
-          : "It no longer decides the result; the receipt names it with your reason. Record a corrected check for what it meant to test." };
+        guidance: replacement ? "It no longer decides the result; its replacement does, and the receipt names both." : this.withdrawnGuidance(entry) };
     };
     if (replacement) return done();
     // One that went to a sign-in page never saw its page: withdrawing it hides nothing, whatever changed since.
@@ -2171,16 +2195,51 @@ export class BrowserSession {
     if (old.check.status === "withdrawn") throw new Error(`replaces names a check already withdrawn: record this check without replaces (nothing was recorded)`);
     if (old.check.status === "pass") throw new Error(`replaces must name a failed or unfinished check; ${JSON.stringify(old.check.name)} passed (nothing was recorded)`);
     const problems = shapeProblems(old.scenario, scenario);
-    if (problems.length) throw new Error(`replaces: this check ${problems.join("; and it ")}. A replacement is ${replacementNeeds(old.scenario)} (nothing was recorded)`);
+    // One that tests what it shouldn't (a step the request never asked for) can't be replaced by less: a bare withdraw
+    // still takes it out while nothing has changed since it was recorded.
+    const bare = old.check.status === "incomplete" && (old.check.signedOut || (!old.carried && old.recordedRevision === this.revision && old.revision === old.recordedRevision));
+    if (problems.length) throw new Error(`replaces: this check ${problems.join("; and it ")}. A replacement is ${replacementNeeds(old.scenario)} (nothing was recorded)${bare ? `. If ${id} tests what the request doesn't ask for, withdraw it with a reason instead, then record this check without replaces` : ""}`);
   }
 
   /** After a check with `replaces` ran: once it passed, the old check is withdrawn naming it, through withdraw and
    * its replacedBy rules; otherwise the old check stays and the result says how to finish. */
   private async replaceWith(old: string, by: string, reason: unknown): Promise<Record<string, unknown>> {
-    if (this.scenarios.get(by)?.check.status !== "pass")
-      return { id: old, status: this.scenarios.get(old)?.check.status, note: `Not replaced: this check did not pass. If the page is wrong, fix it and replay this check, then withdraw ${old} with replacedBy: "${by}"; if this check is wrong too, record another with replaces: "${old}".` };
+    const entry = this.scenarios.get(by);
+    if (entry?.check.status !== "pass") {
+      // Kept as a link: a check that replaces this one and passes replaces `old` too.
+      if (entry) entry.replacing = old;
+      const was = this.scenarios.get(old)?.check;
+      return { id: old, status: was?.status, note: `Not replaced: this check did not pass, so ${old} still stands (${was?.writtenWrong ? "written wrong" : was?.status}) and decides the result. If this check is wrong too, fix what its reason says and record it again with replaces: "${by}" (that also replaces ${old}); if the page is wrong, fix it and replay ${by}: once it passes, ${old} is withdrawn.` };
+    }
     try { return await this.withdraw({ id: old, reason: reason ?? "written wrong", replacedBy: by }); }
     catch (error) { return { id: old, status: this.scenarios.get(old)?.check.status, note: `Not replaced: ${error instanceof Error ? error.message : String(error)}` }; }
+  }
+
+  /** Once check `by` passes, by any route (recorded with replaces, a replay, or named in replacedBy): the checks back
+   * along the `replacing` links from `link`, each still standing, are withdrawn the same way, naming `by`, under every
+   * withdraw and replacedBy rule. The first refusal stops the walk and is said. */
+  private async withdrawLinks(link: string | undefined, by: string): Promise<{ alsoWithdrawn?: string[]; note?: string }> {
+    const also: string[] = [];
+    const seen = new Set([by]);
+    for (; link !== undefined && !seen.has(link); link = this.scenarios.get(link)?.replacing) {
+      seen.add(link);
+      const status = this.scenarios.get(link)?.check.status;
+      if (status === undefined || status === "pass" || status === "withdrawn") continue;
+      try { await this.withdrawOne({ id: link, reason: "written wrong", replacedBy: by }); also.push(link); }
+      catch (error) {
+        return { ...(also.length ? { alsoWithdrawn: also } : {}), note: `${link} was not replaced: ${error instanceof Error ? error.message : String(error)}` };
+      }
+    }
+    return also.length ? { alsoWithdrawn: also } : {};
+  }
+
+  /** What a bare withdraw says: record a corrected check, and when no check of its page is left, that it must pass. */
+  private withdrawnGuidance(entry: RecordedCheck): string {
+    const page = checkedPage(entry.scenario.url);
+    const counted = [...this.scenarios.values()].filter(other => !other.carried && other.check.status !== "withdrawn");
+    if (counted.some(other => checkedPage(other.scenario.url) === page))
+      return "It no longer decides the result; the receipt names it with your reason. Record a corrected check for what it meant to test.";
+    return `It no longer decides the result, and no check of ${page} is left: record a corrected check of ${page} (no replaces) that passes${counted.length ? "" : ", or the receipt says Incomplete"}.`;
   }
 
   private async interact(input: Record<string, unknown>, signal: AbortSignal, waitForTarget = false, watchBy = Infinity): Promise<Record<string, unknown>> {
