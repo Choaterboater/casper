@@ -84,7 +84,9 @@ through. Check what a tool returns before you share it.
   `**root** / **<secret hidden>**`, `login: admin / <secret hidden>`,
   `creds: user / <secret hidden>`, `**Password:** <secret hidden>`, `pw: <secret hidden>`,
   `the password is <secret hidden>`, `admin:<secret hidden>@10.0.0.5`, the cells of a table's Password
-  column (a Markdown table, or one drawn with rules: mysql's and psql's, rich's and tabulate's grids), Proxmox API tokens (`root@pam!name=<secret hidden>`, `PVEAPIToken=...`, the value row of
+  column (a Markdown table, one drawn with rules: mysql's and psql's, rich's and tabulate's grids, or one with no bars under
+  a rule of dashes: sqlite3's `-header -column`, psql's one column, PowerShell's `Format-Table`), the value of a
+  password row in psql's expanded records (`\x`), Proxmox API tokens (`root@pam!name=<secret hidden>`, `PVEAPIToken=...`, the value row of
   `pveum user token add`), a token's secret written after its id (`root@pam!sampleapp <secret hidden>`)
   and `token=<uuid or long hex>`. In commands: `sshpass -p`, `--password`,
   `--token`, `curl -u user:<secret hidden>`, `mysql -p`, `ipmitool -P`, `smbclient -U user%...`,
@@ -295,8 +297,7 @@ Casper.
   because they look like a path or plain words.
 - A table's secret column is known by its header (`Password`, `Secret`, `Token`, `Key`, `Community`
   and the like), through any rule lines under it or between its rows. Rows whose header is not in
-  the output are not hidden, and a table with no bars (PowerShell's `Format-Table`) is not read as
-  one. A plain cell under such a header is hidden too. A key column stays where it names the rows (a
+  the output are not hidden. A plain cell under such a header is hidden too. A key column stays where it names the rows (a
   table whose header is just `key` and `value`) or an index (mysql's `EXPLAIN` and `DESCRIBE`), but
   only in a table whose rule lines do not start with a bar (mysql's `+---+`, psql's own `---+---`, a
   grid's `├──┼──┤`). In one whose rules start with a bar (Markdown's `|---|`, `|---+---|` in
@@ -333,9 +334,21 @@ Casper.
   cell to its end, the cells after the password with it. A Markdown row with no last bar is hidden
   the same way, since a bar inside its value need not make it longer, and so is every row under a
   header with no last bar. A row with no header in view has no such count to go by.
-- These table shapes are not read: psql's one-column and expanded (`\x`) output and its double
-  header line (`═══╪═══`); rich tables with no outer bars (the `MINIMAL` and `SIMPLE` boxes,
-  `HORIZONTALS`, `box=None`, `show_edge=False`); ClickHouse's `PrettyCompact`, whose header sits inside
+- A table with no bars is read only through the rule of dashes under its header (`------  ----`, from
+  the line's start, a run per column; [decision 102](adr/0002/102-a-table-with-no-bars-is-read-by-its-dash-rule.md)):
+  each name sits over its run, with nothing in the gaps, and a row's cell is the text under its run. A
+  value wider than its run moves the cells after it, so the row is hidden from there to its end. The
+  rows end at a blank line, psql's row count or the next header. A rule of one run is a table only in
+  psql's shape (its header and rows a space in), so a Markdown heading over a line of dashes stays, and
+  so does sqlite3's one-column output. A table with no bars and no dash rule (`kubectl get`, `docker ps`)
+  is not read. In a running command's live lines over `casper acp`, the rows of such a table whose header
+  a cut left out are shown: nothing marks them as a table's, and the final output, the same keep, has
+  lost that header too.
+- psql's expanded records (`\x`) are read by their column names: under a `-[ RECORD 1 ]-` line, a name
+  that is a header word or holds a secret (`passwd`, `rolpassword`) hides its value, unless the value
+  is a setting, and the value's next lines under an empty name with it.
+- These table shapes are not read: psql's double header line (`═══╪═══`); rich tables with no outer
+  bars (the `MINIMAL` and `SIMPLE` boxes, `HORIZONTALS`, `box=None`, `show_edge=False`); ClickHouse's `PrettyCompact`, whose header sits inside
   its top edge (`┌─user─┬─password─┐`); tabulate's `jira`, `youtrack` and `textile`; Markdown
   rows with no leading bar or inside a `>` quote; and any table behind a `grep -n` or `cat -n` prefix.
 - A private key's body in command output is recognised by its BEGIN or END line; a

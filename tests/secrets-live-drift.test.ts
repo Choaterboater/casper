@@ -5,7 +5,7 @@ import { liveOutputHoldsSecret } from "../src/secrets/tool-output";
 import { forgetTypedSecrets, rememberTypedSecret } from "../src/secrets/typed";
 import { ARMOR_LINES, LIVE_LEAKS, LIVE_LEAKS_2, TYPED_TWO_LINES } from "./fixtures/live-leaks";
 import { literalSums, scrubCallers } from "./support/scrub-cases";
-import { cases, changedLines, cleanUpLiveDrift, finalScrub, KEY_FILE_LINES, KEY_FILE_TEXTS, missedWindows, OUT_OF_VIEW, settings,
+import { barlessRowsAfterCut, cases, changedLines, cleanUpLiveDrift, finalScrub, KEY_FILE_LINES, KEY_FILE_TEXTS, missedWindows, OUT_OF_VIEW, settings,
   STATE_PARTS, stateContexts, typedFor } from "./support/live-drift";
 
 // A running command's latest lines reach an ACP app only when liveOutputHoldsSecret says they hold nothing the
@@ -87,6 +87,7 @@ test("every window of whole lines a running command can show is held back where 
   // run of whole lines, from the start or from inside, that the final scrub changes must be held back on its own.
   const missed: string[] = [];
   let windows = 0;
+  let limited = 0;
   for (const options of settings.slice(0, 2)) {
     typedFor(options);
     for (const text of cases.texts) {
@@ -98,7 +99,10 @@ test("every window of whole lines a running command can show is held back where 
         for (let end = start + 1; end <= before.length; end++) {
           if (start === 0 && end === before.length) continue;
           const window = before.slice(start, end).join("\n");
-          if (!window.trim() || !before.slice(start, end).some((_, at) => changed.has(start + at))) continue;
+          const hit = before.slice(start, end).flatMap((_, at) => changed.has(start + at) ? [start + at] : []);
+          if (!window.trim() || !hit.length) continue;
+          // Decision 102's limit: a bar-less table's rows whose header a cut left out.
+          if (barlessRowsAfterCut(before, start, hit)) { limited++; continue; }
           windows++;
           if (!liveOutputHoldsSecret(window, { ...options, cut: start > 0 })) missed.push(`cut=${start > 0}: ${JSON.stringify(window)}`);
         }
@@ -106,6 +110,8 @@ test("every window of whole lines a running command can show is held back where 
     }
   }
   expect(windows).toBeGreaterThan(500);
+  // The limit is met by the bar-less tables of tests/secrets-files.test.ts, and by nothing else.
+  expect(limited).toBeGreaterThan(20);
   expect(missed).toEqual([]);
 }, 60_000);
 

@@ -469,6 +469,108 @@ test("a row the older table reading hides stays hidden: a line of = or ━ after
   ]);
 });
 
+/** Tables with no bars, read by the dash rule under their header, and psql's expanded records. Made-up values. */
+const DASH_TABLES: TableCase[] = [
+  // psql's one-column result: the header centred over a rule of dashes only, each row a space in.
+  { name: "psql, one column", gone: ["Fake-Dash-Pass-0001", "Fake-Dash-Pass-0002"], stay: ["       passwd        ", "(2 rows)"],
+    lines: ["       passwd        ", "---------------------", " Fake-Dash-Pass-0001", " Fake-Dash-Pass-0002", "(2 rows)"] },
+  { name: "psql, one column, unicode lines", gone: ["Fake-Dash-Pass-0001"], stay: ["passwd", "(1 row)"],
+    lines: ["       passwd        ", "─".repeat(21), " Fake-Dash-Pass-0001", "(1 row)"] },
+  // sqlite3 -header -column: no bars, one dash run per column. The cells beside the password stay.
+  { name: "sqlite3 -header -column", gone: ["Fake-Dash-Pass-0003", "Fake-Dash-Pass-0004"], stay: ["app     <secret hidden>  rw", "backup  <secret hidden>  ro", "user    password             role"],
+    lines: ["user    password             role", "------  -------------------  ----", "app     Fake-Dash-Pass-0003  rw  ", "backup  Fake-Dash-Pass-0004  ro  "] },
+  { name: "sqlite3, the token the last column", gone: ["Fake-Dash-Token-0005", "Fake-Dash-Token-0006"], stay: ["1   app     <secret hidden>", "2   backup  <secret hidden>"],
+    lines: ["id  name    token", "--  ------  --------------------", "1   app     Fake-Dash-Token-0005", "2   backup  Fake-Dash-Token-0006"] },
+  // A value wider than its dash run (sqlite3's .width, PowerShell's Format-Table) runs past it: the row is hidden from
+  // that cell to its end.
+  { name: "a value wider than its column", gone: ["Fake-Dash-Pass-0007"], stay: ["app   <secret hidden>", "user  password  role"],
+    lines: ["user  password  role", "----  --------  ----", "app   Fake-Dash-Pass-0007 rw"] },
+  { name: "PowerShell's Format-Table", gone: ["Fake-Dash-Pass-0008"], stay: ["app    <secret hidden>", "Name   Password"],
+    lines: ["Name   Password", "----   --------", "app    Fake-Dash-Pass-0008"] },
+  // psql with \pset border 0: the header centred over each run.
+  { name: "psql, border 0", gone: ["Fake-Dash-Pass-0009"], stay: ["app     <secret hidden> rw", "usename"],
+    lines: ["usename       passwd        role", "------- ------------------- ----", "app     Fake-Dash-Pass-0009 rw"] },
+  // psql's expanded display (\x): each record a header line, then a column name and its value per line.
+  { name: "psql \\x", gone: ["Fake-Dash-Pass-0010", "Fake-Dash-Pass-0011"], stay: ["usename  | app", "usename  | backup", "-[ RECORD 2 ]", "valuntil | 2027-01-01"],
+    lines: ["-[ RECORD 1 ]-------------------", "usename  | app", "passwd   | Fake-Dash-Pass-0010", "valuntil | ", "-[ RECORD 2 ]-------------------",
+      "usename  | backup", "passwd   | Fake-Dash-Pass-0011", "valuntil | 2027-01-01 00:00:00+00"] },
+  { name: "psql \\x, a column name that holds a secret word", gone: ["Fake-Dash-Salt-0012"], stay: ["rolname        | app", "rolpassword    | ", "rolcanlogin    | t"],
+    lines: ["-[ RECORD 1 ]--+--------------------------------------", "rolname        | app", "rolcanlogin    | t", "rolpassword    | SCRAM-SHA-256$4096:Fake-Dash-Salt-0012"] },
+  // A value of two lines: psql ends the first with + and starts the next under an empty name.
+  { name: "psql \\x, a value of two lines", gone: ["Fake-Dash-Line-0013", "Fake-Dash-Line-0014"], stay: ["name     | app", "note     | two lines"],
+    lines: ["-[ RECORD 1 ]------------------", "name     | app", "secret   | Fake-Dash-Line-0013+", "         | Fake-Dash-Line-0014", "note     | two lines"] },
+  { name: "psql \\x, border 2", gone: ["Fake-Dash-Pass-0015"], stay: ["| usename | app"],
+    lines: ["+-[ RECORD 1 ]-------------------+", "| usename | app                 |", "| passwd  | Fake-Dash-Pass-0015 |", "+---------+---------------------+"] },
+  { name: "psql \\x, unicode lines", gone: ["Fake-Dash-Pass-0016"], stay: ["usename │ app"],
+    lines: ["─[ RECORD 1 ]────────────", "usename │ app", "passwd  │ Fake-Dash-Pass-0016"] },
+];
+
+test("a table with no bars is read by the dash rule under its header, and psql's expanded records by their column names: psql, sqlite3, Format-Table", async () => {
+  await expectTables(DASH_TABLES);
+  // Every run of whole lines with the header (or the first record's line) in view, through the final scrub.
+  let windows = 0;
+  for (const { name, lines, gone } of DASH_TABLES) {
+    for (const end of ["\n", "\r\n"]) {
+      for (let stop = 1; stop <= lines.length; stop++) {
+        const text = lines.slice(0, stop).join(end);
+        const shown = (await scrubToolOutput(scrubber, "bash", { command: "./report.sh" }, [text], undefined, { env: {} }))?.texts[0] ?? text;
+        windows++;
+        for (const part of gone) expect([name, end, stop, part, shown.includes(part.slice(-6))]).toEqual([name, end, stop, part, false]);
+      }
+    }
+  }
+  expect(windows).toBeGreaterThan(80);
+});
+
+test("a line of dashes under a heading, in prose, a diff, git log --stat or YAML front matter is not a table: the lines under it stay", async () => {
+  const texts = [
+    // Markdown's setext headings, one indented a space (psql's one column indents its header and rows a space).
+    "Passwords\n---------\nKeep each one in the team vault.\n",
+    "API keys and tokens\n-------------------\nAsk the ops team for one.\n",
+    " Tokens\n--------\nRotate each one yearly.\n",
+    // Prose with a dashed separator.
+    "Password reset steps\n- - - - - - - - - -\nOpen the portal first.\n",
+    "Section 2: tokens\n-----   -----   -----\nSee below for each one.\n",
+    // git log --stat with a heading in its message, and a patch's --- line.
+    "commit 6895a92823bdea3bae42d941bad35eebdb5e8ceb\nAuthor: Example Dev <dev@example.com>\nDate:   Mon Nov 9 07:23:32 2026 -0600\n\n"
+      + "    Password\n    --------\n    Rotate the token reader\n\n src/secrets/token.ts | 4 ++--\n 1 file changed, 2 insertions(+), 2 deletions(-)\n",
+    "Subject: [PATCH] Rotate the password\n\n---\n password.txt | 2 +-\n 1 file changed, 1 insertion(+), 1 deletion(-)\n",
+    // diff's own output: --- between the old and new lines.
+    "2c2\n< password: see the vault\n---\n> password: ask the ops team\n",
+    // YAML front matter.
+    "---\ntitle: Password rotation\nsummary: where the tokens live\n---\nBody text about tokens.\n",
+    // A dash rule under a header with no secret column, or with a secret word in a longer name.
+    "user    role\n------  ----\napp     rw\nbackup  ro\n",
+    "Package           Version\n----------------- -------\nkeyring           25.6.0\npassword-strength 0.0.3\n",
+    "Name   Password manager\n----   ----------------\napp    vault\n",
+    "  usename  \n-----------\n app\n(1 row)\n",
+  ];
+  for (const text of texts) {
+    for (const end of ["\n", "\r\n"]) {
+      const input = text.replaceAll("\n", end);
+      const shown = (await scrubToolOutput(scrubber, "bash", { command: "./report.sh" }, [input], undefined, { env: {} }))?.texts[0] ?? input;
+      expect([scrubPlainSecrets(input, { env: {} }).text, shown]).toEqual([input, input]);
+    }
+  }
+});
+
+test("a table with no bars and psql's expanded records are read in linear time: 10,000 rows and a 200,000-character line", () => {
+  const timed = (text: string) => {
+    const started = performance.now();
+    const result = scrubPlainSecrets(text, { env: {} });
+    // Linear work is tens of ms; a pass that went back over the rows or the columns would take seconds.
+    return { hidden: result.hidden, ms: performance.now() - started };
+  };
+  const rows = Array.from({ length: 10_000 }, (_, at) => `u${String(at).padEnd(6)}Fake-Dash-Pass-${String(at).padStart(5, "0")}  rw`);
+  const sqlite = timed(["user    password              role", "------  --------------------  ----", ...rows].join("\n"));
+  const expanded = timed(["-[ RECORD 1 ]----", ...rows.map((row) => `passwd | ${row}`)].join("\n"));
+  // 50,000 columns, each a secret's, and then a row whose first value runs past its column.
+  const wide = timed(["pw  ".repeat(50_000), "--- ".repeat(50_000), "abc ".repeat(50_000), "x".repeat(200_000)].join("\n"));
+  const long = timed([" passwd ", "-".repeat(200_000), ` ${"y".repeat(200_000)}`, "-[ RECORD 1 ]-", `passwd | ${"z".repeat(200_000)}`].join("\n"));
+  expect([sqlite.hidden, expanded.hidden, wide.hidden, long.hidden]).toEqual([10_000, 10_000, 50_001, 2]);
+  for (const { ms } of [sqlite, expanded, wide, long]) expect(ms).toBeLessThan(2_000);
+});
+
 test("a file or branch name with login in it is not a login: the name after it stays", () => {
   for (const command of [
     "git log origin/fix/login-expired origin/fix/minors",
