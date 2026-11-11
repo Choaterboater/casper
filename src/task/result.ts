@@ -97,6 +97,8 @@ export interface TaskResult {
   browser?: BrowserReport;
   /** The model's answer says the browser checks passed; only said when Casper's record disagrees. */
   browserClaimed?: boolean;
+  /** Casper's finish turn asked for a browser check of the changed pages, and the AI recorded none. Never a verdict. */
+  browserNotRecorded?: true;
   /** Native edit/write paths the runtime reported; may lie outside the workspace root. */
   observedEdits?: string[];
   /** Workspace-relative paths whose content identity differed between the snapshots taken before
@@ -948,6 +950,7 @@ function receiptParts(task: TaskResult, options: ReceiptOptions, onScreen = fals
     if (withdrawn.length) add("checks", `– ${withdrawn.length} ${withdrawn.length === 1 ? "check" : "checks"} withdrawn by the AI: ${withdrawn
       .map((check) => `${safe(check.name)}${check.withdrawn ? ` (${safe(check.withdrawn)})` : ""}`).join(", ")}`);
   }
+  else if (task.browserNotRecorded) add("checks", "– No browser check: Casper asked for one of the changed pages and the AI recorded none");
   const verdict = withVerdict(task, lines, options, info);
   return { lines: verdict.lines, undo: undoLines(task, options, safe, onScreen), folds, info, ...(verdict.short ? { short: verdict.short } : {}) };
 }
