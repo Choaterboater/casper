@@ -36,20 +36,20 @@ Casper itself is free and open source. A task spends money only with your own mo
 macOS / Linux:
 
 ```sh
-curl -fsSL https://github.com/Choaterboater/casper/releases/download/v0.4.13/install.sh | sh
+curl -fsSL https://github.com/Choaterboater/casper/releases/download/v0.4.14/install.sh | sh
 ```
 
 Windows (x64 or ARM64), in PowerShell:
 
 ```powershell
-[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; irm https://github.com/Choaterboater/casper/releases/download/v0.4.13/install.ps1 | iex
+[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; irm https://github.com/Choaterboater/casper/releases/download/v0.4.14/install.ps1 | iex
 ```
 
 No admin rights, Bun or source checkout needed. The installer checks the file's SHA-256 (with
 `gh` signed in, also where it was built; for releases signed with the
 [release key](docs/RELEASE.md#the-release-key), none yet, the signature too) and keeps your old install
-if anything is wrong. These commands pin **v0.4.13**; after that,
-`casper update` gets the newest preview. `install.sh` takes `--dir <path>`, `--version 0.4.13`,
+if anything is wrong. These commands pin **v0.4.14**; after that,
+`casper update` gets the newest preview. `install.sh` takes `--dir <path>`, `--version 0.4.14`,
 `--sha256 <hex>` and `--force`. [Installer details](docs/RELEASE.md#installer-contract).
 
 Use the one-line command above rather than downloading a program in your browser: the installer
@@ -83,7 +83,7 @@ From the shell:
 ```sh
 casper "Explain this project"  # start a session with this first request
 casper --no-verify   # no Casper-run checks this run
-casper --version     # casper 0.4.13 (/absolute/path/of/the/binary/or/cli.ts)
+casper --version     # casper 0.4.14 (/absolute/path/of/the/binary/or/cli.ts)
 casper doctor        # check Casper's own setup and fix what it can (no model)
 ```
 
@@ -330,6 +330,8 @@ Ctrl+D on an empty prompt exits. [Keys and commands](docs/TERMINAL_UX.md#quick-r
 | Contributing | [How Casper is built](docs/ARCHITECTURE.md) · [Working on Casper](docs/DEVELOPING.md) |
 
 ## What's new
+
+v0.4.14: `casper acp` lets apps and editors drive Casper over the Agent Client Protocol, with its checks, boxes, question forms, `/plan` card and live command output; with the sandbox on, a command it blocked asks to run once outside it; planning, Read only and private places ask instead of refusing; and more database tables keep their Password column hidden.
 
 v0.4.13: a clean build ends clean: Casper finishes the browser checks the AI recorded, a slow browser action no longer closes the browser, and in a run that can't ask the AI can edit the test files it wrote (three Sonnet tracker builds all ended with exit code 0).
 
