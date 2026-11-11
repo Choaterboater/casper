@@ -1257,6 +1257,7 @@ function mcpDetailText(statuses: readonly MCPStatus[]): string {
       `  source: ${status.source}`,
       `  limits: start ${formatDuration(status.limits.connectS * 1000)} · call ${formatDuration(status.limits.callS * 1000)}`,
       ...approvalLines(status),
+      ...(status.notUsed ? [`  Not used: ${status.notUsed}.`] : []),
       ...(status.preset?.lines ?? []).map((line) => `  ${terminalText(line)}`),
       ...(status.showOptIn ? ["  Plain show commands run without asking (/mcp junos-show " + status.name + " off)."] : []),
       ...sandboxLines(status.name, status.sandbox).map(terminalText),
@@ -1289,10 +1290,12 @@ function mcpListText(statuses: readonly MCPStatus[], hints: boolean): string {
   const width = Math.min(24, Math.max(...statuses.map((status) => status.name.length)));
   const lines = statuses.map((status) => {
     const ready = status.state === "ready";
-    const access = ready && status.access !== "access not checked" ? status.access.replace(/ \(checked\)$/, "") : undefined;
+    const access = ready && !status.notUsed && status.access !== "access not checked" ? status.access.replace(/ \(checked\)$/, "") : undefined;
     const parts = [
       stateWords(status),
-      ...(ready ? [`${status.toolCount} ${status.toolCount === 1 ? "tool" : "tools"}`, `writes ${status.writes}`] : []),
+      // The app's copy of a product one of your own servers covers (decision 100).
+      ...(ready && status.notUsed ? [`not used: ${status.notUsed}`] : []),
+      ...(ready && !status.notUsed ? [`${status.toolCount} ${status.toolCount === 1 ? "tool" : "tools"}`, `writes ${status.writes}`] : []),
       ...(ready && sandboxWord(status) ? [sandboxWord(status)!] : []),
       ...(access ? [access] : []),
       ...(status.importedFrom ? [`from ${status.importedFrom}`] : status.scope === "client" ? ["from the app, this session only"] : []),

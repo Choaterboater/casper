@@ -8,7 +8,7 @@ import type { ConsentState, ConsentStore, RememberResult } from "./consent";
 import { clientNotRemembered, definitionIdentity } from "./consent";
 import type { ChangeKind } from "../capabilities/kinds";
 import {
-  matchPreset, planPins, presetById, presetLine, rememberBlock, type PinPlan, type PresetMatch,
+  matchPreset, planPins, presetById, presetLine, rememberBlock, type PinPlan, type Preset, type PresetMatch,
 } from "./presets";
 import {
   accessCheckTool, accessStatusText, gatesConfirmedOff, parseAccessCheck, READ_ONLY_LOGIN_ENABLE_TEXT, type AccessCheck,
@@ -66,6 +66,9 @@ export interface MCPStatus {
   startsOwn?: true;
   /** Whether this local server runs in the sandbox (see src/mcp/sandbox). Absent when no sandbox is wired in. */
   sandbox?: MCPSandboxStatus;
+  /** The app's server that isn't used because one of your own covers the same product ("Casper has its own Network
+   * server"), decision 100. */
+  notUsed?: string;
 }
 
 /** on: held by the sandbox (or will be, at its next start); off: you turned it off for this server; none: Casper
@@ -252,6 +255,8 @@ interface Entry {
   /** The sandbox holding the current child (closed with it), and what /mcp says about it. */
   held?: HeldServer;
   sandbox?: MCPSandboxStatus;
+  /** The note that this app's server isn't used (decision 100) was written. */
+  coveredNoted?: true;
 }
 
 interface RunningApprovedCall extends ApprovedCall {
@@ -411,6 +416,7 @@ export class MCPManager {
         ...(entry.ownWrites && entry.writes === "on" ? { ownWrites: true as const } : {}),
         ...(ownStart(entry.definition, this.autoconnect).approved ? { startsOwn: true as const } : {}),
         ...(this.sandboxStatus(entry) ? { sandbox: this.sandboxStatus(entry)! } : {}),
+        ...(this.coveredBy(entry) ? { notUsed: `Casper has its own ${this.coveredBy(entry)!.label} server` } : {}),
       };
     });
   }
@@ -432,6 +438,24 @@ export class MCPManager {
     if (found) return found;
     const byTools = presetById(entry.toolPreset);
     return byTools ? { preset: byTools, by: "tools", mismatch: false } : undefined;
+  }
+
+  /**
+   * The product of one of your own servers that the app's server duplicates, so the app's isn't used (decision 100).
+   * Yours counts while it is approved (it connects by itself this session, or you connected it), so it wins even when it
+   * connects after the app's; it is known by its definition at once, or by its tool list once it has connected. One you
+   * disconnect, or never approved (an unreviewed project file, My MCP servers off), leaves the app's in use.
+   */
+  private coveredBy(entry: Entry): Preset | undefined {
+    if (entry.definition.scope !== "client") return undefined;
+    const id = this.match(entry)?.preset.id;
+    if (!id) return undefined;
+    for (const own of this.entries.values()) {
+      if (own.definition.scope === "client" || !own.approved || own.definition.disabled) continue;
+      const match = this.match(own);
+      if (match?.preset.id === id) return match.preset;
+    }
+    return undefined;
   }
 
   private presetLines(entry: Entry, match: PresetMatch): string[] {
@@ -651,14 +675,23 @@ export class MCPManager {
   /** Changes whenever routable metadata or connection identity changes. */
   get catalogRevision(): number { return this.catalogVersion; }
 
+  /** The connected servers' tools. The app's copy of a product one of your own servers covers is left out (decision 100). */
   catalog(): { server: string; generation: number; tools: MCPTool[] }[] {
-    return [...this.entries.values()].filter((e) => e.state === "ready")
+    return [...this.entries.values()].filter((e) => e.state === "ready" && !this.coveredBy(e))
       .map((e) => ({ server: e.definition.name, generation: e.generation, tools: structuredClone(e.tools) }));
   }
 
   private publish(entry: Entry, tools: MCPTool[]): void {
     entry.tools = tools;
     this.catalogVersion++;
+    if (this.closed) return;
+    // Either order: the app's server connecting after yours, or yours showing its product after the app's connected.
+    for (const other of this.entries.values()) {
+      const covered = other.state === "ready" && !other.coveredNoted ? this.coveredBy(other) : undefined;
+      if (!covered) continue;
+      other.coveredNoted = true;
+      this.onNote?.(`[acp] The app's MCP server ${other.definition.name} is not used: Casper has its own ${covered.label} server.`);
+    }
   }
 
   /** Review needed before consenting to a project-scope definition; undefined for user/profile ones. */
@@ -677,6 +710,8 @@ export class MCPManager {
     if (entry.state === "disabled") throw new Error("MCP server is disabled; edit configuration and restart");
     entry.approved = true;
     entry.stoppedBy = undefined;
+    // An approved server of your own can make the app's copy of it unused (decision 100).
+    this.catalogVersion++;
     // The burst cap limits automatic reconnects; an explicit connect is fresh consent to try.
     entry.attempts = [];
     await this.ensureConnected(entry);
@@ -782,6 +817,8 @@ export class MCPManager {
       added.push(definition.name);
     }
     this.diagnostics = [...configuration.diagnostics, ...this.consent?.diagnostics ?? []];
+    // A server added, removed or approved again can change which of the app's servers are used (decision 100).
+    this.catalogVersion++;
     await this.prepare();
     return { added, removed, changed, revoked };
   }
@@ -803,6 +840,8 @@ export class MCPManager {
     }
     if (signal?.aborted) throw new NotExecutedError("cancelled");
     if (entry.state !== "ready" || !entry.client) throw new NotExecutedError("server not connected");
+    const covered = this.coveredBy(entry);
+    if (covered) throw new NotExecutedError(`server not used: Casper has its own ${covered.label} server`);
     if (!entry.tools.some((tool) => tool.name === name)) throw new NotExecutedError("tool changed; search again");
     const client = entry.client;
     const limits = this.limits(entry);

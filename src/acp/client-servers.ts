@@ -1,7 +1,8 @@
 // The MCP servers an ACP client lists in session/new or session/load (decision 77). They connect for that session
 // only, as scope "client": in memory, never written to a file or remembered, with no saved keys or logins and no
 // ${VAR} expansion. Names start acp- and never replace a server from a file Casper reads. A stdio one starts in the
-// absolute folder its casper/cwd names, else in your home folder (decision 89).
+// absolute folder its casper/cwd names, else in your home folder (decision 89). One for a product your own approved
+// server already covers connects but is not used (decision 100, in the manager).
 
 import path from "node:path";
 import { isIP } from "node:net";

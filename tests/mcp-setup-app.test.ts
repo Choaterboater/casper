@@ -10,6 +10,9 @@ import { discoverMCPConfiguration, type MCPConfiguration } from "../src/mcp/conf
 import { clientServers, withClientServers } from "../src/acp/client-servers";
 import { MCP_ADD_HINT, mcpAddLine } from "../src/mcp/add";
 import type { AgentRuntime, RuntimeStartOptions, RuntimeTool } from "../src/runtime/types";
+import { networkServerEntry } from "../src/mcp/network/server";
+import { httpFixture } from "./fixtures/mcp-http-server";
+import { fakeServerProgram } from "./support/fake-program";
 import { childTestLimit } from "./support/limits";
 import { posixOnly } from "./support/platform";
 import { removeTempDir } from "./support/temp-dir";
@@ -425,3 +428,28 @@ test("/mcp connect or /mcp setup alone, and a subcommand missing its name, say w
   expect(none.output).toContain(`No MCP servers configured. ${MCP_ADD_HINT}\n`);
   expect(none.output).not.toContain("[error]");
 });
+
+// --- The app's bundled network server (decision 100) -------------------------------------------------------------
+
+/** The app hands over its bundled network server over loopback http, running read-only (or not) by its own setting. */
+async function appNetwork(home: string, project: string, gate: "off" | "on") {
+  const app = await httpFixture("app-token", { network: { gate } });
+  cleanup.push(() => app.close());
+  const { definitions } = clientServers([{ type: "http", name: "network", url: app.url, headers: [{ name: "Authorization", value: "Bearer app-token" }] }], { home, setting: "on" });
+  return () => discoverMCPConfiguration({ projectRoot: project, homeDir: home, platform: "linux" }).then(withClientServers(definitions));
+}
+
+test("/mcp says the app's network server is not used while Casper's own is connected, and the note says it once", async () => {
+  const { home, project } = await fixture({});
+  const own = networkServerEntry(home).command;
+  await mkdir(path.dirname(own), { recursive: true });
+  await fakeServerProgram(own, "fake-network-mcp");
+  await writeFile(path.join(home, ".casper/mcp.json"), JSON.stringify({ mcpServers: { network: { command: own, args: [] } } }));
+  // "go" runs a task, which waits for the app's server to finish connecting.
+  const { output } = await session(home, project, ["go", "/mcp", "/mcp connect network", "/mcp", "/mcp detail acp-network"], [], async () => {}, undefined,
+    await appNetwork(home, project, "off"));
+  expect(output).toMatch(/acp-network {2}ready · 4 tools · writes off/);
+  expect(output).toMatch(/acp-network {2}ready · not used: Casper has its own Network server · from the app, this session only/);
+  expect(output).toContain("  Not used: Casper has its own Network server.\n");
+  expect(output.split("[acp] The app's MCP server acp-network is not used: Casper has its own Network server.\n").length - 1).toBe(1);
+}, childTestLimit(2));

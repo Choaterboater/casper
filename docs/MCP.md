@@ -370,8 +370,8 @@ folder, item 9 is `~/.casper/mcp.json` itself: it stays your own file (item 4), 
 project file, and `~/.casper/lsp.json` the same.
 
 An app that runs `casper acp` can also hand Casper its own servers for one session. They come after
-these files, are named `acp-<name>`, and never replace a server from any of them (see
-[Servers an app hands Casper](#servers-an-app-hands-casper)).
+these files, are named `acp-<name>`, and never replace a server from any of them. One for a product your
+own server already covers is not used (see [Servers an app hands Casper](#servers-an-app-hands-casper)).
 
 ### Servers you already set up elsewhere
 
@@ -697,6 +697,16 @@ An app or an editor that runs `casper acp` can list MCP servers in `session/new`
   the 8 direct tools, so a first prompt of "hi" does not leave them out for the session. They are
   taken in the order the server lists them. The first comes right after network routers, ahead of
   docs tools, so it stays in front even with both connected; the others come after docs tools.
+- **Is not used when Casper already has the same product**
+  ([decision 100](adr/0002/100-an-acp-app-server-casper-already-has.md)). When the app hands over a server
+  that is the same [preset](#presets) as one of your own (by its definition or its tool list), and yours is
+  approved for this session (it connects by itself, or you connected it), yours is used and the app's is
+  not: its tools are not offered to the AI. Casper writes
+  `[acp] The app's MCP server acp-network is not used: Casper has its own Network server.` once, and `/mcp`
+  shows `not used: Casper has its own Network server` on its row. Yours wins even when it connects after
+  the app's (a look-alike known only by its tool list, once it has connected), and while it fails to
+  start. Disconnect yours (`/mcp disconnect`), or never approve it, and the app's is used. A
+  different product (your `hpe-networking-mcp` next to the app's network server) keeps both.
 - **Is the app's to change.** `/mcp` shows it as `from the app, this session only`; the AI's
   `casper_mcp_add` and `casper_mcp_remove` refuse it and say to change it in the app.
 

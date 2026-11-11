@@ -1,14 +1,17 @@
-import { describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, test } from "bun:test";
 import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { loadConfiguration, readAcpMcpSetting } from "../src/config/load";
 import { removeTempDir } from "./support/temp-dir";
 import { clientServers, withClientServers } from "../src/acp/client-servers";
+import { CapabilityBroker, SEVERAL_ROUTERS_LINE } from "../src/capabilities/broker";
 import { resolvedSecrets, type MCPServerDefinition } from "../src/mcp/config";
 import { MCPManager } from "../src/mcp/manager";
+import { networkServerEntry } from "../src/mcp/network/server";
 import { httpFixture } from "./fixtures/mcp-http-server";
-import { CHILD_KILL_MS } from "./support/limits";
+import { allowSlowServerStopsOnWindows, fakeServerProgram } from "./support/fake-program";
+import { CHILD_KILL_MS, childTestLimit } from "./support/limits";
 
 const HOME = path.resolve("/home-for-tests");
 const command = path.resolve("/usr/local/bin/app-mcp");
@@ -213,4 +216,111 @@ describe("servers the app forwards (decision 89)", () => {
     expect(found.notes).toEqual(["[acp] The app's MCP server acp-tools connects for this session."]);
     expect(resolvedSecrets(found.definitions[0]!)).toEqual([value]);
   });
+});
+
+describe("a product Casper already has (decision 100)", () => {
+  allowSlowServerStopsOnWindows();
+  const cleanup: (() => Promise<unknown>)[] = [];
+  afterEach(async () => { for (const close of cleanup.splice(0).reverse()) await close(); });
+
+  /** Wait for a condition the manager reaches after an action, never reading it once. */
+  async function until(check: () => boolean, what: string): Promise<void> {
+    const end = Date.now() + 20_000;
+    while (!check()) {
+      if (Date.now() > end) throw new Error(`timed out waiting for ${what}`);
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+  }
+
+  /** The app's bundled network server over loopback http, and a home with Casper's own network server installed. */
+  async function setUp() {
+    const home = await mkdtemp(path.join(os.tmpdir(), "casper-acp-dup-"));
+    cleanup.push(() => removeTempDir(home));
+    const app = await httpFixture("app-token", { network: { gate: "off" } });
+    cleanup.push(() => app.close());
+    const { definitions } = clientServers([{ type: "http", name: "network", url: app.url, headers: [{ name: "Authorization", value: "Bearer app-token" }] }], on);
+    const own = async (file: string, overrides: Partial<MCPServerDefinition> = {}): Promise<MCPServerDefinition> => {
+      await mkdir(path.dirname(file), { recursive: true });
+      const command = await fakeServerProgram(file, "fake-network-mcp");
+      return { name: "network", source: path.join(home, ".casper/mcp.json"), scope: "user", cwd: home, disabled: false,
+        transport: { type: "stdio", command, args: [], env: {} }, ...overrides };
+    };
+    const notes: string[] = [];
+    const manager = (servers: MCPServerDefinition[], autoconnect: boolean) => {
+      const mcp = new MCPManager({ servers: withClientServers(definitions)({ servers, diagnostics: [] }).servers, diagnostics: [] },
+        { timeoutMs: 15_000, homeDir: home, autoconnect, onNote: (text) => notes.push(text) });
+      cleanup.push(() => mcp.close());
+      return mcp;
+    };
+    return { home, app, own, notes, manager, acpNotes: () => notes.filter((note) => note.startsWith("[acp]")) };
+  }
+
+  const NOTE = "[acp] The app's MCP server acp-network is not used: Casper has its own Network server.";
+
+  test("Casper's own network server is used and the app's bundled one is not: no tools, no routers line, one note", async () => {
+    const { own, home, manager, acpNotes } = await setUp();
+    const mcp = manager([await own(networkServerEntry(home).command)], true);
+    await mcp.prepare();
+    await until(() => mcp.status().every((status) => status.state === "ready"), "both servers to connect");
+    expect(mcp.catalog().map((entry) => entry.server)).toEqual(["network"]);
+    const status = mcp.status().find((entry) => entry.name === "acp-network")!;
+    expect(status.preset?.id).toBe("casper-network-mcp");
+    expect(status.notUsed).toBe("Casper has its own Network server");
+    expect(mcp.status().find((entry) => entry.name === "network")!.notUsed).toBeUndefined();
+    expect(acpNotes()).toEqual([NOTE]);
+    const broker = new CapabilityBroker(mcp, async () => "no", { writesGate: true });
+    expect(broker.search("find tool invoke access check", 50).map((found) => found.source)).not.toContain("acp-network");
+    const tools = await broker.prepare("check the network");
+    const finder = tools.find((tool) => tool.name === "find_capability")!;
+    expect(finder.description).toContain("network: Casper's own network server (casper-network-mcp); use it first.");
+    expect(finder.description).not.toContain("acp-network");
+    expect(finder.description).not.toContain(SEVERAL_ROUTERS_LINE);
+    await expect(mcp.call("acp-network", "find_tool", { query: "x" })).rejects.toThrow("server not used: Casper has its own Network server");
+    // A later task's prepare writes no second note.
+    await broker.prepare("again");
+    expect(acpNotes()).toEqual([NOTE]);
+  }, childTestLimit(2));
+
+  test("Your own look-alike, known only by its tool list, connecting after the app's still wins, and the note is written once", async () => {
+    const { own, home, manager, acpNotes } = await setUp();
+    // Not where Casper installs its network server, so only its tool list says what it is; not approved at the start.
+    const mcp = manager([await own(path.join(home, "bin/lookalike"))], false);
+    await mcp.prepare();
+    await until(() => mcp.catalog().some((entry) => entry.server === "acp-network"), "the app's server to connect");
+    expect(acpNotes()).toEqual([]);
+    const before = mcp.catalogRevision;
+    await mcp.connect("network");
+    await until(() => !mcp.catalog().some((entry) => entry.server === "acp-network"), "the app's server to leave the catalog");
+    expect(mcp.catalog().map((entry) => entry.server)).toEqual(["network"]);
+    expect(mcp.catalogRevision).not.toBe(before);
+    expect(acpNotes()).toEqual([NOTE]);
+    // You disconnect yours: the app's is used again. Connect yours again: not used again, with no second note.
+    await mcp.disconnect("network");
+    await until(() => mcp.catalog().some((entry) => entry.server === "acp-network"), "the app's server to be used again");
+    expect(mcp.status().find((entry) => entry.name === "acp-network")!.notUsed).toBeUndefined();
+    await mcp.connect("network");
+    await until(() => mcp.catalog().map((entry) => entry.server).join() === "network", "your own server to win again");
+    expect(acpNotes()).toEqual([NOTE]);
+  }, childTestLimit(3));
+
+  test("The app's server is used, with no note, when yours is disabled, not approved, an unreviewed project server, or another product", async () => {
+    const { own, home, manager, acpNotes } = await setUp();
+    const entry = networkServerEntry(home).command;
+    const cases: [string, MCPServerDefinition, boolean][] = [
+      ["disabled", await own(entry, { disabled: true }), true],
+      ["not approved (My MCP servers off, not remembered)", await own(entry), false],
+      ["an unreviewed project server", await own(entry, { scope: "project", source: path.join(home, "project/.mcp.json") }), true],
+      // hpe-networking-mcp, known by its definition: another product, so both are used. It never starts here.
+      ["another product", { name: "hpe", source: path.join(home, ".casper/mcp.json"), scope: "user", cwd: home, disabled: false,
+        transport: { type: "stdio", command: path.join(home, "bin/hpe-mcp-router"), args: [], env: {} } }, true],
+    ];
+    for (const [why, definition, autoconnect] of cases) {
+      const mcp = manager([definition], autoconnect);
+      await mcp.connect("acp-network");
+      await until(() => mcp.catalog().some((found) => found.server === "acp-network"), `the app's server to be used (${why})`);
+      expect(mcp.status().find((found) => found.name === "acp-network")!.notUsed).toBeUndefined();
+      await mcp.close();
+    }
+    expect(acpNotes()).toEqual([]);
+  }, childTestLimit(4));
 });
