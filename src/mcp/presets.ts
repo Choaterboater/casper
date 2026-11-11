@@ -662,9 +662,11 @@ export function presetLine(match: PresetMatch, plan: PinPlan, pinsConfirmed = fa
       : `preset: ${id} (read-only pins sent, not confirmed: ${plan.shown.join(", ")})`);
   } else lines.push(`preset: ${id}`);
   if (plan.kind === "cannot-pin") {
+    // The server itself reports it runs read-only (decision 100): a change is refused, so nothing asks.
+    const then = pinsConfirmed ? "The server runs read-only by its own setting; changes are refused." : "Every change asks you in Casper.";
     lines.push(plan.reason === CANT_PIN_REMOTE
-      ? "Can't pin read-only for this server (it runs elsewhere). Every change asks you in Casper."
-      : `Can't pin read-only for this server (${plan.reason}). Every change asks you in Casper.`);
+      ? `Can't pin read-only for this server (it runs elsewhere). ${then}`
+      : `Can't pin read-only for this server (${plan.reason}). ${then}`);
   }
   if (match.mismatch) lines.push(`Looks different from the ${id} preset. Pins kept, and its extra checks still apply.`);
   if (match.preset.advice) lines.push(match.preset.advice);

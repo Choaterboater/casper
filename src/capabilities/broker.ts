@@ -1,8 +1,8 @@
 import { createHash } from "node:crypto";
 import { isRecord } from "../mcp/config";
 import type { MCPManager, MCPTool, ServerPolicy } from "../mcp/manager";
-import { ACCESS_TOOL, accessModelLines, parseAccessCheck, readOnlyLoginReason, writesOffReason } from "../mcp/access";
-import { approvalNotes, guardArguments, hasNoPreview, isHidden, tightenSafety } from "../mcp/presets";
+import { ACCESS_TOOL, accessModelLines, parseAccessCheck, readOnlyLoginReason, serverReadOnlyReason, writesOffReason } from "../mcp/access";
+import { approvalNotes, guardArguments, hasNoPreview, isHidden, safetyRank, tightenSafety } from "../mcp/presets";
 import type { RuntimeImage, RuntimeTool, RuntimeToolResult } from "../runtime/types";
 import { redactPreview, terminalText } from "../tui/format";
 import { scrubExactValues } from "../secrets/assignments";
@@ -463,9 +463,12 @@ export class CapabilityBroker {
     // While planning a read runs (a device's state is research for the plan); a change, or any call that would ask, waits.
     if (this.planning?.() && needsApproval(plan)) throw new NotExecutedError(PLANNING_REFUSED);
     if (this.readOnly?.() && needsApproval(plan)) throw new NotExecutedError(READ_ONLY_REFUSED);
+    // A troubleshooting check on a server whose own gate lets its checked list through the read-only pin.
+    const troubleshootOnly = Boolean(policy.match?.preset.troubleshootRunsPinned)
+      && planKinds(plan, capability.tool).every((kind) => kind === "troubleshoot");
     // A router call is judged by the real tools it runs: a write behind a read router is refused
-    // like the write tool itself while writes are off (or for a read-only login).
-    this.refuseByPolicy(capability, label);
+    // like the write tool itself while writes are off (or for a read-only login, or a server read-only by its own setting).
+    this.refuseByPolicy(capability, label, troubleshootOnly);
     // The one opt-in: the user let plain Junos show commands run without asking. Anything the AI
     // set to skip a check still asks.
     const optedIn = guard === "allow" && !plan.routed.length && !plan.routerUnclear
@@ -506,9 +509,11 @@ export class CapabilityBroker {
     // runs. Only the call that turned them on, and only for "Yes, this once", turns them off again, on every way out.
     // A troubleshooting check on a server whose own gate lets its checked list through the read-only pin runs pinned:
     // the box still asked, but writes stay off, so a show command never restarts the server twice.
-    const pinnedCheck = Boolean(policy.match?.preset.troubleshootRunsPinned) && label !== "destructive"
-      && planKinds(plan, capability.tool).every((kind) => kind === "troubleshoot");
-    const turnedOn = Boolean(answer) && label !== "read" && !pinnedCheck && this.writesGate && this.writes(this.manager.policy(plan.server)) === "off";
+    const pinnedCheck = troubleshootOnly && label !== "destructive";
+    // A server read-only by its own setting can't be turned on: the troubleshooting check or diagnostic it asked for
+    // runs as it is (decision 100).
+    const fresh = this.manager.policy(plan.server);
+    const turnedOn = Boolean(answer) && label !== "read" && !pinnedCheck && this.writesGate && this.writes(fresh) === "off" && !fresh.serverReadOnly;
     let raw: unknown;
     let loginEpoch = 0;
     let settle: ((outcome: ChangeOutcome) => void) | undefined;
@@ -524,7 +529,7 @@ export class CapabilityBroker {
       const sameTool = writesChanged ? toolPart(current.fingerprint) === toolPart(capability.fingerprint) : current.fingerprint === capability.fingerprint;
       if (!sameTool) throw new NotExecutedError("tool changed; search again");
       if (current.hidden) throw new NotExecutedError(current.hidden);
-      this.refuseByPolicy(current, label);
+      this.refuseByPolicy(current, label, troubleshootOnly);
       if (typeof guardArguments(current.policy.match, current.tool, frozenArgs, { writes: this.writes(current.policy), showOptIn: current.policy.showOptIn }) === "object") {
         throw new NotExecutedError(writesOffReason(capability.descriptor.source));
       }
@@ -875,12 +880,17 @@ export class CapabilityBroker {
     while (tools.size > MAX_HITS_PER_SERVER) tools.delete(tools.keys().next().value!);
   }
 
-  /** The same hiding rule as sync(), applied to the label a call is judged by (a router's real tools). */
-  private refuseByPolicy(capability: Capability, label: CapabilitySafety): void {
+  /** The same hiding rule as sync(), applied to the label a call is judged by (a router's real tools). A server that runs
+   * read-only by its own setting refuses a change itself, so it is refused here with no box or Yes that does nothing
+   * (decision 100); a troubleshooting check its own gate lets through still asks and runs. */
+  private refuseByPolicy(capability: Capability, label: CapabilitySafety, troubleshootOnly: boolean): void {
     const { policy, tool } = capability;
     const server = capability.descriptor.source;
     const access = policy.access?.state ?? "unknown";
     if (access === "read-only" && isHidden(undefined, tool, label, { writes: "on", access })) throw new NotExecutedError(readOnlyLoginReason(server));
+    if (policy.serverReadOnly && safetyRank(label) > safetyRank("diagnostic") && !troubleshootOnly) {
+      throw new NotExecutedError(serverReadOnlyReason(this.manager.productLabel(server)));
+    }
   }
 
   private sync(): void {
@@ -898,7 +908,7 @@ export class CapabilityBroker {
       const writes = this.writes(policy);
       const access = policy.access?.state ?? "unknown";
       // Built from the server's name and Casper's parsed state only; never from server text.
-      lines.push(...accessModelLines(server, policy.access, writes));
+      lines.push(...accessModelLines(server, policy.access, writes, policy.serverReadOnly === true));
       if (policy.match?.preset.id === OWN_NETWORK) lines.push(`${server}: Casper's own network server (casper-network-mcp); use it first.`);
       if (routed) routedCount++;
       let definition: ReturnType<MCPManager["definition"]> | undefined;

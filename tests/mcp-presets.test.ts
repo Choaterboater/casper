@@ -358,6 +358,9 @@ test("advice and notes for servers Casper can't pin", () => {
     "Can't pin read-only for this server (it runs elsewhere). Every change asks you in Casper.",
     "Access not checked. Use a read-only (Observer) org token for this server.",
   ]);
+  // The server itself reports it runs read-only (decision 100): a change is refused, so nothing asks.
+  expect(presetLine(mist, planPins(http("mist", "https://mcp.mist.com/mcp"), mist.preset), true)[1])
+    .toBe("Can't pin read-only for this server (it runs elsewhere). The server runs read-only by its own setting; changes are refused.");
   expect(matchPreset(http("x", "https://notmist.com.example.net/mcp"))).toBeUndefined();
   const netmiko = stdio("netmiko", "python", ["/opt/netmiko_mcp/server.py"]);
   expect(rememberBlock(netmiko, matchPreset(netmiko))).toBe("Not remembered: netmiko can send config to devices, and Casper can't check its allowlist. Connect it each time.");

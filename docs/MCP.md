@@ -788,7 +788,9 @@ How pins work:
   `Can't pin read-only for this server (it runs elsewhere). Every change asks you in Casper.`
   The same line, with another reason, appears when Casper can't find the image in
   a docker command, or has to add an argument to a shell wrapper or a command with
-  `--`.
+  `--`. When such a server reports its own write switches off through `access_check` (an
+  app's bundled network server running `--read-only`), the line ends
+  `The server runs read-only by its own setting; changes are refused.` instead.
 - A server recognised only by its tool list is started once more, with the pins.
 - A definition that matches a preset but whose tools don't:
   `Looks different from the hpe-networking-mcp preset. Pins kept, and its extra checks still apply.`
@@ -832,6 +834,23 @@ may do.
     `This login is read-only (access_check). Writes can't be turned on here.`;
   - the AI's `find_capability` description says
     `<server>: login is read-only. Write tools are hidden. Don't plan changes on it.`
+- **A server read-only by its own setting**
+  ([decision 100](adr/0002/100-an-acp-app-server-casper-already-has.md)). A network
+  product (a [preset](#presets)) Casper did not pin (an HTTP one, such as an app's bundled
+  network server) whose answer reports every product's write switch off (`server_gate` with `state: "off"`) refuses
+  changes itself, and Casper can't restart it otherwise. So:
+  - a change is refused before any box, with
+    `Not executed (Network writes are off: the server runs read-only.)`;
+  - a troubleshooting check the server's own switch lets through (a show command) still
+    asks and runs, and a diagnostic still asks; neither turns writes on;
+  - writes can't be turned on:
+    `This server runs read-only by its own setting. Writes can't be turned on here.`,
+    and `/mcp writes` and `/mcp allow` say so with no box;
+  - the AI's `find_capability` description says
+    `<server>: runs read-only by its own setting; changes are refused. Don't plan changes on it.`
+
+  A server Casper pinned (its own network server, started with `--read-only`) keeps the
+  change box: a yes restarts it without its pins.
 - **Anything else** (another answer, an error, a slow answer, or no `access_check`
   at all) is `access not checked`. A server that says its login can make changes
   (`login: can make changes (checked)`) unlocks nothing.
@@ -892,7 +911,9 @@ Press 1-2 or Up/Down + Enter · Esc is No
   box that was open when writes went off does not count. A server that was running
   without pins is restarted with them once its calls finish.
 - A read-only login (see [Access check](#access-check)) never gets writes: changes
-  stay hidden and the box is never offered.
+  stay hidden and the box is never offered. Nor does a server that runs read-only by
+  its own setting that Casper can't pin (an HTTP one, such as an app's): a change is
+  refused before any box.
 - Only you can do any of this. The AI's ask tool can't answer the change box or this
   box, and one-shot runs never turn writes on
   (`Writes can only be turned on in an interactive session.`; a change in a one-shot

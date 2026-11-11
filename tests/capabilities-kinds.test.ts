@@ -8,6 +8,9 @@ import { asksEveryTime, changeKind, hitKindsFrom, MAX_HITS_PER_SERVER, mergeHit,
 import type { MCPServerDefinition } from "../src/mcp/config";
 import { MCPManager } from "../src/mcp/manager";
 import { networkServerEntry } from "../src/mcp/network/server";
+import { clientServers } from "../src/acp/client-servers";
+import { SERVER_READ_ONLY_ENABLE_TEXT } from "../src/mcp/access";
+import { httpFixture } from "./fixtures/mcp-http-server";
 import { toolLabel } from "../src/capabilities/labels";
 import type { MCPTool } from "../src/mcp/manager";
 import { allowSlowServerStopsOnWindows, fakeServerProgram } from "./support/fake-program";
@@ -251,6 +254,75 @@ test("review: a troubleshoot hit through a tool the server marks destructive nev
   expect(run.boxes).toEqual(["destructive"]);
   expect(run.setWrites).toEqual([true, false]);
   expect(run.ran).toBe(true);
+});
+
+// --- The app's bundled network server, read-only by its own setting (decision 100) -------------------------------
+
+/** The app hands over its network server over loopback http, its own gate off, on or not reported. Casper can't pin
+ * or restart it. Returns what asked, what turned writes on, and what reached the server. */
+async function appNetwork(gate: "off" | "on" | "unreported") {
+  const hits = [
+    { name: "cx_show", product: "central", summary: "Run a show command.", kind: "troubleshoot", label: "diagnostic" },
+    { name: "central_set_port_vlan", product: "central", summary: "Set a port's VLAN.", kind: "config", label: "write" },
+  ];
+  const app = await httpFixture("app-token", { network: { gate, hits } });
+  cleanup.push(() => app.close());
+  const { definitions } = clientServers([{ type: "http", name: "network", url: app.url, headers: [{ name: "Authorization", value: "Bearer app-token" }] }],
+    { home: os.tmpdir(), setting: "on" });
+  const manager = new MCPManager({ servers: definitions, diagnostics: [] }, { timeoutMs: 15_000 });
+  cleanup.push(() => manager.close());
+  await manager.connect("acp-network");
+  const setWrites: boolean[] = [];
+  const real = manager.setWrites.bind(manager);
+  manager.setWrites = async (name, on, options) => { setWrites.push(on); return real(name, on, options); };
+  const boxes: string[] = [];
+  const kinds: string[] = [];
+  const broker = new CapabilityBroker(manager, async (call) => { boxes.push(planLabel(call.plan)); return "yes-session"; }, {
+    writesGate: true, confirmKind: async (ask) => { kinds.push(ask.kind); return true; },
+  });
+  await broker.invoke("mcp:acp-network:find_tool", { query: "port vlan" });
+  const sent = (tool: string) => app.calls.filter((call) => call.name === tool).map((call) => call.arguments.name);
+  return { manager, broker, boxes, kinds, setWrites, sent };
+}
+
+test("the app's network server that runs read-only by its own setting refuses a change plainly, with no box and no Yes", async () => {
+  const run = await appNetwork("off");
+  expect(run.manager.policy("acp-network")).toMatchObject({ writes: "off", serverReadOnly: true });
+  await expect(run.broker.invoke("mcp:acp-network:invoke_tool", { name: "central_set_port_vlan", arguments: { port: "1/1/1", vlan: 20 } }))
+    .rejects.toThrow("Network writes are off: the server runs read-only.");
+  expect(run.boxes).toEqual([]);
+  expect(run.kinds).toEqual([]);
+  expect(run.setWrites).toEqual([]);
+  expect(run.sent("invoke_tool")).toEqual([]);
+  // Turning writes on can't do anything there either, so it is refused and writes stay off.
+  await expect(run.manager.setWrites("acp-network", true)).rejects.toThrow(SERVER_READ_ONLY_ENABLE_TEXT);
+  expect(run.manager.policy("acp-network").writes).toBe("off");
+  // The AI is told not to plan changes there, in place of "every change asks".
+  const finder = (await run.broker.prepare("change a vlan")).find((tool) => tool.name === "find_capability")!;
+  expect(finder.description).toContain("acp-network: runs read-only by its own setting; changes are refused. Don't plan changes on it.");
+  expect(finder.description).not.toContain("acp-network: every change asks");
+});
+
+test("a troubleshooting check its own gate lets through still asks and runs, and never turns writes on", async () => {
+  const run = await appNetwork("off");
+  const read = await run.broker.invoke("mcp:acp-network:invoke_read_tool", { name: "cx_show", arguments: { command: "show interfaces" } });
+  const write = await run.broker.invoke("mcp:acp-network:invoke_tool", { name: "cx_show", arguments: { command: "show vlan" } });
+  expect(read.isError).toBeFalsy();
+  expect(write.isError).toBeFalsy();
+  expect(run.boxes).toHaveLength(2);
+  expect(run.setWrites).toEqual([]);
+  expect(run.sent("invoke_read_tool")).toEqual(["cx_show"]);
+  expect(run.sent("invoke_tool")).toEqual(["cx_show"]);
+});
+
+test("the same server with its gate on, or no gate reported, keeps today's box", async () => {
+  for (const gate of ["on", "unreported"] as const) {
+    const run = await appNetwork(gate);
+    expect(run.manager.policy("acp-network").serverReadOnly).toBeUndefined();
+    await run.broker.invoke("mcp:acp-network:invoke_tool", { name: "central_set_port_vlan", arguments: { port: "1/1/1", vlan: 20 } });
+    expect(run.boxes).toHaveLength(1);
+    expect(run.sent("invoke_tool")).toEqual(["central_set_port_vlan"]);
+  }
 });
 
 async function hitServer(hits: unknown[], later?: unknown[]) {

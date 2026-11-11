@@ -453,3 +453,15 @@ test("/mcp says the app's network server is not used while Casper's own is conne
   expect(output).toContain("  Not used: Casper has its own Network server.\n");
   expect(output.split("[acp] The app's MCP server acp-network is not used: Casper has its own Network server.\n").length - 1).toBe(1);
 }, childTestLimit(2));
+
+test("/mcp writes on the app's network server that runs read-only by itself says so plainly and shows no box", async () => {
+  const { home, project } = await fixture({});
+  const { output, app } = await session(home, project, ["go", "/mcp writes acp-network", "/mcp allow acp-network", "/mcp detail acp-network"], [], async () => {}, undefined,
+    await appNetwork(home, project, "off"));
+  expect(output).toContain("[mcp] Network writes are off: the server runs read-only. Writes can't be turned on here.\n");
+  expect(output).toContain("[mcp] Network writes are off: the server runs read-only. Its changes are refused, so none can be allowed.\n");
+  expect(output).not.toContain("Enable for this server");
+  expect(output).not.toContain("change kinds");
+  expect(output).toContain("  Can't pin read-only for this server (it runs elsewhere). The server runs read-only by its own setting; changes are refused.\n");
+  expect(app.mcp!.writesOn()).toEqual([]);
+}, childTestLimit(1));

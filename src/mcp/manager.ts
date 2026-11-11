@@ -11,7 +11,8 @@ import {
   matchPreset, planPins, presetById, presetLine, rememberBlock, type PinPlan, type Preset, type PresetMatch,
 } from "./presets";
 import {
-  accessCheckTool, accessStatusText, gatesConfirmedOff, parseAccessCheck, READ_ONLY_LOGIN_ENABLE_TEXT, type AccessCheck,
+  accessCheckTool, accessStatusText, gatesConfirmedOff, parseAccessCheck, READ_ONLY_LOGIN_ENABLE_TEXT, SERVER_READ_ONLY_ENABLE_TEXT,
+  type AccessCheck,
 } from "./access";
 import { toolLabel } from "../capabilities/labels";
 import { ownSpawnedTree, type OwnedProcesses, ProcessCleanupError, terminateTree } from "../platform/processes";
@@ -100,6 +101,10 @@ export interface ServerPolicy {
   ownWrites?: true;
   /** An app's server that asks for itself (casper/clientAsks): its ownWrites stands for the app's own box. */
   clientAsks?: true;
+  /** Runs read-only by its own setting, which Casper can't change: a network product (preset) Casper did not pin (http,
+   * or started as it is) whose access_check reports every write gate off. A change is refused before any box
+   * (decision 100). */
+  serverReadOnly?: true;
 }
 
 /** Casper's defaults: 20 s to start, 90 s per call without progress, 10 min for any call. */
@@ -486,7 +491,15 @@ export class MCPManager {
     const match = this.match(entry);
     return { ...(match ? { match } : {}), writes: entry.writes, ...(entry.access ? { access: entry.access } : {}), showOptIn: entry.showOptIn,
       ...(entry.ownWrites && entry.writes === "on" && !match ? { ownWrites: true as const } : {}),
-      ...(entry.definition.scope === "client" && entry.definition.clientAsks ? { clientAsks: true as const } : {}) };
+      ...(entry.definition.scope === "client" && entry.definition.clientAsks ? { clientAsks: true as const } : {}),
+      ...(this.serverReadOnly(entry) ? { serverReadOnly: true as const } : {}) };
+  }
+
+  /** Only the server's own report says so, as only access_check makes a login read-only, and only for a product Casper
+   * knows (a preset), whose gate is its write switch. A server Casper pinned keeps the writes box: turning writes on
+   * restarts it without its pins. */
+  private serverReadOnly(entry: Entry): boolean {
+    return entry.state === "ready" && entry.pins.kind !== "pinned" && gatesConfirmedOff(entry.access) && this.match(entry) !== undefined;
   }
 
   /** A copy of one loaded definition (for the user's own notes; never shown to the model). */
@@ -589,10 +602,12 @@ export class MCPManager {
       return;
     }
     if (entry.access?.state === "read-only") throw new Error(READ_ONLY_LOGIN_ENABLE_TEXT);
+    if (this.serverReadOnly(entry)) throw new Error(SERVER_READ_ONLY_ENABLE_TEXT);
     if (entry.writes === "on") return;
     await this.idle(entry);
     // A reconnect while waiting may have checked the login again.
     if ((entry.access as AccessCheck | undefined)?.state === "read-only") throw new Error(READ_ONLY_LOGIN_ENABLE_TEXT);
+    if (this.serverReadOnly(entry)) throw new Error(SERVER_READ_ONLY_ENABLE_TEXT);
     entry.writes = "on";
     this.catalogVersion++;
     if (entry.pins.kind === "pinned" && (entry.state === "ready" || entry.state === "connecting")) await this.restart(entry);
@@ -1158,6 +1173,9 @@ export class MCPManager {
           entry.state = "disconnected";
           return "restart-with-pins";
         }
+        // One Casper can't pin (an http server) says so in /mcp detail from its first connection; never claims a pin.
+        const plan = entry.writes === "off" && entry.pins.kind === "none" ? planPins(entry.definition, match.preset) : undefined;
+        if (plan?.kind === "cannot-pin") entry.pins = plan;
       }
       clearTimeout(deadline);
       // Ask the login what it may do, once per connection, before any tool is shown.

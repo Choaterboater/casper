@@ -586,7 +586,10 @@ on in ~/.casper/config.yaml)</pre>
 
           <dt>The AI got <code>Not executed (… writes are off …)</code></dt>
           <dd>Working as designed: you turned writes off (Ctrl+X) while its change box was open, or
-          this run can't ask you. Ask again in an interactive session and answer the change box.</dd>
+          this run can't ask you. Ask again in an interactive session and answer the change box.
+          With <code>the server runs read-only</code>, the server itself runs read-only (an app's
+          bundled network server), so Casper can't turn writes on: change it in the app, or use
+          Casper's own network server.</dd>
 
           <dt><code>/mcp</code> shows <code>access not checked</code></dt>
           <dd>Not an error. The server has no <code>access_check</code> tool, or its answer did not

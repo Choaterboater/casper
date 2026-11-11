@@ -25,7 +25,7 @@ import { commandLabel, displayPath, formatDuration, formatRuntimeStartLine, form
 import type { InteractiveTerminal } from "../tui/terminal";
 import type { CapabilityBroker } from "../capabilities/broker";
 import type { MCPManager, MCPStatus } from "../mcp/manager";
-import { READ_ONLY_LOGIN_ENABLE_TEXT } from "../mcp/access";
+import { READ_ONLY_LOGIN_ENABLE_TEXT, serverReadOnlyReason } from "../mcp/access";
 import { ownSettingsNote, writesTitle, WRITES_OFF_MEANING } from "../mcp/presets";
 import type { MCPConfiguration, MCPServerDefinition } from "../mcp/config";
 import { addUserServer, DOCS_TOOL_NAMES, docsOnlyDefinition, docsPinned, isDocsOnlyDefinition, MCP_FILE_LABEL } from "../mcp/docs";
@@ -1541,6 +1541,8 @@ async function mcpWritesOn(host: CommandHost, name: string): Promise<void> {
   if (status.writes === "on") { host.output.write(`[mcp] Writes are already on for ${name}. ${host.terminal.rich ? "Ctrl+X" : "/mcp writes off"} turns them off.\n`); return; }
   if (status.access === "login: read-only (checked)") { host.output.write(`[mcp] ${READ_ONLY_LOGIN_ENABLE_TEXT}\n`); return; }
   const policy = mcp.policy(name);
+  // It runs read-only by its own setting (decision 100): no box offers a Yes that can't do anything.
+  if (policy.serverReadOnly) { host.output.write(`[mcp] ${terminalText(serverReadOnlyReason(mcp.productLabel(name)))} Writes can't be turned on here.\n`); return; }
   const answer = await host.approveChoice("", terminalText(writesTitle(name, policy.match)), MCP_WRITES_CHOICES, host.commandAbort?.signal);
   // The box's record ("… → Keep writes off", or "— skipped (Keep writes off)") says writes stay off.
   if (answer !== MCP_WRITES_CHOICES[1]) return;
@@ -1573,6 +1575,7 @@ async function handleMCPAllow(host: CommandHost, name: string, off: boolean): Pr
   }
   if (!host.interactive) throw new Error("Change kinds can only be allowed in an interactive session.");
   if (status.access === "login: read-only (checked)") { host.output.write(`[mcp] ${READ_ONLY_LOGIN_ENABLE_TEXT}\n`); return; }
+  if (mcp.policy(name).serverReadOnly) { host.output.write(`[mcp] ${terminalText(serverReadOnlyReason(mcp.productLabel(name)))} Its changes are refused, so none can be allowed.\n`); return; }
   const product = mcp.productLabel(name);
   const remembered = mcp.rememberedKinds(name);
   const session = allowances.sessionKinds(name).filter((kind) => !remembered.includes(kind));
