@@ -14,11 +14,28 @@ when releasing. Existing historical notes below stay as written; feature tests c
 reference docs, not a per-PR release-note or roadmap entry. Release-prep checks verify the version and
 installer targets (`tests/release-install.test.ts`, `tests/release-targets.test.ts`).
 
-Casper distributes an unsigned **v0.4.14 preview**, not a stable release. The installers
-download from `https://github.com/Choaterboater/casper/releases/download/v0.4.14`,
+Casper distributes an unsigned **v0.4.15 preview**, not a stable release. The installers
+download from `https://github.com/Choaterboater/casper/releases/download/v0.4.15`,
 because GitHub's `latest/download` link skips preview releases. The first published
 preview was **v0.1.0**. A published release is never changed; every fix ships under a
 new version.
+
+## v0.4.15: an app signs Casper in and lists its models, and an app's own servers find their place
+
+### Added
+
+- An app over ACP signs Casper in with a key, a browser or a code, and signs it out, with no terminal.
+- An app over ACP gets Casper's models when a session opens, and a pick changes only that session.
+
+### Changed
+
+- An app's copy of an MCP server Casper already has is not used, so the AI sees one copy.
+- A change on a server that runs read-only says writes are off instead of offering a Yes that does nothing.
+- With two network servers connected, an app's first pinned tool still gets a place among the direct tools.
+
+### Fixed
+
+- For contributors, Linux CI runs the full suite in three parts, as macOS does.
 
 ## v0.4.14: apps and editors drive Casper over ACP, and a blocked command can run outside the sandbox
 
