@@ -23,6 +23,18 @@ export interface BigModelChoice {
   oneOff?: true;
 }
 
+/** With no model chosen: the default of a signed-in provider, or the first model of a server found on this computer, is
+ * picked and saved, and Casper says so. False when nothing was picked. Also run as an ACP session opens. */
+export async function pickDefaultModel(app: CasperApp, session: RuntimeSession, signal?: AbortSignal): Promise<boolean> {
+  const picked = await session.selectDefaultModel?.({ provider: app.loginProvider, signal }).catch(() => undefined);
+  if (!picked?.selected) return false;
+  const where = LOCAL_SERVERS.some(({ id }) => id === picked.status.provider) ? "found on this computer"
+    : savedLocalServers().some(({ name }) => name === picked.status.provider) ? `on your model server ${picked.status.provider}` : "for your signed-in provider";
+  app.output.write(`[model] Casper picked ${picked.status.provider}/${picked.status.model} ${where} and saved it as your default. Use /model to choose another.\n`);
+  updateFooter(app);
+  return true;
+}
+
 /** Before a request runs: with no model, pick one for a signed-in provider or a server found on this computer, or open
  * sign-in (then pick);
  * with the model's credentials missing, open sign-in for that provider. Never a fake "model failed"
@@ -32,15 +44,7 @@ export async function ensureModel(app: CasperApp, session: RuntimeSession): Prom
   if (!status?.blocked) return true;
   const signal = app.commandAbort?.signal;
   const canSignIn = app.interactive && app.terminal.rich;
-  const pickDefault = async (): Promise<boolean> => {
-    const picked = await session.selectDefaultModel?.({ provider: app.loginProvider, signal }).catch(() => undefined);
-    if (!picked?.selected) return false;
-    const where = LOCAL_SERVERS.some(({ id }) => id === picked.status.provider) ? "found on this computer"
-      : savedLocalServers().some(({ name }) => name === picked.status.provider) ? `on your model server ${picked.status.provider}` : "for your signed-in provider";
-    app.output.write(`[model] Casper picked ${picked.status.provider}/${picked.status.model} ${where} and saved it as your default. Use /model to choose another.\n`);
-    updateFooter(app);
-    return true;
-  };
+  const pickDefault = () => pickDefaultModel(app, session, signal);
   if (!status.provider) {
     if (await pickDefault()) return true;
     // Servers you added are never picked for you: with no model yet, /model opens on them (you pick).
