@@ -705,9 +705,11 @@ live rows, popups or pickers, or a duplicated prompt box (`bun test tests/termin
 - `/model provider/id`: exact selection, remembered globally. During a task it applies from the
   model's next step, like `/effort` (see Input and commands).
 - Over `casper acp` the app's picker lists the same models in the same order, with `/effort`'s choices for each,
-  and a pick is the same as `/model provider/id` or `/effort <level>` (saved). It is refused while a prompt runs; a
+  as soon as the session opens. A pick changes that conversation only; the app's "make default" saves it for new
+  conversations, as `/model provider/id` or `/effort <level>` does. A pick is refused while a prompt runs; a
   `/model` typed in the app moves the app's badge when the prompt ends
-  ([decision 81](adr/0002/81-an-acp-app-picks-casper-model-and-effort.md)).
+  ([decision 81](adr/0002/81-an-acp-app-picks-casper-model-and-effort.md),
+  [decision 104](adr/0002/104-an-acp-app-lists-models-first-and-picks-per-session.md)).
 - `/model <words>` (`/model opus 5.5`, `/model sonnet 5`, `/model opus`, `/model qwen3`): the
   model the words name among the ones you can pick, with no model call, said in one line
   (`[model] anthropic/claude-opus-5-5 (from "opus 5.5")`). Case, dots, spaces and a leading provider
