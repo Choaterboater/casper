@@ -61,6 +61,17 @@ test("With routers and a docs server too, the app's first pin stays direct and d
   expect(await direct(all, "search the docs")).toEqual(order);
 }, childTestLimit(6));
 
+test("Two router servers leave a place for the app's first pin", async () => {
+  // Six routers would fill every place left of the eight; the app's way in keeps one, and the sixth router is still
+  // reachable through call_capability.
+  const two = await brokerFor(definition("acp-app", "pins", "client"), definition("network", "router", "user"), definition("network-two", "router", "user"));
+  expect(await two.prepare("hi")).toHaveLength(8);
+  const shown = await direct(two, "hi");
+  expect(shown.filter((id) => !id.startsWith("acp-app:")).length).toBe(5);
+  expect(shown.filter((id) => id.startsWith("acp-app:"))).toEqual(["acp-app:pin_one"]);
+  expect(await direct(two, "check the switch ports")).toEqual(shown);
+}, childTestLimit(6));
+
 test("A runtime tool call names its MCP server and tool: a direct tool by name, call_capability by its id", async () => {
   const broker = await brokerFor(definition("acp-app", "pins", "client"));
   const [pinned] = (await broker.prepare("hi")).filter((tool) => tool.name.startsWith("mcp_"));
