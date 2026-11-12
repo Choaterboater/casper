@@ -43,6 +43,7 @@ import { fileTextHoldsSecret, liveOutputHoldsSecret, onlyNetconanChecks } from "
 import { attachImages, leadingImagePath, startsWithImageFile } from "../app/images";
 import { terminalText } from "../tui/format";
 import { forgetSteered, settleAppSteers, steerFromApp } from "../app/during-work";
+import { authMethods } from "./auth";
 import { clientServers } from "./client-servers";
 import { acpCommands, acpRefusal } from "./commands";
 import { offerOf, restoreSelection, setOption } from "./config-options";
@@ -59,14 +60,15 @@ export const ACP_PROTOCOL_VERSION = 1;
 /** The initialize reply, the same from the router and from each session. `acp_mcp: off` says no http server is taken
  * (stdio ones are ACP's baseline; Casper connects none of them either). `_meta.casper.steer`: `_casper/steer` takes a
  * line during a prompt (decision 86). `_meta.casper.title`: Casper sends the chat's title (decision 96).
- * `sessionCapabilities.fork`: session/fork copies a conversation (decision 97). */
+ * `sessionCapabilities.fork`: session/fork copies a conversation (decision 97). `authMethods`: the ways an app can sign
+ * Casper in with `authenticate` (decision 103, src/acp/auth.ts). */
 export function initializeResult(setting: AcpMcpSetting = "on"): Json {
   return {
     protocolVersion: ACP_PROTOCOL_VERSION,
     agentCapabilities: { loadSession: true, promptCapabilities: { image: true, audio: false, embeddedContext: true }, mcpCapabilities: { http: setting !== "off", sse: false },
       sessionCapabilities: { fork: {} }, _meta: { casper: { steer: true, title: true } } },
     agentInfo: { name: "casper", title: "Casper", version: CASPER_VERSION },
-    authMethods: [],
+    authMethods: authMethods(),
   };
 }
 

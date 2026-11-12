@@ -43,6 +43,23 @@ export function signInWays(provider?: RuntimeAuthProvider): SignInWay[] {
   return provider ? ways.filter((way) => way.provider === provider) : ways;
 }
 
+/** What a way asks of the person: a key to paste, a browser page on this machine, or a code to enter on the provider's
+ * site. Claude Code's own program runs its sign-in. */
+export function signInKind(way: Pick<SignInWay, "provider" | "method">): "api_key" | "browser" | "device_code" | "claude_code" {
+  if (way.method !== "oauth") return way.method;
+  return way.provider === "anthropic" || way.provider === "openrouter" || (way.provider === "openai-codex" && !noBrowserHere()) ? "browser" : "device_code";
+}
+
+/** A provider's name as /login shows it. */
+export const signInProviderName = (provider: RuntimeAuthProvider): string => providerNames[provider];
+
+/** Where a sign-in's screens show. /login lends the terminal (`terminalHost`); an app over ACP has no terminal, so
+ * `surface` runs the same steps on a display of its own (src/acp/auth.ts), and `way` names the row already picked. */
+export type SignInOptions = Omit<RuntimeAuthenticationOptions, "terminalHost"> & (
+  | { terminalHost: RuntimeAuthenticationOptions["terminalHost"]; surface?: undefined }
+  | { terminalHost?: undefined; surface: <T>(signal: AbortSignal, work: (display: LoginDisplay) => Promise<T>) => Promise<T> }
+) & { /** One of signInWays' ids: no list is shown. */ way?: string };
+
 /** Accept only the provider's own HTTPS authorization page, with its callback on this machine. */
 function validAuthorizationUrl(provider: RuntimeAuthProvider, value: string): boolean {
   if (typeof value !== "string" || value.length > 8192 || !/^[\x21-\x7e]+$/.test(value)) return false;
@@ -154,7 +171,7 @@ async function useOtherLogin(login: OtherLogin, destination: string, signal: Abo
 /** The /login row that adds a model server on another computer (src/runtime/add-model-server.ts). */
 const MODEL_SERVER_ROW = "model-server";
 
-export async function authenticatePi(options: RuntimeAuthenticationOptions, destination: string,
+export async function authenticatePi(options: SignInOptions, destination: string,
   lifetime: AbortSignal, addServer?: (display: LoginDisplay, signal: AbortSignal) => Promise<{ names: string[]; lines: string[] }>): Promise<RuntimeAuthenticationResult & { provider?: string }> {
   const signal = AbortSignal.any([lifetime, ...(options.signal ? [options.signal] : [])]);
   if (signal.aborted) return { status: "cancelled", effect: "none" };
@@ -180,13 +197,14 @@ export async function authenticatePi(options: RuntimeAuthenticationOptions, dest
     // defer the check until selection: Claude Code keeps its own credential store.
     const early = !options.provider || options.provider === "claude-subscription" ? undefined : await ownPrivateFile(destination, signal);
     if (early) return { status: "failed", effect: "none", reason: "destination", detail: early };
-    return await options.terminalHost.run((io) => withLoginDisplay(io, signal, async (display): Promise<RuntimeAuthenticationResult> => {
+    const surface = options.surface ?? (<T>(within: AbortSignal, work: (display: LoginDisplay) => Promise<T>) => options.terminalHost.run((io) => withLoginDisplay(io, within, work)));
+    return await surface(signal, async (display): Promise<RuntimeAuthenticationResult> => {
       const saved = `Saved in ${tildePath(destination, home())}, only on this computer. Claude Code keeps its own plan login.`;
       display.setNote(saved);
       // Sign-ins other tools left here come first: 1 use one, then Sign in separately, then Not now.
       const found = provider === "claude-subscription" || options.others === false ? []
         : findOtherLogins(signedInHere(destination)).filter((login) => !provider || login.provider === provider);
-      let pickedId: string | undefined;
+      let pickedId: string | undefined = options.way;
       if (found.length) {
         const notes = [...found.some((login) => login.use === "own" && (provider || login.tool !== "Claude Code")) ? [NOT_SHARED] : [], ...found.some((login) => login.use === "github") ? [COPILOT_POLICIES] : []];
         if (notes.length) display.setNote([saved, ...notes].join("\n"));
@@ -220,7 +238,7 @@ export async function authenticatePi(options: RuntimeAuthenticationOptions, dest
       const method = way.method;
       if (method === "claude_code") return loginClaudeCode(display);
       // Browser sign-in (loopback listener + authorization page) vs device-code oauth.
-      const browser = method === "oauth" && (selected === "anthropic" || selected === "openrouter" || (selected === "openai-codex" && !noBrowserHere()));
+      const browser = signInKind(way) === "browser";
       // Picking the way is the consent (as in Claude Code and Codex); the next screen still says what it costs.
       const disclosure = selected === "github-copilot" ? "Signing in may turn on model policies on your GitHub account."
         : selected === "anthropic" ? "API use is billed per token on this direct route; a browser sign-in uses extra usage. Claude Code plan is a separate /login option."
@@ -325,7 +343,7 @@ export async function authenticatePi(options: RuntimeAuthenticationOptions, dest
         const detail = failureDetail(error, timedOut, providerNames[selected]);
         return { status: "failed", effect: effect(), reason: "provider", ...(detail ? { detail } : {}) };
       } finally { active = false; clearTimeout(timer); deadline.abort(); }
-    })).then(result => ({ ...result, provider: imported ?? provider }));
+    }).then(result => ({ ...result, provider: imported ?? provider }));
   } catch {
     // Never expose SDK error objects: synchronization errors contain the credential itself.
     return signal.aborted ? { status: "cancelled", effect: effect(), provider: imported ?? provider }
