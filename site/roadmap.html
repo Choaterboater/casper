@@ -78,6 +78,7 @@
           </li>
           <li><a href="#released">Released</a>
             <ul>
+              <li><a href="#v0415">v0.4.15: apps sign Casper in</a></li>
               <li><a href="#v0414">v0.4.14: apps drive Casper</a></li>
               <li><a href="#v0413">v0.4.13: clean builds end clean</a></li>
               <li><a href="#v0412">v0.4.12: builds reviewed</a></li>
@@ -149,7 +150,7 @@
         <h2 id="next-h">Next release</h2>
         <aside class="callout soon">
           <strong class="callout-title">Built, not released</strong>
-          <p>Nothing on the main branch is waiting: everything built so far is in v0.4.14. New work shows here before the next preview.</p>
+          <p>Nothing on the main branch is waiting: everything built so far is in v0.4.15. New work shows here before the next preview.</p>
         </aside>
       </section>
 
@@ -391,10 +392,23 @@
         and on the <a href="https://github.com/Choaterboater/casper/releases">Releases page</a>.</p>
         <div class="stack">
 
+        <details class="card release" id="v0415" aria-labelledby="v0415-h" open>
+          <summary class="release-heading">
+            <h3 id="v0415-h">v0.4.15 · An app signs Casper in and lists its models, and an app's own servers find their place</h3>
+            <span class="badge ok">current preview</span>
+          </summary>
+          <ul>
+            <li><strong>Sign in from an app.</strong> An app over ACP signs Casper in with a key, a browser or a code, asks what is saved and signs out, with no terminal. The key goes only to the provider's check and Casper's login file.</li>
+            <li><strong>Models first.</strong> An app gets Casper's models when a session opens, before any message, and a pick changes only that session; making it the default is its own request.</li>
+            <li><strong>One copy of a server.</strong> An app's copy of an MCP server Casper already has is not used, and a change on a server that runs read-only says writes are off.</li>
+            <li><strong>A place for the app's tool.</strong> With two network servers connected, an app's first pinned tool still gets a place among the direct tools.</li>
+          </ul>
+        </details>
+
         <details class="card release" id="v0414" aria-labelledby="v0414-h" open>
           <summary class="release-heading">
             <h3 id="v0414-h">v0.4.14 · Apps and editors drive Casper over ACP, and a blocked command can run outside the sandbox</h3>
-            <span class="badge ok">current preview</span>
+            <span class="badge">previous preview</span>
           </summary>
           <ul>
             <li><strong>Apps drive Casper.</strong> <code>casper acp</code> speaks the Agent Client Protocol: an app or editor gets Casper's checks, receipt and boxes, pictures, step diffs and live output, <code>/</code> commands, models, access modes, question forms, a <code>/plan</code> card, steering, forks and its own MCP servers for the session.</li>
@@ -409,7 +423,7 @@
         <details class="card release" id="v0413" aria-labelledby="v0413-h" open>
           <summary class="release-heading">
             <h3 id="v0413-h">v0.4.13 · A clean build ends clean, its browser checks finished</h3>
-            <span class="badge">previous preview</span>
+            <span class="badge">released</span>
           </summary>
           <ul>
             <li><strong>Checks finish.</strong> Casper's end replay finishes a browser check the AI recorded that stopped part way, and one still unfinished gets one turn for the AI to replay or withdraw it.</li>
@@ -419,7 +433,7 @@
           </ul>
         </details>
 
-        <details class="card release" id="v0412" aria-labelledby="v0412-h" open>
+        <details class="card release" id="v0412" aria-labelledby="v0412-h">
           <summary class="release-heading">
             <h3 id="v0412-h">v0.4.12 · A build is reviewed before it is done, and new folders are checked</h3>
             <span class="badge">released</span>
@@ -1670,7 +1684,7 @@
   <footer class="site-footer">
     <div class="container footer-inner">
       <div>
-        <p><strong>Casper 0.4.14</strong> · early preview, unsigned</p>
+        <p><strong>Casper 0.4.15</strong> · early preview, unsigned</p>
         <p><a href="https://github.com/Choaterboater/casper/blob/main/LICENSE">MIT licence</a> · © 2026 Choaterboater</p>
         <p>Built on the <a href="https://github.com/earendil-works/pi">Pi SDK</a>. Other parts keep their own licences (<a href="https://github.com/Choaterboater/casper/blob/main/THIRD_PARTY_NOTICES.txt">notices</a>).</p>
       </div>
