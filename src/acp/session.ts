@@ -51,6 +51,7 @@ import { accessModeOf, modeState, setAccessMode, withModeTold } from "./modes";
 import { AcpAsker } from "./permission";
 import { promptContent } from "./prompt";
 import { RpcConnection, RpcFailure, RPC, type Json } from "./rpc";
+import { pickDefaultModel } from "../app/big-model";
 import { acpReceipt, commandsUpdate, configUpdate, hider, titleShown, UpdateMapper, valuesHider } from "./updates";
 
 /** ACP's protocol version this agent speaks. */
@@ -398,6 +399,9 @@ export async function runAcpSession(options: SessionOptions): Promise<void> {
       if (load && sessionId !== params.sessionId) throw new RpcFailure(RPC.notFound, `No saved conversation ${params.sessionId as string} in ${folder}`);
       // The conversation's own model and effort, over the ones the app started Casper with, for this session only.
       if (load) await restoreSelection(created.session, created.resumedSelection, output.write);
+      // The app's picker shows a model before the first message (decision 104): with none chosen, the signed-in
+      // provider's default is picked now, as the first request would pick it.
+      if (created.session && !created.session.getStatus?.()?.provider) await pickDefaultModel(created, created.session);
     } catch (error) {
       // A session that did not open leaves nothing behind: its app closes (and the client's servers with it), so the
       // client's next session/new on this process starts clean.
@@ -551,7 +555,9 @@ export async function runAcpSession(options: SessionOptions): Promise<void> {
     changing = true;
     try {
       learnSecrets();
-      await setOption(app.session, offerNow(), params.configId, params.value, output.write);
+      // A pick is this session's; the app's "make default" sends the value again with makeDefault (decision 104).
+      const makeDefault = ((params._meta as Json | undefined)?.casper as Json | undefined)?.makeDefault === true;
+      await setOption(app.session, offerNow(), params.configId, params.value, output.write, undefined, makeDefault);
     } catch (error) {
       // What the runtime changed before it failed (a model it took but could not save as the default) still reaches
       // the app before the refusal, so the app shows the model the next prompt goes to.

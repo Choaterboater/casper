@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { chmod, readFile } from "node:fs/promises";
+import { chmod, readFile, writeFile } from "node:fs/promises";
+import path from "node:path";
 import { startAcp, until, type AcpClient } from "./support/acp-client";
 import { childTestLimit } from "./support/limits";
 import { cleanUpAfterEach, fixture, type Payload } from "./support/scripting";
@@ -17,6 +18,8 @@ type Option = { id: string; currentValue: string; options: Array<Record<string, 
 /** Every value a select option lists, through its groups. */
 const values = (option: Option | undefined) => (option?.options ?? []).flatMap((entry) => entry.options ? entry.options.map((item: { value: string }) => item.value) : [entry.value]);
 const optionOf = (options: Option[], id: string) => options.find((option) => option.id === id);
+/** The values the list marks as the default for new conversations. */
+const defaults = (option: Option | undefined) => (option?.options ?? []).flatMap((entry) => entry.options ?? [entry]).filter((item: Record<string, any>) => item._meta?.casper?.default === true).map((item: Record<string, any>) => item.value as string);
 const messages = (client: AcpClient) => client.lines.map((line) => JSON.parse(line) as Record<string, any>);
 const configUpdates = (client: AcpClient, sessionId: string) => client.updates.filter((update) => update.sessionId === sessionId && update.update.sessionUpdate === "config_option_update");
 /** The error a request was refused with. */
@@ -24,7 +27,7 @@ const refusal = (reply: Promise<unknown>) => reply.then(() => undefined, (error:
 /** The model call that carries `marker` in its last user words. */
 const askedWith = (payloads: Payload[], marker: string) => payloads.find((payload) => JSON.stringify([...payload.messages].reverse().find((message) => message.role === "user")?.content ?? "").includes(marker));
 
-test("new and load return the model and effort; a set switches the next request's model and effort, saves the default, and is not echoed", async () => {
+test("new and load return the model and effort; a set switches the next request's model and effort for this session, leaves the default alone, and is not echoed", async () => {
   const f = await fixture(() => ({ text: "Done." }));
   const client = open(f);
   await client.request("initialize", INIT);
@@ -43,8 +46,8 @@ test("new and load return the model and effort; a set switches the next request'
   expect(values(optionOf(options, "effort"))).toEqual(expect.arrayContaining(["auto", "low", "high"]));
   options = (await client.request("session/set_config_option", { sessionId, configId: "effort", value: "high" })).configOptions;
   expect(optionOf(options, "effort")!.currentValue).toBe("high");
-  // Saved as Casper's default, as /model without --session.
-  expect(JSON.parse(await readFile(f.settings, "utf8"))).toMatchObject({ defaultProvider: "fixture", defaultModel: "second" });
+  // This session only (decision 104): the default for new conversations is as it was.
+  expect(JSON.parse(await readFile(f.settings, "utf8"))).toEqual({ defaultProvider: "fixture", defaultModel: "first", retry: { enabled: false } });
 
   expect((await client.request("session/prompt", { sessionId, prompt: text("Say PICKED") })).stopReason).toBe("end_turn");
   const asked = askedWith(f.payloads, "Say PICKED");
@@ -136,7 +139,7 @@ test.skipIf(process.platform === "win32" || process.getuid?.() === 0)("a model t
   await chmod(f.settings, 0o444);
   const from = client.lines.length;
   try {
-    expect(await refusal(client.request("session/set_config_option", { sessionId, configId: "model", value: "fixture/second" })))
+    expect(await refusal(client.request("session/set_config_option", { sessionId, configId: "model", value: "fixture/second", _meta: { casper: { makeDefault: true } } })))
       .toEqual({ code: -32603, message: "Model selected for this conversation, but the Casper default could not be saved." });
   } finally { await chmod(f.settings, 0o644); }
   // The conversation is on the new model, so the app hears that before the refusal; the prompt's end says nothing again.
@@ -161,8 +164,84 @@ test("with two sessions, a set reaches only the session it names", async () => {
   await Promise.all([client.request("session/prompt", { sessionId: one, prompt: text("From ONE") }), client.request("session/prompt", { sessionId: two, prompt: text("From TWO") })]);
   expect(askedWith(f.payloads, "From ONE")!.model).toBe("second");
   expect(askedWith(f.payloads, "From TWO")!.model).toBe("first");
-  // The other session keeps its model; its list may be sent again only in the new default's order.
-  for (const update of configUpdates(client, two)) expect(optionOf(update.update.configOptions, "model")!.currentValue).toBe("fixture/first");
+  // The other session keeps its model, and so does the default: nothing is sent to it.
+  expect(configUpdates(client, two)).toEqual([]);
+  expect(JSON.parse(await readFile(f.settings, "utf8"))).toMatchObject({ defaultProvider: "fixture", defaultModel: "first" });
+  // A session opened now starts on the default, not on the other session's pick.
+  const three = await client.request("session/new", { cwd: f.project, mcpServers: [] });
+  expect(optionOf(three.configOptions, "model")!.currentValue).toBe("fixture/first");
+  expect(defaults(optionOf(three.configOptions, "model"))).toEqual(["fixture/first"]);
+}, childTestLimit(1));
+
+test("make default is its own request: it saves the model and effort for new conversations, and the list marks the default", async () => {
+  const f = await fixture(() => ({ text: "Done." }));
+  const client = open(f);
+  await client.request("initialize", INIT);
+  const created = await client.request("session/new", { cwd: f.project, mcpServers: [] });
+  const sessionId = created.sessionId as string;
+  expect(defaults(optionOf(created.configOptions, "model"))).toEqual(["fixture/first"]);
+  // Only `true` asks for it: anything else is a pick for this session.
+  await client.request("session/set_config_option", { sessionId, configId: "model", value: "fixture/second", _meta: { casper: { makeDefault: "yes" } } });
+  expect(JSON.parse(await readFile(f.settings, "utf8"))).toMatchObject({ defaultProvider: "fixture", defaultModel: "first" });
+
+  // The model the session is already on, sent again with makeDefault: the app's "make default" button.
+  let options = (await client.request("session/set_config_option", { sessionId, configId: "model", value: "fixture/second", _meta: { casper: { makeDefault: true } } })).configOptions as Option[];
+  expect(optionOf(options, "model")!.currentValue).toBe("fixture/second");
+  expect(defaults(optionOf(options, "model"))).toEqual(["fixture/second"]);
+  expect(JSON.parse(await readFile(f.settings, "utf8"))).toMatchObject({ defaultProvider: "fixture", defaultModel: "second" });
+  await client.request("session/set_config_option", { sessionId, configId: "effort", value: "high" });
+  expect(JSON.parse(await readFile(f.settings, "utf8")).defaultThinkingLevel).not.toBe("high");
+  options = (await client.request("session/set_config_option", { sessionId, configId: "effort", value: "high", _meta: { casper: { makeDefault: true } } })).configOptions;
+  expect(optionOf(options, "effort")!.currentValue).toBe("high");
+  expect(JSON.parse(await readFile(f.settings, "utf8"))).toMatchObject({ defaultProvider: "fixture", defaultModel: "second", defaultThinkingLevel: "high" });
+
+  const next = await client.request("session/new", { cwd: f.project, mcpServers: [] });
+  expect(optionOf(next.configOptions, "model")!.currentValue).toBe("fixture/second");
+  expect(optionOf(next.configOptions, "effort")!.currentValue).toBe("high");
+  expect(f.payloads).toEqual([]);
+}, childTestLimit(1));
+
+test("With models and none chosen, a new session lists them before any message, and a pick is taken", async () => {
+  const f = await fixture(() => ({ text: "Done." }));
+  // Your own model server is never picked for you: no default is saved, so no model is in use.
+  await writeFile(f.settings, JSON.stringify({ retry: { enabled: false } }));
+  const client = open(f);
+  await client.request("initialize", INIT);
+  const created = await client.request("session/new", { cwd: f.project, mcpServers: [] });
+  const sessionId = created.sessionId as string;
+  let options = created.configOptions as Option[];
+  expect(options.map((option) => option.id)).toEqual(["model", "plan", "mode"]);
+  expect(optionOf(options, "model")).toMatchObject({ name: "Model", category: "model", type: "select", currentValue: "" });
+  expect(values(optionOf(options, "model"))).toEqual(expect.arrayContaining(["fixture/first", "fixture/second", "fixture/sparse"]));
+  expect(values(optionOf(options, "model"))).not.toContain("missing/no-auth");
+  expect(defaults(optionOf(options, "model"))).toEqual([]);
+
+  options = (await client.request("session/set_config_option", { sessionId, configId: "model", value: "fixture/second" })).configOptions;
+  expect(optionOf(options, "model")!.currentValue).toBe("fixture/second");
+  expect(values(optionOf(options, "effort"))).toEqual(expect.arrayContaining(["auto", "low", "high"]));
+  // No message was sent for any of it, and the pick saved no default.
+  expect(f.payloads).toEqual([]);
+  expect(JSON.parse(await readFile(f.settings, "utf8"))).toEqual({ retry: { enabled: false } });
+  expect((await client.request("session/prompt", { sessionId, prompt: text("Say CHOSEN") })).stopReason).toBe("end_turn");
+  expect(askedWith(f.payloads, "Say CHOSEN")!.model).toBe("second");
+}, childTestLimit(1));
+
+test("Signed in with no model chosen, a new session opens on that provider's default and lists its models", async () => {
+  const f = await fixture(() => ({ text: "Done." }));
+  await writeFile(f.settings, JSON.stringify({ retry: { enabled: false } }));
+  await writeFile(path.join(f.home, ".casper/agent/auth.json"), JSON.stringify({ openrouter: { type: "api_key", key: "synthetic" } }), { mode: 0o600 });
+  const client = open(f);
+  await client.request("initialize", INIT);
+  const created = await client.request("session/new", { cwd: f.project, mcpServers: [] });
+  const model = optionOf(created.configOptions, "model")!;
+  // What the first request did until now (it picks the provider's default and saves it) happens as the session opens.
+  expect(model.currentValue).toBe("openrouter/deepseek/deepseek-v4.1-flash");
+  expect(defaults(model)).toEqual(["openrouter/deepseek/deepseek-v4.1-flash"]);
+  expect(values(model).filter((value) => value.startsWith("openrouter/")).length).toBeGreaterThan(1);
+  expect(values(model)).toContain("fixture/first");
+  expect(JSON.parse(await readFile(f.settings, "utf8"))).toMatchObject({ defaultProvider: "openrouter", defaultModel: "deepseek/deepseek-v4.1-flash" });
+  expect(client.stderr()).toContain("[model] Casper picked openrouter/deepseek/deepseek-v4.1-flash for your signed-in provider and saved it as your default.");
+  expect(f.payloads).toEqual([]);
 }, childTestLimit(1));
 
 describe("a loaded conversation's model (decision 89)", () => {
@@ -174,10 +253,11 @@ describe("a loaded conversation's model (decision 89)", () => {
     await client.request("session/set_config_option", { sessionId: first, configId: "model", value: "fixture/second" });
     await client.request("session/set_config_option", { sessionId: first, configId: "effort", value: "high" });
     expect((await client.request("session/prompt", { sessionId: first, prompt: text("Say FIRST") })).stopReason).toBe("end_turn");
-    // Another conversation then picks low effort and fixture/first, which are saved as the default.
+    // Another conversation then saves low effort for fixture/second, and fixture/first as the default.
     const other = (await client.request("session/new", { cwd: f.project, mcpServers: [] })).sessionId as string;
-    await client.request("session/set_config_option", { sessionId: other, configId: "effort", value: "low" });
-    await client.request("session/set_config_option", { sessionId: other, configId: "model", value: "fixture/first" });
+    await client.request("session/set_config_option", { sessionId: other, configId: "model", value: "fixture/second" });
+    await client.request("session/set_config_option", { sessionId: other, configId: "effort", value: "low", _meta: { casper: { makeDefault: true } } });
+    await client.request("session/set_config_option", { sessionId: other, configId: "model", value: "fixture/first", _meta: { casper: { makeDefault: true } } });
     expect(JSON.parse(await readFile(f.settings, "utf8"))).toMatchObject({ defaultProvider: "fixture", defaultModel: "first" });
     const saved = await readFile(f.settings, "utf8");
     expect(await client.close()).toBe(0);

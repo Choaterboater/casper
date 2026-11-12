@@ -82,9 +82,18 @@ test("a value the hiding would change is left out; names and descriptions are hi
   expect(json).toContain("token <secret hidden>");
 });
 
-test("no model at all offers nothing; a signed-out current model stays listed, saying why", () => {
+test("nothing to list offers nothing; models with none in use are listed with no value; a signed-out current model stays listed, saying why", () => {
   expect(offerOf(undefined, plainHide).wire).toEqual([]);
-  expect(offerOf(fakeRuntime({ blocked: "No Casper model selected." }, models).runtime, plainHide).wire).toEqual([]);
+  expect(offerOf(fakeRuntime({ blocked: "No Casper model selected." }, []).runtime, plainHide).wire).toEqual([]);
+  // No model in use yet (decision 104): the list comes anyway, with no value and no effort, and a pick is taken.
+  const unset = offerOf(fakeRuntime({ blocked: "No Casper model selected.", defaultModel: { provider: "Claude-Subscription", id: "claude-opus-5-5" } }, models).runtime, plainHide);
+  expect(unset.wire.map((option) => option.id)).toEqual(["model"]);
+  expect(unset.wire[0]!.currentValue).toBe("");
+  expect(unset.current).toBeUndefined();
+  expect([...unset.models.keys()]).toEqual(["openai-codex/gpt-6.1-sol", "claude-subscription/claude-opus-5-5", "openai-codex/gpt-6.1-mini"]);
+  // The default for new conversations is marked, whatever its saved casing.
+  const marked = (unset.wire[0]!.options as Array<{ options: Array<{ value: string; _meta: { casper: { default?: true } } }> }>).flatMap((group) => group.options).filter((option) => option._meta.casper.default).map((option) => option.value);
+  expect(marked).toEqual(["claude-subscription/claude-opus-5-5"]);
   const blocked = "Sign in to anthropic again with /login. Model unchanged.";
   const gone = offerOf(fakeRuntime({ provider: "anthropic", model: "claude-opus-5-5", blocked, availableThinkingLevels: [] }, models).runtime, plainHide);
   expect(gone.wire.map((option) => option.id)).toEqual(["model"]);
@@ -94,7 +103,7 @@ test("no model at all offers nothing; a signed-out current model stays listed, s
   expect(groups.map((group) => group.group)).toEqual(["anthropic", "openai-codex", "claude-subscription"]);
 });
 
-test("a listed model or effort is set as /model and /effort set it, saved; each refusal changes nothing", async () => {
+test("a listed model or effort is set for this conversation, and saved only with makeDefault; each refusal changes nothing", async () => {
   const { runtime, calls } = fakeRuntime({ provider: "openai-codex", model: "gpt-6.1-sol", configuredEffort: "auto", availableThinkingLevels: REASONING }, models);
   const offer = offerOf(runtime, plainHide);
   const written: string[] = [];
@@ -113,6 +122,9 @@ test("a listed model or effort is set as /model and /effort set it, saved; each 
 
   await setOption(runtime, offer, "model", "claude-subscription/claude-opus-5-5", write);
   await setOption(runtime, offer, "effort", "high", write);
+  expect(calls.splice(0)).toEqual([{ select: { exact: { provider: "claude-subscription", id: "claude-opus-5-5" }, persist: false } }, { effort: ["high", false] }]);
+  await setOption(runtime, offer, "model", "claude-subscription/claude-opus-5-5", write, undefined, true);
+  await setOption(runtime, offer, "effort", "high", write, undefined, true);
   expect(calls).toEqual([{ select: { exact: { provider: "claude-subscription", id: "claude-opus-5-5" }, persist: true } }, { effort: ["high", true] }]);
   expect(written.join("")).toContain("[model] Selected and saved as the Casper default for new conversations.\n");
 
