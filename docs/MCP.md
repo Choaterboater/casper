@@ -697,6 +697,8 @@ An app or an editor that runs `casper acp` can list MCP servers in `session/new`
   the 8 direct tools, so a first prompt of "hi" does not leave them out for the session. They are
   taken in the order the server lists them. The first comes right after network routers, ahead of
   docs tools, so it stays in front even with both connected; the others come after docs tools.
+  When two network servers bring more routers than there are places, the first pin keeps one and
+  the last router is reached through `call_capability`.
 - **Is the app's to change.** `/mcp` shows it as `from the app, this session only`; the AI's
   `casper_mcp_add` and `casper_mcp_remove` refuse it and say to change it in the app.
 
