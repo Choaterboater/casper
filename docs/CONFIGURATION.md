@@ -421,6 +421,11 @@ A picture an MCP server returns goes to a model that can see images
 profile or project) leaves every picture out with a note, and the AI gets the text only. /settings shows it as
 **MCP pictures**; a change applies from the next step.
 
+An app that starts `casper acp` can sign Casper in with no terminal: `initialize` lists the ways `/login` has
+(all but Claude Code plan), `authenticate` runs one, `_casper/auth/status` names what is saved and
+`_casper/auth/logout` removes one. A key is saved only in Casper's login file
+([decision 103](adr/0002/103-an-acp-app-signs-casper-in.md)).
+
 An app that starts `casper acp` can hand Casper its own MCP servers for that session
 ([MCP.md](MCP.md#servers-an-app-hands-casper)). `acp_mcp` in `~/.casper/config.yaml` (only there, not a
 profile or project) says what happens: `on` (the default) connects them, and a server on this computer the

@@ -5,6 +5,7 @@
 // updates, permission requests and forms (elicitation/create) come back as they are. Each session is told the client's
 // capabilities. A line the app sends during a prompt (`_casper/steer`, decision 86) goes to its session as a prompt
 // does, and so does its question whether it may close an idle Casper (`_casper/idle`, decision 91).
+// Signing in, asking what is saved and signing out are answered here (src/acp/auth.ts, decision 103).
 
 import path from "node:path";
 import type { Subprocess } from "bun";
@@ -12,6 +13,7 @@ import { runningFromBinary } from "../update/mode";
 import { RpcConnection, RpcFailure, RPC, type Json } from "./rpc";
 import { readAcpMcpSetting } from "../config/load";
 import { initializeResult, sessionFolder } from "./session";
+import { AcpAuth } from "./auth";
 
 /** Set only on the session processes this router starts (removed from their own environment at once). */
 export const SESSION_ENV = "CASPER_ACP_SESSION";
@@ -119,6 +121,14 @@ export async function runAcpServer(argv: readonly string[], launchedFrom: string
     clientCapabilities = params.clientCapabilities && typeof params.clientCapabilities === "object" ? params.clientCapabilities as Json : undefined;
     return initializeResult(await readAcpMcpSetting());
   });
+  // Sign-in is this process's own work (decision 103): it happens before a session exists, and a session that starts
+  // afterwards reads the login file as it is then.
+  const lifetime = new AbortController();
+  const auth = new AcpAuth((method, params) => client.notify(method, params), lifetime.signal);
+  client.onRequest("authenticate", (params) => auth.authenticate(params));
+  client.onRequest("_casper/auth/status", () => auth.status());
+  client.onRequest("_casper/auth/logout", (params) => auth.logout(params));
+  client.onNotification("_casper/auth/cancel", () => auth.cancel());
   client.onRequest("session/new", (params) => start("session/new", params), (result) => release((result as Json | null)?.sessionId));
   client.onRequest("session/load", (params) => start("session/load", params), (_result, params) => release(params.sessionId));
   client.onRequest("session/fork", (params) => start("session/fork", params), (result) => release((result as Json | null)?.sessionId));
@@ -128,6 +138,7 @@ export async function runAcpServer(argv: readonly string[], launchedFrom: string
   // Ctrl+C, SIGTERM or the client gone: each session closes as Casper closes (its checks and services stop), then
   // this one exits. One that has not closed in 10 seconds is stopped, and this one waits until it has gone.
   const stopAll = async () => {
+    lifetime.abort();
     for (const child of running) { try { child.stdin.end(); } catch { /* already gone */ } }
     const allExited = () => Promise.all([...running].map((child) => child.exited));
     await Promise.race([allExited(), Bun.sleep(10_000)]);

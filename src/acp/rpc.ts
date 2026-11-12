@@ -5,8 +5,9 @@ export type Json = Record<string, unknown>;
 export interface RpcError { code: number; message: string; data?: unknown }
 export interface RpcMessage { jsonrpc?: "2.0"; id?: number | string | null; method?: string; params?: unknown; result?: unknown; error?: RpcError }
 
-/** The JSON-RPC and ACP error codes `casper acp` answers with. */
-export const RPC = { parse: -32700, invalidRequest: -32600, methodNotFound: -32601, invalidParams: -32602, internal: -32603, notFound: -32002 } as const;
+/** The JSON-RPC and ACP error codes `casper acp` answers with. `authRequired` is ACP's own: a sign-in is needed, or the
+ * one asked for did not happen. */
+export const RPC = { parse: -32700, invalidRequest: -32600, methodNotFound: -32601, invalidParams: -32602, internal: -32603, notFound: -32002, authRequired: -32000 } as const;
 
 /** An error that goes back to the client as a JSON-RPC error, with its code. */
 export class RpcFailure extends Error {

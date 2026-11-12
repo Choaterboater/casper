@@ -57,7 +57,7 @@ export function browserCommand(url: string, platform: NodeJS.Platform = process.
 /** Open the system browser for a validated authorization URL. Suppressed in offline mode
  * (CASPER_OFFLINE=1), where the URL stays printed for manual opening. The URL itself was already
  * validated (https + known provider origin) before display. */
-function launchBrowser(url: string): boolean {
+export function launchBrowser(url: string): boolean {
   if (process.env.CASPER_OFFLINE === "1") return false;
   try {
     const child = Bun.spawn(browserCommand(url), { stdin: "ignore", stdout: "ignore", stderr: "ignore" });
