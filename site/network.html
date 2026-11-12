@@ -98,11 +98,11 @@ Press 1-2 or Up/Down + Enter · Esc is No</code></pre></div>
         <div class="grid">
           <article class="card">
             <h3>A project's server starts disconnected</h3>
-            <p>Finding a server in a project file is not permission. Only your <code>/mcp connect</code> or <code>--mcp</code> connects it. Your own servers connect when the session starts, a network product with writes off (<strong>My MCP servers</strong> in <code>/settings</code>). An app that starts <code>casper acp</code> can hand Casper its own servers for that session only (<strong>Apps' MCP servers</strong>).</p>
+            <p>Finding a server in a project file is not permission. Only your <code>/mcp connect</code> or <code>--mcp</code> connects it. Your own servers connect when the session starts, a network product with writes off (<strong>My MCP servers</strong> in <code>/settings</code>). An app that starts <code>casper acp</code> can hand Casper its own servers for that session only (<strong>Apps' MCP servers</strong>); one for a product you already have is not used.</p>
           </article>
           <article class="card">
             <h3>A network product's writes start off</h3>
-            <p>A network product's server runs with its read-only settings, and every change asks you first. Only you can allow it, one server at a time. Your other own servers start with writes on (<strong>My MCP servers</strong> in <code>/settings</code>).</p>
+            <p>A network product's server runs with its read-only settings, and every change asks you first. Only you can allow it, one server at a time. A server that runs read-only by its own setting, which Casper can't change (an app's bundled one), says writes are off instead of asking. Your other own servers start with writes on (<strong>My MCP servers</strong> in <code>/settings</code>).</p>
           </article>
           <article class="card">
             <h3>Changes ask in plain words</h3>

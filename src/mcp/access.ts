@@ -178,9 +178,11 @@ export function accessStatusText(check: AccessCheck | undefined): string {
   return where ? `login: can change ${where} (checked)` : "login: can make changes (checked)";
 }
 
-/** Lines for the find_capability description. Built only from the server name and parsed state. */
-export function accessModelLines(server: string, check: AccessCheck | undefined, writes: "off" | "on"): string[] {
+/** Lines for the find_capability description. Built only from the server name and parsed state. `serverReadOnly`: the
+ * server runs read-only by its own setting and Casper can't restart it otherwise (decision 100). */
+export function accessModelLines(server: string, check: AccessCheck | undefined, writes: "off" | "on", serverReadOnly = false): string[] {
   if (check?.state === "read-only") return [`${server}: login is read-only. Write tools are hidden. Don't plan changes on it.`];
+  if (serverReadOnly) return [`${server}: runs read-only by its own setting; changes are refused. Don't plan changes on it.`];
   return writes === "off" ? [`${server}: every change asks the user first, in Casper's box; they can allow it once or for this session. Don't ask them again in chat.`] : [];
 }
 
@@ -190,3 +192,6 @@ export function writesOffReason(server: string): string {
   return `${server} writes are off. Only the user can allow a change there: in Casper's change box, or with /mcp writes ${server}.`;
 }
 export const READ_ONLY_LOGIN_ENABLE_TEXT = "This login is read-only (access_check). Writes can't be turned on here.";
+/** A server Casper can't pin that reports its own read-only gate off (an app's bundled network server, decision 100). */
+export function serverReadOnlyReason(label: string): string { return `${label} writes are off: the server runs read-only.`; }
+export const SERVER_READ_ONLY_ENABLE_TEXT = "This server runs read-only by its own setting. Writes can't be turned on here.";

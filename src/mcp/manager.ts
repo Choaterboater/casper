@@ -8,10 +8,11 @@ import type { ConsentState, ConsentStore, RememberResult } from "./consent";
 import { clientNotRemembered, definitionIdentity } from "./consent";
 import type { ChangeKind } from "../capabilities/kinds";
 import {
-  matchPreset, planPins, presetById, presetLine, rememberBlock, type PinPlan, type PresetMatch,
+  matchPreset, planPins, presetById, presetLine, rememberBlock, type PinPlan, type Preset, type PresetMatch,
 } from "./presets";
 import {
-  accessCheckTool, accessStatusText, gatesConfirmedOff, parseAccessCheck, READ_ONLY_LOGIN_ENABLE_TEXT, type AccessCheck,
+  accessCheckTool, accessStatusText, gatesConfirmedOff, parseAccessCheck, READ_ONLY_LOGIN_ENABLE_TEXT, SERVER_READ_ONLY_ENABLE_TEXT,
+  type AccessCheck,
 } from "./access";
 import { toolLabel } from "../capabilities/labels";
 import { ownSpawnedTree, type OwnedProcesses, ProcessCleanupError, terminateTree } from "../platform/processes";
@@ -66,6 +67,9 @@ export interface MCPStatus {
   startsOwn?: true;
   /** Whether this local server runs in the sandbox (see src/mcp/sandbox). Absent when no sandbox is wired in. */
   sandbox?: MCPSandboxStatus;
+  /** The app's server that isn't used because one of your own covers the same product ("Casper has its own Network
+   * server"), decision 100. */
+  notUsed?: string;
 }
 
 /** on: held by the sandbox (or will be, at its next start); off: you turned it off for this server; none: Casper
@@ -97,6 +101,10 @@ export interface ServerPolicy {
   ownWrites?: true;
   /** An app's server that asks for itself (casper/clientAsks): its ownWrites stands for the app's own box. */
   clientAsks?: true;
+  /** Runs read-only by its own setting, which Casper can't change: a network product (preset) Casper did not pin (http,
+   * or started as it is) whose access_check reports every write gate off. A change is refused before any box
+   * (decision 100). */
+  serverReadOnly?: true;
 }
 
 /** Casper's defaults: 20 s to start, 90 s per call without progress, 10 min for any call. */
@@ -252,6 +260,8 @@ interface Entry {
   /** The sandbox holding the current child (closed with it), and what /mcp says about it. */
   held?: HeldServer;
   sandbox?: MCPSandboxStatus;
+  /** The note that this app's server isn't used (decision 100) was written. */
+  coveredNoted?: true;
 }
 
 interface RunningApprovedCall extends ApprovedCall {
@@ -411,6 +421,7 @@ export class MCPManager {
         ...(entry.ownWrites && entry.writes === "on" ? { ownWrites: true as const } : {}),
         ...(ownStart(entry.definition, this.autoconnect).approved ? { startsOwn: true as const } : {}),
         ...(this.sandboxStatus(entry) ? { sandbox: this.sandboxStatus(entry)! } : {}),
+        ...(this.coveredBy(entry) ? { notUsed: `Casper has its own ${this.coveredBy(entry)!.label} server` } : {}),
       };
     });
   }
@@ -432,6 +443,24 @@ export class MCPManager {
     if (found) return found;
     const byTools = presetById(entry.toolPreset);
     return byTools ? { preset: byTools, by: "tools", mismatch: false } : undefined;
+  }
+
+  /**
+   * The product of one of your own servers that the app's server duplicates, so the app's isn't used (decision 100).
+   * Yours counts while it is approved (it connects by itself this session, or you connected it), so it wins even when it
+   * connects after the app's; it is known by its definition at once, or by its tool list once it has connected. One you
+   * disconnect, or never approved (an unreviewed project file, My MCP servers off), leaves the app's in use.
+   */
+  private coveredBy(entry: Entry): Preset | undefined {
+    if (entry.definition.scope !== "client") return undefined;
+    const id = this.match(entry)?.preset.id;
+    if (!id) return undefined;
+    for (const own of this.entries.values()) {
+      if (own.definition.scope === "client" || !own.approved || own.definition.disabled) continue;
+      const match = this.match(own);
+      if (match?.preset.id === id) return match.preset;
+    }
+    return undefined;
   }
 
   private presetLines(entry: Entry, match: PresetMatch): string[] {
@@ -462,7 +491,15 @@ export class MCPManager {
     const match = this.match(entry);
     return { ...(match ? { match } : {}), writes: entry.writes, ...(entry.access ? { access: entry.access } : {}), showOptIn: entry.showOptIn,
       ...(entry.ownWrites && entry.writes === "on" && !match ? { ownWrites: true as const } : {}),
-      ...(entry.definition.scope === "client" && entry.definition.clientAsks ? { clientAsks: true as const } : {}) };
+      ...(entry.definition.scope === "client" && entry.definition.clientAsks ? { clientAsks: true as const } : {}),
+      ...(this.serverReadOnly(entry) ? { serverReadOnly: true as const } : {}) };
+  }
+
+  /** Only the server's own report says so, as only access_check makes a login read-only, and only for a product Casper
+   * knows (a preset), whose gate is its write switch. A server Casper pinned keeps the writes box: turning writes on
+   * restarts it without its pins. */
+  private serverReadOnly(entry: Entry): boolean {
+    return entry.state === "ready" && entry.pins.kind !== "pinned" && gatesConfirmedOff(entry.access) && this.match(entry) !== undefined;
   }
 
   /** A copy of one loaded definition (for the user's own notes; never shown to the model). */
@@ -565,10 +602,12 @@ export class MCPManager {
       return;
     }
     if (entry.access?.state === "read-only") throw new Error(READ_ONLY_LOGIN_ENABLE_TEXT);
+    if (this.serverReadOnly(entry)) throw new Error(SERVER_READ_ONLY_ENABLE_TEXT);
     if (entry.writes === "on") return;
     await this.idle(entry);
     // A reconnect while waiting may have checked the login again.
     if ((entry.access as AccessCheck | undefined)?.state === "read-only") throw new Error(READ_ONLY_LOGIN_ENABLE_TEXT);
+    if (this.serverReadOnly(entry)) throw new Error(SERVER_READ_ONLY_ENABLE_TEXT);
     entry.writes = "on";
     this.catalogVersion++;
     if (entry.pins.kind === "pinned" && (entry.state === "ready" || entry.state === "connecting")) await this.restart(entry);
@@ -651,14 +690,23 @@ export class MCPManager {
   /** Changes whenever routable metadata or connection identity changes. */
   get catalogRevision(): number { return this.catalogVersion; }
 
+  /** The connected servers' tools. The app's copy of a product one of your own servers covers is left out (decision 100). */
   catalog(): { server: string; generation: number; tools: MCPTool[] }[] {
-    return [...this.entries.values()].filter((e) => e.state === "ready")
+    return [...this.entries.values()].filter((e) => e.state === "ready" && !this.coveredBy(e))
       .map((e) => ({ server: e.definition.name, generation: e.generation, tools: structuredClone(e.tools) }));
   }
 
   private publish(entry: Entry, tools: MCPTool[]): void {
     entry.tools = tools;
     this.catalogVersion++;
+    if (this.closed) return;
+    // Either order: the app's server connecting after yours, or yours showing its product after the app's connected.
+    for (const other of this.entries.values()) {
+      const covered = other.state === "ready" && !other.coveredNoted ? this.coveredBy(other) : undefined;
+      if (!covered) continue;
+      other.coveredNoted = true;
+      this.onNote?.(`[acp] The app's MCP server ${other.definition.name} is not used: Casper has its own ${covered.label} server.`);
+    }
   }
 
   /** Review needed before consenting to a project-scope definition; undefined for user/profile ones. */
@@ -677,6 +725,8 @@ export class MCPManager {
     if (entry.state === "disabled") throw new Error("MCP server is disabled; edit configuration and restart");
     entry.approved = true;
     entry.stoppedBy = undefined;
+    // An approved server of your own can make the app's copy of it unused (decision 100).
+    this.catalogVersion++;
     // The burst cap limits automatic reconnects; an explicit connect is fresh consent to try.
     entry.attempts = [];
     await this.ensureConnected(entry);
@@ -782,6 +832,8 @@ export class MCPManager {
       added.push(definition.name);
     }
     this.diagnostics = [...configuration.diagnostics, ...this.consent?.diagnostics ?? []];
+    // A server added, removed or approved again can change which of the app's servers are used (decision 100).
+    this.catalogVersion++;
     await this.prepare();
     return { added, removed, changed, revoked };
   }
@@ -803,6 +855,8 @@ export class MCPManager {
     }
     if (signal?.aborted) throw new NotExecutedError("cancelled");
     if (entry.state !== "ready" || !entry.client) throw new NotExecutedError("server not connected");
+    const covered = this.coveredBy(entry);
+    if (covered) throw new NotExecutedError(`server not used: Casper has its own ${covered.label} server`);
     if (!entry.tools.some((tool) => tool.name === name)) throw new NotExecutedError("tool changed; search again");
     const client = entry.client;
     const limits = this.limits(entry);
@@ -1119,6 +1173,9 @@ export class MCPManager {
           entry.state = "disconnected";
           return "restart-with-pins";
         }
+        // One Casper can't pin (an http server) says so in /mcp detail from its first connection; never claims a pin.
+        const plan = entry.writes === "off" && entry.pins.kind === "none" ? planPins(entry.definition, match.preset) : undefined;
+        if (plan?.kind === "cannot-pin") entry.pins = plan;
       }
       clearTimeout(deadline);
       // Ask the login what it may do, once per connection, before any tool is shown.

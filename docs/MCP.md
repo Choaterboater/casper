@@ -370,8 +370,8 @@ folder, item 9 is `~/.casper/mcp.json` itself: it stays your own file (item 4), 
 project file, and `~/.casper/lsp.json` the same.
 
 An app that runs `casper acp` can also hand Casper its own servers for one session. They come after
-these files, are named `acp-<name>`, and never replace a server from any of them (see
-[Servers an app hands Casper](#servers-an-app-hands-casper)).
+these files, are named `acp-<name>`, and never replace a server from any of them. One for a product your
+own server already covers is not used (see [Servers an app hands Casper](#servers-an-app-hands-casper)).
 
 ### Servers you already set up elsewhere
 
@@ -699,6 +699,16 @@ An app or an editor that runs `casper acp` can list MCP servers in `session/new`
   docs tools, so it stays in front even with both connected; the others come after docs tools.
   When two network servers bring more routers than there are places, the first pin keeps one and
   the last router is reached through `call_capability`.
+- **Is not used when Casper already has the same product**
+  ([decision 100](adr/0002/100-an-acp-app-server-casper-already-has.md)). When the app hands over a server
+  that is the same [preset](#presets) as one of your own (by its definition or its tool list), and yours is
+  approved for this session (it connects by itself, or you connected it), yours is used and the app's is
+  not: its tools are not offered to the AI. Casper writes
+  `[acp] The app's MCP server acp-network is not used: Casper has its own Network server.` once, and `/mcp`
+  shows `not used: Casper has its own Network server` on its row. Yours wins even when it connects after
+  the app's (a look-alike known only by its tool list, once it has connected), and while it fails to
+  start. Disconnect yours (`/mcp disconnect`), or never approve it, and the app's is used. A
+  different product (your `hpe-networking-mcp` next to the app's network server) keeps both.
 - **Is the app's to change.** `/mcp` shows it as `from the app, this session only`; the AI's
   `casper_mcp_add` and `casper_mcp_remove` refuse it and say to change it in the app.
 
@@ -780,7 +790,9 @@ How pins work:
   `Can't pin read-only for this server (it runs elsewhere). Every change asks you in Casper.`
   The same line, with another reason, appears when Casper can't find the image in
   a docker command, or has to add an argument to a shell wrapper or a command with
-  `--`.
+  `--`. When such a server reports its own write switches off through `access_check` (an
+  app's bundled network server running `--read-only`), the line ends
+  `The server runs read-only by its own setting; changes are refused.` instead.
 - A server recognised only by its tool list is started once more, with the pins.
 - A definition that matches a preset but whose tools don't:
   `Looks different from the hpe-networking-mcp preset. Pins kept, and its extra checks still apply.`
@@ -824,6 +836,23 @@ may do.
     `This login is read-only (access_check). Writes can't be turned on here.`;
   - the AI's `find_capability` description says
     `<server>: login is read-only. Write tools are hidden. Don't plan changes on it.`
+- **A server read-only by its own setting**
+  ([decision 100](adr/0002/100-an-acp-app-server-casper-already-has.md)). A network
+  product (a [preset](#presets)) Casper did not pin (an HTTP one, such as an app's bundled
+  network server) whose answer reports every product's write switch off (`server_gate` with `state: "off"`) refuses
+  changes itself, and Casper can't restart it otherwise. So:
+  - a change is refused before any box, with
+    `Not executed (Network writes are off: the server runs read-only.)`;
+  - a troubleshooting check the server's own switch lets through (a show command) still
+    asks and runs, and a diagnostic still asks; neither turns writes on;
+  - writes can't be turned on:
+    `This server runs read-only by its own setting. Writes can't be turned on here.`,
+    and `/mcp writes` and `/mcp allow` say so with no box;
+  - the AI's `find_capability` description says
+    `<server>: runs read-only by its own setting; changes are refused. Don't plan changes on it.`
+
+  A server Casper pinned (its own network server, started with `--read-only`) keeps the
+  change box: a yes restarts it without its pins.
 - **Anything else** (another answer, an error, a slow answer, or no `access_check`
   at all) is `access not checked`. A server that says its login can make changes
   (`login: can make changes (checked)`) unlocks nothing.
@@ -884,7 +913,9 @@ Press 1-2 or Up/Down + Enter · Esc is No
   box that was open when writes went off does not count. A server that was running
   without pins is restarted with them once its calls finish.
 - A read-only login (see [Access check](#access-check)) never gets writes: changes
-  stay hidden and the box is never offered.
+  stay hidden and the box is never offered. Nor does a server that runs read-only by
+  its own setting that Casper can't pin (an HTTP one, such as an app's): a change is
+  refused before any box.
 - Only you can do any of this. The AI's ask tool can't answer the change box or this
   box, and one-shot runs never turn writes on
   (`Writes can only be turned on in an interactive session.`; a change in a one-shot

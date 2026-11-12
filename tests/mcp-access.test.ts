@@ -2,8 +2,8 @@ import { afterEach, expect, test } from "bun:test";
 import path from "node:path";
 import { CapabilityBroker, type CapabilitySafety } from "../src/capabilities/broker";
 import {
-  READ_ONLY_LOGIN_ENABLE_TEXT, accessCheckTool, accessModelLines, accessStatusText, changeScopeText, gatesConfirmedOff, parseAccessCheck,
-  readOnlyLoginReason, writesOffReason,
+  READ_ONLY_LOGIN_ENABLE_TEXT, SERVER_READ_ONLY_ENABLE_TEXT, accessCheckTool, accessModelLines, accessStatusText, changeScopeText, gatesConfirmedOff,
+  parseAccessCheck, readOnlyLoginReason, serverReadOnlyReason, writesOffReason,
 } from "../src/mcp/access";
 import { MCPManager, type MCPTool } from "../src/mcp/manager";
 import { CHILD_KILL_MS, childTestLimit } from "./support/limits";
@@ -84,6 +84,15 @@ test("refusal wording", () => {
   expect(readOnlyLoginReason("aruba-central")).toBe("aruba-central login is read-only.");
   expect(writesOffReason("aruba-central")).toBe("aruba-central writes are off. Only the user can allow a change there: in Casper's change box, or with /mcp writes aruba-central.");
   expect(READ_ONLY_LOGIN_ENABLE_TEXT).toBe("This login is read-only (access_check). Writes can't be turned on here.");
+});
+
+test("a server read-only by its own setting: its refusal, its enable text and its model line (decision 100)", () => {
+  expect(serverReadOnlyReason("Network")).toBe("Network writes are off: the server runs read-only.");
+  expect(SERVER_READ_ONLY_ENABLE_TEXT).toBe("This server runs read-only by its own setting. Writes can't be turned on here.");
+  expect(accessModelLines("acp-network", undefined, "off", true)).toEqual(["acp-network: runs read-only by its own setting; changes are refused. Don't plan changes on it."]);
+  expect(accessModelLines("acp-network", undefined, "off")).toEqual(["acp-network: every change asks the user first, in Casper's box; they can allow it once or for this session. Don't ask them again in chat."]);
+  // A read-only login still says so first.
+  expect(accessModelLines("acp-network", { state: "read-only", products: [] }, "off", true)).toEqual(["acp-network: login is read-only. Write tools are hidden. Don't plan changes on it."]);
 });
 
 // --- casper/access-check v2: where the login can change things ---------------------------------

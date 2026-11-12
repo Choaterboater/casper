@@ -427,6 +427,8 @@ profile or project) says what happens: `on` (the default) connects them, and a s
 app says asks for itself runs its changes with only the app's box; `ask` connects them with every change
 asking in Casper's box; `off` connects none. /settings shows it as **Apps' MCP servers**. With `on` or `ask`, only the
 app's own server pins tools and hears which step a call is ([decision 89](adr/0002/89-an-acp-app-forwards-its-own-mcp-servers.md)).
+The app's copy of a product one of your own servers already covers (its bundled network server, say) is not
+used while yours connects by itself or you connected it, with one note; there is no setting for it ([decision 100](adr/0002/100-an-acp-app-server-casper-already-has.md)).
 
 The app's access chip sets Casper's access for the session ([decision 82](adr/0002/82-an-acp-app-sets-casper-access.md)):
 Read only, Ask first, or Don't ask (as `/permissions all`). `acp_access: off` in `~/.casper/config.yaml` (only there)
