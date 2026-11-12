@@ -90,16 +90,7 @@ jobs:
         timeout-minutes: 5
         run: |
           bun test tests/sandbox-live.test.ts tests/sandbox-wiring.test.ts tests/platform-processes.test.ts tests/login-picker.test.ts tests/terminal-review.test.ts tests/terminal-discovery.test.ts tests/model-routing.test.ts tests/auto-effort.test.ts 2>&1 | tee "$RUNNER_TEMP/linux-preview/platform-terminal.log"
-      - name: Full regression suite (files in parallel)
-        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
-        # Normal step: 4.8 min p90 (max 5.0). tools/stall-guard.sh stops a run whose log has been silent for
-        # 180 s, after writing stall-dump.txt (every process, each test worker's children and kernel stack, a
-        # native stack for a worker on the CPU when the host has gdb or eu-stack, the test files that printed
-        # and those that did not) next to the log, which the evidence upload below keeps. It then runs the
-        # file(s) Bun was still running once more on their own (once per job) and the step gets that result.
-        # Terminals have a separate job; the real debugger still runs after this guarded parallel suite.
-        timeout-minutes: 12
-        run: bash tools/stall-guard.sh "$RUNNER_TEMP/linux-preview/full-suite.log" 180 "$RUNNER_TEMP/linux-preview/stall-dump.txt" -- bun run test:suite
+      # The full suite runs in the suite job's three parts, beside this job.
       - name: Real debugger test (runs alone, as in bun run test)
         if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         timeout-minutes: 5
@@ -112,6 +103,67 @@ jobs:
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: linux-preview-evidence
+          path: ${{ runner.temp }}/linux-preview/
+          if-no-files-found: warn
+          retention-days: 14
+
+  # The whole suite in three parts of about equal time (tools/test-shard.ts, from tests/timings.json), each on its own
+  # machine, all at once. On one machine it took 7 to 12 minutes, by the runner, and reached the step's 12-minute limit.
+  suite:
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        part: [1, 2, 3]
+    defaults:
+      run:
+        shell: bash
+    env:
+      PI_OFFLINE: '1'
+      PI_TELEMETRY: '0'
+      PART: ${{ matrix.part }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: '1.4.0'
+      - name: Install the shell sandbox's tools (bubblewrap, socat, ripgrep) and let bubblewrap start
+        # Ubuntu 24.04 blocks unprivileged user namespaces through AppArmor; the live sandbox tests need them.
+        # The sandbox runtime scans the project with ripgrep, and Pi's grep uses it (PI_OFFLINE: no download).
+        # A hung mirror once held this step for the whole 15 minutes, twice: so apt retries downloads and waits for its
+        # lock, each try is cut off, and it tries three times before the step fails.
+        timeout-minutes: 10
+        run: |
+          mkdir -p "$RUNNER_TEMP/linux-preview"
+          printf 'Acquire::Retries "3";\nDPkg::Lock::Timeout "60";\n' | sudo tee /etc/apt/apt.conf.d/80casper-ci >/dev/null
+          for attempt in 1 2 3; do
+            if timeout 120 sudo apt-get update -q && timeout 180 sudo apt-get install -y -q bubblewrap socat ripgrep; then break; fi
+            [ "$attempt" = 3 ] && { echo "apt did not finish after 3 tries"; exit 1; }
+            echo "apt try $attempt did not finish; trying again"
+          done
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          bwrap --ro-bind / / --dev /dev --proc /proc --unshare-net --unshare-pid -- /bin/true
+      - name: Install locked dependencies
+        id: install
+        run: bun install --frozen-lockfile 2>&1 | tee "$RUNNER_TEMP/linux-preview/install.log"
+      - name: Full regression suite, one part of three (files in parallel)
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        # tools/stall-guard.sh stops a run whose log has been silent for 180 s, after writing stall-dump.txt (every
+        # process, each test worker's children and kernel stack, a native stack for a worker on the CPU when the host
+        # has gdb or eu-stack, the test files that printed and those that did not) next to the log, which the evidence
+        # upload below keeps. It then runs the file(s) Bun was still running once more on their own (once per job) and
+        # the step gets that result. Terminals have their own job; the real debugger runs in the source job.
+        timeout-minutes: 10
+        run: bash tools/stall-guard.sh "$RUNNER_TEMP/linux-preview/full-suite.log" 180 "$RUNNER_TEMP/linux-preview/stall-dump.txt" -- bun run test:suite --shard="$PART"/3
+      - name: Retain suite evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: linux-preview-suite-${{ matrix.part }}
           path: ${{ runner.temp }}/linux-preview/
           if-no-files-found: warn
           retention-days: 14
