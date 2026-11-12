@@ -138,6 +138,14 @@ test("the full suite runs files in parallel, slowest first, with the eval tests 
   expect(mac).toContain(`-- bun run test:suite --shard="$PART"/3 --path-ignore-patterns='tests/phase10-browser.test.ts' --path-ignore-patterns='tests/phase10-browser-checks.test.ts'`);
   expect((macJobs.suite as { strategy?: { matrix?: { part?: number[] } } }).strategy?.matrix?.part).toEqual([1, 2, 3]);
   for (const file of ["tests/phase10-browser.test.ts", "tests/phase10-browser-checks.test.ts"]) expect(macJobs.browser!.steps.map((step) => step.run ?? "").join("\n")).toContain(`-- bun test ${file}\n`);
+  // Linux runs the suite in three parts too, each with the live sandbox's tools; the source job keeps the debugger test.
+  const linuxJobs = load("linux-preview.yml").jobs;
+  const linuxSuite = linuxJobs.suite!.steps.map((step) => step.run ?? "").join("\n");
+  expect(linuxSuite).toContain(`-- bun run test:suite --shard="$PART"/3`);
+  expect((linuxJobs.suite as { strategy?: { matrix?: { part?: number[] } } }).strategy?.matrix?.part).toEqual([1, 2, 3]);
+  expect(linuxSuite).toContain("apt-get install -y -q bubblewrap socat ripgrep");
+  expect(linuxSuite).toContain("kernel.apparmor_restrict_unprivileged_userns=0");
+  expect(linuxJobs.source!.steps.some((step) => step.name?.startsWith("Full regression suite"))).toBe(false);
   // Windows runs each part on two workers: spawned CLIs and servers need CPU/memory headroom.
   const windows = load("windows-preview.yml").jobs.suite!.steps.map((step) => step.run ?? "").join("\n");
   expect(windows).toMatch(/bun test --parallel=2 --timings=tests\/timings\.json @files/);
