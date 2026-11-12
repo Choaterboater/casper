@@ -519,3 +519,15 @@ test("settings or data files changed while checking and repairing are flagged, a
   expect(receipt).toContain("⚠ Checks and repairs changed app settings or data: config/services.yaml, config/widgets.yaml, data/items.json; look for test data left in them");
   expect(formatReceipt(done({ changedPaths: ["server.js"], changedDuringChecks: ["public/style.css", "package.json"] }))).not.toContain("settings or data");
 });
+
+test("a page build Casper asked for a browser check of, where the AI recorded none, says so in one line and keeps its verdict", () => {
+  const passed = done({ changedPaths: ["app/page.tsx"], verificationMode: "auto", verification: report([check()]) });
+  const line = "– No browser check: Casper asked for one of the changed pages and the AI recorded none";
+  const asked = formatReceipt({ ...passed, browserNotRecorded: true });
+  expect(asked).toContain(line);
+  expect(asked.split("\n")[0]).toBe(formatReceipt(passed).split("\n")[0]);
+  expect(taskOutcome(undefined, { ...passed, browserNotRecorded: true })).toBe(taskOutcome(undefined, passed));
+  // With browser checks on the receipt, they speak for themselves.
+  const browser = { status: "pass", checks: [{ name: "home", status: "pass", freshness: "fresh", baseline: "fail" }] } as unknown as TaskResult["browser"];
+  expect(formatReceipt({ ...passed, browser, browserNotRecorded: true })).not.toContain("No browser check");
+});

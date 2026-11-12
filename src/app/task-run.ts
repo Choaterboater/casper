@@ -44,7 +44,7 @@ import { ChangeBaseline, changesCode, isCodePath, isTestPath, proofRepairPrompt,
 import { independentAcceptance } from "../verify/acceptance";
 import { definitionChangedReason, definitionChanges, definitionFile, testDefinition } from "../verify/test-definition";
 import type { ProjectContext } from "../project/context";
-import type { BrowserCheck } from "../browser/scenario";
+import { checksToFinish, finishChecksPrompt, finishLine, finishNeeded, FINISH_TURNS, pagesToCheck } from "./finish-checks";
 import { parseChecklist, parseReview, requirementsReviewPrompt, ROUND_MAX_TURNS, selfReviewPrompt, SELF_REVIEW_TURNS, type RequirementsReview } from "../task/review";
 import { KEEP_GOING_ROUNDS, keepGoingNeed, keepGoingPrompt, openPlanNote } from "../task/keep-going";
 import { answerNextStep, answerNextStepItem, findNextStep, requestStepCount } from "../task/next-step";
@@ -361,6 +361,10 @@ export async function runModelTask(app: CasperApp, prompt: string, options: { fl
   let pagesShown: number | undefined;
   let workFolder: ChildProject | undefined;
   let receiptShown = false;
+  /** The finish turn asked for a browser check of the changed pages (none was recorded): said on the receipt if none came. */
+  let noCheckAsked = false;
+  /** The finish turn's own reply, when it gave one: only for whether it claims the browser checks passed. */
+  let finishAnswer: string | undefined;
   const flatten = (changes: TreeChanges) => [...changes.added, ...changes.modified, ...changes.removed].sort();
   // Automatic effort's classifier is a model call outside the conversation, so the task's usage
   // totals cannot include it: any classification (or an unreadable count) makes them unknown.
@@ -594,17 +598,34 @@ export async function runModelTask(app: CasperApp, prompt: string, options: { fl
       return (await app.browser.report()).checks.filter(check => replayed.has(check.id) && check.status === "fail" && check.freshness === "fresh");
     };
     let browserFailures = await replay();
-    // Checks the AI recorded in this task that still never finished (a step stopped part way and it recorded another check
-    // instead): one turn to replay or withdraw each, then they replay again. Not a repair: it changes nothing in the app.
-    const unfinished = !stoppedNow() && app.browser ? (await app.browser.report()).checks.filter(unfinishedCheck) : [];
-    if (unfinished.length) {
+    // One turn, not a repair, for the browser checks to finish: ones recorded in this task that still never finished (a
+    // step stopped part way and it recorded another check instead), ones written wrong or answered Cancel, a page whose
+    // checks were all withdrawn, and a page build with no browser check at all (src/app/finish-checks.ts). Then the checks
+    // replay again, and one that started failing in that turn (recorded, or replayed by the AI) gets the one browser
+    // repair below. Its reply is about the checks: the task's own answer stays the one the next steps and away job read.
+    const atFinish = stoppedNow() ? undefined : app.browser ? await app.browser.report() : { checks: [] };
+    // Chrome is looked up only for a build whose checks passed: its changed pages may be asked for.
+    const finish = atFinish && checksToFinish(atFinish, verification?.status !== "pass" ? [] : pagesToCheck({ mode: verificationMode,
+      intent: classification.intent, readOnly: app.readOnlyAccess, verification, browserOff: app.projectContext?.browser === false,
+      installed: await (app.browserInstalled ?? false) }));
+    if (atFinish && finish && finishNeeded(finish) && !stoppedNow()) {
+      const was = new Map(atFinish.checks.map(check => [check.id, check.status]));
+      noCheckAsked = finish.noCheck.length > 0;
       app.events.ensureLineBreak();
-      app.output.write(`↻ finish: ${unfinished.length === 1 ? "a browser check" : `${unfinished.length} browser checks`} the AI recorded never finished\n`);
+      app.output.write(`↻ finish: ${finishLine(finish)}\n`);
       await prepareCapabilities(app, prompt);
       phase(app, "repair", "start");
-      try { await promptRound(app, session, finishChecksPrompt(unfinished), prompt, undefined, FINISH_TURNS); }
-      finally { phase(app, "repair", "end"); }
-      if (!stoppedNow()) browserFailures = await replay(new Set(browserFailures.map(check => check.id)));
+      const answer = app.lastAnswer, toolAfter = app.toolAfterAnswer;
+      try { await promptRound(app, session, finishChecksPrompt(finish, verification?.pages?.server.origin), prompt, undefined, FINISH_TURNS); }
+      finally {
+        phase(app, "repair", "end");
+        if (app.lastAnswer !== answer) finishAnswer = app.lastAnswer;
+        app.lastAnswer = answer; app.toolAfterAnswer = toolAfter;
+      }
+      if (!stoppedNow()) {
+        const failing = app.browser ? (await app.browser.report()).checks.filter(check => check.status === "fail" && was.get(check.id) !== "fail").map(check => check.id) : [];
+        browserFailures = await replay(new Set([...browserFailures.map(check => check.id), ...failing]));
+      }
     }
     const max = context.repair.maxAttempts;
     const used = verification?.repairAttempts ?? 0;
@@ -753,7 +774,8 @@ export async function runModelTask(app: CasperApp, prompt: string, options: { fl
     const modelError = execution === "failed" ? explainModelError(app.events.lastError ?? thrownError ?? "")?.cause : undefined;
     // The whole answer is a tool call written as text and no tool ran: shown, never run, never retried.
     const wroteToolCall = execution === "completed" && !app.observations.madeToolCalls && isToolCallAsText(app.lastAnswer);
-    app.lastTaskResult = { execution, ...(branchMoved ? { branchMoved: true as const } : {}), ...(modelError ? { modelError } : {}), ...(wroteToolCall ? { wroteToolCallAsText: true as const } : {}), verification, ...(appSmoke ? { appSmoke } : {}), ...observations, ...(snapshotFailure ? { snapshotFailure } : {}), ...(app.untrackedMedia.has(workspaceRoot) ? { mediaLeftOut: true as const } : {}), ...(browser?.checks.length ? { browser, ...(browser.status !== "pass" && answerClaimsBrowserPass(app.lastAnswer) ? { browserClaimed: true } : {}) } : {}),
+    app.lastTaskResult = { execution, ...(branchMoved ? { branchMoved: true as const } : {}), ...(modelError ? { modelError } : {}), ...(wroteToolCall ? { wroteToolCallAsText: true as const } : {}), verification, ...(appSmoke ? { appSmoke } : {}), ...observations, ...(snapshotFailure ? { snapshotFailure } : {}), ...(app.untrackedMedia.has(workspaceRoot) ? { mediaLeftOut: true as const } : {}), ...(browser?.checks.length ? { browser, ...(browser.status !== "pass" && (answerClaimsBrowserPass(app.lastAnswer) || (finishAnswer !== undefined && answerClaimsBrowserPass(finishAnswer))) ? { browserClaimed: true } : {}) } : {}),
+      ...(noCheckAsked && !browser?.checks.length ? { browserNotRecorded: true as const } : {}),
       ...(services.length ? { services } : {}), ...(riskyLines.length ? { riskyLines: [...riskyLines], ...(riskyLines.more ? { riskyMore: riskyLines.more } : {}) } : {}),
       // Smoke checks ran even without a configured command, so "no checks" no longer describes the task.
       verificationMode, ...(!flag && !configured && verificationMode === "auto" ? { verificationDefaulted: true as const } : {}),
@@ -1198,22 +1220,6 @@ export async function finishChange(app: CasperApp, input: {
   const result = await proveChange(app, { ...input, verification });
   phase(app, "proof", "end");
   return { ...result, review };
-}
-
-/** A browser check of this task's that never finished: not one written wrong, answered Cancel, whose server is gone or
- * that Casper couldn't replay (each keeps its own reason on the receipt). */
-const unfinishedCheck = (check: BrowserCheck): boolean =>
-  check.status === "incomplete" && !check.gone && !check.cancelled && !check.writtenWrong && !check.notReplayed;
-/** Turns the AI has to finish or withdraw its unfinished browser checks: a round's, as recording a replacement and then
- * withdrawing, for each check, took more than 6 in a tracker build. */
-const FINISH_TURNS = ROUND_MAX_TURNS;
-
-function finishChecksPrompt(checks: readonly BrowserCheck[]): string {
-  return [
-    "Casper: browser checks you recorded in this task never finished.",
-    ...checks.map((check) => `- ${check.name} (id ${check.id})${check.reason ? `: ${check.reason}` : ""}`),
-    "Replay each id with the browser tool now that the page is ready. If a check is wrong (it needs data or steps it doesn't set up), record a correct check of the same page with replaces: its id; once that passes, the old one is withdrawn. One that went to a sign-in page never saw its page: withdraw it, no replacedBy needed, and if its page isn't checked yet, record a check that signs in through its steps. Every id above must end replayed or withdrawn. Don't change the app in this turn. Casper replays the checks again after it.",
-  ].join("\n");
 }
 
 /** A build's review once its checks pass: the requirements review round (unless one already ran), then one self-review

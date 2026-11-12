@@ -164,6 +164,25 @@ function plainWordsAboveEnd(lines: string[]): (changed: number[]) => boolean {
   });
 }
 
+/** A rule of dashes only (sqlite3's `------  ----`, psql's one column `--------`), or a line with a bar. */
+const DASH_RULE = /^[-─][-─ \t]*\r?$/;
+const HAS_BAR = /[|│┃║]/;
+
+/**
+ * Decision 102's limit: a cut window's rows of a table with no bars (sqlite3's, psql's one column, Format-Table) whose
+ * dash rule and header are above the window stream, though the final scrub of the whole output hides their secret
+ * column. Nothing on such a row marks it as a table's (a plain column table's rows look the same and must stream), and
+ * Pi's final output is the same keep, so it has lost that header too. `changed`: the window's lines the final changed.
+ */
+export function barlessRowsAfterCut(lines: string[], start: number, changed: number[]): boolean {
+  const row = (line: string) => line.trim() !== "" && !DASH_RULE.test(line) && !HAS_BAR.test(line);
+  return start > 0 && changed.length > 0 && changed.every((index) => {
+    let at = index;
+    while (at >= 0 && row(lines[at]!)) at--;
+    return at >= 1 && at < start && DASH_RULE.test(lines[at]!);
+  });
+}
+
 // Made-up values.
 const HEX64 = "0123456789abcdef".repeat(4);
 const KEY_LINE = "MIIEowIBAAKCAQEAu1SU1LfVLPHCozMxH2Mo4lgOEePzNm0tRgeLezV6ffAt0gun";

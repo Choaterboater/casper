@@ -59,6 +59,8 @@ interface Capability {
 
 /** At most this many tools of an ACP client's servers are always offered (inside the cap of 8). */
 export const MAX_CLIENT_PINS = 4;
+/** The tools offered directly in one turn, find_capability and call_capability included. */
+const MAX_DIRECT_TOOLS = 8;
 /** One page of the `find_capability({ query: "*" })` listing. */
 export interface CapabilityListPage {
   total: number;
@@ -1066,18 +1068,21 @@ export class CapabilityBroker {
       || a.descriptor.id.localeCompare(b.descriptor.id)).slice(0, 3);
     // The tools an ACP client's servers pin, in their order, whatever the task words: a first prompt of "hi" must
     // not leave them out for the session. The first one (the app's way in) goes before the docs tools, so routers
-    // and docs together never push every pin out; the rest come after the docs.
+    // and docs together never push every pin out; the rest come after the docs. Routers alone never push it out
+    // either: when they would fill every place left, the last place is the first pin's and the routers after it wait
+    // behind (still reachable through call_capability).
     const clientPins = [...this.capabilities.values()].filter((c) => c.clientPin && !c.hidden && !c.router && !c.docs).slice(0, MAX_CLIENT_PINS);
     const pinned = new Set([...routers, ...docs, ...clientPins]);
+    const room = MAX_DIRECT_TOOLS - tools.length - 1;
     // Same servers as when the set was picked: offer it again (less any tool that went away or is now hidden).
     const kept = this.picked?.servers === this.servers ? this.picked.ids : undefined;
     const candidates = kept
       ? kept.map((id) => this.capabilities.get(id)).filter((c): c is Capability => c !== undefined && !c.hidden)
-      : [...routers, ...clientPins.slice(0, 1), ...docs, ...clientPins.slice(1), ...this.rank(task).filter((c) => !routedServers.has(c.descriptor.source) && !pinned.has(c))];
+      : [...routers.slice(0, room), ...clientPins.slice(0, 1), ...routers.slice(room), ...docs, ...clientPins.slice(1), ...this.rank(task).filter((c) => !routedServers.has(c.descriptor.source) && !pinned.has(c))];
     const ids: string[] = [];
     let schemaBytes = 0;
     for (const capability of candidates) {
-      if (tools.length >= 8) break;
+      if (tools.length >= MAX_DIRECT_TOOLS) break;
       const bytes = capability.schemaBytes;
       if (bytes > MAX_SCHEMA_BYTES || schemaBytes + bytes > MAX_DIRECT_SCHEMA_BYTES) continue;
       schemaBytes += bytes;

@@ -16,6 +16,11 @@ export type BrowserAssertion = { kind: "text"; selector?: string; expected: stri
   | { kind: "no-overlap"; selector: string; other: string };
 export interface BrowserScenario { name: string; url: string; viewport: { width: number; height: number }; steps: BrowserStep[]; assertions: BrowserAssertion[]; scope?: VerificationScope }
 
+/** A page on this computer (the project's own server): the only pages Casper replays at the end, or opens with dialog: accept. */
+export function localURL(source: string): boolean {
+  try { return ["localhost", "127.0.0.1", "[::1]"].includes(new URL(source).hostname); } catch { return false; }
+}
+
 /** A check that names no scope watches the project folder, without dependency, build and cache folders at its top
  * or files the project's git ignores (data an app writes as the check runs).
  * Still a bounded observation: a project too big to watch says so, and nothing counts as fresh. */

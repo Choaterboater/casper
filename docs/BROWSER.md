@@ -304,13 +304,21 @@ refusal names every reason and what a replacement must be. The new check then ru
 any new check. Once it passes, the old one is withdrawn naming it, under the same
 `replacedBy` rules, and the result says so under `replaced`; the reason is optional
 there (`written wrong` when left out). A replacement that does not pass is kept as a
-check of its own, the old one stays, and `replaced.note` says how to finish. A
+check of its own, the old one stays and still decides the result, and `replaced.note` says how to finish: record
+another check with `replaces: <the new id>`, which also replaces the old one. Once a check at the end of such a chain
+passes, however it passes (recorded, replayed by the AI or by Casper's end replay, or named in a `withdraw`'s
+`replacedBy`), each check back along it that still stands is withdrawn the same way, naming the passing check, through
+`withdraw` and its `replacedBy` rules; one refused stays, and the result says why
+([decision 102](adr/0002/102-a-page-build-finishes-its-browser-checks.md)). A
 `withdraw` refused after a change says all of this in one message, such as `replay
 it, or replace it in one call: record a check of / at 1280×800 with at least 1 fill
 step, 1 click step and 1 text assertion that passes, with replaces: "<id>"`
 ([decision 101](adr/0002/101-browser-checks-in-fewer-rounds.md)). A new check that stops part
 way (a step's element is not there yet) still returns its id in the error: replay
-it once the page is ready, or withdraw it while no edit or command has run since.
+it once the page is ready, or, if the check is wrong, record a corrected one with `replaces: <its id>`; it can also be
+withdrawn with a reason while no edit or command has run since. A `replaces` refused because the new check tests less
+says so too, for a check that tests what the request doesn't ask for. A bare `withdraw` of the last check of a page
+says no check of that page is left, so a corrected one must pass.
 A check whose recording never finished (no server answered yet) is recorded by
 its first finished run, so a failure there can be withdrawn like one from a
 recording.
@@ -318,7 +326,9 @@ A new check whose step or assertion selector matches several elements is not kep
 error says how many it matched and lists each one, its tag, `data-testid`, first text and a
 selector that matches it alone (`assertion 1's selector matches 2 elements (matches: p "2 left" =
 p:nth-of-type(1); p "0 done" = p:nth-of-type(2)): name one element and record the check again
-(nothing was recorded)`), so the check is recorded again with one element the first time. A
+(nothing was recorded)`), so the check is recorded again with one element the first time. The steps before the one
+refused did run (all of them, when an assertion was refused): when those fill a fixed email or name, the error says
+which ran, as what they saved (a sign-up) stays in the app, and to use `{run}`. A
 step or action whose selector matches nothing lists the elements most like it the same way,
 under `near:`; inside a web component the selector reads `host >>> inner`. A replay where one matches several is a check written wrong, not a failure of the page:
 incomplete with the reason `Written wrong: …`, no repair, and the receipt says
@@ -428,12 +438,30 @@ stays open.
 If this replay produces a fresh failure and a try remains in `repair.maxAttempts`,
 Casper gives the model **one repair turn**, using the same budget as command,
 page-note and proof repairs. Incomplete or stale results, and failures from checks
-not replayed by this task, do not start that turn. A check recorded in this task that stopped part way (a step whose
-element wasn't built yet) is replayed at the end too, on the final app. One still unfinished after that gets one turn,
-not a repair: `↻ finish: a browser check the AI recorded never finished`, asking the AI to replay its id, or record a
-correct check of the same page with `replaces: <its id>`, which withdraws the old one once it passes (every listed id
-must end replayed or withdrawn), without changing the app; then the checks replay again. A check
-written wrong, answered Cancel, whose server is gone, or that couldn't be replayed keeps its reason and gets no turn. A failing check that was already failing when it was recorded
+this task neither replayed nor recorded in the finish turn below, do not start that turn. A check recorded in this task that stopped part way (a step whose
+element wasn't built yet) is replayed at the end too, on the final app. Then one turn, not a repair, finishes the
+browser checks, without changing the app; each kind gets its own section of the prompt and its own phrase on the
+screen, joined by `; ` ([decision 102](adr/0002/102-a-page-build-finishes-its-browser-checks.md)):
+
+- a check still unfinished, `↻ finish: a browser check the AI recorded never finished`: replay its id, or record a
+  correct check of the same page with `replaces: <its id>`, which withdraws the old one once it passes (every listed
+  id must end replayed or withdrawn);
+- a check of a page on this computer written wrong or answered Cancel, `↻ finish: a browser check the AI recorded is
+  written wrong` (or `needs OK on a dialog`): its reason, with what matched, and record a corrected check with
+  `replaces: <its id>`;
+- a page on this computer whose every check was withdrawn, `↻ finish: no browser check of / is left`: record a correct
+  check of it, without `replaces`, that signs in and sets up its data through its own steps;
+- a page build with no browser check at all, `↻ finish: no browser check shows the changed pages work`: only when the
+  checks ran in `auto` mode, the request builds or fixes something, they passed with changed pages Casper's page
+  check opened, and the browser tool is on and Chrome installed. It names up to 5 of those pages and asks for one
+  check of the main thing the request has a person do there, or one line saying why none can be checked. If none is
+  recorded, the receipt says `– No browser check: Casper asked for one of the changed pages and the AI recorded none`,
+  and the verdict is unchanged.
+
+A check of another site gets no turn for these two: Casper doesn't replay it, and `dialog: "accept"` works only here.
+Then the checks replay again, and a check that started failing in that turn, recorded or replayed by the AI, gets the
+repair turn below, if one is left. The turn's reply is about the checks: the task's own answer stays the one its next
+steps and an away job read. A check whose server is gone, or that couldn't be replayed, keeps its reason and gets no turn. A failing check that was already failing when it was recorded
 (its baseline was a failure) gets a line, `– Save was already failing when it was recorded`, and the same repair turn,
 with no question first ([decision 72](adr/0002/72-restore-full-checking.md)): every such check was recorded in this
 task, and the AI checks before it edits, so a new feature's check is recorded failing. After it, Casper replans and

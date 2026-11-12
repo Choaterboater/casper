@@ -697,6 +697,8 @@ An app or an editor that runs `casper acp` can list MCP servers in `session/new`
   the 8 direct tools, so a first prompt of "hi" does not leave them out for the session. They are
   taken in the order the server lists them. The first comes right after network routers, ahead of
   docs tools, so it stays in front even with both connected; the others come after docs tools.
+  When two network servers bring more routers than there are places, the first pin keeps one and
+  the last router is reached through `call_capability`.
 - **Is not used when Casper already has the same product**
   ([decision 100](adr/0002/100-an-acp-app-server-casper-already-has.md)). When the app hands over a server
   that is the same [preset](#presets) as one of your own (by its definition or its tool list), and yours is

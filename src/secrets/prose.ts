@@ -328,7 +328,9 @@ function ruledTableSpans(lines: string[], tokenTable: boolean, live?: LiveScrub)
       if ((edge(line) && edge(before)) || (BARE_RULE.test(line) && !under) || (barRules && !under && edge(line))) end();
     } else if (open ? line.search(BAR) >= 0 : TABLE_ROW.test(line)) {
       const row = cells(line, open);
-      if (maybe) { out[index]!.push(...wholeRow(row)); continue; }
+      // A row with one bar after its first place (psql's `         | X`, a value's next line in \x) has its line's start
+      // as a cell edge too; a tree's `|-- src` starts at its bar.
+      if (maybe) { out[index]!.push(...wholeRow(row.length || line.search(BAR) === 0 ? row : cells(line, true))); continue; }
       if ((!columns || (!open && startsTable(lines[index + 1] ?? "", before))) && (secretHeader(row) || keyValueHeader(row))) { header(row, index, false); continue; }
       // A row longer than its header: the bar inside a value moved the cells after it, so the row goes from its first
       // secret cell to its end. So does a row with no last bar (Markdown may leave it out): a bar inside a value need
@@ -350,6 +352,154 @@ function ruledTableSpans(lines: string[], tokenTable: boolean, live?: LiveScrub)
   return out;
 }
 
+/** A line's text without the CR a CRLF line end leaves. */
+const lineText = (line: string) => line.endsWith("\r") ? line.slice(0, -1) : line;
+/** psql's row count, which ends its table: (1 row), (12 rows). */
+const ROW_COUNT = /^\s*\(\d+ rows?\)\s*$/;
+
+/**
+ * A rule of dashes only from the line's start (sqlite3's `------  ----`, psql's one column `--------`, PowerShell's
+ * `----   --------`): where each run of dashes starts and ends, or undefined. Read once, character by character.
+ */
+function dashRuns(line: string): Array<[number, number]> | undefined {
+  const text = lineText(line);
+  if (text[0] !== "-" && text[0] !== "─") return undefined;
+  const runs: Array<[number, number]> = [];
+  for (let at = 0; at < text.length;) {
+    if (text[at] === "-" || text[at] === "─") {
+      const start = at;
+      while (text[at] === "-" || text[at] === "─") at++;
+      runs.push([start, at]);
+    } else if (text[at] === " " || text[at] === "\t") at++;
+    else return undefined;
+  }
+  return runs;
+}
+
+/** The first and last places of text between `from` and `to` in a line, or undefined when there is none. */
+function textIn(line: string, from: number, to: number): { start: number; end: number } | undefined {
+  let start = from;
+  let end = Math.min(to, line.length);
+  while (start < end && /\s/.test(line[start]!)) start++;
+  while (end > start && /\s/.test(line[end - 1]!)) end--;
+  return start < end ? { start, end } : undefined;
+}
+
+/**
+ * The header over a dash rule, as cells under its runs, or undefined when the line is not one. A header has no bar,
+ * every name sits over its run (nothing in the gaps between runs or past the last), and none is empty. One run is read
+ * only in psql's shape, its header a space in: a Markdown heading over a line of dashes (`Passwords` / `---------`) is
+ * not a table.
+ */
+function dashHeader(line: string, runs: Array<[number, number]>): Cell[] | undefined {
+  const text = lineText(line);
+  if (text.search(BAR) >= 0 || (runs.length === 1 && !/^\s/.test(text))) return undefined;
+  const row: Cell[] = [];
+  for (const [index, [start, end]] of runs.entries()) {
+    const gapEnd = index + 1 < runs.length ? runs[index + 1]![0] : text.length;
+    if (textIn(text, end, gapEnd)) return undefined;
+    const cell = textIn(text, start, end);
+    if (!cell) return undefined;
+    row.push({ ...cell, text: text.slice(cell.start, cell.end) });
+  }
+  return row;
+}
+
+/**
+ * A row's cells under the secret columns of a table with no bars, by the dash runs' places. A value wider than its run
+ * (sqlite3's .width, PowerShell's Format-Table) runs into the gap after it and moves the cells after it, so from the
+ * first such value on, a secret column is hidden to the row's end.
+ */
+function dashRowSpans(line: string, runs: Array<[number, number]>, columns: number[] | "all"): Span[] {
+  const text = lineText(line);
+  if (columns === "all") {
+    const all = textIn(text, 0, text.length);
+    return all ? [{ ...all, kind: "password" }] : [];
+  }
+  let spill = runs.length;
+  for (let index = 0; index + 1 < runs.length; index++) if (textIn(text, runs[index]![1], runs[index + 1]![0])) { spill = index; break; }
+  const spans: Span[] = [];
+  for (const column of columns) {
+    const last = column === runs.length - 1;
+    if (column >= spill || last) {
+      const rest = textIn(text, column > spill ? runs[spill]![1] : runs[column]![0], text.length);
+      if (rest && (column >= spill || anyValue(text.slice(rest.start, rest.end)))) spans.push({ ...rest, kind: "password" });
+      continue;
+    }
+    const cell = textIn(text, runs[column]![0], runs[column]![1]);
+    if (cell && anyValue(text.slice(cell.start, cell.end))) spans.push({ ...cell, kind: "password" });
+  }
+  return spans;
+}
+
+/**
+ * Tables with no bars, known by the rule of dashes only under their header: sqlite3's -header -column, psql's one
+ * column and \pset border 0, PowerShell's Format-Table. The header's names over the dash runs name the secret columns,
+ * and the rows run to a blank line, psql's row count or the next header. psql's one-column rows are each a space in.
+ * Live (decision 98): a header that may be only a line's end, or a rule whose header a cut left out, makes every cell
+ * a secret column's.
+ */
+function dashTableSpans(lines: string[], live?: LiveScrub): Span[][] {
+  const out: Span[][] = lines.map(() => []);
+  let runs: Array<[number, number]> | undefined;
+  let columns: number[] | "all" = [];
+  for (let index = 0; index < lines.length; index++) {
+    const line = lines[index]!;
+    if (live && TRUNCATED_MARK.test(line)) { runs = undefined; continue; }
+    const rule = dashRuns(line);
+    if (rule) {
+      const gone = live && (mayBeLineEnd(lines, index, live) || (index > 0 && mayBeLineEnd(lines, index - 1, live)));
+      const header = index > 0 ? dashHeader(lines[index - 1]!, rule) : undefined;
+      runs = gone ? rule : header ? rule : undefined;
+      columns = gone ? "all" : header ? secretColumns(header) : [];
+      if (!gone && !columns.length) runs = undefined;
+      continue;
+    }
+    if (!runs) continue;
+    if (!lineText(line).trim() || ROW_COUNT.test(line) || (columns !== "all" && runs.length === 1 && !/^\s/.test(line))) { runs = undefined; continue; }
+    // The line above the next header's rule is that header, not a row.
+    const nextRule = dashRuns(lines[index + 1] ?? "");
+    if (nextRule && dashHeader(line, nextRule)) continue;
+    out[index]!.push(...dashRowSpans(line, runs, columns));
+  }
+  return out;
+}
+
+/** psql's expanded display (\x): `-[ RECORD 1 ]---` (`+-[ RECORD 1 ]-+`, `─[ RECORD 1 ]──` with unicode lines). */
+const RECORD = /^\s*[+┌├]?[-─]\[ RECORD \d+ \][-─+┼┬┐┤]*\s*$/;
+
+/**
+ * psql's expanded records: each line under a record's line is a column's name, a bar and its value (`passwd | X`, or
+ * `| passwd | X |` with border 2), to a line with no bar. A name that holds a secret hides its value, unless the value
+ * is a setting (ON, a small number, a date), as in a key and value table; so does a value's next line under an empty
+ * name (psql ends a line of a value of several lines with +).
+ */
+function expandedSpans(lines: string[], live?: LiveScrub): Span[][] {
+  const out: Span[][] = lines.map(() => []);
+  let inRecord = false;
+  let secretAbove = false;
+  for (let index = 0; index < lines.length; index++) {
+    const text = lineText(lines[index]!);
+    if (live && TRUNCATED_MARK.test(text)) { inRecord = false; continue; }
+    if (RECORD.test(text)) { inRecord = true; secretAbove = false; continue; }
+    if (!inRecord) continue;
+    const bars = marks(text, BAR);
+    if (!bars.length) { inRecord = false; continue; }
+    // Border 2 starts its rows with a bar: the name is between the first two, and the value ends at a last bar.
+    const framed = TABLE_ROW.test(text) && bars.length > 1;
+    const keyFrom = framed ? bars[0]! + 1 : 0;
+    const keyTo = framed ? bars[1]! : bars[0]!;
+    const valueTo = framed && closed(text) && bars.length > 2 ? bars.at(-1)! : text.length;
+    const key = cellText(text.slice(keyFrom, keyTo));
+    const value = textIn(text, keyTo + 1, valueTo);
+    const shown = value ? text.slice(value.start, value.end) : "";
+    const secret: boolean = key ? SECRET_HEADER.test(key) || (isSecretName(key) && !SETTING.test(shown)) : secretAbove;
+    if (key) secretAbove = secret;
+    if (secret && value && (!key || anyValue(shown)) && !shown.includes(SECRET_MARKER)) out[index]!.push({ ...value, kind: "password" });
+  }
+  return out;
+}
+
 /**
  * Hide the prose, table and token forms above. A table is read two ways, the first way Casper read tables and the way
  * that follows their rule lines, and a cell either way hides stays hidden. `live`: a running command's latest lines
@@ -362,9 +512,11 @@ export function scrubProseSecrets(text: string, options: { live?: LiveScrub } = 
   const tokenTable = options.live !== undefined || /tokenid/i.test(text);
   const plain = plainTableSpans(lines, tokenTable, options.live);
   const ruled = ruledTableSpans(lines, tokenTable, options.live);
+  const dashed = dashTableSpans(lines, options.live);
+  const expanded = expandedSpans(lines, options.live);
   let hidden = 0;
   const shown = lines.map((line, index) => {
-    const spans: Span[] = [...windowedSpans(line, ruleSpans), ...plain[index]!, ...ruled[index]!];
+    const spans: Span[] = [...windowedSpans(line, ruleSpans), ...plain[index]!, ...ruled[index]!, ...dashed[index]!, ...expanded[index]!];
     if (tokenTable) {
       // pveum's --output-format json or yaml: "value": "<uuid>", value: <uuid>.
       const json = new RegExp(String.raw`"?\bvalue"?\s*:\s*"?(${UUID})`, "gd");
