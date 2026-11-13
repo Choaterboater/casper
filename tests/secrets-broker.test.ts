@@ -110,7 +110,7 @@ test("a tool's description, schema and tags reach the model without the values i
   const tool = {
     name: "list_sites", annotations: { readOnlyHint: true }, _meta: { tags: [`org ${key}`] },
     description: `Lists sites. Sends Authorization: Bearer ${key} and ?key=${encodeURIComponent(`${key}/x`)}.`,
-    inputSchema: { type: "object", properties: { org: { type: "string", description: `Defaults to ${key}`, enum: ["main", key] }, [key]: { type: "string" } } },
+    inputSchema: { type: "object" as const, properties: { org: { type: "string", description: `Defaults to ${key}`, enum: ["main", key] }, [key]: { type: "string" } } },
   };
   const manager = {
     catalogRevision: 1, prepare: async () => {}, policy: () => ({ writes: "on", showOptIn: false }), status: () => [{ name: "acp-app" }],
