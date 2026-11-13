@@ -631,8 +631,10 @@ After a forced SIGKILL of Casper or a power loss, cleanup may not happen.
   started a fresh browser; open the page again.` The next action starts a fresh Chrome in the same session, so the
   checks recorded so far stay. After three such overruns the next one closes the session as before.
 - A first Chrome start that has not answered after 8 seconds is stopped and replaced by one
-  fresh start, and the running action's deadline starts again. For an `open`, the whole
-  cold start, both tries, is outside its deadline, which starts once Chrome is up. A start
+  fresh start, which gets 30 seconds, and the running action's deadline starts again. A fresh
+  start that doesn't answer either fails the action with `Chrome did not answer`; the next
+  action tries again. For an `open`, the whole cold start, both tries, is outside its
+  deadline, which starts once Chrome is up. A start
   whose Chrome died (rather than ran out of time) gets one more try, and only one; a
   session signed in through `signin` keeps its signed-in profile for these tries.
 - Viewport: 240–3840 × 240–2160 (up to a 4K screen, so a wide window can be checked at its real size); default

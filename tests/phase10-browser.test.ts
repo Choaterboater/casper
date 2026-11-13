@@ -154,6 +154,23 @@ browserTest("after two fresh starts a third crash closes the session for good", 
   expect((await readFile(starts, "utf8")).trim().split("\n")).toHaveLength(2);
 }, 30_000);
 
+// The full suite's browser-start hang (run 43371077422): neither Chrome answered, and with the open's deadline held
+// through the cold start, nothing stopped the fresh one before Puppeteer's 180 s protocol limit.
+(process.platform === "win32" ? test.skip : browserTest)("a fresh Chrome start that never answers either fails the open in its own time, and the session closes at once", async () => {
+  const root = await realpath(await mkdtemp(path.join(os.tmpdir(), "casper-mute-chrome-")));
+  cleanup.push(() => removeTempDir(root));
+  const wrapper = path.join(root, "chrome");
+  await writeFile(wrapper, "#!/bin/sh\nexec sleep 60\n", { mode: 0o755 });
+  const f = await fixture({ executablePath: wrapper, firstStartMs: 1_000, freshStartMs: 2_000, actionTimeoutMs: 1_500 });
+  const started = performance.now();
+  await expect(f.session.run({ action: "open", url: f.url })).rejects.toThrow("Chrome did not answer: neither its first start in 1 s nor a fresh one in 2 s");
+  expect(performance.now() - started).toBeLessThan(10_000);
+  expect(f.session.status()).toMatchObject({ state: "idle", ownedBrowserPid: undefined });
+  const closing = performance.now();
+  await f.session.close();
+  expect(performance.now() - closing).toBeLessThan(2_000);
+}, 30_000);
+
 // The fresh start's Chrome came up but its page didn't: that Chrome was left running, unowned, on the profile the
 // next start then reused.
 (process.platform === "win32" ? test.skip : browserTest)("a fresh start whose page fails stops its Chrome, and the next open starts clean", async () => {
