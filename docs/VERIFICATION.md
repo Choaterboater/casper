@@ -276,8 +276,9 @@ configured check to save time. Keep at most two Casper sessions/crews building o
 
 `tests/support/preload.ts` clears ambient CI, git overrides, colour, agent and credential state before
 loading each test file. It supplies a throwaway HOME, XDG folders and an ordinary empty git config file
-for both `GIT_CONFIG_GLOBAL` and `GIT_CONFIG_SYSTEM`, including on Windows. Bun caches `os.homedir()` at
-startup: pass a fixture home to code paths that take one, or launch a child with HOME/USERPROFILE set
+for both `GIT_CONFIG_GLOBAL` and `GIT_CONFIG_SYSTEM`, including on Windows. No model server or Claude Code
+on the developer's computer answers a test's Casper (`CASPER_LOCAL_MODELS=off`, and `CASPER_CLAUDE_PATH` names
+no file); a fixture sets either itself. Bun caches `os.homedir()` at startup: pass a fixture home to code paths that take one, or launch a child with HOME/USERPROFILE set
 when testing native home resolution. Never monkey-patch built-ins globally. A test needing an env
 setting supplies it explicitly: `cleanEnv(extra)` for child processes, or serial `await withEnv(extra, body)` for in-process
 fixtures (restored in `finally`, including on rejection). Pass a source env as cleanEnv's second argument
