@@ -78,6 +78,7 @@
           </li>
           <li><a href="#released">Released</a>
             <ul>
+              <li><a href="#v0417">v0.4.17: answers or fails</a></li>
               <li><a href="#v0416">v0.4.16: models on time</a></li>
               <li><a href="#v0415">v0.4.15: apps sign Casper in</a></li>
               <li><a href="#v0414">v0.4.14: apps drive Casper</a></li>
@@ -151,7 +152,7 @@
         <h2 id="next-h">Next release</h2>
         <aside class="callout soon">
           <strong class="callout-title">Built, not released</strong>
-          <p>Nothing on the main branch is waiting: everything built so far is in v0.4.16. New work shows here before the next preview.</p>
+          <p>Nothing on the main branch is waiting: everything built so far is in v0.4.17. New work shows here before the next preview.</p>
         </aside>
       </section>
 
@@ -393,10 +394,21 @@
         and on the <a href="https://github.com/Choaterboater/casper/releases">Releases page</a>.</p>
         <div class="stack">
 
+        <details class="card release" id="v0417" aria-labelledby="v0417-h" open>
+          <summary class="release-heading">
+            <h3 id="v0417-h">v0.4.17 · A browser that never answers fails in its own time</h3>
+            <span class="badge ok">current preview</span>
+          </summary>
+          <ul>
+            <li><strong>Answers or fails.</strong> A browser action whose fresh Chrome start never answers fails after 30 seconds with a plain message instead of hanging, and the next action tries again.</li>
+            <li><strong>Tests stay apart.</strong> For contributors, tests no longer find a Claude Code sign-in on the developer's own computer.</li>
+          </ul>
+        </details>
+
         <details class="card release" id="v0416" aria-labelledby="v0416-h" open>
           <summary class="release-heading">
             <h3 id="v0416-h">v0.4.16 · An app's models arrive on time, tool lists keep server keys hidden, and receipts keep their moves</h3>
-            <span class="badge ok">current preview</span>
+            <span class="badge">previous preview</span>
           </summary>
           <ul>
             <li><strong>Models on time.</strong> An app's model list gets a model server that answers after the session opened, with no first message, and a new session no longer waits for a model server on another computer.</li>
@@ -409,7 +421,7 @@
         <details class="card release" id="v0415" aria-labelledby="v0415-h" open>
           <summary class="release-heading">
             <h3 id="v0415-h">v0.4.15 · An app signs Casper in and lists its models, and an app's own servers find their place</h3>
-            <span class="badge">previous preview</span>
+            <span class="badge">released</span>
           </summary>
           <ul>
             <li><strong>Sign in from an app.</strong> An app over ACP signs Casper in with a key, a browser or a code, asks what is saved and signs out, with no terminal. The key goes only to the provider's check and Casper's login file.</li>
@@ -419,7 +431,7 @@
           </ul>
         </details>
 
-        <details class="card release" id="v0414" aria-labelledby="v0414-h" open>
+        <details class="card release" id="v0414" aria-labelledby="v0414-h">
           <summary class="release-heading">
             <h3 id="v0414-h">v0.4.14 · Apps and editors drive Casper over ACP, and a blocked command can run outside the sandbox</h3>
             <span class="badge">released</span>
@@ -1698,7 +1710,7 @@
   <footer class="site-footer">
     <div class="container footer-inner">
       <div>
-        <p><strong>Casper 0.4.16</strong> · early preview, unsigned</p>
+        <p><strong>Casper 0.4.17</strong> · early preview, unsigned</p>
         <p><a href="https://github.com/Choaterboater/casper/blob/main/LICENSE">MIT licence</a> · © 2026 Choaterboater</p>
         <p>Built on the <a href="https://github.com/earendil-works/pi">Pi SDK</a>. Other parts keep their own licences (<a href="https://github.com/Choaterboater/casper/blob/main/THIRD_PARTY_NOTICES.txt">notices</a>).</p>
       </div>
