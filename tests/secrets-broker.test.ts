@@ -113,7 +113,7 @@ test("a tool's description, schema and tags reach the model without the values i
     inputSchema: { type: "object" as const, properties: { org: { type: "string", description: `Defaults to ${key}`, enum: ["main", key] }, [key]: { type: "string" } } },
   };
   const manager = {
-    catalogRevision: 1, prepare: async () => {}, policy: () => ({ writes: "on", showOptIn: false }), status: () => [{ name: "acp-app" }],
+    catalogRevision: 1, prepareForTask: async () => {}, policy: () => ({ writes: "on", showOptIn: false }), status: () => [{ name: "acp-app" }],
     catalog: () => [{ server: "acp-app", generation: 1, tools: [tool] }], loginValues: () => [key, encodeURIComponent(`${key}/x`)],
     definition: () => { throw new Error("not needed"); },
   } as unknown as MCPManager;

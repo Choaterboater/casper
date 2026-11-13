@@ -1303,6 +1303,12 @@ on, not compiled when its server lists its tools: a server with hundreds of
 typed tools doesn't slow every start, and a schema Ajv can't compile fails only
 that tool's calls, not the whole server.
 
+**Servers start in the background.** A `casper acp` session answers `session/new`
+without waiting for its servers, as the terminal does; a one-shot run waits, so
+its tools are there for its task. A task's start waits up to 5 s for servers
+still starting. One still starting after that keeps going: the AI is told it is
+still starting, and `find_capability` finds its tools once it is ready.
+
 **Reconnects.** An approved server that failed can reconnect on the next task: at
 most two failed tries per server in any 30 seconds. Successful reconnects don't
 count, and `/mcp connect` resets the count. There is no endless restart loop in

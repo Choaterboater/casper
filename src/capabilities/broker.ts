@@ -358,7 +358,7 @@ export class CapabilityBroker {
 
   async prepare(task: string): Promise<RuntimeTool[]> {
     if (this.closed.signal.aborted) return [];
-    await this.manager.prepare();
+    await this.manager.prepareForTask();
     this.sync();
     return this.toolsForTask(task);
   }
@@ -1044,9 +1044,14 @@ export class CapabilityBroker {
   }
 
   private toolsForTask(task: string): RuntimeTool[] {
-    if (!this.manager.status().length) return [];
-    // Stable per-server lines (sorted, parsed state only), so the prompt stays the same between tasks.
-    const serverNotes = this.modelLines.length ? ` ${this.modelLines.join(" ")}` : "";
+    const status = this.manager.status();
+    if (!status.length) return [];
+    // Stable per-server lines (sorted, parsed state only), so the prompt stays the same between tasks. A server the
+    // task's start stopped waiting for is named too: its tools are found here once it is ready.
+    const starting = status.filter((server) => server.state === "connecting").map((server) => server.name).sort()
+      .map((name) => `${name}: still starting; search again for its tools.`);
+    const notes = [...this.modelLines, ...starting];
+    const serverNotes = notes.length ? ` ${notes.join(" ")}` : "";
     // A call that may need approval runs one at a time, so two approval prompts never race.
     const wrap = (name: string, description: string, inputSchema: Record<string, unknown>, execute: RuntimeTool["execute"], sequential = false): RuntimeTool => ({
       name, description, inputSchema, ...(sequential ? { sequential } : {}),

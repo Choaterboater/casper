@@ -108,8 +108,9 @@ export interface ServerPolicy {
   serverReadOnly?: true;
 }
 
-/** Casper's defaults: 20 s to start, 90 s per call without progress, 10 min for any call. */
-export const MCP_LIMITS = { connectMs: 20_000, callMs: 90_000, hardCapMs: 600_000 } as const;
+/** Casper's defaults: 20 s to start, 90 s per call without progress, 10 min for any call, and 5 s a task's start waits
+ * for servers still starting. */
+export const MCP_LIMITS = { connectMs: 20_000, callMs: 90_000, hardCapMs: 600_000, taskWaitMs: 5_000 } as const;
 /**
  * Compiles a tool's output schema at that tool's first call, not when its server lists its tools. Compiling is
  * synchronous: a catalog of hundreds of typed tools held Casper's only thread for seconds at every start, and one
@@ -168,6 +169,8 @@ export interface MCPManagerOptions {
   connectTimeoutMs?: number;
   callTimeoutMs?: number;
   hardCapMs?: number;
+  /** How long a task's start waits for servers still starting (prepareForTask); MCP_LIMITS.taskWaitMs by default. */
+  taskWaitMs?: number;
   /** Shorthand that sets both the start and the call limit (kept for tests and older callers). */
   timeoutMs?: number;
   /**
@@ -375,7 +378,7 @@ export class MCPManager {
   private readonly entries = new Map<string, Entry>();
   private closed = false;
   private closeWork?: Promise<void>;
-  private readonly defaults: { connectMs: number; callMs: number; hardCapMs: number };
+  private readonly defaults: { connectMs: number; callMs: number; hardCapMs: number; taskWaitMs: number };
   private catalogVersion = 0;
   private cleanupError?: ProcessCleanupError;
   private readonly elicit?: ServerQuestionHandler;
@@ -399,6 +402,7 @@ export class MCPManager {
       connectMs: options.connectTimeoutMs ?? options.timeoutMs ?? MCP_LIMITS.connectMs,
       callMs: options.callTimeoutMs ?? options.timeoutMs ?? MCP_LIMITS.callMs,
       hardCapMs: options.hardCapMs ?? MCP_LIMITS.hardCapMs,
+      taskWaitMs: options.taskWaitMs ?? MCP_LIMITS.taskWaitMs,
     };
     for (const definition of configuration.servers) {
       if (this.entries.has(definition.name)) throw new Error("Duplicate MCP server name");
@@ -758,6 +762,23 @@ export class MCPManager {
       await entry.refresh;
     }));
     this.assertCleanup();
+  }
+
+  /**
+   * prepare() for a task's start: returns once every approved server is ready or has failed, or after the task wait
+   * (taskWaitMs), whichever comes first. A server still starting then goes on starting, and its tools join the catalog
+   * when it is ready, so one slow or hung server no longer holds every task for its whole start limit.
+   */
+  async prepareForTask(): Promise<void> {
+    const work = this.prepare();
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const waited = new Promise<"waited">((resolve) => { timer = setTimeout(() => resolve("waited"), this.defaults.taskWaitMs); });
+    try {
+      if (await Promise.race([work, waited]) !== "waited") return;
+      // A cleanup failure found later is kept (cleanupError) and raised by the next call that checks it.
+      work.catch(() => {});
+      this.assertCleanup();
+    } finally { clearTimeout(timer); }
   }
 
   /** `by`: who asked (the person in /mcp), said in the status until it connects again. */
