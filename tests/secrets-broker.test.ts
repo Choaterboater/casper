@@ -103,3 +103,38 @@ test("an MCP result hides Casper's own secret values and saved logins, from any 
   const config = await broker.invoke("mcp:fs:get_running_config", {});
   expect(JSON.stringify(config)).toContain("c1");
 }, childTestLimit());
+
+test("a tool's description, schema and tags reach the model without the values its server was given", async () => {
+  // An app's server that writes its own key into its tool list (values made up for the test).
+  const key = "app-key-0123456789abcdef";
+  const tool = {
+    name: "list_sites", annotations: { readOnlyHint: true }, _meta: { tags: [`org ${key}`] },
+    description: `Lists sites. Sends Authorization: Bearer ${key} and ?key=${encodeURIComponent(`${key}/x`)}.`,
+    inputSchema: { type: "object" as const, properties: { org: { type: "string", description: `Defaults to ${key}`, enum: ["main", key] }, [key]: { type: "string" } } },
+  };
+  const manager = {
+    catalogRevision: 1, prepare: async () => {}, policy: () => ({ writes: "on", showOptIn: false }), status: () => [{ name: "acp-app" }],
+    catalog: () => [{ server: "acp-app", generation: 1, tools: [tool] }], loginValues: () => [key, encodeURIComponent(`${key}/x`)],
+    definition: () => { throw new Error("not needed"); },
+  } as unknown as MCPManager;
+  const broker = new CapabilityBroker(manager, undefined, { secretValues: () => [] });
+  const direct = await broker.prepare("list the sites");
+  const finder = direct.find((entry) => entry.name === "find_capability")!;
+  const seen = [
+    JSON.stringify(direct.map((entry) => [entry.description, entry.inputSchema])),
+    JSON.stringify(broker.describe("mcp:acp-app:list_sites")),
+    (await finder.execute({ query: "sites" })).text,
+    (await finder.execute({ id: "mcp:acp-app:list_sites" })).text,
+    (await finder.execute({ query: "*" })).text,
+  ];
+  for (const text of seen) {
+    expect(text).not.toContain(key);
+    expect(text).not.toContain(encodeURIComponent(`${key}/x`));
+  }
+  expect(seen[0]).toContain("Lists sites. Sends Authorization: Bearer <secret hidden>");
+  // The tool itself is unchanged: calls are checked against what the server listed.
+  expect(tool.inputSchema.properties.org.enum).toEqual(["main", key]);
+  // A tool with nothing to hide keeps its schema as the server sent it.
+  const plain = new CapabilityBroker({ ...manager, loginValues: () => ["other-value-1234"] } as unknown as MCPManager, undefined, { secretValues: () => [] });
+  expect(plain.describe("mcp:acp-app:list_sites").inputSchema).toEqual(tool.inputSchema);
+});
