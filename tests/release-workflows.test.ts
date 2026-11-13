@@ -7,6 +7,7 @@ import { parse } from "yaml";
 import { verifySshSignature } from "../src/update/signature";
 import { suiteFiles } from "../tools/test-shard";
 import { decide, tiers } from "../tools/test-tier";
+import { cleanEnv } from "./support/env";
 import { posixOnly } from "./support/platform";
 import { sshKeygenVerifies } from "./support/release-signing";
 import { removeTempDir } from "./support/temp-dir";
@@ -312,4 +313,44 @@ posixOnly("the release's personal-path check lets GitHub's own macOS build accou
     expect(await run("casper-ci-test", "a /home/runner/work/casper b")).not.toBe(0);
     expect(await run("casper-bare-test", "a /Users/ b")).not.toBe(0);
   } finally { await removeTempDir(dir); }
+});
+
+posixOnly("a release stops when its tag already exists, in the build and again before it publishes", async () => {
+  const workflow = load("publish-release.yml");
+  const checks = Object.entries(workflow.jobs).map(([job, { steps }]) => [job, steps.findIndex((step) => /git ls-remote --exit-code --tags/.test(step.run ?? ""))] as const);
+  expect(Object.fromEntries(checks.map(([job, index]) => [job, index >= 0]))).toEqual({ build: true, publish: true });
+  // Before the build and before the release is made.
+  const build = workflow.jobs.build!.steps;
+  expect(checks[0]![1]).toBeLessThan(build.findIndex((step) => /bun install/.test(step.run ?? "")));
+  const publish = workflow.jobs.publish!.steps;
+  expect(checks[1]![1]).toBeLessThan(publish.findIndex((step) => /gh release create/.test(step.run ?? "")));
+  const script = build[checks[0]![1]]!.run!;
+  expect(publish[checks[1]![1]]!.run).toBe(script);
+
+  const dir = await mkdtemp(path.join(os.tmpdir(), "casper-tag-"));
+  temps.push(dir);
+  const git = (...args: string[]) => {
+    const done = Bun.spawnSync(["git", ...args], { cwd: dir, env: cleanEnv({ GIT_CONFIG_NOSYSTEM: "1", HOME: dir, GIT_AUTHOR_NAME: "t", GIT_AUTHOR_EMAIL: "t@example.invalid", GIT_COMMITTER_NAME: "t", GIT_COMMITTER_EMAIL: "t@example.invalid" }), stdout: "pipe", stderr: "pipe" });
+    expect(done.exitCode, done.stderr.toString()).toBe(0);
+  };
+  git("init", "-q", "--bare", "remote.git");
+  git("init", "-q", "work");
+  git("-C", "work", "commit", "-q", "--allow-empty", "-m", "one");
+  git("-C", "work", "push", "-q", "../remote.git", "HEAD:refs/heads/main");
+  const run = (tag: string, repository = "remote.git") => Bun.spawnSync(["bash", "-e", "-c", script], { cwd: dir, stdout: "pipe", stderr: "pipe",
+    env: cleanEnv({ HOME: dir, GIT_CONFIG_NOSYSTEM: "1", RELEASE_TAG: tag, GITHUB_SERVER_URL: `file://${dir}`, GITHUB_REPOSITORY: repository }) });
+  expect(run("v1.0.0").exitCode).toBe(0);
+  git("-C", "work", "tag", "v1.0.0");
+  git("-C", "work", "tag", "-a", "-m", "annotated", "v1.0.1");
+  git("-C", "work", "push", "-q", "../remote.git", "--tags");
+  for (const tag of ["v1.0.0", "v1.0.1"]) {
+    const found = run(tag);
+    expect(found.exitCode).not.toBe(0);
+    expect(found.stdout.toString()).toContain(`Tag ${tag} already exists`);
+  }
+  // A remote Casper can't read stops the release too, rather than going on unchecked.
+  const unreadable = run("v1.0.2", "missing.git");
+  expect(unreadable.exitCode).not.toBe(0);
+  expect(unreadable.stdout.toString()).toContain("Could not check whether tag v1.0.2 exists");
+  expect(run("v1.0.2").exitCode).toBe(0);
 });
