@@ -89,6 +89,9 @@ export interface AttributionInput {
   liveFiles?: ReadonlySet<string>;
   /** Files the task moved into another folder, where they went and where they left (movedElsewhere). */
   moved?: ReadonlySet<string>;
+  /** Where each moved file went: the folder that took it (moveFolders). A rename keeps the file's own time, so that
+   * folder's time says when the move was. */
+  movedInto?: ReadonlyMap<string, string>;
   /** The task ran something that may start its app: a shell command, a service, the browser. A data file it made new is
    * then the task's own test data, not another program's (testDataFile). */
   ownRuns?: boolean;
@@ -136,9 +139,21 @@ export async function attributeChanges(input: AttributionInput): Promise<Attribu
     && added.has(file.replace(/-(?:wal|shm|journal)$/i, ""));
   for (const file of input.changes.added) if (testData(file)) { result.task.push(file); result.testData.push(file); }
   for (const file of [...input.changes.added, ...input.changes.modified, ...input.changes.removed]) if (!result.testData.includes(file) && (theApps(file) || live(file))) result.others.push(file);
+  // A moved file keeps its time from before the move, which may be just before the task began and outside every tool's
+  // run. The folders it went into, up to the one that took it, changed with the move: one changed during a tool's run is
+  // the task's move.
+  const movedDuring = async (file: string) => {
+    const into = input.movedInto?.get(file);
+    if (into === undefined) return false;
+    for (let folder = path.posix.dirname(file); ; folder = path.posix.dirname(folder)) {
+      const time = await changedAt(folder === "." ? input.root : absolute(folder));
+      if (time !== undefined && during(time)) return true;
+      if (folder === into || folder === ".") return false;
+    }
+  };
   for (const file of [...input.changes.added, ...input.changes.modified]) {
     if (result.others.includes(file) || result.testData.includes(file)) continue;
-    if (input.toolFiles?.has(file)) { result.task.push(file); continue; }
+    if (input.toolFiles?.has(file) || await movedDuring(file)) { result.task.push(file); continue; }
     await place(file, await changedAt(absolute(file)));
   }
   // A deleted file has no time of its own: its folder's (or the nearest one left) says when an entry last went or came.
@@ -166,6 +181,21 @@ export function movedElsewhere(moves: ReadonlyArray<{ from: string; to: string }
   const removed = new Set(changes.removed);
   return new Set(moves.filter((move) => path.posix.dirname(move.from) !== path.posix.dirname(move.to))
     .flatMap((move) => [move.to, ...removed.has(move.from) ? [move.from] : []]));
+}
+
+/** For each file moved into another folder, the folder that took the moved entry: `mv runs run-1/` puts run-1 for
+ * every file under run-1/runs/, and `mv a.txt archive/` puts archive. "." is the project's own folder. */
+export function moveFolders(moves: ReadonlyArray<{ from: string; to: string }>): Map<string, string> {
+  const folders = new Map<string, string>();
+  for (const move of moves) {
+    if (path.posix.dirname(move.from) === path.posix.dirname(move.to)) continue;
+    const from = move.from.split("/");
+    const to = move.to.split("/");
+    let same = 0;
+    while (same < from.length && same < to.length && from[from.length - 1 - same] === to[to.length - 1 - same]) same++;
+    folders.set(move.to, to.slice(0, to.length - Math.max(same, 1)).join("/") || ".");
+  }
+  return folders;
 }
 
 /** `snapshot` with `files` as they were in `before`: the task's comparisons then leave another program's files out. */

@@ -159,7 +159,8 @@ When they were there before the task, those are always the app's, `Changed by so
 named them (`sqlite3 config/home-assistant_v2.db …`). A log in a run's own output folder (`builds/`, `runs/`,
 `results/`) is not an app's: a comparison's `node evaluate.mjs` starts each build's server, which logs into
 `results/checks/`, so its time decides as for any file (written while the AI's command ran: that command's output). A
-file the task moved into another folder (`mv results logs run-3/`) is the task's, whatever wrote it before; an app
+file the task moved into another folder (`mv results logs run-3/`) is the task's, whatever wrote it before (a move keeps
+the file's own time, so the folder it went into says when it moved); an app
 renaming its own log in its folder (`app.log` to `app.log.1`) is not a move. A Home Assistant folder's investigation that changed nothing
 says so, instead of `Changed 7 files` and an undo line for its database. `tests/home-assistant-session.test.ts` covers this.
 A file that changed after the last task in this folder ended and before this one began, while no task ran, is being
