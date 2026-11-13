@@ -59,6 +59,9 @@ test("moving a run aside and relaunching it asks for no proof or repair, and the
             prompts.push(text);
             if (prompts.length > 1) return;
             const command = "mkdir run-1 && mv runs builds run-1/ && node -e 'spawn detached runner'";
+            // The model thinks for a while first: the moved files keep their times from just before the task began, more
+            // than the slack before this command ran (a slow Windows runner did this; the receipt then had no move line).
+            await Bun.sleep(2_300);
             emit({ type: "tool_start", toolName: "bash", toolCallId: "b1", input: { command } });
             await mkdir(path.join(project, "run-1"));
             await rename(path.join(project, "runs"), path.join(project, "run-1/runs"));

@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { attributeChanges, movedElsewhere, withoutFiles, WriteWindows } from "../src/task/attribution";
+import { attributeChanges, moveFolders, movedElsewhere, withoutFiles, WriteWindows } from "../src/task/attribution";
 
 /** Times by path under the fake root "/r" (path.join writes it \r on Windows). */
 const at = (times: Record<string, number | undefined>) => async (absolute: string) => times[absolute.replaceAll("\\", "/").replace(/^\/r\/?/, "") || "."];
@@ -96,6 +96,27 @@ test("a log the task moved into another folder is the task's: the move was its c
     moved: new Set(["run-3/logs/omp.stderr.log", "run-3/results/checks/A.server.log", "logs/omp.stderr.log"]) });
   // A rotated log (app.log to app.log.1 in its own folder) is not a move into another folder: still the app's.
   expect(split).toEqual({ task: ["logs/omp.stderr.log", "run-3/logs/omp.stderr.log", "run-3/results/checks/A.server.log"], others: ["logs/app.log.1"], unsure: [] , testData: [] });
+});
+
+test("a move goes by the folder that took it: a moved file's own time from just before the task says nothing", async () => {
+  // `mkdir run-1 && mv runs run-1/` 2.3 s into the task: the file keeps its time from 50 ms before the task began.
+  const moves = [{ from: "runs/a.txt", to: "run-1/runs/a.txt" }];
+  const changes = { ...none, added: ["run-1/runs/a.txt"], removed: ["runs/a.txt"] };
+  const input = { root: "/r", since: 1_000, until: 60_000, windows: [[3_300, 3_400]] as const, changes, moved: movedElsewhere(moves, changes), movedInto: moveFolders(moves) };
+  const split = await attributeChanges({ ...input, changedAt: at({ "run-1/runs/a.txt": 950, "run-1/runs": 950, "run-1": 3_350, runs: 3_350 }) });
+  expect(split).toEqual({ task: ["run-1/runs/a.txt", "runs/a.txt"], others: [], unsure: [], testData: [] });
+  // Moved in while none of the task's tools ran: another program's, as before.
+  const elsewhere = await attributeChanges({ ...input, changedAt: at({ "run-1/runs/a.txt": 950, "run-1/runs": 950, "run-1": 30_000, ".": 30_000, runs: 30_000 }) });
+  expect(elsewhere.others).toEqual(["run-1/runs/a.txt"]);
+  // Only the folders up to the one that took it count: a change to the project's own folder during the task does not.
+  const above = await attributeChanges({ ...input, changedAt: at({ "run-1/runs/a.txt": 950, "run-1/runs": 950, "run-1": 30_000, ".": 3_350, runs: 3_350 }) });
+  expect(above.others).toEqual(["run-1/runs/a.txt"]);
+});
+
+test("the folder that took a move: the moved entry's new parent, never a rename in its own folder", () => {
+  expect(Object.fromEntries(moveFolders([{ from: "runs/casper/app.js", to: "run-1/runs/casper/app.js" }, { from: "a.txt", to: "archive/a.txt" },
+    { from: "x/old.txt", to: "y/new.txt" }, { from: "deep/a/b.txt", to: "a/b.txt" }, { from: "logs/app.log", to: "logs/app.log.1" }])))
+    .toEqual({ "run-1/runs/casper/app.js": "run-1", "archive/a.txt": "archive", "y/new.txt": "y", "a/b.txt": "." });
 });
 
 test("moved elsewhere: into another folder, both ends when the old path is gone; a rename in its own folder is not", () => {

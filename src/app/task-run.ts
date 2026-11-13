@@ -28,7 +28,7 @@ import { changedSoFar, endingLine, mustStand, quietReceipt, taskEnding, withEarl
 import { OBSERVED_EDITS_LIMIT, TaskObservations } from "../task/observations";
 import { isToolCallAsText, TOOL_CALL_AS_TEXT_LINE } from "../task/text-tool-call";
 import { diffSnapshots, findMoves, tooManyFiles, withoutMoves, type TreeChanges } from "../task/changes";
-import { attributeChanges, movedElsewhere, withoutFiles, WriteWindows } from "../task/attribution";
+import { attributeChanges, moveFolders, movedElsewhere, withoutFiles, WriteWindows } from "../task/attribution";
 import { describeTestData, testDataNote, testDataNotice } from "../task/test-data";
 import { type AppData, restoreAppData, sameAppData, snapshotAppData } from "../browser/app-data";
 import { checkDataFile, settingsFile } from "../services/app-data";
@@ -420,8 +420,9 @@ export async function runModelTask(app: CasperApp, prompt: string, options: { fl
       const changes = diffSnapshots(before, afterModel);
       // A command, service or helper the AI left running at any time during the task may have written: Casper can't tell then.
       const unsure = edits.windows.unsure || leftRunning(app);
+      const moves = findMoves(before, afterModel, changes);
       const attribute = (windows: ReadonlyArray<readonly [number, number]>) => attributeChanges({ root: workspaceRoot, changes, windows,
-        moved: movedElsewhere(findMoves(before, afterModel!, changes), changes),
+        moved: movedElsewhere(moves, changes), movedInto: moveFolders(moves),
         since: edits.windows!.since, until: Date.now(), toolFiles: new Set(toolFiles(workspaceRoot, app.observations.edited(), "inside")), unsure,
         commands: app.observations.toolCalls.flatMap((call) => typeof call.input?.command === "string" ? [call.input.command] : []), liveFiles,
         ownRuns: app.observations.toolCalls.some((call) => OWN_RUNS.has(call.toolName)) });
