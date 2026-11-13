@@ -101,9 +101,12 @@ function tasksPart(source: SessionToolSource): Array<Record<string, unknown>> {
     running: !/^(?:paused|stopped)/.test(task.status) }));
 }
 
+/** A connected server says how many tools it brings, or, for an app's server Casper leaves out (decision 100), why: it
+ * shows as connected, and without the reason the AI took it for usable. */
 function mcpPart(source: SessionToolSource): Array<Record<string, unknown>> {
   return (safely(() => source.mcp()) ?? []).map((server) => ({ name: clean(server.name, 80), connected: server.state === "ready", writes: server.writes,
-    ...(server.state === "ready" ? {} : { state: notConnected(server) }) }));
+    ...(server.state !== "ready" ? { state: notConnected(server) }
+      : server.notUsed ? { notUsed: clean(server.notUsed, 120) } : { tools: server.toolCount }) }));
 }
 
 /** Why a server isn't connected, in a few words, so the AI doesn't go looking: never the server's own output. */
