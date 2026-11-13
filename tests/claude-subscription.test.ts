@@ -1,6 +1,6 @@
 import { afterAll, expect, test } from "bun:test";
 import { realpathSync } from "node:fs";
-import { mkdtemp, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { removeTempDir } from "./support/temp-dir";
@@ -88,6 +88,20 @@ test("native executable discovery supports Windows paths and rejects npm command
   const exe = path.join(root, "Claude Code.exe"); await writeFile(exe, "synthetic");
   expect(claudeExecutable({}, "win32", name => name === "claude.exe" ? exe : null)).toBe(realpathSync(exe));
   expect(claudeExecutable({ CASPER_CLAUDE_PATH: "C:\\fixture\\claude.cmd" }, "win32", () => null)).toBeUndefined();
+});
+
+test("on Windows an npm install's claude.cmd leads to the claude.exe it runs, never to the shim", async () => {
+  // npm's claude.cmd only runs node_modules\@anthropic-ai\claude-code\bin\claude.exe beside it. No program is run.
+  const npm = path.join(root, "npm"); const bin = path.join(npm, "node_modules", "@anthropic-ai", "claude-code", "bin");
+  await mkdir(bin, { recursive: true });
+  const shim = path.join(npm, "claude.cmd"); await writeFile(shim, "synthetic");
+  const which = (name: string) => name === "claude.cmd" ? shim : null;
+  expect(claudeExecutable({}, "win32", which)).toBeUndefined();
+  const exe = path.join(bin, "claude.exe"); await writeFile(exe, "synthetic");
+  expect(claudeExecutable({}, "win32", which)).toBe(realpathSync(exe));
+  // A named path is used as it is, and Mac/Linux never look for a shim.
+  expect(claudeExecutable({ CASPER_CLAUDE_PATH: shim }, "win32", which)).toBeUndefined();
+  expect(claudeExecutable({}, "darwin", which)).toBeUndefined();
 });
 
 test("native Claude discovery uses claude on Mac/Linux and claude.exe on Windows", async () => {
