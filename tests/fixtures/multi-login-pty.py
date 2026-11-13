@@ -21,12 +21,16 @@ def run_case(bun, repo, root, provider, browser=False, action="save", no_color=F
         # Navigate the chooser rather than only testing direct commands.
         s.send("/login\n")
         s.until("Enter to choose · Esc to skip")
-        row = {"openrouter": 1, "anthropic": 3, "github-copilot": 7}[provider] + (1 if browser else 0)
+        row = {"openrouter": 1, "anthropic": 3, "github-copilot": 5}[provider]
         if row == 1: s.send("\n")
         else:
             # Arrow to the row, then Enter: the list is numbered, but arrows still work.
             for _ in range(row - 1): s.send("\x1b[B"); s.pump(0.03)
             s.send("\n")
+        if provider != "github-copilot":
+            # A provider with a key and a browser sign-in asks which, key first.
+            s.until("Paste an API key")
+            s.send("2" if browser else "1")
         auth = s.root / "home/.casper/agent/auth.json"
         secret = "synthetic-private-manual-code" if browser else "synthetic-private-api-key"
         if provider != "github-copilot":

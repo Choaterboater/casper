@@ -790,18 +790,21 @@ unreported failed-request cost is unknown, not zero.
 
 ### Provider login
 
-`/login` shows one numbered list of providers and ways to sign in, OpenRouter first:
-1 OpenRouter · paste an API key, 2 OpenRouter · sign in with your browser, 3-4 the same for
-Anthropic (Claude), then OpenAI Codex and GitHub Copilot, and last **Model server on another
-computer**, which adds one instead of signing in ([Add a model server](CONFIGURATION.md#add-a-model-server-on-another-computer)). OpenAI Codex opens your browser on
+`/login` lists providers first, one short row each, as omp does: 1 OpenRouter, 2 Claude Pro/Max
+(Claude Code), 3 Anthropic API, 4 ChatGPT Plus/Pro (Codex), 5 GitHub Copilot, and last **Model server
+on another computer**, which adds one instead of signing in ([Add a model server](CONFIGURATION.md#add-a-model-server-on-another-computer)).
+A provider with a sign-in here says `• signed in` after its name (the Claude row reads Claude Code's own
+account entry, no secret). OpenRouter and Anthropic API then ask one short question: 1 Paste an API key,
+2 Sign in with your browser (for the Anthropic API, billed as extra usage); the others start at once.
+OpenAI Codex opens your browser on
 a desktop; over SSH or on Linux with no display it shows a code to enter at openai.com
 instead (some accounts must turn that on first). GitHub Copilot always uses a code. Press a number, or Up/Down and
-Enter (Enter alone picks 1); Esc cancels. `/login <provider-id>` lists only that provider's
-ways, and opens the only one straight away. When Casper opens sign-in by itself (a request
-with nothing signed in, or a model whose sign-in is missing), the list shows even for a provider
+Enter (Enter, Enter picks an OpenRouter key); Esc cancels. `/login <provider-id>` starts at that provider's
+question, and opens its only way straight away. When Casper opens sign-in by itself (a request
+with nothing signed in, or a model whose sign-in is missing), the question shows even for a provider
 with one way, so you see what is about to start. Picking a row is your go-ahead, as in Claude Code
-and Codex: no confirm screen follows. The list says where the key goes (`Saved in
-~/.casper/agent/auth.json, only on this computer.`), and the next screen says what the provider
+and Codex: no confirm screen follows. Once a provider is picked, the screen says where the key goes
+(`Saved in ~/.casper/agent/auth.json, only on this computer.`), and the next one says what the provider
 charges. Only that provider's saved sign-in is replaced. Browser sign-in opens the system
 browser automatically; offline mode (CASPER_OFFLINE=1) suppresses the launch and keeps the URL
 printed for manual opening.

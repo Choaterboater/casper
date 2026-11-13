@@ -34,6 +34,13 @@ function readJson(file: string): Record<string, unknown> | undefined {
 
 const nonEmpty = (value: unknown): value is string => typeof value === "string" && value.trim().length > 0;
 
+/** Claude Code has a plan sign-in here: its credentials file or its account entry is there. No secret is read. */
+export function claudeCodePlanSignedIn(env: Env = process.env, platform: NodeJS.Platform = process.platform): boolean {
+  const where = otherLoginPaths(env, platform);
+  const account = readJson(where.claudeConfig)?.oauthAccount;
+  return existsSync(where.claudeCredentials) || (!!account && typeof account === "object");
+}
+
 /** The sign-ins found for providers that have none yet (`signedIn`), in the order /login shows them. */
 export function findOtherLogins(signedIn: ReadonlySet<string>, env: Env = process.env, platform: NodeJS.Platform = process.platform): OtherLogin[] {
   const where = otherLoginPaths(env, platform);
