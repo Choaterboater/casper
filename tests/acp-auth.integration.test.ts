@@ -1,6 +1,6 @@
 import { afterEach, expect, test } from "bun:test";
 import path from "node:path";
-import { readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { mkdir, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { startAcp, until, type AcpClient } from "./support/acp-client";
 import { childTestLimit } from "./support/limits";
@@ -141,3 +141,33 @@ test("A code sign-in tells the app the code, one sign-in runs at a time, a cance
     expect(client.stderr()).not.toContain(secret);
   }
 }, childTestLimit(2));
+
+test("A browser sign-in started and stopped for a provider with a saved login keeps that login, also when the app ends Casper right away", async () => {
+  const { f, fetchLog, login } = await emptyHome();
+  // Saved logins as /login leaves them: an Anthropic browser sign-in (its token expired, as an old one is) and an
+  // OpenRouter key, the provider whose sign-in is started and stopped below.
+  const saved = { anthropic: { type: "oauth", access: "synthetic-anthropic-access", refresh: "synthetic-anthropic-refresh", expires: Date.now() - 60_000 }, openrouter: { type: "api_key", key: GOOD_KEY } };
+  await mkdir(path.dirname(login), { recursive: true, mode: 0o700 });
+  await writeFile(login, JSON.stringify(saved, null, 2), { mode: 0o600 });
+  const before = await readFile(login, "utf8");
+  for (const endsAtOnce of [false, true]) {
+    const client = startAcp(f, [], { BUN_OPTIONS: `--preload ${preload.split(path.sep).join("/")}`, ACP_AUTH_FETCH_LOG: fetchLog });
+    clients.push(client);
+    await client.request("initialize", INIT);
+    expect(await client.request("_casper/auth/status", {})).toEqual({ signIns: [{ provider: "anthropic", type: "oauth" }, { provider: "openrouter", type: "api_key" }] });
+    // OpenRouter's browser sign-in, over its saved key: its page listens on a free port, where Anthropic's needs port
+    // 53692, which another test or program may hold.
+    const stopped = refusal(client.request("authenticate", { methodId: "openrouter:oauth" }));
+    await until(() => authUpdates(client).some((update) => update.step === "browser"), 30_000, "the sign-in page to reach the app");
+    client.notify("_casper/auth/cancel", {});
+    if (endsAtOnce) {
+      // The desktop card: Cancel, or leaving the page, sends the cancel and then ends the process.
+      await client.close();
+    } else {
+      expect(await stopped).toEqual({ code: -32000, message: "The sign-in was stopped. Nothing was saved." });
+      expect(await client.request("_casper/auth/status", {})).toEqual({ signIns: [{ provider: "anthropic", type: "oauth" }, { provider: "openrouter", type: "api_key" }] });
+      expect(await client.close()).toBe(0);
+    }
+    expect(JSON.parse(await readFile(login, "utf8"))).toEqual(JSON.parse(before));
+  }
+}, childTestLimit(3));
