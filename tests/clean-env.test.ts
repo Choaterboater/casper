@@ -2,6 +2,7 @@ import { expect, test } from "bun:test";
 import { mkdtemp, readFile, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { claudeExecutable } from "../src/runtime/claude-subscription";
 import { cleanEnv, withEnv } from "./support/env";
 import { removeTempDir } from "./support/temp-dir";
 import { run } from "./support/run";
@@ -79,6 +80,14 @@ test("a spawned Casper finds no ambient model server unless the fixture explicit
   expect(cleanEnv({ CASPER_LOCAL_MODELS: undefined }).CASPER_LOCAL_MODELS).toBeUndefined();
 });
 
+test("a spawned Casper finds no Claude Code on this computer unless the fixture names one", () => {
+  // Found on PATH, the developer's own Claude Code would answer its status check and write its account into the
+  // fixture home, where /login then offers it: a suite that differs from CI's, which has no Claude Code.
+  const env = cleanEnv({}, { PATH: "fixture-bin", CASPER_CLAUDE_PATH: "developer-claude" });
+  expect(claudeExecutable(env, process.platform, () => import.meta.path)).toBeUndefined();
+  expect(cleanEnv({ CASPER_CLAUDE_PATH: import.meta.path }).CASPER_CLAUDE_PATH).toBe(import.meta.path);
+});
+
 test("preload isolates each real test file from a hostile parent environment and uses an empty portable git config", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "casper-preload-env-"));
   try {
@@ -92,7 +101,7 @@ test('isolated file', async () => {
   for (const name of names) expect(process.env[name], name).toBeUndefined();
   for (const name of Object.keys(process.env)) {
     if (name.startsWith('GIT_')) expect(['GIT_CONFIG_GLOBAL', 'GIT_CONFIG_SYSTEM']).toContain(name);
-    if (name.startsWith('CASPER_')) expect(name).toBe('CASPER_LOCAL_MODELS');
+    if (name.startsWith('CASPER_')) expect(['CASPER_LOCAL_MODELS', 'CASPER_CLAUDE_PATH']).toContain(name);
   }
   expect(process.env.CASPER_LOCAL_MODELS).toBe('off');
   const home = process.env.HOME;

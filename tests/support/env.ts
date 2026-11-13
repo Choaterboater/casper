@@ -44,7 +44,9 @@ export function cleanEnv(extra: Record<string, string | undefined> = {}, source:
   // Keep only the empty git config files installed by the preload, never ambient git configuration.
   if (isolatedGitConfig) Object.assign(env, { GIT_CONFIG_GLOBAL: isolatedGitConfig, GIT_CONFIG_SYSTEM: isolatedGitConfig });
   // A model server on the developer's computer (Ollama and the like) never answers a test's Casper; `extra` may undo it.
-  const changes: Record<string, string | undefined> = { CASPER_LOCAL_MODELS: "off", ...extra };
+  // Nor does their Claude Code: found on PATH, its status check writes its account into the fixture HOME. Naming a
+  // file that cannot exist stops the search (`claudeExecutable`); a fixture names its own fake CLI in `extra`.
+  const changes: Record<string, string | undefined> = { CASPER_LOCAL_MODELS: "off", CASPER_CLAUDE_PATH: path.join(os.devNull, "no-claude-code"), ...extra };
   const given = (name: string) => Object.keys(extra).some(key => key.toUpperCase() === name);
   if (extra.HOME !== undefined) {
     if (!given("XDG_CONFIG_HOME")) changes.XDG_CONFIG_HOME = path.join(extra.HOME, ".config");
