@@ -282,8 +282,11 @@ export async function runAcpSession(options: SessionOptions): Promise<void> {
   // The options and the access mode the client was last told (decisions 81 and 82): Casper says only what changed since.
   let lastOffer = "";
   let lastMode = "";
+  // The app has its first list (the reply to session/new, load or fork): a change is said only after it.
+  let offered = false;
   const offerNow = () => offerOf(app?.session, hide, app);
   const configOptions = () => {
+    offered = true;
     const offer = offerNow();
     lastOffer = JSON.stringify(offer.wire);
     if (app) lastMode = accessModeOf(app);
@@ -292,7 +295,7 @@ export async function runAcpSession(options: SessionOptions): Promise<void> {
   /** A change Casper made itself (a typed /model or /permissions, a failover, a model server found later, "Yes to
    * everything this session"), sent once. A change the client asked for is never sent back. */
   const announce = () => {
-    if (!app || !sessionId) return;
+    if (!app || !sessionId || !offered) return;
     const mode = accessModeOf(app);
     if (mode !== lastMode) {
       lastMode = mode;
@@ -362,6 +365,8 @@ export async function runAcpSession(options: SessionOptions): Promise<void> {
         onRuntimeEvent: (event) => {
           // A response starts before the terminal writes any of its words, so none of them reads as the command's.
           if (event.type === "assistant_response_start" && commandRun) commandRun.spoke = true;
+          // A model server that answered after the session opened: its models reach the app's picker before any prompt.
+          if (event.type === "models_found") announce();
           // The AI reads a line the app steered in; one the prompt ended before reading is forgotten, with no notice.
           if (event.type === "steer_read") { const entry = steers.find((item) => item.kind !== "joined" && item.sent === event.text); if (entry) readNotice(entry); }
           if (event.type === "steer_unsent" && app) {

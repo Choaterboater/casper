@@ -407,6 +407,8 @@ export interface ToolDisplay {
 
 export type RuntimeEvent =
   | { type: "model_controls_changed"; status: RuntimeStatus }
+  /** A model server's look ended after the start and its models joined the catalog: a picker may list them now. */
+  | { type: "models_found" }
   /** A request to the model is about to be sent: before any answer comes back (a slow provider may say nothing for a while). */
   | { type: "assistant_request_start"; provider?: string; model?: string }
   | { type: "assistant_response_start"; provider?: string; model?: string }

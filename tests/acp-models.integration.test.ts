@@ -3,6 +3,7 @@ import { chmod, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { startAcp, until, type AcpClient } from "./support/acp-client";
 import { childTestLimit } from "./support/limits";
+import { posixOnly } from "./support/platform";
 import { cleanUpAfterEach, fixture, type Payload } from "./support/scripting";
 
 // The app's model and effort picker (decision 81), against a real `casper acp` router, its session children and the
@@ -242,6 +243,35 @@ test("Signed in with no model chosen, a new session opens on that provider's def
   expect(JSON.parse(await readFile(f.settings, "utf8"))).toMatchObject({ defaultProvider: "openrouter", defaultModel: "deepseek/deepseek-v4.1-flash" });
   expect(client.stderr()).toContain("[model] Casper picked openrouter/deepseek/deepseek-v4.1-flash for your signed-in provider and saved it as your default.");
   expect(f.payloads).toEqual([]);
+}, childTestLimit(1));
+
+posixOnly("A model server that answers after the session opened reaches the picker before any message, once", async () => {
+  const f = await fixture(() => ({ text: "Done." }));
+  await writeFile(f.settings, JSON.stringify({ retry: { enabled: false } }));
+  // Your own server, slow to list its models: it answers after the reply. "localhost." reaches this computer but is looked
+  // at as another one would be (10 s, not this computer's 0.8 s), so it can be slower than the session's start.
+  const server = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request) {
+    if (new URL(request.url).pathname !== "/v1/models") return new Response("not here", { status: 404 });
+    await Bun.sleep(2_500);
+    return Response.json({ data: [{ id: "late-model" }] });
+  } });
+  try {
+    await writeFile(path.join(f.home, ".casper/config.yaml"), `localModels: false\nmodelServers:\n  - name: late-box\n    address: http://localhost.:${server.port}\n    kind: openai\n`);
+    const client = open(f, [], { CASPER_LOCAL_MODELS: "on" });
+    await client.request("initialize", INIT);
+    const created = await client.request("session/new", { cwd: f.project, mcpServers: [] });
+    const sessionId = created.sessionId as string;
+    const listed = (options: Option[]) => values(optionOf(options, "model")).includes("late-box/late-model");
+    expect(listed(created.configOptions)).toBe(false);
+    const update = await until(() => configUpdates(client, sessionId).find((entry) => listed(entry.update.configOptions)), 15_000, "the late server's models");
+    expect(optionOf(update.update.configOptions, "model")!.currentValue).toBe("");
+    // Said once, and the reply came first.
+    expect(configUpdates(client, sessionId)).toHaveLength(1);
+    const lines = messages(client);
+    expect(lines.findIndex((line) => line.result?.sessionId === sessionId)).toBeLessThan(lines.findIndex((line) => line.params?.update?.sessionUpdate === "config_option_update"));
+    expect(f.payloads).toEqual([]);
+    expect(JSON.parse(await readFile(f.settings, "utf8"))).toEqual({ retry: { enabled: false } });
+  } finally { server.stop(true); }
 }, childTestLimit(1));
 
 describe("a loaded conversation's model (decision 89)", () => {
