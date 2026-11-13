@@ -48,6 +48,9 @@ interface Capability {
   nameWords: Set<string>;
   descriptionWords: Set<string>;
   validate?: CompiledValidator;
+  /** The schema the model reads: the tool's own, with the values its server was given hidden (modelFacing). Calls are
+   * checked against the tool's own schema. */
+  modelSchema: MCPTool["inputSchema"];
   /** Left out of search, listings and task tools; a call is refused with this reason. */
   hidden?: string;
   /** A docs tool of a recognised hpe-networking-mcp server: always offered to the model. */
@@ -180,6 +183,28 @@ export function cleanDoc(text: string): string {
   const indents = lines.slice(1).filter((line) => line.trim()).map((line) => line.length - line.trimStart().length);
   const indent = indents.length ? Math.min(...indents) : 0;
   return [lines[0]!.trim(), ...lines.slice(1).map((line) => line.slice(indent))].join("\n").replace(/^\n+|\n+$/g, "");
+}
+
+/**
+ * `value` with every exact copy of `values` hidden, in every string and every property name: what the model reads of a
+ * tool (its description, schema and tags) never carries a key its server was given, as its results don't. Not
+ * scrubValue: a property named password is a field, not a secret. The same value back when nothing is hidden.
+ */
+export function modelFacing<T>(value: T, values: readonly string[]): T {
+  if (!values.length) return value;
+  let hidden = 0;
+  const walk = (entry: unknown, depth: number): unknown => {
+    if (typeof entry === "string") {
+      const result = scrubExactValues(entry, values);
+      hidden += result.hidden;
+      return result.text;
+    }
+    if (!entry || typeof entry !== "object" || depth > 64) return entry;
+    if (Array.isArray(entry)) return entry.map((item) => walk(item, depth + 1));
+    return Object.fromEntries(Object.entries(entry).map(([key, item]) => [walk(key, depth), walk(item, depth + 1)]));
+  };
+  const out = walk(value, 0) as T;
+  return hidden ? out : value;
 }
 
 const SCHEMA_MAPS = new Set(["properties", "patternProperties", "$defs", "definitions", "dependentSchemas"]);
@@ -381,7 +406,7 @@ export class CapabilityBroker {
     const capability = this.get(id);
     if (capability.hidden) throw new NotExecutedError(capability.hidden);
     requireSupportedSchema(capability);
-    return structuredClone({ capability: capability.descriptor, inputSchema: capability.tool.inputSchema });
+    return structuredClone({ capability: capability.descriptor, inputSchema: capability.modelSchema });
   }
 
   /**
@@ -916,6 +941,9 @@ export class CapabilityBroker {
       let definition: ReturnType<MCPManager["definition"]> | undefined;
       try { definition = this.manager.definition(server); } catch { definition = undefined; }
       const docsServer = docsPinned(definition, policy.match, tools);
+      // The values this server was given and Casper's own, as its results hide them (scrub).
+      let given: readonly string[] = [];
+      try { given = [...new Set([...this.manager.loginValues(server), ...this.secretValues()])]; } catch { /* hide what the shared rules find */ }
       for (const listed of tools) {
         // A preset's kind floor can only raise the kind the server tagged.
         const tool = withKindFloor(listed, policy.match?.preset.kindFloor?.(listed));
@@ -923,21 +951,22 @@ export class CapabilityBroker {
         // A preset can only make the label stricter.
         const safety = tightenSafety(policy.match, tool, toolLabel(tool));
         const descriptor: CapabilityDescriptor = {
-          id, source: server, name: tool.name, description: cleanDoc(tool.description ?? "").slice(0, 1024),
+          id, source: server, name: tool.name, description: modelFacing(cleanDoc(tool.description ?? ""), given).slice(0, 1024),
           tags: [], safety, schemaRef: id,
         };
         // Only a read-only login hides changes. Writes off means the server runs pinned and every change asks.
         const hidden = access === "read-only" && isHidden(policy.match, tool, safety, { writes: "on", access })
           ? readOnlyLoginReason(server) : undefined;
         const tags = tool._meta?.tags;
-        if (Array.isArray(tags)) descriptor.tags = tags.filter((tag): tag is string => typeof tag === "string").slice(0, 8).map((tag) => tag.slice(0, 64));
+        if (Array.isArray(tags)) descriptor.tags = tags.filter((tag): tag is string => typeof tag === "string").slice(0, 8).map((tag) => modelFacing(tag, given).slice(0, 64));
+        const modelSchema = modelFacing(tool.inputSchema, given);
         next.set(id, {
           descriptor, tool, runtimeName: runtimeName(tool.name, id, names),
           fingerprint: `${generation}:${hash(JSON.stringify(tool))}`,
           router: routed && ["find_tool", "invoke_read_tool", "invoke_tool"].includes(tool.name),
           // Budget the escaped representation too, so lossless schema inspection
           // fits the result envelope without truncating enum/required arrays.
-          schemaBytes: Buffer.byteLength(JSON.stringify(JSON.stringify(tool.inputSchema))),
+          schemaBytes: Buffer.byteLength(JSON.stringify(JSON.stringify(modelSchema))), modelSchema,
           nameWords: indexWords(`${descriptor.name} ${descriptor.source} ${descriptor.tags.join(" ")}`),
           descriptionWords: indexWords(descriptor.description),
           ...(hidden ? { hidden } : {}), policy,
@@ -1091,7 +1120,7 @@ export class CapabilityBroker {
         : `[${capability.descriptor.safety}; ${capability.descriptor.id}] `;
       tools.push(wrap(capability.runtimeName,
         `${lead}${capability.descriptor.description}\nBounded result; non-read calls require confirmation.`,
-        withoutTitles(structuredClone(capability.tool.inputSchema)) as Record<string, unknown>, async (args, signal, context) => {
+        withoutTitles(structuredClone(capability.modelSchema)) as Record<string, unknown>, async (args, signal, context) => {
           return await this.answer(capability.descriptor.id, args, signal, context?.seesImages !== false);
         // Routers and non-read tools may ask; a read tool asks only when the AI set confirm itself (the app queues those).
         }, capability.descriptor.safety !== "read" || capability.router));
