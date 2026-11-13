@@ -23,7 +23,7 @@ export async function loginClaudeCode(display: LoginDisplay, dependencies: {
   if (display.signal.aborted) return { ...tag, status: "cancelled", effect: "none" };
   const executable = (dependencies.executable ?? claudeExecutable)();
   if (!executable) return { ...tag, status: "failed", effect: "none", reason: "unavailable",
-    detail: "Install native Claude Code from https://code.claude.com/docs/en/setup, then /login claude-subscription. On Windows use the native claude.exe, not the npm shim." };
+    detail: "Install native Claude Code from https://code.claude.com/docs/en/setup, then /login claude-subscription. On Windows Casper finds claude.exe on PATH or in an npm install." };
   const env = subscriptionEnvironment(process.env);
   const status = dependencies.status ?? claudeAuthStatus;
   const verified = async () => isSubscriptionStatus(await status(executable, env, process.cwd()).catch(() => undefined));

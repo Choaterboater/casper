@@ -1,5 +1,6 @@
 import { execFile } from "node:child_process";
 import { realpathSync } from "node:fs";
+import path from "node:path";
 import { promisify } from "node:util";
 import type { AccountInfo, Options, SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
@@ -17,13 +18,19 @@ const PREFIX = "mcp__casper__";
 type QueryFactory = (input: { prompt: AsyncIterable<SDKUserMessage>; options: Options }) => QueryHandle;
 
 /** Use the installed native CLI, including in compiled Casper. The SDK's bundled executable
- * cannot be addressed inside a Bun executable. Never use a shell to launch a Windows .cmd shim. */
+ * cannot be addressed inside a Bun executable. Never use a shell to launch a Windows .cmd shim:
+ * an npm install puts only claude.cmd on PATH, so Casper runs the claude.exe that shim runs. */
 export function claudeExecutable(env: Record<string, string | undefined> = process.env,
   platform: NodeJS.Platform = process.platform, which: (name: string) => string | null = Bun.which): string | undefined {
   const override = platform === "win32" ? Object.entries(env).find(([name]) => name.toUpperCase() === "CASPER_CLAUDE_PATH")?.[1] : env.CASPER_CLAUDE_PATH;
-  const candidate = override || (platform === "win32" ? which("claude.exe") : which("claude"));
+  const candidate = override || (platform === "win32" ? which("claude.exe") ?? npmClaudeExe(which("claude.cmd")) : which("claude"));
   if (!candidate || (platform === "win32" && !candidate.toLowerCase().endsWith(".exe"))) return undefined;
   try { return realpathSync(candidate); } catch { return undefined; }
+}
+
+/** npm's claude.cmd runs `node_modules\@anthropic-ai\claude-code\bin\claude.exe` from its own folder. */
+function npmClaudeExe(shim: string | null): string | undefined {
+  return shim ? path.join(path.dirname(shim), "node_modules", "@anthropic-ai", "claude-code", "bin", "claude.exe") : undefined;
 }
 
 /** Clear API/gateway/cloud overrides even when the SDK merges env with process.env.

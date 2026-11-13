@@ -955,8 +955,9 @@ Claude Code is installed here and newer than the version Pi names, Casper names 
 Claude Code update keeps new models working without a Casper release. Without Claude Code here, Pi's
 version is used.
 
-Executable discovery uses `claude` on macOS/Linux and `claude.exe` on native Windows. The Windows
-npm `.cmd` shim is not supported: use the native Claude Code installation. `CASPER_CLAUDE_PATH`
+Executable discovery uses `claude` on macOS/Linux and `claude.exe` on native Windows. When an npm
+install puts only `claude.cmd` on PATH, Casper runs the `claude.exe` that shim runs
+(`node_modules\@anthropic-ai\claude-code\bin\claude.exe` beside it), never the shim. `CASPER_CLAUDE_PATH`
 can name the installed executable explicitly, including a path with spaces. Compiled Casper uses
 this external executable too; it does not rely on finding an SDK binary inside Bun's embedded files.
 
