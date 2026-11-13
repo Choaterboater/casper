@@ -317,6 +317,17 @@ test("The app's stdio MCP server connects for the session and closes with it", a
   onlyProtocol(client);
 }, childTestLimit(1));
 
+test("session/new answers while the app's MCP server is still starting", async () => {
+  const f = await fixture(() => ({ text: "Done." }));
+  const client = open(f);
+  await client.request("initialize", INIT);
+  const started = performance.now();
+  // A server that never answers its start: the session's start does not wait out its 20 s.
+  await client.request("session/new", { cwd: f.project, mcpServers: [stdioEntry(path.join(f.root, "calls.jsonl"), "stall")] });
+  expect(performance.now() - started).toBeLessThan(15_000);
+  onlyProtocol(client);
+}, childTestLimit(1));
+
 test("A session/load that fails closes the app's servers, and session/new on the same process then works", async () => {
   const f = await fixture(() => ({ text: "Done." }));
   // One session process, driven directly (as the router drives it), so the retry reaches the process that failed.
