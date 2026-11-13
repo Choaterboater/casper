@@ -30,6 +30,14 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
+      - name: Stop if the tag already exists
+        run: |
+          # The release makes its tag on the commit it built. A tag already there may name another commit, and the
+          # release page would then show that one: stop instead. git ls-remote exits 2 when there is no such tag.
+          found=0
+          git ls-remote --exit-code --tags "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY" "refs/tags/$RELEASE_TAG" >/dev/null || found=$?
+          [ "$found" != 0 ] || { echo "Tag $RELEASE_TAG already exists. The release makes its own tag on the commit it built: delete that tag, or release the next version."; exit 1; }
+          [ "$found" = 2 ] || { echo "Could not check whether tag $RELEASE_TAG exists (git ls-remote exit $found)."; exit 1; }
       - name: Stop unless the Linux, macOS, Windows and Windows ARM64 checks passed on this commit
         # Only a push, nightly or manual run counts: those test the whole suite on every OS. A pull request run
         # on macOS or Windows may have run only the fast tier (tools/test-tier.ts), so it never counts here.
@@ -132,6 +140,14 @@ jobs:
           printf 'casper-release %s\n' "$pinned" > "$RUNNER_TEMP/allowed_signers"
           ssh-keygen -Y verify -f "$RUNNER_TEMP/allowed_signers" -I casper-release -n casper-release \
             -s dist/release/SHA256SUMS.sig < dist/release/SHA256SUMS
+      - name: Stop if the tag was made since the build
+        run: |
+          # The release makes its tag on the commit it built. A tag already there may name another commit, and the
+          # release page would then show that one: stop instead. git ls-remote exits 2 when there is no such tag.
+          found=0
+          git ls-remote --exit-code --tags "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY" "refs/tags/$RELEASE_TAG" >/dev/null || found=$?
+          [ "$found" != 0 ] || { echo "Tag $RELEASE_TAG already exists. The release makes its own tag on the commit it built: delete that tag, or release the next version."; exit 1; }
+          [ "$found" = 2 ] || { echo "Could not check whether tag $RELEASE_TAG exists (git ls-remote exit $found)."; exit 1; }
       - name: Check the files again, then publish the prerelease
         env:
           GH_TOKEN: ${{ github.token }}
