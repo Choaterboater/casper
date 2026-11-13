@@ -33,6 +33,8 @@ export interface BrowserSessionOptions {
   navigationTimeoutMs?: number;
   /** How long a first Chrome start may take before one fresh start replaces it (default 8 s); a test seam. */
   firstStartMs?: number;
+  /** How long each fresh start after that may take (default 30 s); a test seam. */
+  freshStartMs?: number;
   /** An action's own time (default 15 s, a check or replay 30 s); a test seam, never model-supplied. */
   actionTimeoutMs?: number;
   /** The most a page is waited for to settle before it is read (default 5 s); a test seam, never model-supplied. */
@@ -1107,8 +1109,10 @@ export interface CarriedCheck { readonly scenario: BrowserScenario; readonly che
 /** Checks a browser records, and checks it carries on to the next task's. */
 const MAX_CHECKS = 24;
 
-/** How long a first Chrome start may take before one fresh start replaces it, and fresh starts after a crash per session. */
+/** How long a first Chrome start may take before one fresh start replaces it, how long that fresh start may take,
+ * and fresh starts after a crash per session. */
 const FIRST_START_MS = 8_000;
+const FRESH_START_MS = 30_000;
 const MAX_RESTARTS = 2;
 /** Actions that ran out of time and got a fresh Chrome in the same session; the next one closes the session. */
 const MAX_OVERRUNS = 3;
@@ -2412,10 +2416,14 @@ export class BrowserSession {
       // A first Chrome start on a cold machine sometimes never answers (seen on fresh Windows runners): that attempt
       // is stopped after FIRST_START_MS and one fresh Chrome is started, with the running action's deadline renewed.
       // A start whose Chrome died (it didn't just run out of time; seen on loaded Windows runners) gets one more try.
+      // A fresh start has FRESH_START_MS: an open's deadline is held while Chrome starts, so a fresh Chrome that never
+      // answered kept the open waiting for Puppeteer's 180 s protocol limit (the full suite's 60 s browser-start hang).
       let spare = 1;
+      const first = this.options.firstStartMs ?? FIRST_START_MS, fresh = this.options.freshStartMs ?? FRESH_START_MS;
       for (let attempt = 1; ; attempt++) {
         const slow = new AbortController();
-        const timer = attempt === 1 ? setTimeout(() => slow.abort(new Error("Chrome did not answer")), this.options.firstStartMs ?? FIRST_START_MS) : undefined;
+        const timer = setTimeout(() => slow.abort(new Error(attempt === 1 ? "Chrome did not answer"
+          : `Chrome did not answer: neither its first start in ${Math.round(first / 1000)} s nor a fresh one in ${Math.round(fresh / 1000)} s`)), attempt === 1 ? first : fresh);
         try {
           return await this.launch(puppeteer, executablePath, AbortSignal.any([this.controller.signal, slow.signal]));
         } catch (error) {
@@ -2424,7 +2432,7 @@ export class BrowserSession {
           const died = !slow.signal.aborted && !this.browser?.connected;
           // The fresh start failed too: a Chrome it got up (its page didn't open) is stopped, not left running.
           // Either way the session is left idle, so the next action starts afresh rather than getting this error for good.
-          if (attempt >= 2 && !(died && spare-- > 0)) { if (this.browser) await this.discardChrome(); this.startup = undefined; throw error; }
+          if (attempt >= 2 && !(died && spare-- > 0)) { if (this.browser) await this.discardChrome(); this.startup = undefined; throw slow.signal.aborted ? slow.signal.reason : error; }
           // A signed-in profile is kept for the fresh start (its cookies are the sign-in); any other start gets a new one.
           if (this.signedIn) await this.stopChromeKeepProfile(); else await this.discardChrome();
           this.deadline?.renew();
