@@ -14,11 +14,22 @@ when releasing. Existing historical notes below stay as written; feature tests c
 reference docs, not a per-PR release-note or roadmap entry. Release-prep checks verify the version and
 installer targets (`tests/release-install.test.ts`, `tests/release-targets.test.ts`).
 
-Casper distributes an unsigned **v0.4.15 preview**, not a stable release. The installers
-download from `https://github.com/Choaterboater/casper/releases/download/v0.4.15`,
+Casper distributes an unsigned **v0.4.16 preview**, not a stable release. The installers
+download from `https://github.com/Choaterboater/casper/releases/download/v0.4.16`,
 because GitHub's `latest/download` link skips preview releases. The first published
 preview was **v0.1.0**. A published release is never changed; every fix ships under a
 new version.
+
+## v0.4.16: an app's models arrive on time, tool lists keep server keys hidden, and receipts keep their moves
+
+### Fixed
+
+- What the AI reads of an MCP server's tools no longer shows the keys and values that server was given.
+- An app's model list gets a model server that answers after the session opened, with no first message.
+- A new ACP session no longer waits for a model server on another computer.
+- `casper acp --effort` opens a session on a home with no default model and sets it on the model picked.
+- A task's receipt keeps the move line for a file it moved that was last written just before the task.
+- For contributors, Publish release stops when the version's tag already exists, so the tag names the commit it built.
 
 ## v0.4.15: an app signs Casper in and lists its models, and an app's own servers find their place
 
