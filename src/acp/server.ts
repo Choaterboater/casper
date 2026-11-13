@@ -48,8 +48,9 @@ export function sessionArgs(argv: readonly string[]): string[] {
   return args;
 }
 
-/** What a session sends right after its reply to session/new, session/load or session/fork (decisions 96 and 97). */
-const AFTER_REPLY = new Set(["available_commands_update", "session_info_update"]);
+/** What a session sends right after its reply to session/new, session/load or session/fork (decisions 96 and 97), and
+ * a model list or mode that changed as it opened (a model server found meanwhile). */
+const AFTER_REPLY = new Set(["available_commands_update", "session_info_update", "config_option_update", "current_mode_update"]);
 
 /** How this Casper starts itself: the release program, or Bun with the checkout's cli.ts. */
 function selfCommand(): string[] {

@@ -352,6 +352,8 @@ export class CasperApp {
   updatedInSession = false;
   readonly runModel?: string;
   readonly runEffort?: string;
+  /** casper acp picks the default model as a session opens (decision 104): --effort waits for it (applyRunEffort). */
+  effortAfterModel = false;
   runConversation?: CasperAppOptions["conversation"];
   readonly maxTurns?: number;
   readonly onEvent?: (event: CasperEvent) => void;

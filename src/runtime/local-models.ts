@@ -381,19 +381,13 @@ async function lookAtSaved(server: ModelServer, env: Record<string, string | und
   }
 }
 
-/** Probes the local ports at once (8080 is shared by llama.cpp and MLX). Each gets its own budget (`probeBudget`, or `timeoutMs`): a closed port answers at
- * once on macOS and Linux, after seconds on Windows, and another computer may be slow to reach. The runtime never
- * waits for this at its start, and `each` hears of every server as soon as its own look ends. */
-export async function discoverLocalServers(options: DiscoverOptions = {}): Promise<LocalDiscovery> {
-  const env = options.env ?? process.env;
-  if (lookingOff(env)) return { servers: [], problems: [] };
-  const fetcher = options.fetch ?? fetch;
-  const saved = options.saved ?? [];
-  // A server you added at the address a fixed kind is looked for wins: that one is not looked at (no model twice).
-  // Unless it is this computer's usual address and saved as another kind (llama.cpp saved where Ollama answers): then
-  // the fixed look still checks what answers there, so ollama/… is not hidden by a kind the server contradicts.
+/** The fixed kinds a look checks. A server you added at the address a fixed kind is looked for wins: that one is not
+ * looked at (no model twice). Unless it is this computer's usual address and saved as another kind (llama.cpp saved where
+ * Ollama answers): then the fixed look still checks what answers there, so ollama/… is not hidden by a kind the server
+ * contradicts. */
+function fixedLooks(env: Record<string, string | undefined>, auto: boolean, saved: readonly ModelServer[]): { fixed: LocalServerKind[]; contested: Map<string, ModelServer> } {
   const contested = new Map<string, ModelServer>();
-  const fixed = options.auto === false ? [] : LOCAL_SERVERS.filter((kind) => {
+  const fixed = !auto ? [] : LOCAL_SERVERS.filter((kind) => {
     const { root, variable } = fixedRoot(kind, env);
     if (!root) return true;
     const there = saved.find((server) => sameAddress(server.address, root));
@@ -406,6 +400,18 @@ export async function discoverLocalServers(options: DiscoverOptions = {}): Promi
       return explicit.variable && explicit.root && sameAddress(explicit.root, root) && !fixedRoot(kind, env).variable;
     });
   });
+  return { fixed, contested };
+}
+
+/** Probes the local ports at once (8080 is shared by llama.cpp and MLX). Each gets its own budget (`probeBudget`, or `timeoutMs`): a closed port answers at
+ * once on macOS and Linux, after seconds on Windows, and another computer may be slow to reach. The runtime never
+ * waits for this at its start, and `each` hears of every server as soon as its own look ends. */
+export async function discoverLocalServers(options: DiscoverOptions = {}): Promise<LocalDiscovery> {
+  const env = options.env ?? process.env;
+  if (lookingOff(env)) return { servers: [], problems: [] };
+  const fetcher = options.fetch ?? fetch;
+  const saved = options.saved ?? [];
+  const { fixed, contested } = fixedLooks(env, options.auto !== false, saved);
   const probes = new Map<string, Promise<Detected>>();
   const automatic = (root: string): Promise<Detected> => {
     let probe = probes.get(root);
@@ -490,6 +496,10 @@ const listeners = new Set<(server: LocalServer) => void>();
 function startRound(signal?: AbortSignal): Round {
   const ids = [...LOCAL_SERVERS.map(({ id }) => id), ...settings.saved.map((server) => server.name)];
   const waits = new Map<string, ReturnType<typeof Promise.withResolvers<LocalServer | undefined>>>(ids.map((id) => [id, Promise.withResolvers<LocalServer | undefined>()]));
+  // A fixed kind no look is out for (looks off, or a server you added at its address) settles now: a wait for the
+  // servers on this computer must not wait for one far away (localServersHereSettled).
+  const looked = new Set(fixedLooks(process.env, settings.auto, settings.saved).fixed.map(({ id }) => id));
+  for (const { id } of LOCAL_SERVERS) if (!looked.has(id)) waits.get(id)?.resolve(undefined);
   const any = Promise.withResolvers<boolean>();
   const seen: LocalServer[] = [];
   const each = (found: LocalFound) => {

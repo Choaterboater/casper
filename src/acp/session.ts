@@ -29,7 +29,7 @@ import { receiptEvent, type CasperEvent } from "../app/json-events";
 import { cancelCurrent } from "../app/command-loop";
 import { displayLevel } from "../app/footer";
 import { networkLoginFile, ownSecretValues } from "../app/network-host";
-import { ensureRuntime } from "../app/runtime-start";
+import { applyRunEffort, ensureRuntime } from "../app/runtime-start";
 import { transcriptsIn, withoutPasted } from "../app/request-words";
 import { promptWords } from "../app/rewind";
 import { taskExitCode } from "../task/result";
@@ -282,8 +282,11 @@ export async function runAcpSession(options: SessionOptions): Promise<void> {
   // The options and the access mode the client was last told (decisions 81 and 82): Casper says only what changed since.
   let lastOffer = "";
   let lastMode = "";
+  // The app has its first list (the reply to session/new, load or fork): a change is said only after it.
+  let offered = false;
   const offerNow = () => offerOf(app?.session, hide, app);
   const configOptions = () => {
+    offered = true;
     const offer = offerNow();
     lastOffer = JSON.stringify(offer.wire);
     if (app) lastMode = accessModeOf(app);
@@ -292,7 +295,7 @@ export async function runAcpSession(options: SessionOptions): Promise<void> {
   /** A change Casper made itself (a typed /model or /permissions, a failover, a model server found later, "Yes to
    * everything this session"), sent once. A change the client asked for is never sent back. */
   const announce = () => {
-    if (!app || !sessionId) return;
+    if (!app || !sessionId || !offered) return;
     const mode = accessModeOf(app);
     if (mode !== lastMode) {
       lastMode = mode;
@@ -362,6 +365,8 @@ export async function runAcpSession(options: SessionOptions): Promise<void> {
         onRuntimeEvent: (event) => {
           // A response starts before the terminal writes any of its words, so none of them reads as the command's.
           if (event.type === "assistant_response_start" && commandRun) commandRun.spoke = true;
+          // A model server that answered after the session opened: its models reach the app's picker before any prompt.
+          if (event.type === "models_found") announce();
           // The AI reads a line the app steered in; one the prompt ended before reading is forgotten, with no notice.
           if (event.type === "steer_read") { const entry = steers.find((item) => item.kind !== "joined" && item.sent === event.text); if (entry) readNotice(entry); }
           if (event.type === "steer_unsent" && app) {
@@ -372,6 +377,7 @@ export async function runAcpSession(options: SessionOptions): Promise<void> {
         } });
       // A call to the app's server names the step it is, as the client saw it start.
       created.acpToolCallId = (id) => mapper.acpId(id);
+      created.effortAfterModel = true;
       created.onOutput = ownLines;
       created.onPersonNote = personNote;
       // The first request names the conversation as its work starts: the app's chat gets the title at once.
@@ -401,7 +407,17 @@ export async function runAcpSession(options: SessionOptions): Promise<void> {
       if (load) await restoreSelection(created.session, created.resumedSelection, output.write);
       // The app's picker shows a model before the first message (decision 104): with none chosen, the signed-in
       // provider's default is picked now, as the first request would pick it.
+      // --effort waited for that pick (effortAfterModel): it goes on the model just picked. With none to set it on (your own
+      // model server, nothing chosen yet) the session still opens, and stderr says why the flag waits.
+      const effortWaits = Boolean(created.runEffort) && !load && !created.session?.getStatus?.()?.provider;
       if (created.session && !created.session.getStatus?.()?.provider) await pickDefaultModel(created, created.session);
+      if (created.session && effortWaits) {
+        if (!created.session.getStatus?.()?.provider) output.write(`[acp] --effort ${created.runEffort} is not used: no model is chosen yet. Pick one in the app, then its effort.\n`);
+        else {
+          try { await applyRunEffort(created, created.session); }
+          catch (error) { throw new RpcFailure(RPC.internal, hide(error instanceof Error ? error.message : String(error))); }
+        }
+      }
     } catch (error) {
       // A session that did not open leaves nothing behind: its app closes (and the client's servers with it), so the
       // client's next session/new on this process starts clean.

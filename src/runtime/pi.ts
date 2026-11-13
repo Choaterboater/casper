@@ -815,6 +815,9 @@ class PiRuntimeSession implements RuntimeSession {
     });
   }
 
+  /** A model server answered after the start and its models joined the catalog (PiRuntime's look listener). */
+  modelsFound(): void { this.emit({ type: "models_found" }); }
+
   private emit(event: Parameters<RuntimeEventListener>[0]): void {
     for (const listener of this.listeners) listener(event);
   }
@@ -1125,7 +1128,7 @@ export class PiRuntime implements AgentRuntime {
     if (local) {
       // The main session adds each server the moment its own look ends: one far away doesn't hold up one here.
       if (!bounded) {
-        const stop = onLocalServer((server) => registerLocalServers(modelRuntime, [server]));
+        const stop = onLocalServer((server) => { if (registerLocalServers(modelRuntime, [server]).length) this.wrapper?.modelsFound(); });
         this.lifetime.signal.addEventListener("abort", stop, { once: true });
       }
       models.useLocalServers({

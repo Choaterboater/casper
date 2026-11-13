@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, realpath, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { ModelRuntime } from "@earendil-works/pi-coding-agent";
-import { cantUseTools, clearLocalServers, configureLocalServers, discoverLocalServers, dropLocalServers, forgetLocalServer, localModelDefaults, localServerFound, localServers, localServerSettled, onLocalServer, onThisComputer, probeBudget, registerLocalServers, rememberLocalServer, sameAddress, servedWindowWarning, serverRoot, SERVER_SIDE_TIP, type LocalDiscovery, type LocalFound } from "../src/runtime/local-models";
+import { cantUseTools, clearLocalServers, configureLocalServers, discoverLocalServers, dropLocalServers, forgetLocalServer, localModelDefaults, localServerFound, localServers, localServerSettled, localServersHereSettled, onLocalServer, onThisComputer, probeBudget, registerLocalServers, rememberLocalServer, sameAddress, servedWindowWarning, serverRoot, SERVER_SIDE_TIP, type LocalDiscovery, type LocalFound } from "../src/runtime/local-models";
 import { PiModels } from "../src/runtime/pi-models";
 import { detectServer, readAddress } from "../src/runtime/model-servers";
 import { isolatedEnvironment } from "../src/platform/environment";
@@ -284,6 +284,38 @@ test("each server is heard of as soon as its own look ends: a slow one doesn't h
   expect(heardLate).toEqual(["lm-studio"]);
   stop();
   slow.resolve({ servers: [], problems: [] });
+});
+
+test("a fixed kind no look is out for settles at once: a wait for this computer's servers doesn't wait for one far away", async () => {
+  const slow = Promise.withResolvers<LocalDiscovery>();
+  localModelDefaults.discover = async () => slow.promise;
+  try {
+    // localModels: false, and a server you added on another computer that takes its time.
+    configureLocalServers({ auto: false, saved: [{ name: "far-box", address: "http://192.0.2.10:8000", kind: "openai" }] });
+    void localServers();
+    let here: unknown;
+    void localServersHereSettled().then((servers) => { here = servers; });
+    await Bun.sleep(20);
+    expect(here).toEqual([]);
+    slow.resolve({ servers: [], problems: [] });
+    clearLocalServers();
+    // A server you added where Ollama is looked for: Ollama's own look is skipped, so it settles now; the others still look.
+    const held = Promise.withResolvers<LocalDiscovery>();
+    localModelDefaults.discover = async () => held.promise;
+    configureLocalServers({ auto: true, saved: [{ name: "my-ollama", address: "http://127.0.0.1:11434", kind: "ollama" }] });
+    void localServers();
+    let ollama: unknown = "waiting";
+    let lmStudio: unknown = "waiting";
+    void localServerSettled("ollama").then((server) => { ollama = server; });
+    void localServerSettled("lm-studio").then((server) => { lmStudio = server; });
+    await Bun.sleep(20);
+    expect(ollama).toBeUndefined();
+    expect(lmStudio).toBe("waiting");
+    held.resolve({ servers: [], problems: [] });
+  } finally {
+    slow.resolve({ servers: [], problems: [] });
+    configureLocalServers({ auto: true, saved: [] });
+  }
 });
 
 test("a server on another computer doesn't count as signed in: it is never picked for you", async () => {

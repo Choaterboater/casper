@@ -197,13 +197,15 @@ export async function applyRunConversation(app: CasperApp, session: RuntimeSessi
   app.output.write(`[session] Continuing conversation ${target}.\n`);
 }
 
-/** `--model`/`--effort` select for this conversation only (persist: false), before any request.
- * A selector or level the catalog rejects is a usage error; missing credentials are not. */
+/** A selector or level the catalog rejects is a usage error; missing credentials are not. */
+function flagError(flag: string, error: unknown): Error {
+  const message = error instanceof Error ? error.message : String(error);
+  return /^(?:Credential|Not signed in to|No key for|\S+ at \S+ needs an apiKey line)/.test(message) ? new Error(message) : new UsageError(`${flag}: ${message}`);
+}
+
+/** `--model`/`--effort` select for this conversation only (persist: false), before any request. With no model yet and
+ * `effortAfterModel` set (casper acp picks its default as the session opens), --effort waits for applyRunEffort. */
 export async function applyRunSelection(app: CasperApp, session: RuntimeSession): Promise<void> {
-  const flagError = (flag: string, error: unknown) => {
-    const message = error instanceof Error ? error.message : String(error);
-    return /^(?:Credential|Not signed in to|No key for|\S+ at \S+ needs an apiKey line)/.test(message) ? new Error(message) : new UsageError(`${flag}: ${message}`);
-  };
   if (app.runModel) {
     if (!session.selectModel) throw new UsageError("--model: this runtime does not support model selection.");
     let selected: boolean;
@@ -216,11 +218,15 @@ export async function applyRunSelection(app: CasperApp, session: RuntimeSession)
     catch (error) { throw flagError("--model", error instanceof Error ? new Error(error.message.replace("/model to see all. Model unchanged.", "Run casper /model to list models.")) : error); }
     if (!selected) throw new UsageError(`--model: Unknown model "${app.runModel}". Run casper /model to list models.`);
   }
-  if (app.runEffort) {
-    if (!session.setEffort) throw new UsageError("--effort: this runtime does not support effort controls.");
-    try { await session.setEffort(app.runEffort, false); }
-    catch (error) { throw flagError("--effort", error); }
-  }
+  if (app.runEffort && !(app.effortAfterModel && !session.getStatus?.()?.provider)) await applyRunEffort(app, session);
+}
+
+/** `--effort` for this conversation only (persist: false). */
+export async function applyRunEffort(app: CasperApp, session: RuntimeSession): Promise<void> {
+  if (!app.runEffort) return;
+  if (!session.setEffort) throw new UsageError("--effort: this runtime does not support effort controls.");
+  try { await session.setEffort(app.runEffort, false); }
+  catch (error) { throw flagError("--effort", error); }
 }
 
 export function observeEdit(app: CasperApp, path: string): void {
