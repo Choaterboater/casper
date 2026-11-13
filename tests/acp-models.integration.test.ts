@@ -274,6 +274,31 @@ posixOnly("A model server that answers after the session opened reaches the pick
   } finally { server.stop(true); }
 }, childTestLimit(1));
 
+test("--effort goes on the model a new session picks for a signed-in provider; with none to pick, the session still opens", async () => {
+  const f = await fixture(() => ({ text: "Done." }));
+  await writeFile(f.settings, JSON.stringify({ retry: { enabled: false } }));
+  const own = open(f, ["--effort", "high"]);
+  await own.request("initialize", INIT);
+  // Your own model server, nothing chosen: no model to set it on, and stderr says so.
+  const listed = await own.request("session/new", { cwd: f.project, mcpServers: [] });
+  expect(optionOf(listed.configOptions, "model")!.currentValue).toBe("");
+  expect(optionOf(listed.configOptions, "effort")).toBeUndefined();
+  await until(() => own.stderr().includes("[acp] --effort high is not used: no model is chosen yet."), 5_000, "the effort note");
+  expect(await own.close()).toBe(0);
+
+  await writeFile(path.join(f.home, ".casper/agent/auth.json"), JSON.stringify({ openrouter: { type: "api_key", key: "synthetic" } }), { mode: 0o600 });
+  const client = open(f, ["--effort", "high"]);
+  await client.request("initialize", INIT);
+  const created = await client.request("session/new", { cwd: f.project, mcpServers: [] });
+  expect(optionOf(created.configOptions, "model")!.currentValue).toBe("openrouter/deepseek/deepseek-v4.1-flash");
+  expect(optionOf(created.configOptions, "effort")!.currentValue).toBe("high");
+  // The flag is this session's: the saved default has the model the session picked, and no effort.
+  const saved = JSON.parse(await readFile(f.settings, "utf8"));
+  expect(saved).toMatchObject({ defaultProvider: "openrouter", defaultModel: "deepseek/deepseek-v4.1-flash" });
+  expect(JSON.stringify(saved)).not.toContain("high");
+  expect(f.payloads).toEqual([]);
+}, childTestLimit(2));
+
 describe("a loaded conversation's model (decision 89)", () => {
   test("Loading a conversation puts back its own model and effort for this session without changing the saved default", async () => {
     const f = await fixture(() => ({ text: "Done." }));

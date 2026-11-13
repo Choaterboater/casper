@@ -706,7 +706,8 @@ live rows, popups or pickers, or a duplicated prompt box (`bun test tests/termin
   model's next step, like `/effort` (see Input and commands).
 - Over `casper acp` the app's picker lists the same models in the same order, with `/effort`'s choices for each,
   as soon as the session opens, and a model server that answers after that adds its models to the list at once, before
-  any message. A pick changes that conversation only; the app's "make default" saves it for new
+  any message. `casper acp --effort <level>` goes on the model the session opens on, the signed-in provider's default
+  it picks too; with no model chosen yet, the session still opens and stderr says the flag is not used. A pick changes that conversation only; the app's "make default" saves it for new
   conversations, as `/model provider/id` or `/effort <level>` does. A pick is refused while a prompt runs; a
   `/model` typed in the app moves the app's badge when the prompt ends
   ([decision 81](adr/0002/81-an-acp-app-picks-casper-model-and-effort.md),

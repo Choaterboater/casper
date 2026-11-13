@@ -29,7 +29,7 @@ import { receiptEvent, type CasperEvent } from "../app/json-events";
 import { cancelCurrent } from "../app/command-loop";
 import { displayLevel } from "../app/footer";
 import { networkLoginFile, ownSecretValues } from "../app/network-host";
-import { ensureRuntime } from "../app/runtime-start";
+import { applyRunEffort, ensureRuntime } from "../app/runtime-start";
 import { transcriptsIn, withoutPasted } from "../app/request-words";
 import { promptWords } from "../app/rewind";
 import { taskExitCode } from "../task/result";
@@ -377,6 +377,7 @@ export async function runAcpSession(options: SessionOptions): Promise<void> {
         } });
       // A call to the app's server names the step it is, as the client saw it start.
       created.acpToolCallId = (id) => mapper.acpId(id);
+      created.effortAfterModel = true;
       created.onOutput = ownLines;
       created.onPersonNote = personNote;
       // The first request names the conversation as its work starts: the app's chat gets the title at once.
@@ -406,7 +407,17 @@ export async function runAcpSession(options: SessionOptions): Promise<void> {
       if (load) await restoreSelection(created.session, created.resumedSelection, output.write);
       // The app's picker shows a model before the first message (decision 104): with none chosen, the signed-in
       // provider's default is picked now, as the first request would pick it.
+      // --effort waited for that pick (effortAfterModel): it goes on the model just picked. With none to set it on (your own
+      // model server, nothing chosen yet) the session still opens, and stderr says why the flag waits.
+      const effortWaits = Boolean(created.runEffort) && !load && !created.session?.getStatus?.()?.provider;
       if (created.session && !created.session.getStatus?.()?.provider) await pickDefaultModel(created, created.session);
+      if (created.session && effortWaits) {
+        if (!created.session.getStatus?.()?.provider) output.write(`[acp] --effort ${created.runEffort} is not used: no model is chosen yet. Pick one in the app, then its effort.\n`);
+        else {
+          try { await applyRunEffort(created, created.session); }
+          catch (error) { throw new RpcFailure(RPC.internal, hide(error instanceof Error ? error.message : String(error))); }
+        }
+      }
     } catch (error) {
       // A session that did not open leaves nothing behind: its app closes (and the client's servers with it), so the
       // client's next session/new on this process starts clean.
