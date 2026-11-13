@@ -7,8 +7,10 @@ import { childTestLimit } from "./support/limits";
 import { cleanUpAfterEach, fixProject, fixture, shellCheckTest, type Payload, type Step } from "./support/scripting";
 import { httpFixture } from "./fixtures/mcp-http-server";
 import { projectStateDirectory } from "../src/project/model";
+import { networkServerEntry } from "../src/mcp/network/server";
+import { fakeServerProgram } from "./support/fake-program";
 
-// Casper's lines for the person (selected skills, memory, a refused app server) reach an ACP app as notes (decision 88),
+// Casper's lines for the person (selected skills, memory, a refused or unused app server) reach an ACP app as notes (decision 88),
 // against a real `casper acp` child and the scripted provider.
 const clients: AcpClient[] = [];
 afterEach(async () => { for (const client of clients.splice(0)) await client.close().catch(() => {}); });
@@ -80,6 +82,33 @@ test("A refused app server's note is the first update of the first prompt, and a
   expect(JSON.stringify(since(client, sessionId, before))).not.toContain("acp-old");
   expect(client.lines.join("\n")).not.toContain("connects for this session");
   onlyProtocol(client);
+}, childTestLimit(1));
+
+test("An app's server left out for Casper's own (decision 100) is said in the app as a note, once", async () => {
+  const f = await fixture(() => ({ text: "Done." }));
+  // Casper's own network server, connecting by itself (My MCP servers).
+  const own = networkServerEntry(f.home).command;
+  await mkdir(path.dirname(own), { recursive: true });
+  await fakeServerProgram(own, "fake-network-mcp");
+  await writeFile(path.join(f.home, ".casper/mcp.json"), JSON.stringify({ mcpServers: { network: { command: own, args: [] } } }));
+  const server = await httpFixture("app-token", { network: { gate: "off" } });
+  try {
+    const client = open(f);
+    await client.request("initialize", INIT);
+    const { sessionId } = await client.request("session/new", { cwd: f.project,
+      mcpServers: [{ type: "http", name: "network", url: server.url, headers: [{ name: "Authorization", value: "Bearer app-token" }] }] });
+    const notUsed = "[acp] The app's MCP server acp-network is not used: Casper has its own Network server.";
+    await until(() => commandsSent(client), 30_000, "the commands");
+    await until(() => client.stderr().includes(notUsed), 30_000, "the note on stderr");
+    let before = client.updates.length;
+    expect((await client.request("session/prompt", { sessionId, prompt: text("Hello") })).stopReason).toBe("end_turn");
+    expect(since(client, sessionId, before)[0]).toEqual({ sessionUpdate: "agent_message_chunk", content: { type: "text", text: `${notUsed}\n` }, _meta: { casper: { note: true } } });
+    before = client.updates.length;
+    expect((await client.request("session/prompt", { sessionId, prompt: text("Hello again") })).stopReason).toBe("end_turn");
+    expect(JSON.stringify(since(client, sessionId, before))).not.toContain("is not used");
+    expect(client.stderr().split(notUsed)).toHaveLength(2);
+    onlyProtocol(client);
+  } finally { await server.close(); }
 }, childTestLimit(1));
 
 test("A note written during a slash command before the model speaks appears once", async () => {

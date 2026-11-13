@@ -246,19 +246,21 @@ describe("a product Casper already has (decision 100)", () => {
         transport: { type: "stdio", command, args: [], env: {} }, ...overrides };
     };
     const notes: string[] = [];
+    // The not-used note is for the person (an ACP app shows it, decision 88); other lines go to onNote.
+    const personNotes: string[] = [];
     const manager = (servers: MCPServerDefinition[], autoconnect: boolean) => {
       const mcp = new MCPManager({ servers: withClientServers(definitions)({ servers, diagnostics: [] }).servers, diagnostics: [] },
-        { timeoutMs: 15_000, homeDir: home, autoconnect, onNote: (text) => notes.push(text) });
+        { timeoutMs: 15_000, homeDir: home, autoconnect, onNote: (text) => notes.push(text), onPersonNote: (text) => personNotes.push(text) });
       cleanup.push(() => mcp.close());
       return mcp;
     };
-    return { home, app, own, notes, manager, acpNotes: () => notes.filter((note) => note.startsWith("[acp]")) };
+    return { home, app, own, notes, manager, acpNotes: () => personNotes.filter((note) => note.startsWith("[acp]")) };
   }
 
   const NOTE = "[acp] The app's MCP server acp-network is not used: Casper has its own Network server.";
 
   test("Casper's own network server is used and the app's bundled one is not: no tools, no routers line, one note", async () => {
-    const { own, home, manager, acpNotes } = await setUp();
+    const { own, home, manager, acpNotes, notes } = await setUp();
     const mcp = manager([await own(networkServerEntry(home).command)], true);
     await mcp.prepare();
     await until(() => mcp.status().every((status) => status.state === "ready"), "both servers to connect");
@@ -268,6 +270,7 @@ describe("a product Casper already has (decision 100)", () => {
     expect(status.notUsed).toBe("Casper has its own Network server");
     expect(mcp.status().find((entry) => entry.name === "network")!.notUsed).toBeUndefined();
     expect(acpNotes()).toEqual([NOTE]);
+    expect(notes).not.toContain(NOTE);
     const broker = new CapabilityBroker(mcp, async () => "no", { writesGate: true });
     expect(broker.search("find tool invoke access check", 50).map((found) => found.source)).not.toContain("acp-network");
     const tools = await broker.prepare("check the network");

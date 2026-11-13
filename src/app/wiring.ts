@@ -199,6 +199,8 @@ export async function loadWorkspace(app: CasperApp, cwd: string) {
     homeDir: app.sessionHomeDir ?? os.homedir(),
     elicit: (question, signal) => answerServerQuestion(app, question, signal),
     onNote: (text) => { if (!app.closing) app.output.write(`${text}\n`); },
+    // casper acp: the app shows it as a note, not only stderr.
+    onPersonNote: (text) => { if (!app.closing) personNote(app, text); },
     sandbox: mcpServerSandbox(app.sessionHomeDir ?? os.homedir(), sandbox, () => [app.activeWorkspaceRoot()], (line) => { if (!app.closing) app.output.write(`${line}\n`); }),
   });
   // Re-reads the same layered files the manager was built from; the manager diffs them.

@@ -45,10 +45,26 @@ test("casper_session: model, usage, context, last task, tasks and MCP status, re
   expect(all.lastTask.checks).toEqual({ test: "fail", lint: "pass" });
   expect(typeof all.lastTask.receiptLine).toBe("string");
   expect(all.tasks).toEqual([{ n: 1, kind: "dev server", label: "web", running: true }, { n: 2, kind: "helper", label: "explorer: find the login code", running: true }]);
-  expect(all.mcp).toEqual([{ name: "central", connected: true, writes: "off" }]);
+  expect(all.mcp).toEqual([{ name: "central", connected: true, writes: "off", tools: 3 }]);
   // No secrets, no hosts, no paths outside the project.
   const text = JSON.stringify(all);
   for (const leak of [secret, "10.1.2.3", "/home/someone", "/etc/hosts", "outside.txt"]) expect(text).not.toContain(leak);
+});
+
+test("casper_session: an app's server Casper leaves out says why, with no tool count; one not connected says why instead", async () => {
+  const server = (name: string, state: string, extra: Record<string, unknown> = {}) => ({ name, source: "app", transport: "http", state,
+    toolCount: 4, limits: { connectS: 1, callS: 1 }, approved: true, consent: "remembered", writes: "off", access: "access not checked",
+    scope: "client", ...extra }) as never;
+  const { mcp } = sessionSnapshot(source({ mcp: () => [
+    server("acp-network", "ready", { notUsed: "Casper has its own Network server" }),
+    server("acp-docs", "ready"),
+    server("acp-later", "connecting", { notUsed: "Casper has its own Network server" }),
+  ] }), "mcp");
+  expect(mcp).toEqual([
+    { name: "acp-network", connected: true, writes: "off", notUsed: "Casper has its own Network server" },
+    { name: "acp-docs", connected: true, writes: "off", tools: 4 },
+    { name: "acp-later", connected: false, writes: "off", state: "starting" },
+  ]);
 });
 
 test("casper_session: part narrows the answer; an unknown part is an error, not a guess", async () => {
