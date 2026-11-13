@@ -3,6 +3,7 @@ import type { Readable } from "node:stream";
 import type { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import type { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
+import type { JsonSchemaValidator, jsonSchemaValidator } from "@modelcontextprotocol/sdk/validation";
 import { IMPORT_LABELS, MAX_CALL_SECONDS, projectDefinitionReview, resolvedSecrets, resolveEnvironment, type MCPConfiguration, type MCPServerDefinition } from "./config";
 import type { ConsentState, ConsentStore, RememberResult } from "./consent";
 import { clientNotRemembered, definitionIdentity } from "./consent";
@@ -109,6 +110,21 @@ export interface ServerPolicy {
 
 /** Casper's defaults: 20 s to start, 90 s per call without progress, 10 min for any call. */
 export const MCP_LIMITS = { connectMs: 20_000, callMs: 90_000, hardCapMs: 600_000 } as const;
+/**
+ * Compiles a tool's output schema at that tool's first call, not when its server lists its tools. Compiling is
+ * synchronous: a catalog of hundreds of typed tools held Casper's only thread for seconds at every start, and one
+ * schema that can't be compiled failed the whole server. A tool's results are still checked against its schema.
+ * @param eager the SDK's validator, which compiles when asked.
+ * @returns a validator that asks `eager` once, on first use, and keeps the answer.
+ */
+export function lazyOutputValidators(eager: jsonSchemaValidator): jsonSchemaValidator {
+  return {
+    getValidator<T>(schema: Parameters<jsonSchemaValidator["getValidator"]>[0]): JsonSchemaValidator<T> {
+      let compiled: JsonSchemaValidator<T> | undefined;
+      return (input) => (compiled ??= eager.getValidator<T>(schema))(input);
+    },
+  };
+}
 /** The longest call limit a server's file may set ("callTimeout", seconds): 30 minutes. */
 export const MAX_CALL_TIMEOUT_S = MAX_CALL_SECONDS;
 
@@ -1045,15 +1061,19 @@ export class MCPManager {
     let client: Client | undefined;
     const current = () => !this.closed && entry.approved && entry.client === client && !controller.signal.aborted && entry.state !== "failed";
     try {
-      const [{ Client }, { ToolListChangedNotificationSchema, ElicitRequestSchema }] = await Promise.all([
+      const [{ Client }, { ToolListChangedNotificationSchema, ElicitRequestSchema }, { AjvJsonSchemaValidator }] = await Promise.all([
         import("@modelcontextprotocol/sdk/client/index.js"),
         import("@modelcontextprotocol/sdk/types.js"),
+        import("@modelcontextprotocol/sdk/validation/ajv"),
       ]);
       // Module loading cannot be aborted. Recheck consent/deadline before any
       // client or transport is created, including after the transport import.
       if (!current()) throw new Error("stale connection");
       // Servers learn Casper can answer questions only when someone can answer them (form mode, no URLs).
-      const connectedClient = new Client({ name: "casper", version: CASPER_VERSION }, { capabilities: this.elicit ? { elicitation: { form: {} } } : {} });
+      const connectedClient = new Client({ name: "casper", version: CASPER_VERSION }, {
+        capabilities: this.elicit ? { elicitation: { form: {} } } : {},
+        jsonSchemaValidator: lazyOutputValidators(new AjvJsonSchemaValidator()),
+      });
       client = connectedClient;
       entry.client = connectedClient;
       connectedClient.onerror = () => { /* Raw transport errors can contain headers/URLs. */ };

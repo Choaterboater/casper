@@ -151,6 +151,16 @@ export function fixtureServer(mode = "generic") {
       read("inspect_budget_out", "Schema budget boundary", schemaAt(12_001)),
     ];
   }
+  if (mode === "output-schemas") {
+    // Tools that declare what they return: one keeps to it, one breaks it, and one's schema can't be compiled.
+    const siteOut = { type: "object" as const, properties: { site: { type: "string" as const } }, required: ["site"] };
+    tools = [
+      { ...read("typed_read", "Read a site, typed"), outputSchema: siteOut },
+      { ...read("wrong_shape_read", "Read a site, wrong type"), outputSchema: siteOut },
+      { ...read("broken_schema_read", "Read a site, bad schema"),
+        outputSchema: { type: "object", properties: { site: { $ref: "#/definitions/missing" } } } as Tool["outputSchema"] },
+    ];
+  }
   server.setRequestHandler(ListToolsRequestSchema, async (request) => {
     const offset = Number(request.params?.cursor ?? 0);
     return { tools: tools.slice(offset, offset + 100), ...(offset + 100 < tools.length ? { nextCursor: String(offset + 100) } : {}) };
@@ -211,6 +221,10 @@ export function fixtureServer(mode = "generic") {
   server.setRequestHandler(CallToolRequestSchema, async (request, extra) => {
     const { name, arguments: args } = request.params;
     log({ tool: name, arguments: args ?? {} });
+    if (mode === "output-schemas") {
+      const structuredContent = name === "wrong_shape_read" ? { site: 5 } : { site: "lab" };
+      return { content: [{ type: "text", text: JSON.stringify(structuredContent) }], structuredContent };
+    }
     if (mode === "network") {
       const routed = (name === "invoke_tool" || name === "invoke_read_tool") && typeof args?.name === "string";
       const value = routed

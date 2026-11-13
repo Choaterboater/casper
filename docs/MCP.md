@@ -1298,7 +1298,10 @@ server does**.
 **Start-up cost.** `/mcp`, `/status`, help and other local commands connect
 nothing and load neither the MCP library nor the schema checker (Ajv). The MCP
 client and transport load only when you approve a connection; Ajv loads on the
-first tool call.
+first tool call. A tool's output schema is checked from that tool's first call
+on, not compiled when its server lists its tools: a server with hundreds of
+typed tools doesn't slow every start, and a schema Ajv can't compile fails only
+that tool's calls, not the whole server.
 
 **Reconnects.** An approved server that failed can reconnect on the next task: at
 most two failed tries per server in any 30 seconds. Successful reconnects don't
