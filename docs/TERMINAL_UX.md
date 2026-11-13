@@ -671,9 +671,9 @@ live rows, popups or pickers, or a duplicated prompt box (`bun test tests/termin
   what an add or forget said shows at the top of the right side when the picker opens again.
   It looks for your model servers first and then refreshes the provider lists in the background (a server found
   while a refresh runs would cancel it), and keeps the saved rows when that fails,
-  saying why in a few words: `Your anthropic sign-in expired. Run /login to sign in again; showing
-  saved models.`, or `Could not refresh openrouter (HTTP 503); showing saved models.`, never the
-  provider's URL or stack. With an OpenRouter sign-in it also reads OpenRouter's own model list, so a
+  saying why in a few words: `Anthropic API sign-in expired: /login anthropic or /logout anthropic.`
+  (named as `/login` names it, so it never reads as the Claude plan Claude Code keeps), or
+  `Could not refresh openrouter (HTTP 503); showing saved models.`, never the provider's URL or stack. With an OpenRouter sign-in it also reads OpenRouter's own model list, so a
   model OpenRouter added today is listed before the engine's catalog has it
   ([OpenRouter's model list](CONFIGURATION.md#provider-credentials)). With a ChatGPT or Copilot plan sign-in it reads
   your plan's own list too ([Your plan's own model list](CONFIGURATION.md#provider-credentials)). A provider's header

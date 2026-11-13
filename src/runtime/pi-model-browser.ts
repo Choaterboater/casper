@@ -6,6 +6,7 @@ import { pickerCursor, pickerOptionLines } from "../tui/picker";
 import { stripVTControlCharacters } from "node:util";
 import { terminalText, tint } from "../tui/format";
 import { errorText, refreshFailure } from "./model-errors";
+import { SIGN_IN_NAMES, signInName } from "./sign-in-names";
 import { cantUseTools, NO_TOOLS } from "./local-models";
 import { modelFacts, type ModelFacts } from "./model-facts";
 import { listDay, type ListFreshness } from "./catalog-freshness";
@@ -58,13 +59,19 @@ export function refreshErrorMessage(errors: ReadonlyMap<string, Error>): string 
     else other.push([name, cause]);
   }
   const parts: string[] = [];
-  if (login.length) parts.push(`Your ${listWords(login)} sign-in${login.length > 1 ? "s" : ""} expired. Run /login to sign in again`);
+  // Named as /login names it, so an expired Anthropic API sign-in doesn't read as the Claude plan, and short enough
+  // that the header keeps the commands. One expired sign-in names its own /login and /logout word.
+  if (login.length === 1) {
+    const word = SIGN_IN_NAMES.some(([id]) => id === login[0]) ? ` ${login[0]}` : "";
+    parts.push(`${signInName(login[0]!)} sign-in expired: /login${word} or /logout${word}`);
+  } else if (login.length) parts.push(`${listWords(login.map(signInName))} sign-ins expired: /login or /logout`);
   if (other.length === 1) parts.push(`Could not refresh ${other[0]![0]} (${other[0]![1]})`);
   else if (other.length > 1) {
     const shown = other.slice(0, 3).map(([name, cause]) => `${name}: ${cause}`).join(", ") + (other.length > 3 ? `, ${other.length - 3} more` : "");
     parts.push(`Could not refresh ${other.length} model catalogs (${shown})`);
   }
-  return `${parts.join(". ")}; showing saved models.`;
+  // The saved rows are on screen; saying so is kept for a catalog that failed for another reason.
+  return other.length ? `${parts.join(". ")}; showing saved models.` : `${parts.join(". ")}.`;
 }
 
 /** Model identity is provider + id within a catalog snapshot; full Model equality is unnecessary. */

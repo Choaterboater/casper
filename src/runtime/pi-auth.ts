@@ -6,6 +6,7 @@ import { ownPrivateFile } from "../platform/private-file";
 import { withLoginDisplay, type LoginDisplay } from "../tui/login";
 import { openRouterAttribution } from "./openrouter-attribution";
 import { loginClaudeCode } from "./claude-login";
+import { SIGN_IN_NAMES } from "./sign-in-names";
 import { COPILOT_POLICIES, NOT_SHARED, claudeCodePlanSignedIn, copilotFromGithub, copilotTokenKind, findOtherLogins, ghToken, readOtherKey, saveCredential, type OtherLogin } from "./other-logins";
 import type { RuntimeAuthenticationOptions, RuntimeAuthenticationResult, RuntimeAuthProvider } from "./types";
 
@@ -43,16 +44,10 @@ export function signInWays(provider?: RuntimeAuthProvider): SignInWay[] {
   return provider ? ways.filter((way) => way.provider === provider) : ways;
 }
 
-/** /login's first list, as omp shows it: one short row per provider, in this order (Enter picks OpenRouter). */
-const LIST_NAMES: ReadonlyArray<[RuntimeAuthProvider, string]> = [
-  ["openrouter", "OpenRouter"], ["claude-subscription", "Claude Pro/Max (Claude Code)"], ["anthropic", "Anthropic API"],
-  ["openai-codex", "ChatGPT Plus/Pro (Codex)"], ["github-copilot", "GitHub Copilot"],
-];
-
-/** One row per provider; a provider in `signedIn` gets `• signed in`, lined up after the longest name. */
+/** /login's first list, as omp shows it: one row per provider; a provider in `signedIn` gets `• signed in`, lined up after the longest name. */
 export function signInProviders(signedIn: ReadonlySet<string>): { id: RuntimeAuthProvider; label: string }[] {
-  const width = Math.max(...LIST_NAMES.map(([, name]) => name.length)) + 3;
-  return LIST_NAMES.map(([id, name]) => ({ id, label: signedIn.has(id) ? `${name.padEnd(width)}• signed in` : name }));
+  const width = Math.max(...SIGN_IN_NAMES.map(([, name]) => name.length)) + 3;
+  return SIGN_IN_NAMES.map(([id, name]) => ({ id, label: signedIn.has(id) ? `${name.padEnd(width)}• signed in` : name }));
 }
 
 /** The second question, for the provider picked: how to sign in, in a few words, a key first (Enter, Enter is an
