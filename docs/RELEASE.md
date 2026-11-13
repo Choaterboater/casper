@@ -14,11 +14,18 @@ when releasing. Existing historical notes below stay as written; feature tests c
 reference docs, not a per-PR release-note or roadmap entry. Release-prep checks verify the version and
 installer targets (`tests/release-install.test.ts`, `tests/release-targets.test.ts`).
 
-Casper distributes an unsigned **v0.4.16 preview**, not a stable release. The installers
-download from `https://github.com/Choaterboater/casper/releases/download/v0.4.16`,
+Casper distributes an unsigned **v0.4.17 preview**, not a stable release. The installers
+download from `https://github.com/Choaterboater/casper/releases/download/v0.4.17`,
 because GitHub's `latest/download` link skips preview releases. The first published
 preview was **v0.1.0**. A published release is never changed; every fix ships under a
 new version.
+
+## v0.4.17: a browser that never answers fails in its own time
+
+### Fixed
+
+- A browser action whose fresh Chrome start never answers fails after 30 s instead of hanging, and the next action tries again.
+- For contributors, tests no longer find a Claude Code sign-in on the developer's own computer.
 
 ## v0.4.16: an app's models arrive on time, tool lists keep server keys hidden, and receipts keep their moves
 

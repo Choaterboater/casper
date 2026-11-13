@@ -40,7 +40,7 @@
       <div class="container">
         <div class="hx-row">
           <div class="hx-copy">
-            <p class="hx-meta">Casper 0.4.16 · early preview, not signed · MIT licence</p>
+            <p class="hx-meta">Casper 0.4.17 · early preview, not signed · MIT licence</p>
             <h1 id="hero-title">The coding agent that proves it's done.</h1>
             <p class="lead">A coding helper for your terminal. Build web apps, APIs, command-line tools and scripts in the language your project uses, and Casper checks the AI's work before it tells you "done". Network engineers get extra care built in.</p>
             <div class="actions">
@@ -75,8 +75,8 @@
             <button type="button" role="tab" id="tab-unix" aria-controls="cmd-unix" aria-selected="true">macOS / Linux</button>
             <button type="button" role="tab" id="tab-windows" aria-controls="cmd-windows" aria-selected="false" tabindex="-1">Windows</button>
           </div>
-          <div class="cmd" id="cmd-unix"><span class="cmd-label visually-hidden">macOS / Linux</span><pre><code>curl -fsSL https://github.com/Choaterboater/casper/releases/download/v0.4.16/install.sh | sh</code></pre></div>
-          <div class="cmd" id="cmd-windows"><span class="cmd-label">Windows x64 or ARM64 · PowerShell</span><pre><code>[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; irm https://github.com/Choaterboater/casper/releases/download/v0.4.16/install.ps1 | iex</code></pre></div>
+          <div class="cmd" id="cmd-unix"><span class="cmd-label visually-hidden">macOS / Linux</span><pre><code>curl -fsSL https://github.com/Choaterboater/casper/releases/download/v0.4.17/install.sh | sh</code></pre></div>
+          <div class="cmd" id="cmd-windows"><span class="cmd-label">Windows x64 or ARM64 · PowerShell</span><pre><code>[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; irm https://github.com/Choaterboater/casper/releases/download/v0.4.17/install.ps1 | iex</code></pre></div>
         </div>
         <p class="small muted">No Bun or source checkout needed. The installer checks the file's SHA-256 and runs the new program's <code>--version</code> before it replaces an older install. Then run <code>casper</code> in your project folder.</p>
       </div>
@@ -308,9 +308,10 @@ Exit codes: 0 no problems, 1 problems (or warnings with --strict), 64 usage mist
           </ul>
         </div>
         <div>
-          <h2 id="next">New in 0.4.16</h2>
+          <h2 id="next">New in 0.4.17</h2>
           <ul>
-            <li>An app's model list gets a model server that answers after the session opened, and <code>casper acp --effort</code> works on a home with no default model. An MCP server's tool list no longer shows the keys it was given, and a task's receipt keeps the files it moved.</li>
+            <li>A browser action whose fresh Chrome start never answers fails after 30 seconds with a plain message instead of hanging, and the next action tries again.</li>
+            <li>From 0.4.16: An app's model list gets a model server that answers after the session opened, and <code>casper acp --effort</code> works on a home with no default model. An MCP server's tool list no longer shows the keys it was given, and a task's receipt keeps the files it moved.</li>
             <li>From 0.4.15: An app over ACP signs Casper in with a key, a browser or a code, with no terminal, and gets Casper's models when a session opens; a pick changes only that session. An app's copy of a server Casper already has is not used, and a read-only server says writes are off.</li>
             <li>From 0.4.14: <code>casper acp</code>: apps and editors drive Casper over the Agent Client Protocol, with its checks, receipt and boxes, question forms, a <code>/plan</code> card, steering and a running command's latest lines. With the sandbox on, a command it blocked asks to run once outside it, as Claude Code does, and planning, Read only and private places ask instead of refusing. More database tables keep their Password column hidden.</li>
             <li>From 0.4.13: a clean build ends clean: Casper finishes the browser checks the AI recorded, a check that went to a sign-in page says to sign in through its steps, and a slow browser action starts a fresh browser instead of closing it.</li>
@@ -340,7 +341,7 @@ Exit codes: 0 no problems, 1 problems (or warnings with --strict), 64 usage mist
   <footer class="site-footer">
     <div class="container footer-inner">
       <div>
-        <p><strong>Casper 0.4.16</strong> · early preview, unsigned</p>
+        <p><strong>Casper 0.4.17</strong> · early preview, unsigned</p>
         <p><a href="https://github.com/Choaterboater/casper/blob/main/LICENSE">MIT licence</a> · © 2026 Choaterboater</p>
         <p>Built on the <a href="https://github.com/earendil-works/pi">Pi SDK</a>. Other parts keep their own licences (<a href="https://github.com/Choaterboater/casper/blob/main/THIRD_PARTY_NOTICES.txt">notices</a>).</p>
       </div>
