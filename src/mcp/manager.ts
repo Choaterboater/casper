@@ -162,6 +162,9 @@ export interface MCPManagerOptions {
   elicit?: ServerQuestionHandler;
   /** One plain line for the user, such as a declined server question. */
   onNote?: (text: string) => void;
+  /** A line for the person that an ACP app shows too (decision 88): the app's server that isn't used because one of
+   * your own covers it (decision 100). Without it, the line goes to onNote. */
+  onPersonNote?: (text: string) => void;
   /** Remembered approval. Only your own and imported servers can be remembered, never project ones. */
   consent?: ConsentStore;
   /** The home folder whose ~/.casper/network-logins.json Casper's network server starts with. Without it, no
@@ -364,6 +367,7 @@ export class MCPManager {
   private cleanupError?: ProcessCleanupError;
   private readonly elicit?: ServerQuestionHandler;
   private readonly onNote?: (text: string) => void;
+  private readonly onPersonNote?: (text: string) => void;
   private readonly consent?: ConsentStore;
   private readonly homeDir?: string;
   private readonly holder?: MCPServerHolder;
@@ -374,6 +378,7 @@ export class MCPManager {
     this.diagnostics = [...configuration.diagnostics, ...options.consent?.diagnostics ?? []];
     this.elicit = options.elicit;
     this.onNote = options.onNote;
+    this.onPersonNote = options.onPersonNote ?? options.onNote;
     this.consent = options.consent;
     this.homeDir = options.homeDir;
     this.holder = options.sandbox;
@@ -705,7 +710,7 @@ export class MCPManager {
       const covered = other.state === "ready" && !other.coveredNoted ? this.coveredBy(other) : undefined;
       if (!covered) continue;
       other.coveredNoted = true;
-      this.onNote?.(`[acp] The app's MCP server ${other.definition.name} is not used: Casper has its own ${covered.label} server.`);
+      this.onPersonNote?.(`[acp] The app's MCP server ${other.definition.name} is not used: Casper has its own ${covered.label} server.`);
     }
   }
 

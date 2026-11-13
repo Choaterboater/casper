@@ -704,8 +704,10 @@ An app or an editor that runs `casper acp` can list MCP servers in `session/new`
   that is the same [preset](#presets) as one of your own (by its definition or its tool list), and yours is
   approved for this session (it connects by itself, or you connected it), yours is used and the app's is
   not: its tools are not offered to the AI. Casper writes
-  `[acp] The app's MCP server acp-network is not used: Casper has its own Network server.` once, and `/mcp`
-  shows `not used: Casper has its own Network server` on its row. Yours wins even when it connects after
+  `[acp] The app's MCP server acp-network is not used: Casper has its own Network server.` once, and the app
+  shows it as a note ([decision 105](adr/0002/105-an-acp-app-hears-why-its-server-is-not-used.md)). `/mcp`
+  shows `not used: Casper has its own Network server` on its row, and the AI's `casper_session` gives the
+  same reason in place of a tool count. Yours wins even when it connects after
   the app's (a look-alike known only by its tool list, once it has connected), and while it fails to
   start. Disconnect yours (`/mcp disconnect`), or never approve it, and the app's is used. A
   different product (your `hpe-networking-mcp` next to the app's network server) keeps both.
