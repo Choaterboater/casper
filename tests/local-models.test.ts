@@ -1032,7 +1032,7 @@ test("/login's last row adds a model server: the address, the name kept, no key;
     const input = new PassThrough();
     const host = { mount: () => { throw new Error("no picker here"); }, run: (operation) => withLoginSurface({ input, output: { write(text) { shown += text; } }, color: false, onEOF() {} }, operation) };
     const pending = runtime.authenticate({ terminalHost: host, others: false });
-    await until("Model server on another computer"); input.write("8");
+    await until("Model server on another computer"); input.write("6");
     await until("Model server type"); input.write("1");
     await until("Where is the server?"); for (const key of ${JSON.stringify(ollama.replace("http://", ""))}) input.write(key); await Bun.sleep(30); input.write("\\r");
     await until("Name it."); await Bun.sleep(30); input.write("\\r");

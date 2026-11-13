@@ -29,17 +29,18 @@ def success(bun, repo, root, no_color):
         draft = "d" * 95
         s.send("/login\n" + draft + "\x1b[D\x1b[D")
         s.until("Enter to choose · Esc to skip")
-        for key, selected in (("\x1b[B", "2. OpenRouter"), ("\x1b[B", "3. Anthropic"), ("\x1b[A", "2. OpenRouter"), ("\x1b[A", "1. OpenRouter")):
+        for key, selected in (("\x1b[B", "2. Claude Pro/Max"), ("\x1b[B", "3. Anthropic API"), ("\x1b[A", "2. Claude Pro/Max"), ("\x1b[A", "1. OpenRouter")):
             s.send(key); s.until("❯ " + selected)
             screen = s.screen.text()
             assert "\\u{d}" not in screen, screen
-            for label in ("OpenAI Codex", "GitHub Copilot"):
+            for label in ("ChatGPT Plus/Pro (Codex)", "GitHub Copilot"):
                 assert screen.count(label) == 1, screen
-        assert "only on this computer" in s.screen.text(), s.screen.text()
+        # The provider list is names only; where a key is saved shows once a provider is picked.
+        assert "only on this computer" not in s.screen.text(), s.screen.text()
         auth = s.root / "home/.casper/agent/auth.json"
         assert not auth.exists(), "the sign-in list created auth storage"
         # Picking the row is the consent: no confirm screen follows.
-        s.send("6")
+        s.send("4")
         s.until("https://auth.openai.com/codex/device")
         assert "Enter to choose · Esc to skip" not in s.screen.text(), s.screen.text()
         # Bracketed paste on the waiting screen is ignored, not echoed.
