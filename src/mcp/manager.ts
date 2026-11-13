@@ -3,6 +3,7 @@ import type { Readable } from "node:stream";
 import type { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import type { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
+import type { JsonSchemaValidator, jsonSchemaValidator } from "@modelcontextprotocol/sdk/validation";
 import { IMPORT_LABELS, MAX_CALL_SECONDS, projectDefinitionReview, resolvedSecrets, resolveEnvironment, type MCPConfiguration, type MCPServerDefinition } from "./config";
 import type { ConsentState, ConsentStore, RememberResult } from "./consent";
 import { clientNotRemembered, definitionIdentity } from "./consent";
@@ -107,8 +108,24 @@ export interface ServerPolicy {
   serverReadOnly?: true;
 }
 
-/** Casper's defaults: 20 s to start, 90 s per call without progress, 10 min for any call. */
-export const MCP_LIMITS = { connectMs: 20_000, callMs: 90_000, hardCapMs: 600_000 } as const;
+/** Casper's defaults: 20 s to start, 90 s per call without progress, 10 min for any call, and 5 s a task's start waits
+ * for servers still starting. */
+export const MCP_LIMITS = { connectMs: 20_000, callMs: 90_000, hardCapMs: 600_000, taskWaitMs: 5_000 } as const;
+/**
+ * Compiles a tool's output schema at that tool's first call, not when its server lists its tools. Compiling is
+ * synchronous: a catalog of hundreds of typed tools held Casper's only thread for seconds at every start, and one
+ * schema that can't be compiled failed the whole server. A tool's results are still checked against its schema.
+ * @param eager the SDK's validator, which compiles when asked.
+ * @returns a validator that asks `eager` once, on first use, and keeps the answer.
+ */
+export function lazyOutputValidators(eager: jsonSchemaValidator): jsonSchemaValidator {
+  return {
+    getValidator<T>(schema: Parameters<jsonSchemaValidator["getValidator"]>[0]): JsonSchemaValidator<T> {
+      let compiled: JsonSchemaValidator<T> | undefined;
+      return (input) => (compiled ??= eager.getValidator<T>(schema))(input);
+    },
+  };
+}
 /** The longest call limit a server's file may set ("callTimeout", seconds): 30 minutes. */
 export const MAX_CALL_TIMEOUT_S = MAX_CALL_SECONDS;
 
@@ -152,6 +169,8 @@ export interface MCPManagerOptions {
   connectTimeoutMs?: number;
   callTimeoutMs?: number;
   hardCapMs?: number;
+  /** How long a task's start waits for servers still starting (prepareForTask); MCP_LIMITS.taskWaitMs by default. */
+  taskWaitMs?: number;
   /** Shorthand that sets both the start and the call limit (kept for tests and older callers). */
   timeoutMs?: number;
   /**
@@ -362,7 +381,7 @@ export class MCPManager {
   private readonly entries = new Map<string, Entry>();
   private closed = false;
   private closeWork?: Promise<void>;
-  private readonly defaults: { connectMs: number; callMs: number; hardCapMs: number };
+  private readonly defaults: { connectMs: number; callMs: number; hardCapMs: number; taskWaitMs: number };
   private catalogVersion = 0;
   private cleanupError?: ProcessCleanupError;
   private readonly elicit?: ServerQuestionHandler;
@@ -388,6 +407,7 @@ export class MCPManager {
       connectMs: options.connectTimeoutMs ?? options.timeoutMs ?? MCP_LIMITS.connectMs,
       callMs: options.callTimeoutMs ?? options.timeoutMs ?? MCP_LIMITS.callMs,
       hardCapMs: options.hardCapMs ?? MCP_LIMITS.hardCapMs,
+      taskWaitMs: options.taskWaitMs ?? MCP_LIMITS.taskWaitMs,
     };
     for (const definition of configuration.servers) {
       if (this.entries.has(definition.name)) throw new Error("Duplicate MCP server name");
@@ -749,6 +769,23 @@ export class MCPManager {
     this.assertCleanup();
   }
 
+  /**
+   * prepare() for a task's start: returns once every approved server is ready or has failed, or after the task wait
+   * (taskWaitMs), whichever comes first. A server still starting then goes on starting, and its tools join the catalog
+   * when it is ready, so one slow or hung server no longer holds every task for its whole start limit.
+   */
+  async prepareForTask(): Promise<void> {
+    const work = this.prepare();
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const waited = new Promise<"waited">((resolve) => { timer = setTimeout(() => resolve("waited"), this.defaults.taskWaitMs); });
+    try {
+      if (await Promise.race([work, waited]) !== "waited") return;
+      // A cleanup failure found later is kept (cleanupError) and raised by the next call that checks it.
+      work.catch(() => {});
+      this.assertCleanup();
+    } finally { clearTimeout(timer); }
+  }
+
   /** `by`: who asked (the person in /mcp), said in the status until it connects again. */
   async disconnect(name: string, options: { by?: string } = {}): Promise<void> {
     const entry = this.entry(name);
@@ -1050,15 +1087,19 @@ export class MCPManager {
     let client: Client | undefined;
     const current = () => !this.closed && entry.approved && entry.client === client && !controller.signal.aborted && entry.state !== "failed";
     try {
-      const [{ Client }, { ToolListChangedNotificationSchema, ElicitRequestSchema }] = await Promise.all([
+      const [{ Client }, { ToolListChangedNotificationSchema, ElicitRequestSchema }, { AjvJsonSchemaValidator }] = await Promise.all([
         import("@modelcontextprotocol/sdk/client/index.js"),
         import("@modelcontextprotocol/sdk/types.js"),
+        import("@modelcontextprotocol/sdk/validation/ajv"),
       ]);
       // Module loading cannot be aborted. Recheck consent/deadline before any
       // client or transport is created, including after the transport import.
       if (!current()) throw new Error("stale connection");
       // Servers learn Casper can answer questions only when someone can answer them (form mode, no URLs).
-      const connectedClient = new Client({ name: "casper", version: CASPER_VERSION }, { capabilities: this.elicit ? { elicitation: { form: {} } } : {} });
+      const connectedClient = new Client({ name: "casper", version: CASPER_VERSION }, {
+        capabilities: this.elicit ? { elicitation: { form: {} } } : {},
+        jsonSchemaValidator: lazyOutputValidators(new AjvJsonSchemaValidator()),
+      });
       client = connectedClient;
       entry.client = connectedClient;
       connectedClient.onerror = () => { /* Raw transport errors can contain headers/URLs. */ };

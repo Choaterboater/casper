@@ -25,7 +25,7 @@ test("MCP calls that may need approval run one at a time; reads and search stay 
   const tool = (name: string, readOnly: boolean) => ({ name, inputSchema: { type: "object" }, ...(readOnly ? { annotations: { readOnlyHint: true } } : {}) });
   const manager = {
     catalogRevision: 1,
-    prepare: async () => {},
+    prepareForTask: async () => {},
     policy: () => ({ writes: "on", showOptIn: false }),
     status: () => [{ name: "demo" }],
     catalog: () => [{ server: "demo", generation: 1, tools: [tool("list_sites", true), tool("update_site", false)] }],

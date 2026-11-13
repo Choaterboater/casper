@@ -208,11 +208,12 @@ export async function loadWorkspace(app: CasperApp, cwd: string) {
   app.lsp = new LSPManager(context.info.root, lspConfiguration);
   // Started now, not at the first task, so they are ready when it comes. A failure shows in /mcp; /lsp connect tries again.
   // A one-shot run waits for them instead: its tools are there for the first turn, and no start is still running when it exits.
+  // A casper acp session doesn't: the app shows the session as soon as it starts, and its tasks wait a bounded time.
   // The servers an app handed over (casper acp) connect for the session whatever My MCP servers says.
   const clientServers = mcpConfiguration.servers.some((server) => server.scope === "client");
   const ownStarts = [autoconnect || clientServers ? app.mcp.prepare().catch(() => {}) : undefined,
     ownServerDefaults.start && context.lspAutostart !== false ? app.lsp.startOwn() : undefined];
-  if (!app.interactive) await Promise.all(ownStarts);
+  if (!app.interactive && !app.serversInBackground) await Promise.all(ownStarts);
   app.visualization = new VisualizationRouter({ providers: app.visualizationProviders, settings: context.visualize, workspaceRoot: context.info.root });
   // Every server starts with writes off but your own that aren't a network product (My MCP servers); only the user
   // turns them on (/mcp writes <name>).

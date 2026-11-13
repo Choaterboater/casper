@@ -271,6 +271,9 @@ export class CasperApp {
   openPlan?: { file: string; steps: Array<{ step: number } & import("./flows/plan-build").PlanStepReport> };
   readonly terminal: InteractiveTerminal;
   interactive = false;
+  /** A long-lived session that is not the terminal (`casper acp`): its MCP and language servers start without holding
+   * up its start, as the terminal's do. A one-shot run waits for them. */
+  serversInBackground = false;
   /** `casper acp`: an ACP client's person answers the approval boxes (session/request_permission), so the run keeps the
    * terminal's checklist and screenshot-question defaults; it is otherwise one-shot. */
   remoteApprovals = false;

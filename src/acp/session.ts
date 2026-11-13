@@ -377,6 +377,8 @@ export async function runAcpSession(options: SessionOptions): Promise<void> {
         } });
       // A call to the app's server names the step it is, as the client saw it start.
       created.acpToolCallId = (id) => mapper.acpId(id);
+      // session/new answers once the session exists; its MCP and language servers go on starting.
+      created.serversInBackground = true;
       created.effortAfterModel = true;
       created.onOutput = ownLines;
       created.onPersonNote = personNote;
