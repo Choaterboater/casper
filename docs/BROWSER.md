@@ -632,7 +632,8 @@ After a forced SIGKILL of Casper or a power loss, cleanup may not happen.
   checks recorded so far stay. After three such overruns the next one closes the session as before.
 - A first Chrome start that has not answered after 8 seconds is stopped and replaced by one
   fresh start, which gets 30 seconds, and the running action's deadline starts again. A fresh
-  start that doesn't answer either fails the action with `Chrome did not answer`; the next
+  start that doesn't answer either fails the action with `Chrome did not answer`, which says for
+  each start whether Chrome never came up or came up and never opened its tab; the next
   action tries again. For an `open`, the whole cold start, both tries, is outside its
   deadline, which starts once Chrome is up. A start
   whose Chrome died (rather than ran out of time) gets one more try, and only one; a

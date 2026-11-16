@@ -163,13 +163,28 @@ browserTest("after two fresh starts a third crash closes the session for good", 
   await writeFile(wrapper, "#!/bin/sh\nexec sleep 60\n", { mode: 0o755 });
   const f = await fixture({ executablePath: wrapper, firstStartMs: 1_000, freshStartMs: 2_000, actionTimeoutMs: 1_500 });
   const started = performance.now();
-  await expect(f.session.run({ action: "open", url: f.url })).rejects.toThrow("Chrome did not answer: neither its first start in 1 s nor a fresh one in 2 s");
+  await expect(f.session.run({ action: "open", url: f.url })).rejects.toThrow("Chrome did not answer: neither its first start in 1 s (Chrome never came up) nor a fresh one in 2 s (Chrome never came up)");
   expect(performance.now() - started).toBeLessThan(10_000);
   expect(f.session.status()).toMatchObject({ state: "idle", ownedBrowserPid: undefined });
   const closing = performance.now();
   await f.session.close();
   expect(performance.now() - closing).toBeLessThan(2_000);
 }, 30_000);
+
+// Windows run 43499041500: both starts ran out of time alone on an idle runner, and the error couldn't say whether
+// Chrome never came up or came up and never opened its tab. It names which, for each start.
+(process.platform === "win32" ? test.skip : browserTest)("a start that runs out of time says whether Chrome never came up or came up and never opened its tab", async () => {
+  const root = await realpath(await mkdtemp(path.join(os.tmpdir(), "casper-stalled-tab-")));
+  cleanup.push(() => removeTempDir(root));
+  const starts = path.join(root, "starts"), wrapper = path.join(root, "chrome");
+  await writeFile(wrapper, `#!/bin/sh\necho start >> "${starts}"\nif [ "$(wc -l < "${starts}")" -le 1 ]; then exec sleep 60; fi\nexec "${executable}" "$@"\n`, { mode: 0o755 });
+  // The fresh start's Chrome comes up (a loaded machine can take most of 15 s), and its tab never opens.
+  const f = await fixture({ executablePath: wrapper, firstStartMs: 1_000, freshStartMs: 20_000, actionTimeoutMs: 1_500 });
+  (f.session as unknown as { newPage(): Promise<unknown> }).newPage = () => new Promise(() => {});
+  await expect(f.session.run({ action: "open", url: f.url })).rejects.toThrow("Chrome did not answer: neither its first start in 1 s (Chrome never came up) nor a fresh one in 20 s (Chrome came up, but its tab never opened)");
+  expect((await readFile(starts, "utf8")).trim().split("\n")).toHaveLength(2);
+  expect(f.session.status()).toMatchObject({ state: "idle", ownedBrowserPid: undefined });
+}, 60_000);
 
 // The fresh start's Chrome came up but its page didn't: that Chrome was left running, unowned, on the profile the
 // next start then reused.

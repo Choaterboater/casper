@@ -2418,15 +2418,18 @@ export class BrowserSession {
       // A start whose Chrome died (it didn't just run out of time; seen on loaded Windows runners) gets one more try.
       // A fresh start has FRESH_START_MS: an open's deadline is held while Chrome starts, so a fresh Chrome that never
       // answered kept the open waiting for Puppeteer's 180 s protocol limit (the full suite's 60 s browser-start hang).
-      let spare = 1;
+      // Each start that runs out of time names where it stalled: Chrome never came up, or came up and never opened its tab.
+      let spare = 1, firstStage = "";
       const first = this.options.firstStartMs ?? FIRST_START_MS, fresh = this.options.freshStartMs ?? FRESH_START_MS;
+      const stalled = (stage: { up: boolean }) => stage.up ? "Chrome came up, but its tab never opened" : "Chrome never came up";
       for (let attempt = 1; ; attempt++) {
-        const slow = new AbortController();
+        const slow = new AbortController(), stage = { up: false };
         const timer = setTimeout(() => slow.abort(new Error(attempt === 1 ? "Chrome did not answer"
-          : `Chrome did not answer: neither its first start in ${Math.round(first / 1000)} s nor a fresh one in ${Math.round(fresh / 1000)} s`)), attempt === 1 ? first : fresh);
+          : `Chrome did not answer: neither its first start in ${Math.round(first / 1000)} s (${firstStage}) nor a fresh one in ${Math.round(fresh / 1000)} s (${stalled(stage)})`)), attempt === 1 ? first : fresh);
         try {
-          return await this.launch(puppeteer, executablePath, AbortSignal.any([this.controller.signal, slow.signal]));
+          return await this.launch(puppeteer, executablePath, AbortSignal.any([this.controller.signal, slow.signal]), stage);
         } catch (error) {
+          if (attempt === 1) firstStage = stalled(stage);
           if (this.controller.signal.aborted) throw error;
           // Died: Chrome never came up or went away, not stopped for being slow and not a page that failed to open.
           const died = !slow.signal.aborted && !this.browser?.connected;
@@ -2440,7 +2443,7 @@ export class BrowserSession {
       }
     })();
   }
-  private async launch(puppeteer: typeof import("puppeteer-core").default, executablePath: string, signal: AbortSignal): Promise<Page> {
+  private async launch(puppeteer: typeof import("puppeteer-core").default, executablePath: string, signal: AbortSignal, stage: { up: boolean }): Promise<Page> {
     signal.throwIfAborted();
     // One profile for the session: made at the first start, kept across a sign-in window, removed after a crash or
     // at close (a sign-in is never kept past the session).
@@ -2454,6 +2457,7 @@ export class BrowserSession {
       if (!this.signedIn && /already running for/.test(String(error))) throw new Error("Chrome stopped, or stopped answering, while it started", { cause: error });
       throw error;
     });
+    stage.up = true;
     const chrome = browser.process();
     if (chrome) this.chromeOwner = ownSpawnedTree(chrome.pid, () => chrome.exitCode === null && chrome.signalCode === null);
     browser.on("disconnected", () => { if (!this.controller.signal.aborted && browser === this.browser) void this.chromeStopped(); });
