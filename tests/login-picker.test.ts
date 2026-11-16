@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { PassThrough } from "node:stream";
 import { withLoginDisplay } from "../src/tui/login";
-import { signInWays } from "../src/runtime/pi-auth";
+import { signInMethods, signInProviders, signInWays } from "../src/runtime/pi-auth";
 import { loginFailureText } from "../src/app/commands";
 import { withLoginSurface } from "./support/login-surface";
 
@@ -113,6 +113,26 @@ test("one sign-in list: OpenRouter first, provider and method together; /login <
   for (const way of ways) expect(way.label).not.toMatch(/device code|oauth|loopback/i);
   expect(signInWays("anthropic").map(({ method }) => method)).toEqual(["api_key", "oauth"]);
   expect(signInWays("github-copilot")).toHaveLength(1);
+});
+
+test("/login lists providers first, one short row each, with a mark on the ones signed in", () => {
+  expect(signInProviders(new Set()).map(({ id, label }) => `${id}=${label.trimEnd()}`)).toEqual([
+    "openrouter=OpenRouter", "claude-subscription=Claude Pro/Max (Claude Code)", "anthropic=Anthropic API",
+    "openai-codex=ChatGPT Plus/Pro (Codex)", "github-copilot=GitHub Copilot"]);
+  const rows = signInProviders(new Set(["openrouter", "claude-subscription"]));
+  expect(rows[0]!.label).toMatch(/^OpenRouter +• signed in$/);
+  expect(rows[1]!.label).toMatch(/^Claude Pro\/Max \(Claude Code\) +• signed in$/);
+  // The marks line up, so the names read as a column.
+  expect(rows[0]!.label.indexOf("•")).toBe(rows[1]!.label.indexOf("•"));
+  expect(rows[2]!.label).toBe("Anthropic API");
+});
+
+test("the second question names only how to sign in: browser or key, and only for a provider with both", () => {
+  expect(signInMethods("openrouter").map(({ id, label }) => `${id}=${label}`))
+    .toEqual(["openrouter:api_key=Paste an API key", "openrouter:oauth=Sign in with your browser"]);
+  expect(signInMethods("anthropic").map(({ id, label }) => `${id}=${label}`))
+    .toEqual(["anthropic:api_key=Paste an API key", "anthropic:oauth=Sign in with your browser (billed as extra usage)"]);
+  for (const provider of ["claude-subscription", "openai-codex", "github-copilot"] as const) expect(signInMethods(provider)).toHaveLength(1);
 });
 
 test("a failed sign-in says the reason Casper has, in plain words, and the next step", () => {

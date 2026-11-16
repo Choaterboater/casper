@@ -77,7 +77,7 @@ flakyOn("win32")("API-key login verifies with the provider, keeps secrets off sc
     expect(result.screen).not.toContain("synthetic-private-key");
     if (provider === "openrouter") {
       expect(result.screen).toContain("Sign in to OpenRouter");
-      expect(result.screen).toContain("sign in with your browser");
+      expect(result.screen).toContain("Sign in with your browser");
       expect(result.screen).toContain("Usage is billed from your OpenRouter credits.");
     }
     expect(JSON.parse(await readFile(path.join(agent, "auth.json"), "utf8"))).toEqual({ unrelated: { type: "api_key", key: "keep" }, [provider]: { type: "api_key", key: "synthetic-private-key" } });
@@ -237,7 +237,7 @@ test("OpenRouter browser sign-in exchanges the pasted authorization code and sav
   expect(result.result).toEqual({ status: "saved" });
   expect(result.authorized).toBe(true);
   expect(result.calls).toEqual(["https://openrouter.ai/api/v1/auth/keys"]);
-  expect(result.screen).toContain("sign in with your browser");
+  expect(result.screen).toContain("Sign in with your browser");
   expect(result.screen).toContain("https://openrouter.ai/auth");
   expect(result.screen).not.toContain("sk-or-synthetic-key");
   expect(result.screen).not.toContain("synthetic-private-code");
@@ -441,7 +441,7 @@ test("Ctrl+C at the sign-in list is cancellation, not login failure", async () =
   expect(await Bun.file(path.join(f.env.PI_CODING_AGENT_DIR, "auth.json")).exists()).toBe(false);
 });
 
-test("Esc at the sign-in list never creates auth or starts a session, and the list says where a key would be saved", async () => {
+test("Esc at the sign-in list never creates auth or starts a session, and the provider list is names only", async () => {
   const f = await fixture();
   const output = await f.run(`
     import { PiRuntime } from ${JSON.stringify(path.join(repo, "src/runtime/pi.ts"))};
@@ -458,7 +458,8 @@ test("Esc at the sign-in list never creates auth or starts a session, and the li
   const result = JSON.parse(output);
   expect(result.result).toEqual({ status: "cancelled", effect: "none" });
   const list = Bun.stripANSI(result.screen).split(/\r?\n/).map(line => line.replace(/^│\s?|\s?│$/g, "").trim()).join(" ");
-  expect(list).toContain("Saved in ~/.pi/agent/auth.json, only on this computer.");
+  expect(list).toContain("1. OpenRouter");
+  expect(list).not.toContain("Saved in");
   expect(await Bun.file(path.join(f.env.PI_CODING_AGENT_DIR, "auth.json")).exists()).toBe(false);
 });
 
@@ -727,13 +728,15 @@ posixOnly("login saves through a symlinked HOME ancestor", async () => {
 posixOnly("plain login permits Claude Code selection with an unsafe Casper destination but still refuses API credential writes", async () => {
   const f = await fixture(); const agent = f.env.PI_CODING_AGENT_DIR;
   await mkdir(path.join(f.root, "elsewhere")); await mkdir(path.dirname(agent), { recursive: true }); await symlink(path.join(f.root, "elsewhere"), agent);
-  for (const [down, reason] of [[4, "unavailable"], [2, "destination"]] as const) {
+  // Claude Pro/Max is row 2 and starts at once; Anthropic API is row 3, then Enter picks its key.
+  for (const [down, reason] of [[1, "unavailable"], [2, "destination"]] as const) {
     const output = await f.run(`
       import { PiRuntime } from ${JSON.stringify(path.join(repo, "src/runtime/pi.ts"))}; import { PassThrough } from 'node:stream';
       process.env.CASPER_CLAUDE_PATH = ${JSON.stringify(path.join(f.root, "missing-native-claude"))};
       const runtime = new PiRuntime(); const input = new PassThrough(); let picked = false;
       try {
         const result = await runtime.authenticate({ others: false, terminalHost: { run: operation => withLoginSurface({ input, color: false, onEOF() {}, output: { write(text) {
+          if (picked && text.includes('Paste an API key')) setImmediate(() => input.write('1'));
           if (!picked && text.includes('Enter to choose · Esc to skip')) { picked = true; setImmediate(() => { for (let i = 0; i < ${down}; i++) setTimeout(() => input.write('\\x1b[B'), i * 30); setTimeout(() => input.write('\\r'), ${down} * 30); }); }
         } } }, operation) } });
         console.log(JSON.stringify({ result, picked }));

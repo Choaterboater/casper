@@ -52,10 +52,10 @@ for (const entry of ["/model", "/login"] as const) for (const kind of ["sglang",
       const login = await until("Model server on another computer");
       expect(login).not.toContain("SGLang");
       expect(login).not.toContain("MLX");
-      await keys("8");
+      await keys("6");
     }
     // Wait for the server kinds themselves: the /login box before them has the same "Model server type" title, so
-    // waiting for the title alone could read that box before 8 had taken effect.
+    // waiting for the title alone could read that box before 6 had taken effect.
     const choices = await until("SGLang · port 30000");
     expect(choices).toContain("MLX (MLX LM / vllm-mlx) · port 8080");
     await keys(kind === "sglang" ? "1" : "7");

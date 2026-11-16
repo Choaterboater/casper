@@ -6,7 +6,8 @@ import { ownPrivateFile } from "../platform/private-file";
 import { withLoginDisplay, type LoginDisplay } from "../tui/login";
 import { openRouterAttribution } from "./openrouter-attribution";
 import { loginClaudeCode } from "./claude-login";
-import { COPILOT_POLICIES, NOT_SHARED, copilotFromGithub, copilotTokenKind, findOtherLogins, ghToken, readOtherKey, saveCredential, type OtherLogin } from "./other-logins";
+import { SIGN_IN_NAMES } from "./sign-in-names";
+import { COPILOT_POLICIES, NOT_SHARED, claudeCodePlanSignedIn, copilotFromGithub, copilotTokenKind, findOtherLogins, ghToken, readOtherKey, saveCredential, type OtherLogin } from "./other-logins";
 import type { RuntimeAuthenticationOptions, RuntimeAuthenticationResult, RuntimeAuthProvider } from "./types";
 
 /** The home folder now (tests and wrappers change HOME after start). */
@@ -41,6 +42,21 @@ export function signInWays(provider?: RuntimeAuthProvider): SignInWay[] {
     { id: "github-copilot:oauth", provider: "github-copilot", method: "oauth", label: "GitHub Copilot · enter a code at github.com" },
   ];
   return provider ? ways.filter((way) => way.provider === provider) : ways;
+}
+
+/** /login's first list, as omp shows it: one row per provider; a provider in `signedIn` gets `• signed in`, lined up after the longest name. */
+export function signInProviders(signedIn: ReadonlySet<string>): { id: RuntimeAuthProvider; label: string }[] {
+  const width = Math.max(...SIGN_IN_NAMES.map(([, name]) => name.length)) + 3;
+  return SIGN_IN_NAMES.map(([id, name]) => ({ id, label: signedIn.has(id) ? `${name.padEnd(width)}• signed in` : name }));
+}
+
+/** The second question, for the provider picked: how to sign in, in a few words, a key first (Enter, Enter is an
+ * OpenRouter key). Only a provider with two ways asks it. */
+export function signInMethods(provider: RuntimeAuthProvider): { id: string; label: string }[] {
+  const ways = signInWays(provider);
+  const label = (way: SignInWay) => way.method === "api_key" ? "Paste an API key"
+    : way.provider === "anthropic" ? "Sign in with your browser (billed as extra usage)" : "Sign in with your browser";
+  return ways.map((way) => ({ id: way.id, label: ways.length > 1 ? label(way) : way.label }));
 }
 
 /** What a way asks of the person: a key to paste, a browser page on this machine, or a code to enter on the provider's
@@ -199,8 +215,9 @@ export async function authenticatePi(options: SignInOptions, destination: string
     if (early) return { status: "failed", effect: "none", reason: "destination", detail: early };
     const surface = options.surface ?? (<T>(within: AbortSignal, work: (display: LoginDisplay) => Promise<T>) => options.terminalHost.run((io) => withLoginDisplay(io, within, work)));
     return await surface(signal, async (display): Promise<RuntimeAuthenticationResult> => {
-      const saved = `Saved in ${tildePath(destination, home())}, only on this computer. Claude Code keeps its own plan login.`;
-      display.setNote(saved);
+      const savedHere = `Saved in ${tildePath(destination, home())}, only on this computer.`;
+      const saved = `${savedHere} Claude Code keeps its own plan login.`;
+      display.setNote(provider ? savedHere : saved);
       // Sign-ins other tools left here come first: 1 use one, then Sign in separately, then Not now.
       const found = provider === "claude-subscription" || options.others === false ? []
         : findOtherLogins(signedInHere(destination)).filter((login) => !provider || login.provider === provider);
@@ -221,17 +238,31 @@ export async function authenticatePi(options: SignInOptions, destination: string
           return useOtherLogin(login, destination, display.signal);
         }
       }
-      // One numbered list (provider and method together); /login <provider> with one way skips it. With no provider
-      // named, the last row adds a model server on another computer instead of signing in.
-      const ways = signInWays(provider);
-      const rows = [...ways.map(({ id, label }) => ({ id, label })), ...(!provider && addServer ? [{ id: MODEL_SERVER_ROW, label: "Model server on another computer · type its address" }] : [])];
-      pickedId ??= ways.length === 1 && !options.list ? ways[0]!.id
-        : await display.choose(provider ? `Sign in to ${providerNames[provider]}` : "Sign in", rows);
-      if (pickedId === MODEL_SERVER_ROW && addServer) {
-        const { names, lines } = await addServer(display, display.signal);
-        return names.length ? { status: "saved", servers: names, lines } : { status: "cancelled", effect: "none", lines };
+      // Providers first, one short row each (omp's list); then, only for a provider with two ways, browser or key.
+      // /login <provider> starts at the second question, and skips it with one way. With no provider named, the last
+      // row adds a model server on another computer instead of signing in.
+      if (!pickedId) {
+        let chosen = provider;
+        if (!chosen) {
+          const signedIn = signedInHere(destination);
+          if (options.others !== false && claudeCodePlanSignedIn()) signedIn.add("claude-subscription");
+          display.setNote("");
+          const picked = await display.choose("Sign in", [...signInProviders(signedIn),
+            ...(addServer ? [{ id: MODEL_SERVER_ROW, label: "Model server on another computer" }] : [])]);
+          if (picked === MODEL_SERVER_ROW && addServer) {
+            const { names, lines } = await addServer(display, display.signal);
+            return names.length ? { status: "saved", servers: names, lines } : { status: "cancelled", effect: "none", lines };
+          }
+          if (!picked || display.signal.aborted) return { status: "cancelled", effect: "none" };
+          chosen = picked as RuntimeAuthProvider;
+          // Where a key goes, for the provider picked; the Claude plan's own login was the found list's note.
+          display.setNote(savedHere);
+        }
+        const methods = signInMethods(chosen);
+        pickedId = methods.length === 1 && (!options.list || !provider) ? methods[0]!.id
+          : await display.choose(provider ? `Sign in to ${providerNames[chosen]}` : providerNames[chosen], methods);
       }
-      const way = ways.find((item) => item.id === pickedId);
+      const way = signInWays().find((item) => item.id === pickedId);
       if (!way) return { status: "cancelled", effect: "none" };
       provider = way.provider;
       const selected = way.provider;
@@ -244,7 +275,7 @@ export async function authenticatePi(options: SignInOptions, destination: string
         : selected === "anthropic" ? "API use is billed per token on this direct route; a browser sign-in uses extra usage. Claude Code plan is a separate /login option."
         : selected === "openrouter" ? "Usage is billed from your OpenRouter credits."
         : "";
-      display.setNote([saved, disclosure].filter(Boolean).join("\n"));
+      display.setNote([savedHere, disclosure].filter(Boolean).join("\n"));
       if (display.signal.aborted) return { status: "cancelled", effect: "none" };
       // The SDK reads this override when its lazy OAuth module loads. Never allow a public listener.
       if (browser && [process.env.CASPER_OAUTH_CALLBACK_HOST, process.env.PI_OAUTH_CALLBACK_HOST]

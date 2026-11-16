@@ -309,13 +309,17 @@ test("refresh failures and success surface in the header while cached rows stay 
 /** Pi's wording when a saved Anthropic sign-in can no longer be renewed (placeholder address, no token). */
 const EXPIRED = 'OAuth refresh failed for anthropic: Anthropic token refresh request failed. url=https://example.invalid/v1/oauth/token; details=Error: HTTP request failed. status=400; body={"error": "invalid_grant", "error_description": "Refresh token not found or invalid"}; stack=Error: HTTP request failed\n    at post (file:///example/x.js:1:1)';
 
-test("a refresh failure says why in plain words: an expired sign-in asks for /login, never the URL or stack", async () => {
+test("a refresh failure says why in plain words: an expired sign-in is named as /login names it, with its /login and /logout, never the URL or stack", async () => {
+  // The Anthropic API sign-in, not the Claude plan (Claude Code keeps that one): its /login name says so.
   expect(refreshErrorMessage(new Map([["anthropic", new Error(EXPIRED)]])))
-    .toBe("Your anthropic sign-in expired. Run /login to sign in again; showing saved models.");
+    .toBe("Anthropic API sign-in expired: /login anthropic or /logout anthropic.");
   expect(refreshErrorMessage(new Map([["anthropic", new Error("OAuth refresh failed for anthropic", { cause: new Error("invalid_grant") })]])))
-    .toBe("Your anthropic sign-in expired. Run /login to sign in again; showing saved models.");
+    .toBe("Anthropic API sign-in expired: /login anthropic or /logout anthropic.");
   expect(refreshErrorMessage(new Map([["anthropic", new Error(EXPIRED)], ["openai-codex", new Error("401 Unauthorized")], ["openrouter", new Error("HTTP request failed. status=503; url=https://example.invalid/models")]])))
-    .toBe("Your anthropic and openai-codex sign-ins expired. Run /login to sign in again. Could not refresh openrouter (HTTP 503); showing saved models.");
+    .toBe("Anthropic API and ChatGPT Plus/Pro (Codex) sign-ins expired: /login or /logout. Could not refresh openrouter (HTTP 503); showing saved models.");
+  // A provider /login has no row for keeps its own name.
+  expect(refreshErrorMessage(new Map([["my-gateway", new Error(EXPIRED)]])))
+    .toBe("my-gateway sign-in expired: /login or /logout.");
   expect(refreshErrorMessage(new Map([["a", new Error("fetch failed")], ["b", new Error("Request timed out")], ["c", new Error("500 Internal")], ["d", new Error("boom")]])))
     .toBe("Could not refresh 4 model catalogs (a: can't reach it, b: timed out, c: HTTP 500, 1 more); showing saved models.");
   const refresh = pendingRefresh();
@@ -327,7 +331,8 @@ test("a refresh failure says why in plain words: an expired sign-in asks for /lo
     refresh.settle({ aborted: false, errors: new Map([["anthropic", new Error(EXPIRED)]]) });
     await refresh.promise;
     const text = rendered(picker);
-    expect(text).toContain("Your anthropic sign-in expired. Run /login");
+    // The whole line fits the header at this width: nothing a reader needs is cut off.
+    expect(text).toContain("Anthropic API sign-in expired: /login anthropic or /logout anthropic.");
     expect(text).not.toMatch(/example\.invalid|stack=|invalid_grant/);
     expect(text).toContain("anthropic/first");
   } finally { picker.dispose(); }

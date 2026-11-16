@@ -3,7 +3,7 @@ import { chmod, mkdir, mkdtemp, readFile, realpath, stat, writeFile } from "node
 import os from "node:os";
 import path from "node:path";
 import { isolatedEnvironment } from "../src/platform/environment";
-import { copilotFromGithub, copilotTokenKind, findOtherLogins, otherLoginPaths, readOtherKey, saveCredential } from "../src/runtime/other-logins";
+import { claudeCodePlanSignedIn, copilotFromGithub, copilotTokenKind, findOtherLogins, otherLoginPaths, readOtherKey, saveCredential } from "../src/runtime/other-logins";
 import { posixOnly } from "./support/platform";
 import { removeTempDir } from "./support/temp-dir";
 
@@ -21,6 +21,18 @@ async function tempHome() {
 async function put(file: string, text: string) { await mkdir(path.dirname(file), { recursive: true }); await writeFile(file, text, { mode: 0o600 }); }
 const ids = (env: Record<string, string>, signedIn: string[] = [], platform: NodeJS.Platform = "linux") =>
   findOtherLogins(new Set(signedIn), env, platform).map((login) => login.id);
+
+test("/login marks the Claude plan signed in from Claude Code's account entry or credentials file, even with an Anthropic API sign-in saved", async () => {
+  const { home } = await tempHome();
+  const env = { HOME: home };
+  expect(claudeCodePlanSignedIn(env, "linux")).toBe(false);
+  await put(path.join(home, ".claude.json"), JSON.stringify({ oauthAccount: { emailAddress: "user@example.com" } }));
+  expect(claudeCodePlanSignedIn(env, "linux")).toBe(true);
+  await put(path.join(home, ".claude.json"), JSON.stringify({ primaryApiKey: "sk-ant-synthetic" }));
+  expect(claudeCodePlanSignedIn(env, "linux")).toBe(false);
+  await put(path.join(home, ".claude", ".credentials.json"), JSON.stringify({ claudeAiOauth: { accessToken: "synthetic" } }));
+  expect(claudeCodePlanSignedIn(env, "linux")).toBe(true);
+});
 
 test("nothing found in an empty home; each tool's sign-in is found from its own file, reading no secret to find it", async () => {
   const { home } = await tempHome();
@@ -202,8 +214,8 @@ test("a refused key is not saved and the reason is plain words; Not now saves no
   expect(refused.result).toEqual({ status: "failed", effect: "none", reason: "provider", detail: "OpenAI refused Codex CLI's key (HTTP 401)" });
   const later = await login(home, root, { "Found a Codex CLI sign-in": "3" });
   expect(later.result).toEqual({ status: "cancelled", effect: "none" });
-  const separately = await login(home, root, { "Found a Codex CLI sign-in": "2", "OpenRouter · paste an API key": "\x1b" });
-  expect(separately.screen).toContain("❯ 1. OpenRouter · paste an API key");
+  const separately = await login(home, root, { "Found a Codex CLI sign-in": "2", "ChatGPT Plus/Pro (Codex)": "\x1b" });
+  expect(separately.screen).toContain("❯ 1. OpenRouter");
   expect(separately.result).toEqual({ status: "cancelled", effect: "none" });
   const saved = await readFile(refused.auth, "utf8").then((text) => JSON.parse(text) as Record<string, unknown>, () => ({} as Record<string, unknown>));
   expect(saved.openai).toBeUndefined();
@@ -224,9 +236,9 @@ test("Claude Code's plan sign-in is never copied: picking it starts Casper's own
 test("with the setting off, or a sign-in already there, /login shows only its own list", async () => {
   const { root, home } = await tempHome();
   await put(path.join(home, ".codex", "auth.json"), JSON.stringify({ OPENAI_API_KEY: "sk-synthetic" }));
-  const off = await login(home, root, { "OpenRouter · paste an API key": "\x1b" }, "others: false,");
+  const off = await login(home, root, { "ChatGPT Plus/Pro (Codex)": "\x1b" }, "others: false,");
   expect(off.screen).not.toContain("Found");
-  const keyed = await login(home, root, { "OpenRouter · paste an API key": "\x1b" }, "", undefined, { OPENAI_API_KEY: "sk-env" });
+  const keyed = await login(home, root, { "ChatGPT Plus/Pro (Codex)": "\x1b" }, "", undefined, { OPENAI_API_KEY: "sk-env" });
   expect(keyed.screen).not.toContain("Found");
 });
 
