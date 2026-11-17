@@ -1031,6 +1031,17 @@ export class TerminalSurface {
   /** Offer the receipt's next-step row: until another key or command, a lone key from `keys` submits its command. */
   offerNext(keys: ReadonlyMap<string, string> | undefined): void { this.nextKeys = keys?.size ? new Map(keys) : undefined; }
 
+  /** Casper starts work of its own while the prompt waits (a watch's wake): the pending read never answers, the draft
+   * stays in the box, and Enter during that work queues it as during any task. False when no read is pending. */
+  yieldRead(): boolean {
+    if (!this.command || this.closed) return false;
+    this.command = undefined; this.nextKeys = undefined; this.busy = true; this.busySince = Date.now();
+    this.updateSpinner(); this.configureAutocomplete(); this.render();
+    return true;
+  }
+  /** The terminal said it is in front (true) or behind (false); undefined when it never says. */
+  get inFront(): boolean | undefined { return this.terminal.focused; }
+
   readCommand(): Promise<string | undefined> {
     if (this.busy) { this.attention("done"); this.busySince = undefined; }
     // The prompt is back: whatever work was shown in the Working box is over.

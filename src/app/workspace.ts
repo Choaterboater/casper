@@ -26,6 +26,7 @@ import { defaultNameFor, EMPTY_TEMPLATE, projectSlug, validName } from "../new/t
 import { tildePath } from "../new/scaffold";
 import type { NoiseOptions } from "../project/noise";
 import { updateFooter, phase } from "./footer";
+import { stopGithubWatches } from "./github-watch";
 import { revokeWorkspaceCapabilities } from "./session-branches";
 import { writeCheckResult, networkOptions } from "./verification";
 import { loadWorkspace } from "./wiring";
@@ -231,6 +232,8 @@ export function canMoveWorkspace(app: CasperApp): boolean {
 /** Opens a new project's folder as the workspace before any model runtime exists, so the conversation starts there. */
 export async function openWorkspaceBeforeRuntime(app: CasperApp, dir: string): Promise<void> {
   await revokeWorkspaceCapabilities(app);
+  // A watch reads the old folder's repo, but the github tool now reads the new one's: a wake there would mix them up.
+  stopGithubWatches(app, "Casper moved to another folder");
   const { context } = await loadWorkspace(app, dir);
   app.workspaceNeedsRebind = false;
   app.output.write(`[folder] Working in ${terminalText(tildePath(context.info.root, app.sessionHomeDir ?? os.homedir()))}\n`);

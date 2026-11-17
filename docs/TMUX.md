@@ -70,7 +70,8 @@ job it uses the shell's `background: true` instead, which `/tasks` lists and the
 
 `/tasks` shows one numbered list of what Casper keeps running: dev servers, slow commands moved to the
 background (`command cmd-1 npm run build`) and jobs the AI started with `background: true`, the browser, the
-debugger, helpers and checks, each with a plain status and how long it has run. Then it asks:
+debugger, helpers, checks and pull request watches ([GITHUB.md](GITHUB.md#watch-a-pull-request)), each with a plain
+status and how long it has run. Then it asks:
 
 ```
 Stop something?

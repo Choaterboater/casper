@@ -107,6 +107,9 @@ export const ghArgs = {
   log: (repo: Repo, job: string) => ["run", "view", "--job", job, "-R", repoText(repo), "--log-failed"],
   base: (repo: Repo, number: number) => ["pr", "view", String(number), "-R", repoText(repo), "--json", "baseRefName"],
   rerun: (repo: Repo, run: string) => ["run", "rerun", run, "--failed", "-R", repoText(repo)],
+  // watch: what a watch compares between reads (src/github/watch.ts); comments and reviews are only counted.
+  watch: (repo: Repo, number: number) => ["pr", "view", String(number), "-R", repoText(repo),
+    "--json", "state,mergeable,reviewDecision,statusCheckRollup,comments,reviews"],
   // -f sends text as is (no @file or {owner} filling); only the checked number goes as a typed -F value.
   comments: (repo: Repo, number: number) => ["api", "graphql", "-f", `query=${REVIEW_QUERY}`, "-f", `owner=${repo.owner}`,
     "-f", `name=${repo.name}`, "-F", `number=${number}`],

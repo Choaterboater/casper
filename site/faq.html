@@ -521,6 +521,8 @@ on in ~/.casper/config.yaml)</pre>
           never sees your GitHub login, and what GitHub sends back is marked as other people's words. It acts only on
           the folder's own repo, so it asks nothing; one pull request is re-run at most once per 10 minutes. It does not push, open or merge anything.
           <code>/review #12</code> has a read-only reviewer look at pull request 12, fetched from <code>origin</code> without checking it out.
+          Ask it to watch #12 and Casper reads it every 2 minutes with no model call, waking the AI when a check fails, all checks
+          pass, a review or comment comes in or it gets merge conflicts; a wake is never a merge decision, and the watch ends when Casper closes.
           Turn it off with <b>GitHub tool</b> in <code>/settings</code>. See
           <a href="https://github.com/Choaterboater/casper/blob/main/docs/GITHUB.md">GITHUB.md</a>.</p>
         </details>
