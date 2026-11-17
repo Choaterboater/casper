@@ -13,7 +13,8 @@ letting anything change your files.
 ```
 
 `/review` runs the same reviewer on one change for you: your uncommitted changes, the
-changes since a branch (`/review main`) or one commit (`/review abc123`). Casper gives it the
+changes since a branch (`/review main`), one commit (`/review abc123`) or this repo's pull request
+(`/review #12` or its link: fetched read-only from `origin`, nothing checked out). Casper gives it the
 diff, keeps only findings that name a real line of a changed file, and tells the conversation the
 numbered list, so `fix 1 and 3` works next.
 

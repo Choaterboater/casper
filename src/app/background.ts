@@ -1,6 +1,6 @@
 /**
  * /tasks: one numbered list of what Casper keeps running in the background (dev servers, slow commands, the browser, the debugger,
- * helpers, checks) and one numbered question to stop one. Choice 1 keeps everything running; Enter picks it.
+ * helpers, checks, pull request watches) and one numbered question to stop one. Choice 1 keeps everything running; Enter picks it.
  */
 import { hideCommandSecrets } from "../secrets/files";
 import { formatDuration, redactPreview } from "../tui/format";
@@ -11,7 +11,7 @@ function shown(text: string, max: number): string {
 }
 import type { Choice } from "./safe-choices";
 
-export type BackgroundKind = "dev server" | "command" | "browser" | "debugger" | "helper" | "checks";
+export type BackgroundKind = "dev server" | "command" | "browser" | "debugger" | "helper" | "checks" | "watch";
 
 export interface BackgroundTask {
   kind: BackgroundKind;

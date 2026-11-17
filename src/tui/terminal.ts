@@ -516,6 +516,17 @@ export class InteractiveTerminal {
     this.nextKeys = new Map(row.keys);
   }
 
+  /** The prompt gives way to work Casper starts itself (a watch's wake): the pending read never answers and what was
+   * typed stays. False when no read is pending (a line was just sent), so the caller takes that line first. */
+  yieldRead(): boolean {
+    if (this.surface) return this.surface.yieldRead();
+    if (!this.command || this.closed) return false;
+    this.command = undefined; this.nextKeys = undefined; this.busy = true;
+    return true;
+  }
+  /** Whether the terminal is in front, when it says (focus reports, rich terminal only). */
+  get inFront(): boolean | undefined { return this.surface?.inFront; }
+
   readCommand(): Promise<string | undefined> {
     this.flushCard();
     // Nobody is at a terminal that went away: the job ends after its task.

@@ -250,6 +250,7 @@ Local commands:
   /verify <lab check>               Run a lab check on your own lab (lab.hosts); asks first, never auto
   /review                           A read-only reviewer AI reads your uncommitted changes (staged, unstaged, new files) for bugs, security issues and missing tests, by file:line; then say "fix 1 and 3"
   /review <branch|commit>           The same for the changes since a branch (its merge-base), or for one commit; a big diff is cut and says what was left out
+  /review #<n>|<pull request link>  The same for this repo's pull request n: fetched read-only from origin, compared with its base branch
   /security-review                  Run the pinned security tools here (no model), then offer an AI review: 1 Stop here · 2 Run the AI review, with its cost; Enter spends nothing
   /security-review ai               The same, and runs the AI review with no box (the cost is printed first)
   /security-review update           Download osv-scanner's advisory data (asks first)
