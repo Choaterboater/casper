@@ -1,7 +1,8 @@
 import { createHash, randomUUID } from "node:crypto";
 import { mkdir, realpath, rename, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { lockBusy, openNoFollow } from "../platform/files";
+import { openNoFollow } from "../platform/files";
+import { withStateLock } from "../platform/state-lock";
 import { CHECK_NAMES, summarizeVerification, summarizeVerificationCheck, type VerificationReport, type VerificationCheckSummary } from "../verify/evidence";
 import { isVerificationScope } from "../verify/scope";
 
@@ -167,27 +168,19 @@ export class ProjectMemory {
     const directory = await realpath(this.directory);
     // Paths come from Casper's user-owned project state, never model arguments.
     const lock = path.join(directory, `${name}.lock`);
-    let acquired = false;
-    for (let attempt = 0; attempt < 100; attempt++) {
-      try { await mkdir(lock, { mode: 0o700 }); acquired = true; break; }
-      catch (error) {
-        if (!lockBusy(error)) throw error;
-        await new Promise((resolve) => setTimeout(resolve, 20));
+    await withStateLock(lock, async () => {
+      let temporary: string | undefined;
+      try {
+        const next = change(await this.read(name, valid));
+        if (next.length > MAX_RECORDS || !next.every(valid)) throw new Error("Memory record limit reached or invalid record");
+        const source = next.map((entry) => JSON.stringify(entry) + "\n").join("");
+        if (Buffer.byteLength(source) > MAX_FILE_BYTES) throw new Error("Memory file budget reached; archive it manually before continuing");
+        temporary = path.join(directory, `.${name}.${randomUUID()}.tmp`);
+        await writeFile(temporary, source, { flag: "wx", mode: 0o600 });
+        await rename(temporary, path.join(directory, name));
+      } finally {
+        if (temporary) await rm(temporary, { force: true });
       }
-    }
-    if (!acquired) throw new Error("Memory state is locked; no update made");
-    let temporary: string | undefined;
-    try {
-      const next = change(await this.read(name, valid));
-      if (next.length > MAX_RECORDS || !next.every(valid)) throw new Error("Memory record limit reached or invalid record");
-      const source = next.map((entry) => JSON.stringify(entry) + "\n").join("");
-      if (Buffer.byteLength(source) > MAX_FILE_BYTES) throw new Error("Memory file budget reached; archive it manually before continuing");
-      temporary = path.join(directory, `.${name}.${randomUUID()}.tmp`);
-      await writeFile(temporary, source, { flag: "wx", mode: 0o600 });
-      await rename(temporary, path.join(directory, name));
-    } finally {
-      if (temporary) await rm(temporary, { force: true });
-      await rm(lock, { recursive: true, force: true });
-    }
+    }, { busy: "Memory state is locked; no update made" });
   }
 }

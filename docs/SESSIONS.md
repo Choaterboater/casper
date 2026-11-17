@@ -175,7 +175,8 @@ login or secret is refused, as in a run that can't ask.
 
 **Limits.** A job stops after 4 hours of work (time waiting on you doesn't count), and a question waits 24 hours;
 then the job ends with a receipt that says why. The spend rules are yours as always. One job a folder: a second
-Casper in the same folder whose terminal closes mid-task stops as before.
+Casper in the same folder whose terminal closes mid-task stops as before. A job whose Casper is gone (killed, or the
+computer restarted) reads as stopped and no longer counts as that folder's job.
 
 **Where it doesn't apply.** On Windows a closed window still stops the task (Windows ends a console program soon
 after its window closes); "keep going after I leave" says so. One-shot runs (`casper -p`, `--json`) and scripts are

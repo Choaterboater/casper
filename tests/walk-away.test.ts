@@ -4,7 +4,8 @@ import os from "node:os";
 import path from "node:path";
 import { PassThrough } from "node:stream";
 import type { CasperApp } from "../src/app";
-import { AwayJob, leaveOnHangUp } from "../src/app/away";
+import { AwayJob, leaveOnHangUp, startingJob } from "../src/app/away";
+import { bootEpoch, sameBoot } from "../src/platform/state-lock";
 import { jobState, jobStatusWords, leavingReply, leavingWords, logTail } from "../src/app/jobs";
 import { notifyCommand } from "../src/jobs/notify";
 import { GONE_WHY, jobsDirectory, listJobs, liveJobSync, parseJob, pruneJobs, readAnswer, readJob, settled, writeAnswer, writeJob, writeJobSync,
@@ -69,6 +70,42 @@ test("one job a folder: another live Casper's job blocks a second one, a gone or
   expect(liveJobSync(dir, 999_999_991, alive)).toBeUndefined();
   writeJobSync(dir, record({ id: "000000000001", pid: 999_999_991, status: "done" }));
   expect(liveJobSync(dir, process.pid, alive)).toBeUndefined();
+});
+
+test("a job from before the computer restarted is gone even when its pid is in use again", async () => {
+  // The job was left at 10:00; the computer started again an hour later.
+  const left = Date.parse(record().leftAt) / 1000;
+  const thisBoot = () => left + 3_600;
+  const sameStart = record({ boot: left + 3_630 }), earlier = record({ boot: left - 10_000 }), noBoot = record();
+  // The boot is kept as written; a record from an older Casper has none.
+  expect(parseJob(JSON.stringify(earlier), earlier.id)?.boot).toBe(left - 10_000);
+  expect(parseJob(JSON.stringify(noBoot), noBoot.id)?.boot).toBeUndefined();
+  expect(settled(sameStart, alive, thisBoot).status).toBe("running");
+  expect(settled(earlier, alive, thisBoot)).toMatchObject({ status: "stopped", why: GONE_WHY });
+  expect(settled(noBoot, alive, thisBoot).status).toBe("running");
+  // A clock set two minutes forward moves the boot too, but the computer still started before the job: it keeps running.
+  expect(settled(earlier, alive, () => left - 10_000 + 120).status).toBe("running");
+  expect(settled(earlier, dead, () => left - 10_000 + 120).status).toBe("stopped");
+  const dir = jobsDirectory(await temp());
+  writeJobSync(dir, record({ id: "000000000001", pid: 999_999_991, boot: left - 10_000 }));
+  expect(liveJobSync(dir, process.pid, alive, thisBoot)).toBeUndefined();
+  expect(liveJobSync(dir, process.pid, alive, () => left - 10_000 + 120)?.id).toBe("000000000001");
+  writeJobSync(dir, record({ id: "000000000001", pid: 999_999_991, boot: left + 3_600 }));
+  expect(liveJobSync(dir, process.pid, alive, thisBoot)?.id).toBe("000000000001");
+  const home = await temp();
+  writeJobSync(path.join(home, ".casper", "projects", KEY, "jobs"), earlier);
+  expect((await listJobs(home, KEY, alive, thisBoot))[0]?.record.status).toBe("stopped");
+});
+
+test("a new job records this Casper and when this computer started, so a restart reads it as stopped", () => {
+  const job = startingJob("/work/app", "fix   the VLAN script", "2026-11-17T12:00:00.000Z");
+  expect(job).toMatchObject({ pid: process.pid, root: "/work/app", folder: "app", request: "fix the VLAN script", status: "running",
+    leftAt: "2026-11-17T12:00:00.000Z" });
+  expect(Number.isSafeInteger(job.boot)).toBe(true);
+  expect(sameBoot(job.boot!, bootEpoch())).toBe(true);
+  expect(parseJob(JSON.stringify(job), job.id)?.boot).toBe(job.boot!);
+  expect(settled(job, alive).status).toBe("running");
+  expect(settled(job, alive, () => Date.parse(job.leftAt) / 1000 + 3_600)).toMatchObject({ status: "stopped", why: GONE_WHY });
 });
 
 test("an answer counts only for the question it was given for", async () => {

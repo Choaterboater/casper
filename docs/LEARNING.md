@@ -192,8 +192,10 @@ Persistence uses a per-source directory lock (up to 100 attempts / approximately
 two seconds of waiting), reload-under-lock, exclusive `0600` temporary files and
 atomic rename. New directories use `0700`. Publication is atomic visibility, not
 a promise that data survives a crash (no fsync). Concurrent processes preserve each other's
-records. Interrupted locks are not stolen; preserve/inspect state before manual
-recovery. No automatic deletion, pruning or reset is performed.
+records. The lock folder names the process holding it; a lock whose process is
+gone, or that is from before the computer restarted, is taken over, and a live
+one never is ([decision 109](adr/0002/109-a-lock-says-who-holds-it.md)). No
+automatic deletion, pruning or reset of the state is performed.
 
 Promotion decisions are separate append-only-by-policy records. Each binds the
 source root, draft ID/digest, candidate number/digest, disposition, optional skill
