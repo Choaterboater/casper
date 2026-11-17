@@ -203,7 +203,8 @@ stops, and asks you nothing, Casper sends it on itself with what is still open:
 `↻ keep going 1/2: 2 items still open, so the AI carries on (Esc stops it)`. That is two rounds a task at most, and none
 after a round that leaves as much open as before. A round is the task's own turn, so every approval box,
 the sandbox and the spend pause apply as usual. Only in a session: one-shot runs and `--json` don't.
-It is on. Turn it off with `/settings` (it writes `keep_going: false`) and the AI waits for you to say
+A task that stopped on a used-up Claude plan limit goes on by itself once the limit resets, as one of the two rounds
+([Claude plan limits](#claude-plan-limits)). It is on. Turn it off with `/settings` (it writes `keep_going: false`) and the AI waits for you to say
 go. A project file can't set it. See [decision 39](adr/0002/39-keep-going.md).
 
 ### Stalled commands
@@ -1012,6 +1013,14 @@ and Casper keeps the latest of each, with no extra call and no tokens
   (`Your Claude plan's 5-hour limit is used up; it resets at 3:40 PM.`), and the receipt's next step is to
   wait until then or pick another model, instead of waiting a minute. Casper doesn't try again before the
   reset, and with a [failover](#failover) list the task switches at once.
+- When no listed model can take the task on and the limit resets within a day (the 5-hour limit), one line
+  says so: `Claude's 5-hour limit resets at 3:40 PM; Casper goes on then. Type anything or press Esc to cancel.`
+  At the reset the AI carries on where it stopped (`↻ keep going 1/2: Claude's 5-hour limit reset, so the AI
+  carries on`), told to check what already took effect before repeating a step. It is one of
+  [keep going](#keep-going)'s two rounds, once a task, so `keep_going: off` turns it off too. A line you type,
+  Esc, a change to the folder's files, or another model in use while it waits cancels it. A weekly reset is only
+  named: Casper doesn't wait more than a day. In a [walk-away job](SESSIONS.md) the job waits and goes on
+  ([decision 107](adr/0002/107-a-task-goes-on-when-the-claude-plan-resets.md)).
 
 ## Local models
 

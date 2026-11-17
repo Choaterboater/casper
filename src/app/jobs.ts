@@ -23,8 +23,10 @@ function ago(iso: string, now = Date.now()): string {
 const plain = (text: string, max = 80) => terminalText(text).replace(/\s+/g, " ").trim().slice(0, max);
 const ref = (job: ListedJob) => job.here ? job.record.id : `${job.key}/${job.record.id}`;
 
-/** The plain status of one job: "done 12m ago", "waiting on you: Run this command?", "working for 3m". */
+/** The plain status of one job: "done 12m ago", "waiting on you: Run this command?", "waiting till the Claude plan's
+ * 5-hour limit resets at 3:40 PM", "working for 3m". */
 export function jobState(record: JobRecord, now = Date.now()): string {
+  if (record.status === "waiting" && !record.question && record.why) return `waiting till ${plain(record.why, 80)}`;
   if (record.status === "waiting") return `waiting on you: ${plain(record.question?.question ?? "a question", 60)}`;
   if (record.status === "running") return `working · left ${ago(record.leftAt, now)}`;
   const when = ago(record.endedAt ?? record.updatedAt, now);
@@ -42,12 +44,13 @@ export async function jobRowItems(app: CasperApp): Promise<NextItem[]> {
   const listed = await jobs(app);
   const where = (job: ListedJob) => job.here ? "" : ` in ${plain(job.record.folder, 30)}`;
   const items: NextItem[] = [
-    ...listed.filter((job) => job.record.status === "waiting").map((job) => ({ label: `Answer the job's question${where(job)}`,
+    ...listed.filter((job) => job.record.status === "waiting" && job.record.question).map((job) => ({ label: `Answer the job's question${where(job)}`,
       command: `/jobs answer ${ref(job)}`, note: plain(job.record.request, 50) })),
     ...listed.filter((job) => (job.record.status === "done" || job.record.status === "stopped") && !job.record.seen).map((job) => ({
       label: `See the job's result${where(job)}`, command: `/jobs show ${ref(job)}`,
       note: `${plain(job.record.request, 50)} · ${job.record.status === "done" ? "done" : "stopped"}` })),
-    ...listed.filter((job) => job.here && job.record.status === "running").map((job) => ({ label: "Job working here", command: "/jobs",
+    // A job waiting on a Claude plan reset, not on you, is still working here.
+    ...listed.filter((job) => job.here && (job.record.status === "running" || (job.record.status === "waiting" && !job.record.question))).map((job) => ({ label: "Job working here", command: "/jobs",
       note: `${plain(job.record.request, 50)} · left ${ago(job.record.leftAt)}` })),
   ];
   return items.slice(0, 2);
@@ -87,9 +90,9 @@ async function listCommand(app: CasperApp): Promise<void> {
   app.output.write(`Jobs, this folder first:\n${listed.map((job, index) =>
     `  ${index + 1}  ${plain(job.record.request, 50)} · ${jobState(job.record)}${job.here ? "" : ` · ${plain(job.record.folder, 30)}`}`).join("\n")}\n`);
   if (!app.interactive) return;
-  app.terminal.offerNext(buildNextRow({ more: listed.map((job) => job.record.status === "waiting"
+  app.terminal.offerNext(buildNextRow({ more: listed.map((job) => job.record.status === "waiting" && job.record.question
     ? { label: "Answer", command: `/jobs answer ${ref(job)}`, note: plain(job.record.request, 30) }
-    : { label: job.record.status === "running" ? "Look" : "See result", command: `/jobs show ${ref(job)}`, note: plain(job.record.request, 30) }) }));
+    : { label: job.record.status === "running" || job.record.status === "waiting" ? "Look" : "See result", command: `/jobs show ${ref(job)}`, note: plain(job.record.request, 30) }) }));
 }
 
 /** /jobs show <job>: the AI's last words and the receipt. In the job's own folder the receipt is the saved one, with
@@ -103,7 +106,7 @@ async function showCommand(app: CasperApp, wanted: string): Promise<void> {
     // What it is doing: the last lines of its log, secrets hidden as on the screen it would have had.
     const tail = await logTail(jobLog(job.directory, record.id));
     if (tail) app.output.write(`Lately:\n${tail.split("\n").map((line) => `  ${line}`).join("\n")}\n`);
-    if (record.status === "waiting" && app.interactive) app.terminal.offerNext(buildNextRow({ more: [{ label: "Answer the job's question", command: `/jobs answer ${ref(job)}` }] }));
+    if (record.status === "waiting" && record.question && app.interactive) app.terminal.offerNext(buildNextRow({ more: [{ label: "Answer the job's question", command: `/jobs answer ${ref(job)}` }] }));
     return;
   }
   if (record.answer) app.output.write(`${terminalText(record.answer).trimEnd()}\n`);

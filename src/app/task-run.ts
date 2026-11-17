@@ -76,6 +76,7 @@ import { updateFooter, nameConversation, phase, clearSteps } from "./footer";
 import { reviewPendingParts, partsNotReviewed, prepareCapabilities, serviceManager, stopDebugger, planPages, pageNotesFor, pagePaths } from "./task-tools";
 import { withoutPasted, type RequestWords } from "./request-words";
 import { applyWords, hasWords } from "./task-words";
+import { goOnAtPlanReset } from "./plan-reset";
 import { ensureModel, retryModelFailure, bigModelReceipt, bigModelNotice, imagesForModel, switchForPictures, restoreModel } from "./big-model";
 import { attachImages } from "./images";
 import { confirmYes, someoneAnswers } from "./approvals";
@@ -1362,11 +1363,20 @@ function takeOpenPlan(app: CasperApp): string {
 /** Keep going (src/task/keep-going.ts, decision 39): in a session, the AI stopped with work it says is not done, or after
  * saying what it does next, and asked the person nothing. Casper sends it on, at most KEEP_GOING_ROUNDS times, and not
  * again once a round leaves as much open as before. A stop, a failure, a turn or spend limit, a tool run after the AI's
- * last words, or keep_going: off ends it. The round is the task's own turn: the same gates, approvals and budget. */
+ * last words, or keep_going: off ends it. The round is the task's own turn: the same gates, approvals and budget.
+ * A turn that failed on a used-up Claude plan window goes on once the window resets, as one of these rounds, once a
+ * task (src/app/plan-reset.ts, decision 107). */
 async function keepGoing(app: CasperApp, session: RuntimeSession, request: string): Promise<void> {
   if (!app.interactive || app.projectContext?.keepGoing === false) return;
   let before = Number.POSITIVE_INFINITY;
-  for (let round = 1; round <= KEEP_GOING_ROUNDS; round++) {
+  let waited = false;
+  for (let round = 1; ; round++) {
+    if (!waited) {
+      const plan = await goOnAtPlanReset(app, session, request, round);
+      if (plan === "stopped") return;
+      if (plan === "resumed") { waited = true; continue; }
+    }
+    if (round > KEEP_GOING_ROUNDS) return;
     if (app.closing || app.commandAbort?.signal.aborted || app.taskRuntimeCancelled || app.taskRuntimeFailed
       || app.taskTurnLimit !== undefined || app.taskSpendStop !== undefined || app.toolAfterAnswer) return;
     const need = keepGoingNeed(app.lastAnswer);

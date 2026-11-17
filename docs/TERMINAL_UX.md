@@ -696,6 +696,10 @@ live rows, popups or pickers, or a duplicated prompt box (`bun test tests/termin
   plan's 5-hour or weekly limit is used up, the switch is at once, and your requests stay on the model it
   switched to until that limit resets: `Your requests stay on provider/model-b until the Claude plan's
   5-hour limit resets at 3:40 PM, then go back to claude-subscription/claude-opus-4-8.`
+  With no listed model to go on, a limit that resets within a day is waited for:
+  `Claude's 5-hour limit resets at 3:40 PM; Casper goes on then. Type anything or press Esc to cancel.`
+  At the reset the task goes on as a keep going round
+  ([Claude plan limits](CONFIGURATION.md#claude-plan-limits)).
 - A fresh interactive session clears the viewport at startup: the new session renders from
   the top of the screen and the previous run's transcript stays in scrollback.
 - While a prompt runs or tool activity is on screen, the footer spinner, the status row and a running

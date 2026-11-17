@@ -108,6 +108,7 @@ import { runVerification, checksPlan, saveFoundCheck } from "./app/verification"
 import type { AppSmokeTask } from "./app/try-it";
 import { runInteractive, handlePrompt, handleSlashCommand, cancelCurrent, writePrompt } from "./app/command-loop";
 import { leaveOnHangUp, type AwayJob, type WalkAwaySeams } from "./app/away";
+import type { ResetClock } from "./task/plan-reset";
 import { loadWorkspace, reloadReferences, reloadSkills, projectPrivatePaths, userReadablePaths, reportSkillWarnings, bannerChecks, reportNewerCasper } from "./app/wiring";
 import { PendingPictures } from "./pictures/pending";
 import { acquireRuntime, ensureRuntime, checkSignIn, observeEdit } from "./app/runtime-start";
@@ -175,6 +176,8 @@ export interface CasperAppOptions {
   createProject?: (options: NewProjectOptions) => Promise<NewProjectResult>;
   /** Tests: the wait before each automatic retry of a model that answered with nothing (default: a timer). */
   modelRetryWait?: (ms: number) => Promise<void>;
+  /** Tests: the clock a task waits on for a Claude plan limit to reset (src/app/plan-reset.ts). */
+  planResetClock?: ResetClock;
   /** Tests: whether this computer has a desktop, and the browser opener, for the pages the AI makes. */
   pageSeams?: { desktop?: () => boolean; open?: (url: string) => boolean };
   /** Tests: where make_picture finds codex (PATH) and how it reaches the image services. */
@@ -419,6 +422,9 @@ export class CasperApp {
   /** A model task runs in this command (not a local command such as /settings): only it outlives the terminal. */
   modelTaskActive = false;
   readonly modelRetryWait?: CasperAppOptions["modelRetryWait"];
+  readonly planResetClock?: CasperAppOptions["planResetClock"];
+  /** The task waits for a Claude plan limit to reset (src/app/plan-reset.ts): why, and how a typed line cancels it. */
+  planWait?: { why: string; cancel(): void };
   /** The dev-server lines are printed once per session. */
   readonly pageNotice: DevServerNotice = { shown: false };
   /** What may have changed this task's code since it started: a check the model records after that has no
@@ -612,6 +618,7 @@ export class CasperApp {
     this.secretInput = options.secretInput;
     this.walkAway = options.walkAway;
     this.modelRetryWait = options.modelRetryWait;
+    this.planResetClock = options.planResetClock;
     this.networkTools = options.networkTools;
     this.securitySeams = options.securitySeams;
     this.networkSeams = options.networkSeams;

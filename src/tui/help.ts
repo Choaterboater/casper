@@ -41,7 +41,7 @@ Green is proven or passed, amber needs a look, red failed. /receipt shows every 
 A task that is not done ends with a line instead of a receipt, and its receipt is saved (/receipt):
   ? Waiting for your answer     The AI asked you something. Answer it; the receipt that ends the work names what changed before your answer.
   Paused — the AI said what it does next   It stopped after saying what it will do. Say go, or tell it what to change.
-  ↻ keep going 1/2              It stopped with work open or said what it does next, and asked nothing: Casper sends it on (twice at most; keep_going: off waits for you).
+  ↻ keep going 1/2              It stopped with work open, said what it does next, or hit a Claude plan limit that has reset, and asked nothing: Casper sends it on (twice at most; keep_going: off waits for you).
 `;
 
 /** The keys, in /help all and /hotkeys. */

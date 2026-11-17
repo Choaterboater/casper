@@ -173,7 +173,12 @@ spend pause, the AI's own question) waits, and the job with it, until you answer
 waiting. A password or secret box (ssh, sudo, `casper_secret`) never travels between terminals: on a job that
 login or secret is refused, as in a run that can't ask.
 
-**Limits.** A job stops after 4 hours of work (time waiting on you doesn't count), and a question waits 24 hours;
+**A Claude plan limit.** When the job's task stops on a used-up Claude plan limit that resets within a day, the job
+waits for the reset and goes on ([decision 107](adr/0002/107-a-task-goes-on-when-the-claude-plan-resets.md)). `/jobs`
+says `waiting till the Claude plan's 5-hour limit resets at 3:40 PM`; there is nothing to answer, and the row says
+`Job working here`.
+
+**Limits.** A job stops after 4 hours of work (time waiting on you or on a plan limit doesn't count), and a question waits 24 hours;
 then the job ends with a receipt that says why. The spend rules are yours as always. One job a folder: a second
 Casper in the same folder whose terminal closes mid-task stops as before.
 
