@@ -67,6 +67,8 @@ import { UndoStore } from "../task/undo";
 import { tildePath } from "../new/scaffold";
 import { conversationLabel, matchConversation, recentTurnLines } from "../sessions/resume";
 import { conversationDay } from "./earlier-conversation";
+import { openCutShort } from "./cut-short";
+import { cutShortLine } from "../sessions/cut-short";
 import { readFile, stat } from "node:fs/promises";
 import type { SessionWorkspaceManager } from "../sessions/manager";
 import { typedDuringTask } from "../tui/give-way";
@@ -518,6 +520,9 @@ export async function runSlashCommand(host: CommandHost, prompt: string): Promis
       if (prompt === "/continue" && host.continueQuietly !== undefined && day) {
         const which = day.endsWith("'s") ? `${day} conversation` : `the ${day} conversation`;
         host.output.write(`[session] Continuing ${which}${title ? ` (${terminalText(title)})` : ""}${host.continueQuietly ? `: ${host.continueQuietly}` : ""}.\n`);
+        // A line that refers back rides on it: say its last task was cut short (the start's row already said so).
+        const cut = host.continueQuietly ? openCutShort(host, session) : undefined;
+        if (cut) host.output.write(`${terminalText(cutShortLine(cut))}\n`);
         return;
       }
       host.output.write(!host.interactive
@@ -533,6 +538,9 @@ export async function runSlashCommand(host: CommandHost, prompt: string): Promis
       if (modelLine) host.output.write(`${modelLine}\n`);
       const turns = prompt === "/clear" ? [] : recentTurnLines(session.recentTurns?.(12) ?? []);
       if (turns.length) host.output.write(`Last turns:\n${turns.map(line => terminalText(line)).join("\n")}\n`);
+      // Casper closed while its last steps ran: the next request tells the AI (decision 108).
+      const cut = prompt === "/clear" ? undefined : openCutShort(host, session);
+      if (cut) host.output.write(`${terminalText(cutShortLine(cut))}\n`);
       // Back in a conversation, nothing runs until you type: say so, so the prompt doesn't look stuck.
       if (host.interactive && prompt !== "/clear") host.output.write(`${RESUMED_READY}\n`);
       return;

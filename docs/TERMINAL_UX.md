@@ -1111,6 +1111,11 @@ yesterday's conversation on offer, a short first line that refers back (`re run 
 sent into it with one `[session] Continuing today's conversation (…)` line, and one that only names a project check
 (`run test`) says which check it runs and offers `1 Ask in today's conversation instead` on its Next row. Anything else typed is the new conversation's first request, and
 Enter runs nothing ([decision 42](adr/0002/42-a-plain-start-is-new.md), [decision 53](adr/0002/53-a-start-that-refers-back.md)).
+When that conversation's last task was cut short (Casper closed while the AI's steps ran), the same key reads
+`Go on with the task that was cut short (<request>, today)` and sends a note naming each step with no result as the
+request; `/continue`, `/resume` and `--continue` into it print `[session] Its last task was cut short while bash was
+running; the AI checks before repeating a step.` before `Ready: …`
+([decision 108](adr/0002/108-a-task-cut-short-goes-on-carefully.md)).
 The AI's words drop Markdown's escapes wherever they show: in its answers' inline code (`casper\_check` reads
 `casper_check`, `\~/x` reads `~/x`; a fenced block stays as written), a step's title and the status row
 (`tests/markdown-escapes.test.ts`).

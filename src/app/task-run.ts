@@ -88,6 +88,8 @@ import { projectPrivatePaths, reportSkillWarnings } from "./wiring";
 import { appAgentDir, ensureRuntime } from "./runtime-start";
 import { reloadProject, writeProjectFile } from "./project-file";
 import { requestAsItStands, withLinesBeforeModel } from "./steered-request";
+import { openCutShort } from "./cut-short";
+import { CUT_SHORT_GO_ON, cutShortNote } from "../sessions/cut-short";
 import { personNote } from "./person-note";
 
 /** `guide`: guidance a command the user typed adds to this one request (/look's instructions), after the request. */
@@ -161,7 +163,9 @@ export async function runModelTask(app: CasperApp, prompt: string, options: { fl
   app.runtimeCheckInputs = new WeakMap();
   app.offeredAppSmoke = undefined;
   app.automaticServices = new Set();
-  const classification = classifyTask(prompt);
+  // Going on with a task cut short (the start's row): read as the request it worked on, not as these words.
+  const goingOn = typed.trim() === CUT_SHORT_GO_ON && app.session ? openCutShort(app, app.session)?.request : undefined;
+  const classification = classifyTask(goingOn ?? prompt);
   // beforeChanges policy: under-specified implement/configure work must see one recorded
   // ask attempt before the first edit. Interactive sessions and form apps only — one-shot
   // cannot ask, so denying edits there would only deadlock the task.
@@ -174,7 +178,7 @@ export async function runModelTask(app: CasperApp, prompt: string, options: { fl
   app.editGateActive = ((app.interactive && app.terminal.rich) || app.remoteQuestions)
     && context.policy.behavior.askQuestions === "beforeChanges"
     && (classification.intent === "implement" || classification.intent === "configure")
-    && underSpecifiedTarget(typed);
+    && underSpecifiedTarget(goingOn ?? typed);
   // Debug values and active debuggees do not silently become model-task context.
   await stopDebugger(app);
   // A finished task's immutable evidence belongs to its receipt, not the next prompt. Its checks go on, so this task can
@@ -382,6 +386,10 @@ export async function runModelTask(app: CasperApp, prompt: string, options: { fl
         if (app.closing || app.commandAbort?.signal.aborted) return;
       }
       const emptyFolder = await emptyFolderNote(workspaceRoot);
+      // Casper closed while the conversation's last steps ran: one note before this request (decision 108). The start
+      // row's "Go on with the task that was cut short" sends the note alone.
+      const cut = openCutShort(app, session);
+      const goOn = cut !== undefined && typed.trim() === CUT_SHORT_GO_ON;
       await session.prompt(withLinesBeforeModel(app, [
         // A picture that failed after the last request ended, told once.
         ...app.pendingPictures.takeUnseen(),
@@ -391,7 +399,8 @@ export async function runModelTask(app: CasperApp, prompt: string, options: { fl
         takeOpenPlan(app),
         // Only in a folder holding nothing but .casper: `git clone <url> .` would refuse it.
         emptyFolder,
-        formatTaskPrompt(prompt, classification, context.model, { verificationMode, proveChange: proving, typed, machines: machineNames(app.machines, app.sessionHomeDir), readOnly,
+        cut && !goOn ? cutShortNote(cut) : "",
+        formatTaskPrompt(goOn ? cutShortNote(cut, true) : prompt, classification, context.model, { verificationMode, proveChange: proving, typed: goingOn ?? typed, machines: machineNames(app.machines, app.sessionHomeDir), readOnly,
           reviewFollows: context.verification.review === true, afterContext: Boolean(memoryContext || skillContext) }),
         planBlock,
         // "in parallel", "by yourself": one line, only where builders are offered.
@@ -916,7 +925,8 @@ export async function runPlanTurn(app: CasperApp, session: RuntimeSession, reque
     app.planning = true;
     // Show only Casper's plan screen, not the raw answer too. This resets held words for every rewrite.
     app.events.holdText("Writing the plan");
-    try { await session.prompt(withLinesBeforeModel(app, prompt), signal, { request, typed, maxTurns: app.maxTurns }); }
+    const cut = openCutShort(app, session);
+    try { await session.prompt(withLinesBeforeModel(app, cut ? `${cutShortNote(cut)}\n\n${prompt}` : prompt), signal, { request, typed, maxTurns: app.maxTurns }); }
     finally { app.planning = false; app.events.holdText(undefined); }
     const written = app.events.heldWords();
     const showWritten = () => {

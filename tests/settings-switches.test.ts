@@ -587,6 +587,24 @@ test("Keep going row: on by default, a pick writes keep_going: false; it loads f
   await expect(load()).rejects.toThrow("keep_going is a user setting");
 });
 
+test("Tasks cut short row: on by default, a pick writes cut_short: false; it loads from your own config, never a project file", async () => {
+  const { home, project, config, projectFile } = await folders();
+  const label = "Tasks cut short";
+  expect(SETTINGS_AREAS[settingsArea(label)]!.name).toBe("Tools & browser");
+  expect(await valueOf(home, project, label)).toBe("on");
+  const host = fakeHost(home, project, [label, "Turn them off", "Done"]);
+  await runSettings(host);
+  expect(host.asked[1]).toContain("the start offers to go on with that task");
+  expect(await readFile(config, "utf8")).toBe("cut_short: false\n");
+  expect((await host.context())!.cutShort).toBe(false);
+  expect(await valueOf(home, project, label)).toBe("off");
+  const load = () => loadConfiguration({ projectRoot: project, homeDir: home });
+  await writeFile(config, "cut_short: on\n");
+  expect((await load()).cutShort).toBe(true);
+  await writeFile(projectFile, "cut_short: off\n");
+  await expect(load()).rejects.toThrow("cut_short is a user setting");
+});
+
 test("MCP pictures: on by default in the MCP area, off writes mcp_pictures: false and applies at the next step", async () => {
   const { home, project, config } = await folders();
   expect(SETTINGS_AREAS[settingsArea("MCP pictures")]!.name).toBe("MCP & network");

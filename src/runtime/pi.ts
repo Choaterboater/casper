@@ -72,6 +72,7 @@ import { LoopGuard } from "./loop-guard";
 import { ToolHistory, TOOL_HISTORY_ENTRY } from "./tool-history";
 import { SteeredLines, STEERED_LINE_ENTRY, steeredAt, userText } from "./steered-lines";
 import { CASPER_SAID_ENTRY, conversationRecord, saidBy } from "../sessions/record";
+import { cutShortTurn, markRunning, runningElsewhere, type CutShort } from "../sessions/cut-short";
 import { ELISION_NOTE, elisionTexts, newElisions } from "./elision";
 import { addsSecret } from "../secrets/files";
 import { ToolArgumentRepair } from "./tool-repair";
@@ -414,7 +415,7 @@ class PiRuntimeSession implements RuntimeSession {
 
   async listConversations(): Promise<RuntimeConversation[]> {
     return (await SessionManager.list(this.runtime.cwd)).map(info => ({ id: info.id, name: info.name, modified: info.modified.toISOString(),
-      firstMessage: info.firstMessage.slice(0, 4000), messages: info.messageCount }));
+      firstMessage: info.firstMessage.slice(0, 4000), messages: info.messageCount, file: info.path }));
   }
 
   recentTurns(count: number): Array<{ role: "user" | "assistant"; text: string }> {
@@ -431,6 +432,13 @@ class PiRuntimeSession implements RuntimeSession {
 
   conversationRecord(): ConversationItem[] {
     return conversationRecord(this.runtime.session.sessionManager.getBranch());
+  }
+
+  cutShort(): CutShort | undefined {
+    const session = this.runtime.session;
+    // Another Casper still working in this conversation: its steps are running, not cut short.
+    if (session.sessionFile && runningElsewhere(session.sessionFile)) return undefined;
+    return cutShortTurn(session.sessionManager.getBranch());
   }
 
   /** Who wrote the message a prompt added after `from` (the leaf before it): the person (`typed`, their words) or
@@ -549,6 +557,8 @@ class PiRuntimeSession implements RuntimeSession {
       });
     };
     promptSignal.addEventListener("abort", cancel, { once: true });
+    // This process works in the conversation till the prompt ends: a Casper started meanwhile doesn't read it as cut short.
+    const unmark = this.readOnly ? () => {} : markRunning(session.sessionFile);
     try {
       promptSignal.throwIfAborted();
       const status = await this.models.preparePrompt(session, options?.request ?? text, promptSignal);
@@ -573,6 +583,7 @@ class PiRuntimeSession implements RuntimeSession {
       });
       throw error;
     } finally {
+      unmark();
       // A window error Pi did not compact and retry for is the outcome after all.
       const overflow = this.overflowError; this.overflowError = undefined;
       if (overflow) this.emit(overflow);
@@ -949,7 +960,7 @@ export async function savedConversations(cwd: string): Promise<RuntimeConversati
   const dir = path.join(path.resolve(getAgentDir()), "sessions", `--${path.resolve(cwd).replace(/^[/\\]/, "").replace(/[/\\:]/g, "-")}--`);
   if (!existsSync(dir)) return [];
   return (await SessionManager.list(cwd, dir)).map(info => ({ id: info.id, name: info.name, modified: info.modified.toISOString(),
-    firstMessage: info.firstMessage.slice(0, 4000), messages: info.messageCount }));
+    firstMessage: info.firstMessage.slice(0, 4000), messages: info.messageCount, file: info.path }));
 }
 
 export class PiRuntime implements AgentRuntime {

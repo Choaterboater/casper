@@ -381,6 +381,8 @@ export interface RuntimeConversation {
   id: string; name?: string; modified: string;
   /** The first message sent (Casper's wrapper included; see requestOf) and how many messages it has. */
   firstMessage?: string; messages?: number;
+  /** Where it is saved, read for a task cut short (src/sessions/cut-short.ts). */
+  file?: string;
 }
 
 export interface RuntimeState {
@@ -558,6 +560,8 @@ export interface RuntimeSession {
   recentTurns?(count: number): Array<{ role: "user" | "assistant"; text: string }>;
   /** The whole conversation as saved, oldest first: also what a compaction took out of the AI's context (for /export). */
   conversationRecord?(): ConversationItem[];
+  /** The AI's last steps that have no result, when Casper stopped while they ran and nothing came after (decision 108). */
+  cutShort?(): import("../sessions/cut-short").CutShort | undefined;
   compact?(instructions?: string, signal?: AbortSignal): Promise<void>;
   /** `maxTurns` stops the request gracefully after that many model turns (tools of the last turn
    * still finish) and emits turn_limit; unset means no Casper turn limit. `images` go with the text (a model

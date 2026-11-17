@@ -355,6 +355,9 @@ export function settingRows(context: ProjectContext, home = os.homedir()): Setti
       keep: `Keep them ${build ? "on" : "off"}`,
       choices: [build ? { label: "Turn them off", keys: ["delegate", "build"], value: false, shown: "off" }
         : { label: "Turn them on", keys: ["delegate", "build"], value: true, shown: "on" }] },
+    onOffRow("Tasks cut short", context.cutShort !== false,
+      "When Casper closed while the AI's steps ran (a crash, a restart), the start offers to go on with that task, and the next request in that conversation tells the AI those steps may have run, so it checks before repeating one. Off: the start offers a plain Continue and nothing is added.",
+      ["cut_short"], true, "task"),
     { label: "Playwright tests", value: e2e ? "on" : "off", applies: "task",
       question: `Casper runs a project's own Playwright tests (the e2e check) after each change, once they are installed. They are ${e2e ? "on" : "off"}.`,
       keep: `Keep them ${e2e ? "on" : "off"}`,

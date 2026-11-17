@@ -1,15 +1,17 @@
 /** The start's way back: a plain start in a folder's main session begins a new conversation, and when the folder has an
- * earlier one it offers one row, "Next: 1 Continue the Oct 21 conversation (…) · 2 Saved pages (12)", after what a walk-away job left. A lone 1 on the empty prompt runs
+ * earlier one it offers one row, "Next: 1 Continue the Oct 21 conversation (…) · 2 Saved pages (12)", after what a walk-away job left.
+ * When that conversation's last task was cut short, its key reads "Go on with the task that was cut short (…)" instead. A lone 1 on the empty prompt runs
  * /continue, which opens what --continue would, even when typed before the row shows, and so does a first line that only
  * asks to go back ("continue session", continueWords); anything else typed starts the new conversation; Enter runs nothing. */
 
 import type { CasperApp } from "../app";
-import { conversationLabel, requestOf } from "../sessions/resume";
+import { conversationDay, conversationLabel, requestOf } from "../sessions/resume";
 import { pagesDirectory, savedPages } from "../pages/store";
 import type { RuntimeConversation } from "../runtime/types";
 import { buildNextRow, type NextItem } from "../tui/next-row";
 import { SessionWorkspaceManager } from "../sessions/manager";
 import { jobRowItems, jobWorkingHere } from "./jobs";
+import { goOnItem, savedCutShort } from "./cut-short";
 
 export const NEW_CONVERSATION_HINT = "Anything you type starts a new conversation, unless it refers back to this one (\"run it again\").";
 
@@ -19,15 +21,7 @@ export interface EarlierOffer { day: string; title?: string; recent: boolean }
 /** The start's row as shown: what its key 1 runs, and the conversation it offers to continue, if any. */
 export interface StartRow { first: string; continues?: EarlierOffer }
 
-/** "Oct 21", or "today's" / "yesterday's" when it was. */
-export function conversationDay(modified: string, now = new Date()): string {
-  const day = new Date(modified);
-  const start = (date: Date) => new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime();
-  const days = Math.round((start(now) - start(day)) / 86_400_000);
-  if (days === 0) return "today's";
-  if (days === 1) return "yesterday's";
-  return `${day.toLocaleDateString("en-US", { month: "short", day: "numeric" })}${day.getFullYear() === now.getFullYear() ? "" : `, ${day.getFullYear()}`}`;
-}
+export { conversationDay };
 
 /** The row's words: "Continue today's conversation", "Continue the Oct 21 conversation". */
 export function continueLabel(modified: string, now = new Date()): string {
@@ -44,11 +38,14 @@ export async function offerEarlierConversation(app: CasperApp): Promise<StartRow
     jobWorkingHere(app).catch(() => false)]);
   // A job still working here is writing its conversation: no second Casper continues it until the job ends.
   const newest = working ? undefined : found;
+  // A task cut short there (Casper closed while its steps ran): the same key goes on with it, carefully (decision 108).
+  const cut = newest ? await savedCutShort(app, newest) : undefined;
   // Too late once a request or command has started: the row is for the empty prompt at the start.
   if ((!newest && !pages && !jobs.length) || app.closing || app.commandActive || app.session || app.projectContext !== context) return undefined;
   // A walk-away job's result or question comes first (decision 51).
   const more: NextItem[] = [...jobs];
-  if (newest) {
+  if (newest && cut) more.push(goOnItem(cut, newest));
+  else if (newest) {
     const title = rowTitle(newest);
     const messages = newest.messages === undefined ? "" : `${newest.messages} message${newest.messages === 1 ? "" : "s"}`;
     const note = [title, messages].filter(Boolean).join(", ");

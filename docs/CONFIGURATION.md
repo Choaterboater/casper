@@ -26,6 +26,7 @@ Tools & browser
   Packs                                 on
   Untrusted-text reader                 on
   Helpers that build                    off
+  Tasks cut short                       on
 
 Web lookups are on (DuckDuckGo).
 ↑/↓ move · Enter/Space change · ←/→/Tab area · type to search · Esc close
@@ -206,6 +207,14 @@ the sandbox and the spend pause apply as usual. Only in a session: one-shot runs
 A task that stopped on a used-up Claude plan limit goes on by itself once the limit resets, as one of the two rounds
 ([Claude plan limits](#claude-plan-limits)). It is on. Turn it off with `/settings` (it writes `keep_going: false`) and the AI waits for you to say
 go. A project file can't set it. See [decision 39](adr/0002/39-keep-going.md).
+
+### Tasks cut short
+
+When Casper closed while the AI's steps ran (a crash, a restart, a closed console), the start's row offers
+`Go on with the task that was cut short`, and the next request in that conversation tells the AI those steps may have
+run, so it checks before repeating one ([SESSIONS.md](SESSIONS.md)). It is on. Turn it off
+with `/settings` (it writes `cut_short: false`): the start offers a plain Continue and nothing is added to a request. A
+project file can't set it. See [decision 108](adr/0002/108-a-task-cut-short-goes-on-carefully.md).
 
 ### Stalled commands
 

@@ -188,6 +188,9 @@ export interface LoadedConfiguration {
   /** `keep_going: off` in your own config: the AI stopping with work open, or after saying what it does next, waits for you
    * instead of Casper sending it on (docs/adr/0002/39-keep-going.md). Unset: on. */
   keepGoing?: boolean;
+  /** `cut_short: off` in your own config: a conversation Casper closed in while the AI's steps ran isn't offered as a task
+   * cut short, and no note about those steps goes with the next request (docs/adr/0002/108-a-task-cut-short-goes-on-carefully.md). Unset: on. */
+  cutShort?: boolean;
   /** `stalled_commands: off` in your own config: a command with no output and no CPU for 45 s is not ended early. Unset: on. */
   stalledCommands?: boolean;
   /** `mcp_autoconnect: off` in your own config: your own MCP servers wait for /mcp connect, with writes off and the change box. Unset: on. */
@@ -364,7 +367,7 @@ const POLICY_KEYS = {
 } as const;
 const ISOLATE_KEYS = ["parallelAgents", "riskyRefactor", "experimentalBranch"];
 const TOP_LEVEL_KEYS = new Set(["profile", "project", "languages", "frameworks", "packageManager", "commands", "architecture",
-  "conventions", "verify", "verification", "repair", "skills", "visualize", "policy", "services", "smoke", "pages", "lab", "suggestions", "updates", "sideQuestions", "localModels", "modelServers", "cache", "display", "theme", "showPages", "spend", "sandbox", "shell", "web", "reader", "delegate", "browser", "templates", "packs", "github", "telemetry", "tools", "ssh_login", "other_logins", "network_updates", "ai_pages", "open_pages", "pictures", "browser_clicks", "routine_commands", "plan_commands", "private_commands", "auto_mode", "hide_tool_output", "reasoning_headline", "lean_guidance", "compact_at", "slow_commands", "keep_going", "stalled_commands", "mcp_autoconnect", "acp_mcp", "acp_access", "acp_questions", "acp_idle_exit", "acp_live_output", "mcp_pictures", "lsp_autostart", "notifications", ...Object.keys(POLICY_KEYS)]);
+  "conventions", "verify", "verification", "repair", "skills", "visualize", "policy", "services", "smoke", "pages", "lab", "suggestions", "updates", "sideQuestions", "localModels", "modelServers", "cache", "display", "theme", "showPages", "spend", "sandbox", "shell", "web", "reader", "delegate", "browser", "templates", "packs", "github", "telemetry", "tools", "ssh_login", "other_logins", "network_updates", "ai_pages", "open_pages", "pictures", "browser_clicks", "routine_commands", "plan_commands", "private_commands", "auto_mode", "hide_tool_output", "reasoning_headline", "lean_guidance", "compact_at", "slow_commands", "keep_going", "cut_short", "stalled_commands", "mcp_autoconnect", "acp_mcp", "acp_access", "acp_questions", "acp_idle_exit", "acp_live_output", "mcp_pictures", "lsp_autostart", "notifications", ...Object.keys(POLICY_KEYS)]);
 
 /** Typos used to fall back silently to the defaults; the loader names them instead. */
 function unknownKeys(document: Mapping, label: string): string[] {
@@ -1149,6 +1152,8 @@ export async function loadConfiguration(
   // How far the AI goes on by itself is the person's choice, not a repository's.
   if (projectDocument.keep_going !== undefined) throw new Error("keep_going is a user setting (~/.casper/config.yaml); a project cannot change whether Casper sends the AI on");
   let keepGoing: boolean | undefined;
+  if (projectDocument.cut_short !== undefined) throw new Error("cut_short is a user setting (~/.casper/config.yaml); a project cannot change what Casper tells the AI after a crash");
+  let cutShort: boolean | undefined;
   if (projectDocument.stalled_commands !== undefined) throw new Error("stalled_commands is a user setting (~/.casper/config.yaml); a project cannot change which commands Casper ends");
   let stalledCommands: boolean | undefined;
   // Whether your own MCP and language servers start by themselves is yours too.
@@ -1227,6 +1232,7 @@ export async function loadConfiguration(
     }
     slowCommands = onOffLayer(document.slow_commands, label, "slow_commands") ?? slowCommands;
     keepGoing = onOffLayer(document.keep_going, label, "keep_going") ?? keepGoing;
+    cutShort = onOffLayer(document.cut_short, label, "cut_short") ?? cutShort;
     stalledCommands = onOffLayer(document.stalled_commands, label, "stalled_commands") ?? stalledCommands;
     mcpAutoconnect = onOffLayer(document.mcp_autoconnect, label, "mcp_autoconnect") ?? mcpAutoconnect;
     lspAutostart = onOffLayer(document.lsp_autostart, label, "lsp_autostart") ?? lspAutostart;
@@ -1289,6 +1295,7 @@ export async function loadConfiguration(
     ...(compactAt !== undefined ? { compactAt } : {}),
     ...(slowCommands !== undefined ? { slowCommands } : {}),
     ...(keepGoing !== undefined ? { keepGoing } : {}),
+    ...(cutShort !== undefined ? { cutShort } : {}),
     ...(stalledCommands !== undefined ? { stalledCommands } : {}),
     ...(mcpAutoconnect !== undefined ? { mcpAutoconnect } : {}),
     ...(acpMcp !== undefined ? { acpMcp } : {}),

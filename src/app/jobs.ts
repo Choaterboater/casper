@@ -6,7 +6,10 @@
 import path from "node:path";
 import type { CasperApp } from "../app";
 import { open } from "node:fs/promises";
-import { jobLog, listJobs, readJob, writeAnswer, writeJob, type JobRecord, type ListedJob } from "../jobs/store";
+import { GONE_WHY, jobLog, listJobs, readJob, writeAnswer, writeJob, type JobRecord, type ListedJob } from "../jobs/store";
+import type { RuntimeConversation } from "../runtime/types";
+import { cutShortTools, type CutShort } from "../sessions/cut-short";
+import { goOnItem, savedCutShort } from "./cut-short";
 import { tildePath } from "../new/scaffold";
 import { ReceiptStore } from "../task/receipts";
 import { formatDuration, terminalText } from "../tui/format";
@@ -80,6 +83,16 @@ export async function jobWorkingHere(app: CasperApp): Promise<boolean> {
   return (await jobs(app)).some((job) => job.here && (job.record.status === "running" || job.record.status === "waiting"));
 }
 
+/** The cut-short turn of the conversation a job left in `root`: that folder's newest saved one (not the one open here). */
+async function jobCutShort(app: CasperApp, root: string): Promise<{ cut: CutShort; conversation: RuntimeConversation } | undefined> {
+  let current: string | undefined;
+  try { current = app.session?.getSessionInfo?.().sessionId; } catch { current = undefined; }
+  const saved = await app.savedConversations?.(root).catch(() => []) ?? [];
+  const conversation = saved.filter((item) => item.id !== current && item.messages !== 0).sort((a, b) => b.modified.localeCompare(a.modified))[0];
+  const cut = await savedCutShort(app, conversation);
+  return cut && conversation ? { cut, conversation } : undefined;
+}
+
 /** /jobs: what each job is doing or did, this folder's first; the row picks one with a key. */
 async function listCommand(app: CasperApp): Promise<void> {
   const listed = (await jobs(app)).slice(0, 9);
@@ -110,16 +123,22 @@ async function showCommand(app: CasperApp, wanted: string): Promise<void> {
     return;
   }
   if (record.answer) app.output.write(`${terminalText(record.answer).trimEnd()}\n`);
+  // Casper closed while the job's steps ran: going on with it, carefully, is offered in its own folder (decision 108).
+  const cut = record.status === "stopped" && record.why === GONE_WHY ? await jobCutShort(app, record.root) : undefined;
+  const goOn = cut && job.here ? [goOnItem(cut.cut, cut.conversation)] : [];
   const n = record.receipt?.n;
+  let offered = false;
   if (job.here && n && app.projectContext) {
     await app.taskUndo.receipt(String(n));
     const saved = await new ReceiptStore(app.projectContext.stateDirectory).get(n).catch(() => "missing" as const);
     const task = typeof saved === "object" && saved.task ? { ...saved.task, receipt: n } : undefined;
-    if (task && app.interactive) app.terminal.offerNext(buildNextRow(app.taskUndo.nextItems(task)));
+    if (task && app.interactive) { app.terminal.offerNext(buildNextRow({ ...app.taskUndo.nextItems(task), more: goOn })); offered = true; }
   } else {
     if (record.receipt?.text) app.output.write(`${terminalText(record.receipt.text).trimEnd()}\n`);
     if (!job.here && n) app.output.write(`Show diff and Undo for it (task ${n}) are in ${terminalText(tildePath(record.root, app.homeDir()))}.\n`);
   }
+  if (cut && !job.here) app.output.write(`[jobs] Its last task was cut short while ${terminalText(cutShortTools(cut.cut))} ${cut.cut.calls.length === 1 ? "was" : "were"} running. To go on with it, start Casper in ${terminalText(tildePath(record.root, app.homeDir()))}: its start offers that.\n`);
+  else if (goOn.length && !offered && app.interactive) app.terminal.offerNext(buildNextRow({ more: goOn }));
   if (!record.seen) await writeJob(job.directory, { ...record, seen: true }).catch(() => {});
 }
 
