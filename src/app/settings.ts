@@ -284,7 +284,7 @@ export function settingRows(context: ProjectContext, home = os.homedir()): Setti
       "A command the AI runs without its own time limit that prints nothing and uses no CPU for 45 seconds is ended with what it started, and the AI is told why, with a hint when tests finished but kept something open. Not on Windows. Off: it runs to its limit.",
       ["stalled_commands"], true, "step"),
     onOffRow("Keep going", context.keepGoing !== false,
-      "When the AI stops with work it says is not done, or says what it does next and stops, and asks you nothing, Casper sends it on itself, twice at most in a task (↻ keep going; Esc stops it). Off: it waits for you to say go.",
+      "When the AI stops with work it says is not done, or says what it does next and stops, and asks you nothing, Casper sends it on itself, twice at most in a task (↻ keep going; Esc stops it). A task stopped on a Claude plan limit goes on once it resets, as one of them. Off: it waits for you to say go.",
       ["keep_going"], false, "task"),
     onOffRow("Starter templates", context.templates !== false,
       "In an empty folder, a first request that fits a template (a NOC dashboard, an MCP server) is built from it for you, with one line saying so. Off: the AI builds it from scratch.", ["templates"], false, "task"),
@@ -320,7 +320,7 @@ export function settingRows(context: ProjectContext, home = os.homedir()): Setti
       choices: [context.skills.bundled === false ? { label: "Turn them on", keys: ["skills", "bundled"], value: true, shown: "on" }
         : { label: "Turn them off", keys: ["skills", "bundled"], value: false, shown: "off" }] },
     onOffRow("GitHub tool", context.github !== false,
-      "The AI reads this repo's pull requests and CI through GitHub's gh tool when you ask, and re-runs failed checks (once per pull request per 10 minutes), without asking. It never sees your GitHub login.", ["github"], false, "task"),
+      "The AI reads this repo's pull requests, review comments and CI through GitHub's gh tool when you ask, re-runs failed checks (once per pull request per 10 minutes) and watches one you name, without asking. It never sees your GitHub login.", ["github"], false, "task"),
     onOffRow("Packs", context.packs !== false,
       "Skill packs you added with /pack add. Their skills cost no tokens until a request fits one. A change applies from the next start.", ["packs"], true),
     money("noteAt", "Spend notes", ["are", "come"], "A quiet line says what a task has spent; it never stops the task."),
@@ -358,6 +358,9 @@ export function settingRows(context: ProjectContext, home = os.homedir()): Setti
       keep: `Keep them ${build ? "on" : "off"}`,
       choices: [build ? { label: "Turn them off", keys: ["delegate", "build"], value: false, shown: "off" }
         : { label: "Turn them on", keys: ["delegate", "build"], value: true, shown: "on" }] },
+    onOffRow("Tasks cut short", context.cutShort !== false,
+      "When Casper closed while the AI's steps ran (a crash, a restart), the start offers to go on with that task, and the next request in that conversation tells the AI those steps may have run, so it checks before repeating one. Off: the start offers a plain Continue and nothing is added.",
+      ["cut_short"], true, "task"),
     { label: "Playwright tests", value: e2e ? "on" : "off", applies: "task",
       question: `Casper runs a project's own Playwright tests (the e2e check) after each change, once they are installed. They are ${e2e ? "on" : "off"}.`,
       keep: `Keep them ${e2e ? "on" : "off"}`,

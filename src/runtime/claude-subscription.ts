@@ -11,6 +11,7 @@ import { getCurrentSystemPrompt, getCurrentTools } from "@earendil-works/pi-ai/u
 import type { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { returnClaudeFiles } from "../platform/home-owner";
 import { invalidArguments } from "./tool-repair";
+import { planLimitError, planLimits, type PlanLimits } from "./plan-limits";
 import { ClaudeSession, ClaudeSessions, messageKey, type QueryHandle } from "./claude-session";
 
 export const CLAUDE_SUBSCRIPTION = "claude-subscription";
@@ -141,7 +142,8 @@ function followUpPrompt(message: Message): SDKUserMessage {
 }
 
 export function streamClaudeSubscription(model: Model<Api>, context: TranscriptContext, options?: SimpleStreamOptions,
-  dependencies: { query?: QueryFactory; executable?: string; env?: Record<string, string | undefined>; cwd?: string; sessions?: ClaudeSessions } = {}) {
+  dependencies: { query?: QueryFactory; executable?: string; env?: Record<string, string | undefined>; cwd?: string; sessions?: ClaudeSessions; limits?: PlanLimits } = {}) {
+  const limits = dependencies.limits ?? planLimits;
   const stream = createAssistantMessageEventStream();
   const message: AssistantMessage = { role: "assistant", api: model.api, provider: model.provider, model: model.id,
     content: [], timestamp: Date.now(), stopReason: "stop",
@@ -192,7 +194,7 @@ export function streamClaudeSubscription(model: Model<Api>, context: TranscriptC
             // A side request with no tools is one model turn; a session with tools goes on as Claude Code's own does.
             ...(tools.length ? {} : { maxTurns: 1 }),
             ...(reasoning ? { effort: reasoning === "minimal" ? "low" : reasoning } : { thinking: { type: "disabled" as const } }),
-          } }));
+          } }), limits);
           const account = await new Promise<AccountInfo>((resolve, reject) => {
             const cleanup = () => { clearTimeout(timer); options?.signal?.removeEventListener("abort", cancelled); };
             const fail = (error: unknown) => { cleanup(); reject(error); };
@@ -222,13 +224,13 @@ export function streamClaudeSubscription(model: Model<Api>, context: TranscriptC
         else session.input.push(followUpPrompt(found.tail[0]!));
       } else session = await open();
       stream.push({ type: "start", partial: message });
-      try { await readTurn(session, message, stream, names, options?.signal, Boolean(found)); }
+      try { await readTurn(session, message, stream, names, options?.signal, Boolean(found), limits); }
       catch (error) {
         if (!(error instanceof SessionEnded)) throw error;
         // Claude Code ended between turns (a crash, its own limit): the request seeds a new session instead.
         sessions.drop(session);
         session = await open();
-        await readTurn(session, message, stream, names, options?.signal, false);
+        await readTurn(session, message, stream, names, options?.signal, false, limits);
       }
       if (message.content.some(block => block.type === "toolCall")) {
         if (message.stopReason === "length") throw new Error("Claude exhausted its output limit during a tool proposal; no tools were executed.");
@@ -260,7 +262,7 @@ class SessionEnded extends Error {}
 /** One model turn of the session into `message`: to the end of a turn that proposes tools (Claude Code then calls them
  * through the proposal server), or to Claude Code's result for a turn that answers. */
 async function readTurn(session: ClaudeSession, message: AssistantMessage, stream: ReturnType<typeof createAssistantMessageEventStream>,
-  names: ReadonlySet<string>, signal: AbortSignal | undefined, continued: boolean): Promise<void> {
+  names: ReadonlySet<string>, signal: AbortSignal | undefined, continued: boolean, limits?: PlanLimits): Promise<void> {
   const blocks = new Map<number, number>();
   const json = new Map<number, string>();
   /** Blocks whose arguments are streaming: the streamed pieces are the whole arguments, never added to a starting input. */
@@ -282,7 +284,9 @@ async function readTurn(session: ClaudeSession, message: AssistantMessage, strea
     if (event.type === "system" && event.subtype === "init" && !["none", "oauth"].includes(event.apiKeySource)) throw new Error("Claude Code switched to API-key authentication; subscription request stopped.");
     if (event.type === "assistant" && event.error) {
       const detail = event.message.content.filter(block => block.type === "text").map(block => block.text).join("\n");
-      throw new Error(`Claude subscription request failed: ${detail || event.error}`);
+      // A refusal while Claude Code says a plan window is used up names that window and its reset (decision 106).
+      const held = event.error === "rate_limit" ? limits?.blocked() : undefined;
+      throw new Error(`Claude subscription request failed: ${detail || event.error}${held ? ` ${planLimitError(held)}` : ""}`);
     }
     if (event.type === "result") {
       // A side request's one turn ends with Claude Code's turn limit, after a complete tool proposal.
@@ -390,7 +394,7 @@ function toolArguments(text: string): unknown {
 /** Registered before model selection for both main sessions and isolated children. Returns the live Claude Code sessions
  * this registration starts: the runtime closes them when it ends, or their processes would keep Casper running. */
 export async function registerClaudeSubscription(catalog: ModelRuntime, cwd: string | (() => string),
-  dependencies: { env?: Record<string, string | undefined>; status?: typeof claudeAuthStatus; recheckMs?: number; query?: QueryFactory } = {}): Promise<ClaudeSessions> {
+  dependencies: { env?: Record<string, string | undefined>; status?: typeof claudeAuthStatus; recheckMs?: number; query?: QueryFactory; limits?: PlanLimits } = {}): Promise<ClaudeSessions> {
   if (catalog.getProvider(CLAUDE_SUBSCRIPTION)) throw new Error("claude-subscription is reserved for Casper's Claude Code transport.");
   const models = catalog.getModels().filter(model => model.provider === "anthropic").map(model => ({
     ...model, provider: CLAUDE_SUBSCRIPTION, baseUrl: "claude-code://local", headers: undefined,
@@ -421,7 +425,7 @@ export async function registerClaudeSubscription(catalog: ModelRuntime, cwd: str
   })().finally(() => { checking = undefined; });
   const sessions = new ClaudeSessions();
   const stream = (model: Model<Api>, context: TranscriptContext, options?: SimpleStreamOptions) =>
-    streamClaudeSubscription(model, context, options, { cwd: directory(), env: dependencies.env, query: dependencies.query, sessions });
+    streamClaudeSubscription(model, context, options, { cwd: directory(), env: dependencies.env, query: dependencies.query, sessions, limits: dependencies.limits });
   catalog.registerNativeProvider({ id: CLAUDE_SUBSCRIPTION, name: "Claude subscription (Claude Code)",
     baseUrl: "claude-code://local", getModels: () => models,
     auth: { apiKey: { name: "Claude Code login", check: async () => await available() ? { type: "api_key", source: "Claude Code" } : undefined,

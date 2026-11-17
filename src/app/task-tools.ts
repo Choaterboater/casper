@@ -24,6 +24,7 @@ import { phase } from "./footer";
 import { appReaderTool } from "./reader";
 import { casperSessionTool } from "./session-tool";
 import { githubTool } from "../github/tool";
+import { githubWatchesFor, watchTasks } from "./github-watch";
 import { ownSecretValues } from "./network-host";
 import { projectPrivatePaths, sandboxHost, userReadablePaths } from "./wiring";
 import { appAgentDir, observeEdit } from "./runtime-start";
@@ -57,6 +58,7 @@ export async function prepareCapabilities(app: CasperApp, task: string, options:
     githubOff: app.projectContext?.github === false,
     githubTool: () => githubTool({
       root: () => app.activeWorkspaceRoot(), reruns: app.githubReruns, secrets: () => ownSecretValues(app),
+      watches: (verb) => githubWatchesFor(app, verb),
     }),
     mcpAdd: mcpAddToolFor(app),
     mcpRemove: mcpRemoveToolFor(app),
@@ -208,7 +210,7 @@ export async function stopDebugger(app: CasperApp): Promise<void> {
   }
 }
 
-/** /tasks: dev servers, slow commands, the browser, the debugger, helpers and checks that run now, each with its own stop. */
+/** /tasks: dev servers, slow commands, the browser, the debugger, helpers, checks and pull request watches that run now, each with its own stop. */
 export function backgroundTasks(app: CasperApp): BackgroundTask[] {
   const tasks: BackgroundTask[] = [];
   const services = app.services && !app.services.closed ? app.services : undefined;
@@ -242,6 +244,7 @@ export function backgroundTasks(app: CasperApp): BackgroundTask[] {
     tasks.push({ kind: "checks", name: "after the last change", status: "running",
       stop: async () => { app.verificationAbort?.abort(); return "Stopped the checks; the receipt says they did not finish."; } });
   }
+  tasks.push(...watchTasks(app));
   return tasks;
 }
 

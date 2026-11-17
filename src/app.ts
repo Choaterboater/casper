@@ -54,6 +54,9 @@ import type { TaskClassification } from "./task/classify";
 import { TaskObservations } from "./task/observations";
 import { pastedFolderParent, PastedImageFiles } from "./app/images";
 import { LifecycleRegistry } from "./app/lifecycle";
+import { Wakes } from "./app/wakes";
+import type { GithubWatchSeams } from "./app/github-watch";
+import type { PullWatches } from "./github/watch";
 import { helperActivityLine, RuntimeEventView } from "./app/events";
 import { NOT_A_PROJECT, snapshotFailureReason, snapshotTree } from "./task/changes";
 import { renderBanner, wordmarkHeader } from "./tui/banner";
@@ -108,6 +111,7 @@ import { runVerification, checksPlan, saveFoundCheck } from "./app/verification"
 import type { AppSmokeTask } from "./app/try-it";
 import { runInteractive, handlePrompt, handleSlashCommand, cancelCurrent, writePrompt } from "./app/command-loop";
 import { leaveOnHangUp, type AwayJob, type WalkAwaySeams } from "./app/away";
+import type { ResetClock } from "./task/plan-reset";
 import { loadWorkspace, reloadReferences, reloadSkills, projectPrivatePaths, userReadablePaths, reportSkillWarnings, bannerChecks, reportNewerCasper } from "./app/wiring";
 import { PendingPictures } from "./pictures/pending";
 import { acquireRuntime, ensureRuntime, checkSignIn, observeEdit } from "./app/runtime-start";
@@ -177,12 +181,16 @@ export interface CasperAppOptions {
   createProject?: (options: NewProjectOptions) => Promise<NewProjectResult>;
   /** Tests: the wait before each automatic retry of a model that answered with nothing (default: a timer). */
   modelRetryWait?: (ms: number) => Promise<void>;
+  /** Tests: the clock a task waits on for a Claude plan limit to reset (src/app/plan-reset.ts). */
+  planResetClock?: ResetClock;
   /** Tests: whether this computer has a desktop, and the browser opener, for the pages the AI makes. */
   pageSeams?: { desktop?: () => boolean; open?: (url: string) => boolean };
   /** Tests: where make_picture finds codex (PATH) and how it reaches the image services. */
   pictureSeams?: { env?: NodeJS.ProcessEnv; fetch?: typeof fetch; urls?: { openrouter?: string; openai?: string } };
   /** Tests: the walk-away job's platform, notifications and limits (src/app/away.ts). */
   walkAway?: WalkAwaySeams;
+  /** Tests: a pull request watch's timer and desktop notification (src/app/github-watch.ts). */
+  githubWatch?: GithubWatchSeams;
   /** Tests: Casper's hidden box (casper_secret's, or an ssh or sudo password) on a terminal without Casper's full screen (the value "typed", or undefined for Esc). */
   secretInput?: (box: { label: string; title: string; hint: string }) => Promise<string | undefined>;
   /** Opens pages for the page check: Chrome when installed, else HTTP only. Tests pass a fake. */
@@ -421,6 +429,9 @@ export class CasperApp {
   /** A model task runs in this command (not a local command such as /settings): only it outlives the terminal. */
   modelTaskActive = false;
   readonly modelRetryWait?: CasperAppOptions["modelRetryWait"];
+  readonly planResetClock?: CasperAppOptions["planResetClock"];
+  /** The task waits for a Claude plan limit to reset (src/app/plan-reset.ts): why, and how a typed line cancels it. */
+  planWait?: { why: string; cancel(): void };
   /** The dev-server lines are printed once per session. */
   readonly pageNotice: DevServerNotice = { shown: false };
   /** What may have changed this task's code since it started: a check the model records after that has no
@@ -517,6 +528,13 @@ export class CasperApp {
   networkUpdateAsked = false;
   /** When each pull request's failed checks were last re-run through the github tool: one re-run per 10 minutes. */
   readonly githubReruns = new Map<string, number>();
+  /** Pull requests watched this session (the github tool's watch verb); made on the first watch. */
+  githubWatches?: PullWatches;
+  readonly githubWatchSeams?: GithubWatchSeams;
+  /** Requests Casper starts itself when a watch sees a change: run at the idle prompt, or after the running request. */
+  readonly wakes = new Wakes();
+  /** A wake's request runs now: no watch starts from it (only the person's own requests start one). */
+  wakeRunning = false;
   /** Network products the person said Not now to this session: the AI's next try doesn't ask again (/mcp login does). */
   readonly loginNotNow = new Set<NetworkProduct>();
   /** `casper new` on a terminal: the exit code when no project was opened (1 when nothing was created). */
@@ -615,7 +633,9 @@ export class CasperApp {
     this.pictureSeams = options.pictureSeams;
     this.secretInput = options.secretInput;
     this.walkAway = options.walkAway;
+    this.githubWatchSeams = options.githubWatch;
     this.modelRetryWait = options.modelRetryWait;
+    this.planResetClock = options.planResetClock;
     this.networkTools = options.networkTools;
     this.securitySeams = options.securitySeams;
     this.networkSeams = options.networkSeams;

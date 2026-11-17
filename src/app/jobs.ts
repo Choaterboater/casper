@@ -6,7 +6,10 @@
 import path from "node:path";
 import type { CasperApp } from "../app";
 import { open } from "node:fs/promises";
-import { jobLog, listJobs, readJob, writeAnswer, writeJob, type JobRecord, type ListedJob } from "../jobs/store";
+import { GONE_WHY, jobLog, listJobs, readJob, writeAnswer, writeJob, type JobRecord, type ListedJob } from "../jobs/store";
+import type { RuntimeConversation } from "../runtime/types";
+import { cutShortTools, type CutShort } from "../sessions/cut-short";
+import { goOnItem, savedCutShort } from "./cut-short";
 import { tildePath } from "../new/scaffold";
 import { ReceiptStore } from "../task/receipts";
 import { formatDuration, terminalText } from "../tui/format";
@@ -23,8 +26,10 @@ function ago(iso: string, now = Date.now()): string {
 const plain = (text: string, max = 80) => terminalText(text).replace(/\s+/g, " ").trim().slice(0, max);
 const ref = (job: ListedJob) => job.here ? job.record.id : `${job.key}/${job.record.id}`;
 
-/** The plain status of one job: "done 12m ago", "waiting on you: Run this command?", "working for 3m". */
+/** The plain status of one job: "done 12m ago", "waiting on you: Run this command?", "waiting till the Claude plan's
+ * 5-hour limit resets at 3:40 PM", "working for 3m". */
 export function jobState(record: JobRecord, now = Date.now()): string {
+  if (record.status === "waiting" && !record.question && record.why) return `waiting till ${plain(record.why, 80)}`;
   if (record.status === "waiting") return `waiting on you: ${plain(record.question?.question ?? "a question", 60)}`;
   if (record.status === "running") return `working · left ${ago(record.leftAt, now)}`;
   const when = ago(record.endedAt ?? record.updatedAt, now);
@@ -42,12 +47,13 @@ export async function jobRowItems(app: CasperApp): Promise<NextItem[]> {
   const listed = await jobs(app);
   const where = (job: ListedJob) => job.here ? "" : ` in ${plain(job.record.folder, 30)}`;
   const items: NextItem[] = [
-    ...listed.filter((job) => job.record.status === "waiting").map((job) => ({ label: `Answer the job's question${where(job)}`,
+    ...listed.filter((job) => job.record.status === "waiting" && job.record.question).map((job) => ({ label: `Answer the job's question${where(job)}`,
       command: `/jobs answer ${ref(job)}`, note: plain(job.record.request, 50) })),
     ...listed.filter((job) => (job.record.status === "done" || job.record.status === "stopped") && !job.record.seen).map((job) => ({
       label: `See the job's result${where(job)}`, command: `/jobs show ${ref(job)}`,
       note: `${plain(job.record.request, 50)} · ${job.record.status === "done" ? "done" : "stopped"}` })),
-    ...listed.filter((job) => job.here && job.record.status === "running").map((job) => ({ label: "Job working here", command: "/jobs",
+    // A job waiting on a Claude plan reset, not on you, is still working here.
+    ...listed.filter((job) => job.here && (job.record.status === "running" || (job.record.status === "waiting" && !job.record.question))).map((job) => ({ label: "Job working here", command: "/jobs",
       note: `${plain(job.record.request, 50)} · left ${ago(job.record.leftAt)}` })),
   ];
   return items.slice(0, 2);
@@ -77,6 +83,16 @@ export async function jobWorkingHere(app: CasperApp): Promise<boolean> {
   return (await jobs(app)).some((job) => job.here && (job.record.status === "running" || job.record.status === "waiting"));
 }
 
+/** The cut-short turn of the conversation a job left in `root`: that folder's newest saved one (not the one open here). */
+async function jobCutShort(app: CasperApp, root: string): Promise<{ cut: CutShort; conversation: RuntimeConversation } | undefined> {
+  let current: string | undefined;
+  try { current = app.session?.getSessionInfo?.().sessionId; } catch { current = undefined; }
+  const saved = await app.savedConversations?.(root).catch(() => []) ?? [];
+  const conversation = saved.filter((item) => item.id !== current && item.messages !== 0).sort((a, b) => b.modified.localeCompare(a.modified))[0];
+  const cut = await savedCutShort(app, conversation);
+  return cut && conversation ? { cut, conversation } : undefined;
+}
+
 /** /jobs: what each job is doing or did, this folder's first; the row picks one with a key. */
 async function listCommand(app: CasperApp): Promise<void> {
   const listed = (await jobs(app)).slice(0, 9);
@@ -87,9 +103,9 @@ async function listCommand(app: CasperApp): Promise<void> {
   app.output.write(`Jobs, this folder first:\n${listed.map((job, index) =>
     `  ${index + 1}  ${plain(job.record.request, 50)} · ${jobState(job.record)}${job.here ? "" : ` · ${plain(job.record.folder, 30)}`}`).join("\n")}\n`);
   if (!app.interactive) return;
-  app.terminal.offerNext(buildNextRow({ more: listed.map((job) => job.record.status === "waiting"
+  app.terminal.offerNext(buildNextRow({ more: listed.map((job) => job.record.status === "waiting" && job.record.question
     ? { label: "Answer", command: `/jobs answer ${ref(job)}`, note: plain(job.record.request, 30) }
-    : { label: job.record.status === "running" ? "Look" : "See result", command: `/jobs show ${ref(job)}`, note: plain(job.record.request, 30) }) }));
+    : { label: job.record.status === "running" || job.record.status === "waiting" ? "Look" : "See result", command: `/jobs show ${ref(job)}`, note: plain(job.record.request, 30) }) }));
 }
 
 /** /jobs show <job>: the AI's last words and the receipt. In the job's own folder the receipt is the saved one, with
@@ -103,20 +119,26 @@ async function showCommand(app: CasperApp, wanted: string): Promise<void> {
     // What it is doing: the last lines of its log, secrets hidden as on the screen it would have had.
     const tail = await logTail(jobLog(job.directory, record.id));
     if (tail) app.output.write(`Lately:\n${tail.split("\n").map((line) => `  ${line}`).join("\n")}\n`);
-    if (record.status === "waiting" && app.interactive) app.terminal.offerNext(buildNextRow({ more: [{ label: "Answer the job's question", command: `/jobs answer ${ref(job)}` }] }));
+    if (record.status === "waiting" && record.question && app.interactive) app.terminal.offerNext(buildNextRow({ more: [{ label: "Answer the job's question", command: `/jobs answer ${ref(job)}` }] }));
     return;
   }
   if (record.answer) app.output.write(`${terminalText(record.answer).trimEnd()}\n`);
+  // Casper closed while the job's steps ran: going on with it, carefully, is offered in its own folder (decision 108).
+  const cut = record.status === "stopped" && record.why === GONE_WHY ? await jobCutShort(app, record.root) : undefined;
+  const goOn = cut && job.here ? [goOnItem(cut.cut, cut.conversation)] : [];
   const n = record.receipt?.n;
+  let offered = false;
   if (job.here && n && app.projectContext) {
     await app.taskUndo.receipt(String(n));
     const saved = await new ReceiptStore(app.projectContext.stateDirectory).get(n).catch(() => "missing" as const);
     const task = typeof saved === "object" && saved.task ? { ...saved.task, receipt: n } : undefined;
-    if (task && app.interactive) app.terminal.offerNext(buildNextRow(app.taskUndo.nextItems(task)));
+    if (task && app.interactive) { app.terminal.offerNext(buildNextRow({ ...app.taskUndo.nextItems(task), more: goOn })); offered = true; }
   } else {
     if (record.receipt?.text) app.output.write(`${terminalText(record.receipt.text).trimEnd()}\n`);
     if (!job.here && n) app.output.write(`Show diff and Undo for it (task ${n}) are in ${terminalText(tildePath(record.root, app.homeDir()))}.\n`);
   }
+  if (cut && !job.here) app.output.write(`[jobs] Its last task was cut short while ${terminalText(cutShortTools(cut.cut))} ${cut.cut.calls.length === 1 ? "was" : "were"} running. To go on with it, start Casper in ${terminalText(tildePath(record.root, app.homeDir()))}: its start offers that.\n`);
+  else if (goOn.length && !offered && app.interactive) app.terminal.offerNext(buildNextRow({ more: goOn }));
   if (!record.seen) await writeJob(job.directory, { ...record, seen: true }).catch(() => {});
 }
 

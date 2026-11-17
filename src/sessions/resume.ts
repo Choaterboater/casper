@@ -18,6 +18,16 @@ export function requestOf(text: string): string {
   return words.split("\n\n")[0]!.trim();
 }
 
+/** "Oct 21", or "today's" / "yesterday's" when it was. */
+export function conversationDay(modified: string, now = new Date()): string {
+  const day = new Date(modified);
+  const start = (date: Date) => new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime();
+  const days = Math.round((start(now) - start(day)) / 86_400_000);
+  if (days === 0) return "today's";
+  if (days === 1) return "yesterday's";
+  return `${day.toLocaleDateString("en-US", { month: "short", day: "numeric" })}${day.getFullYear() === now.getFullYear() ? "" : `, ${day.getFullYear()}`}`;
+}
+
 /** "3h ago", "3 days ago", "just now". */
 export function ago(iso: string, now = Date.now()): string {
   const minutes = Math.max(0, Math.floor((now - Date.parse(iso)) / 60_000));

@@ -39,7 +39,7 @@ test("every Casper command is offered over ACP or is in LEFT_OUT with a reason, 
 
 test("a command's input hint is its argument hint, else its first four subcommands (…when there are more); none when it takes nothing", async () => {
   const offered = new Map((await offer(home())).map((command) => [command.name, command]));
-  expect(offered.get("review")!.input).toEqual({ hint: "[branch|commit]" });
+  expect(offered.get("review")!.input).toEqual({ hint: "[branch|commit|#pr]" });
   expect(offered.get("status")!.input).toBeUndefined();
   expect(commandHint(findCommand("lsp")!)).toBe("connect|disconnect");
   expect(commandHint(findCommand("mcp")!)).toBe("detail|add|setup|login|…");

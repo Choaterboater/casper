@@ -107,6 +107,8 @@ export function submitDuringWork(app: CasperApp, line: string, plain = false): t
   if (app.closing) return "Casper is closing";
   // No task yet: Casper is still opening a folder or project. Nothing is loaded to show, so the line waits.
   if (!app.commandActive || !app.projectContext) return "draft kept · Enter again once Casper has opened the project";
+  // Anything typed while the task waits for a Claude plan limit to reset cancels the wait (src/app/plan-reset.ts).
+  app.planWait?.cancel();
   // A picture file dropped at the start of the line starts it with "/" too: a request, never a command.
   const picture = line.startsWith("/") && leadingImagePath(line) !== undefined;
   // What a command says comes one microtask later, under the screen's echo of the line, not above it.

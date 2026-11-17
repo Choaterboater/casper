@@ -90,6 +90,14 @@ export async function runGh(args: readonly string[], options: GhOptions): Promis
   return { ok: true, stdout: result.stdout };
 }
 
+/** One pull request's review threads (each on the line it was left on), its comments and the reviews with a body. A
+ * constant: the repo and number go in as variables, never into the text. */
+export const REVIEW_QUERY = "query($owner:String!,$name:String!,$number:Int!){repository(owner:$owner,name:$name){pullRequest(number:$number){"
+  + "reviewThreads(first:50){totalCount nodes{isResolved isOutdated path line comments(first:5){totalCount nodes{isMinimized author{login} body}}}}"
+  + "comments(last:20){totalCount nodes{isMinimized author{login} body}} reviews(last:20){nodes{state author{login} body}}}}}";
+/** Review comments can be long: 50 threads of 5, 20 comments and 20 reviews. */
+export const COMMENTS_BYTES = 4 * 1024 * 1024;
+
 /** The argument lists, one per verb. Only these shapes exist. */
 export const ghArgs = {
   prs: (repo: Repo) => ["pr", "list", "-R", repoText(repo), "--state", "open", "--limit", "20",
@@ -97,5 +105,12 @@ export const ghArgs = {
   pr: (repo: Repo, number: number) => ["pr", "view", String(number), "-R", repoText(repo),
     "--json", "number,title,state,author,headRefName,baseRefName,isDraft,mergeable,reviewDecision,statusCheckRollup"],
   log: (repo: Repo, job: string) => ["run", "view", "--job", job, "-R", repoText(repo), "--log-failed"],
+  base: (repo: Repo, number: number) => ["pr", "view", String(number), "-R", repoText(repo), "--json", "baseRefName"],
   rerun: (repo: Repo, run: string) => ["run", "rerun", run, "--failed", "-R", repoText(repo)],
+  // watch: what a watch compares between reads (src/github/watch.ts); comments and reviews are only counted.
+  watch: (repo: Repo, number: number) => ["pr", "view", String(number), "-R", repoText(repo),
+    "--json", "state,mergeable,reviewDecision,statusCheckRollup,comments,reviews"],
+  // -f sends text as is (no @file or {owner} filling); only the checked number goes as a typed -F value.
+  comments: (repo: Repo, number: number) => ["api", "graphql", "-f", `query=${REVIEW_QUERY}`, "-f", `owner=${repo.owner}`,
+    "-f", `name=${repo.name}`, "-F", `number=${number}`],
 };

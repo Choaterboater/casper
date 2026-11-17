@@ -565,7 +565,9 @@ AI asked you nothing. When its last message lists work still open (`Still not do
 Casper sends it on itself, with the open items and the accepted plan's steps it never reported, and says so:
 `↻ keep going 1/2: 2 items still open, so the AI carries on (Esc stops it)`. The AI is told to do what it can and
 leave only what needs you. That is two rounds a task at most, and none after a round that leaves as much open as
-before; then the line or the card follows. The task after a plan build hears the plan's steps still open and where
+before; then the line or the card follows. A turn that stopped on a used-up Claude plan limit goes on by itself
+once the limit resets within a day, as one of the two rounds
+([decision 107](adr/0002/107-a-task-goes-on-when-the-claude-plan-resets.md)). The task after a plan build hears the plan's steps still open and where
 the saved plan is. `keep_going: off` (`/settings` → Keep going) waits for you instead; one-shot runs and `--json`
 never keep going by themselves.
 

@@ -44,7 +44,7 @@ over the network, and `/references add` downloads files after asking you.
 | `/model`, `/model <words>`, `/model big <model>`, `/model failover <models>` | Pick a model (remembered; `--session`, before or after the model, for this conversation only); words pick the model they name (`/model opus 5.5`), several ask which, none name the closest; your big model for when repairs run out; the models a task goes on with when its model hits a limit |
 | `/effort [level\|auto]`, `/thinking` | Reasoning effort (the model's own levels; one it lacks is refused), or `auto` per request; Shift+Tab cycles it (see [Model and effort](#model-and-effort)) |
 | `/login [provider]`, `/logout [provider]` | Sign in to a provider: `codex`, `copilot`, `anthropic` or `openrouter` (see [Provider login](#provider-login)), or add a model server on another computer (the list's last row); remove a sign-in Casper saved (`/logout` alone lists them; environment variables stay) |
-| `/context`, `/usage`, `/cost` | Context estimate; session tokens and estimated cost (`/cost` is `/usage`) |
+| `/context`, `/usage`, `/cost` | Context estimate; session tokens and estimated cost, and the Claude plan's limit once Claude Code has reported it (`/cost` is `/usage`) |
 | `/compact [instructions]` | Summarize the conversation (**makes a model request**) |
 | `/clear`, `/new` | Start a fresh conversation; files and saved conversations stay |
 | `/resume [id]` | Pick a saved conversation from a numbered list, or go back to one (the start of its ID is enough) |
@@ -67,7 +67,7 @@ over the network, and `/references add` downloads files after asking you.
 | `/receipt [n\|list]` | The last task's receipt in detail, a saved one, or the last 10; here a card with every line under plain labels |
 | `/help receipt` | What each verdict on a receipt's first line means, and what to do about it |
 | `/verify [checks]`, `/verify repair`, `/verify add <name>` | Run the project's checks; repair failures; save a check Casper found ([VERIFICATION.md](VERIFICATION.md)) |
-| `/review`, `/review <branch\|commit>` | A read-only reviewer AI (your review model) reads your uncommitted changes (staged, unstaged and new text files), the changes since a branch's merge-base, or one commit, and lists real bugs, security issues and missing tests by file:line, most serious first; a finding that names no real line of a changed file is dropped. Key and `.env` files stay out, a big diff is cut and the list says which files were left out, and an empty change asks no model. The numbered list goes to the conversation too, so `fix 1 and 3` works next. It reads the repo's `AGENTS.md`, `CLAUDE.md` and an ADR of deliberate choices when there is one |
+| `/review`, `/review <branch\|commit>`, `/review #12` | A read-only reviewer AI (your review model) reads your uncommitted changes (staged, unstaged and new text files), the changes since a branch's merge-base, one commit, or this repo's pull request (`#12` or its github.com link: fetched read-only from `origin` into refs Casper deletes afterwards, and compared with its base branch, which `gh` names, else origin's default branch; nothing is checked out, so files outside the diff are your checkout's), and lists real bugs, security issues and missing tests by file:line, most serious first; a finding that names no real line of a changed file is dropped. Key and `.env` files stay out, a big diff is cut and the list says which files were left out, and an empty change asks no model. The numbered list goes to the conversation too, so `fix 1 and 3` works next. It reads the repo's `AGENTS.md`, `CLAUDE.md` and an ADR of deliberate choices when there is one |
 | `/security-review` | Run the pinned security tools here, then offer an AI review (asks first; [SECURITY_CHECKS.md](SECURITY_CHECKS.md)) |
 | `/project <name>`, `/project new [name]` | Open a project folder inside this one; start a new project in ~/Projects (no model; [NEW.md](NEW.md)); `/project` alone is `/status` |
 | `/permissions` | A short screen: whether Casper is asking, one line per kind (state · how to change it) and what stays protected, then the box `Stop asking until you quit?` (`1 Keep asking · 2 Stop asking until I quit`; Enter keeps asking; no box during a task). `details` is the full screen. `all` (or `allowall`, `allow-all`) is the same box on its own (during a task, no box: it takes effect at once), `ask` turns the questions back on, `write <folder>` allows a folder outside the project, `forget <folder>` takes it back. A mistyped word gets `Did you mean /permissions all (it asks first)?` and runs nothing |
@@ -692,7 +692,14 @@ live rows, popups or pickers, or a duplicated prompt box (`bun test tests/termin
   `Switched to provider/model-b because provider/model-a hit its rate limit. Your next request tries provider/model-a again.`
   After a free OpenRouter model the newest free OpenRouter models follow your list; Casper never adds a
   paid model, or moves another model's conversation to a free one, by itself. `/model failover` shows
-  the list and `/model failover clear` removes it ([Failover](CONFIGURATION.md#failover)).
+  the list and `/model failover clear` removes it ([Failover](CONFIGURATION.md#failover)). When a Claude
+  plan's 5-hour or weekly limit is used up, the switch is at once, and your requests stay on the model it
+  switched to until that limit resets: `Your requests stay on provider/model-b until the Claude plan's
+  5-hour limit resets at 3:40 PM, then go back to claude-subscription/claude-opus-4-8.`
+  With no listed model to go on, a limit that resets within a day is waited for:
+  `Claude's 5-hour limit resets at 3:40 PM; Casper goes on then. Type anything or press Esc to cancel.`
+  At the reset the task goes on as a keep going round
+  ([Claude plan limits](CONFIGURATION.md#claude-plan-limits)).
 - A fresh interactive session clears the viewport at startup: the new session renders from
   the top of the screen and the previous run's transcript stays in scrollback.
 - While a prompt runs or tool activity is on screen, the footer spinner, the status row and a running
@@ -1087,7 +1094,7 @@ Daily commands include `/help`, `/status`, `/project`, `/diff`, `/verify`, `/ski
 | Command | Effect |
 | --- | --- |
 | `/context` | Runtime context estimate and counts; no invented per-file token attribution |
-| `/usage` | Tokens split into out, new and cached plus the raw counts; catalog cost estimate for the whole session, or the subscription name with the pay-per-token figure; not billing |
+| `/usage` | Tokens split into out, new and cached plus the raw counts; catalog cost estimate for the whole session, or the subscription name with the pay-per-token figure; not billing. With a Claude plan, one more line: `Claude plan: 82% of 5-hour limit, resets 3:40 PM` (`/status` shows it too) |
 | `/compact [instructions]` | Explicit cancellable model-assisted summary; **can make a model request** |
 | `/clear` | Fresh saved conversation; files stay as they are (`/undo` puts a task's files back); the earlier conversation stays resumable |
 | `/resume` | Pick a saved conversation from a numbered list (title · when · messages; 1 stays here); then the last few turns show |
@@ -1104,6 +1111,11 @@ yesterday's conversation on offer, a short first line that refers back (`re run 
 sent into it with one `[session] Continuing today's conversation (…)` line, and one that only names a project check
 (`run test`) says which check it runs and offers `1 Ask in today's conversation instead` on its Next row. Anything else typed is the new conversation's first request, and
 Enter runs nothing ([decision 42](adr/0002/42-a-plain-start-is-new.md), [decision 53](adr/0002/53-a-start-that-refers-back.md)).
+When that conversation's last task was cut short (Casper closed while the AI's steps ran), the same key reads
+`Go on with the task that was cut short (<request>, today)` and sends a note naming each step with no result as the
+request; `/continue`, `/resume` and `--continue` into it print `[session] Its last task was cut short while bash was
+running; the AI checks before repeating a step.` before `Ready: …`
+([decision 108](adr/0002/108-a-task-cut-short-goes-on-carefully.md)).
 The AI's words drop Markdown's escapes wherever they show: in its answers' inline code (`casper\_check` reads
 `casper_check`, `\~/x` reads `~/x`; a fenced block stays as written), a step's title and the status row
 (`tests/markdown-escapes.test.ts`).

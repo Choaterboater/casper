@@ -114,7 +114,10 @@ export async function runInteractive(app: CasperApp, cwd = process.cwd(), firstR
     // A queued line is a request of its own: the last receipt's row no longer applies. A line typed during work was
     // echoed (❯) on the rich terminal when it was typed, so only the plain terminal says it again as it runs.
     if (queued) { app.terminal.offerNext(undefined); if (early !== undefined || !app.terminal.rich) app.events.writePrompt(queued); }
-    const line = queued ?? await app.terminal.readCommand();
+    // A watch's wake runs when nothing typed waits: now at the idle prompt, or after the request and its queued lines.
+    const read = queued !== undefined ? { line: queued } : await readOrWake(app);
+    if ("wake" in read) { await runWake(app, read.wake); settleQueuedLines(app); continue; }
+    const line = read.line;
     if (line === undefined) break;
     // What was pasted into the line: words Casper reads ("big model:") count only where the person typed.
     let pasted = queued === undefined ? app.terminal.takeSubmittedPastes() : app.linePastes.get(queued) ?? [];
@@ -186,6 +189,41 @@ export async function runInteractive(app: CasperApp, cwd = process.cwd(), firstR
   if (app.away) await app.away.finish();
   app.terminal.close();
   app.interactive = false;
+}
+
+/** The person's next line, or a wake that came first. A wake waiting already runs without reading; one that arrives
+ * while the prompt waits takes the prompt's place (what was typed stays in the box). A line sent at the same moment
+ * goes first. */
+async function readOrWake(app: CasperApp): Promise<{ line: string | undefined } | { wake: { text: string; line: string } }> {
+  // A walk-away job: nobody is there, so no wake starts a turn; the job ends after its task, and its watches with it.
+  if (app.away) return { line: await app.terminal.readCommand() };
+  const waiting = app.wakes.take();
+  if (waiting) return { wake: waiting };
+  const reading = app.terminal.readCommand();
+  const arrived = app.wakes.arrived();
+  const first = await Promise.race([reading.then((line) => ({ line })), arrived.promise.then(() => undefined)]);
+  arrived.cancel();
+  if (first) return first;
+  if (app.closing || !app.terminal.yieldRead()) return { line: await reading };
+  // Dropped meanwhile (an unwatch): the prompt comes back.
+  const wake = app.wakes.take();
+  return wake ? { wake } : readOrWake(app);
+}
+
+/** A wake's request: Casper's words, never the person's, so no typed-word rule reads it and it is not echoed as typed. */
+async function runWake(app: CasperApp, wake: { text: string; line: string }): Promise<void> {
+  if (app.closing) return;
+  app.terminal.offerNext(undefined);
+  app.events.ensureLineBreak();
+  app.output.write(`${terminalText(wake.line)}\n`);
+  app.wakeRunning = true;
+  try { await handlePrompt(app, wake.text); }
+  catch (error) {
+    if (app.closing) return;
+    app.events.ensureLineBreak();
+    const message = error instanceof Error ? error.message : String(error);
+    if (!app.commandAbort?.signal.aborted && app.events.lastError !== message) app.events.showError(message);
+  } finally { app.wakeRunning = false; }
 }
 
 /** `typed`: the line came from the person at the prompt (with what was pasted into it), so its words are read. */

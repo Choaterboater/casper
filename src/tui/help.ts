@@ -41,7 +41,7 @@ Green is proven or passed, amber needs a look, red failed. /receipt shows every 
 A task that is not done ends with a line instead of a receipt, and its receipt is saved (/receipt):
   ? Waiting for your answer     The AI asked you something. Answer it; the receipt that ends the work names what changed before your answer.
   Paused — the AI said what it does next   It stopped after saying what it will do. Say go, or tell it what to change.
-  ↻ keep going 1/2              It stopped with work open or said what it does next, and asked nothing: Casper sends it on (twice at most; keep_going: off waits for you).
+  ↻ keep going 1/2              It stopped with work open, said what it does next, or hit a Claude plan limit that has reset, and asked nothing: Casper sends it on (twice at most; keep_going: off waits for you).
 `;
 
 /** The keys, in /help all and /hotkeys. */
@@ -115,7 +115,7 @@ Local commands:
   /suggestions on|off [name]        Turn every suggestion, or one, on or off (suggestions: false in config.yaml too)
   /effort [level|auto] [--session]  The model's supported levels or auto (Casper picks per request); --session before or after; Shift+Tab cycles; /thinking is the same
   /context                          Estimated context and capability counts
-  /usage, /cost                     Session tokens, cache share and optional catalog cost estimate
+  /usage, /cost                     Session tokens, cache share, optional catalog cost estimate and the Claude plan's limit
   /compact [instructions]           Summarize context using the model (not a local-only command)
   /clear, /new                      New conversation; no file rollback
   /resume [id]                      Pick a saved conversation (or give the start of its ID)
@@ -127,7 +127,7 @@ Local commands:
   /output [n]                       Full command and output of a recent tool call (1 = latest; last 20 kept per task)
   /output all                       Every tool call of the last task on its own line (the screen folds them into a summary)
   /details [quiet|normal|detailed] [--session]  Alone: the level now. Failures only, steps folded (default), or every step with small diffs (all means detailed); remembered like /effort, --session (before or after) for this session only. Ctrl+T shows the last step in full
-  /settings [name], /config [name]  Seven areas with aligned values and help; Up/Down move, Enter/Space change, Left/Right or Tab switch areas, type to search, Esc close. Plain terminals: grouped numbered choices. Saved in ~/.casper/config.yaml for you: web lookups, browser tool, browser clicks, routine commands, auto mode, blocked commands, commands while planning, slow commands, stalled commands, keep going, starter templates, diagram tool, pages the AI makes, pictures the AI makes, open pages in the browser, updates (auto/notify only/off), notifications, slow moments, side questions with ?, suggestions, built-in skills, GitHub tool, packs, spend notes, spend pause, prompt cache, lean guidance, compact at, hide old tool output, local models, page checks, show the AI the pages, work shown, reasoning headline, theme, untrusted-text reader, helpers that build, Playwright tests, Compose files, send Casper's name to OpenRouter, sign-ins from other tools, readable private places, network server updates, my MCP servers, MCP pictures, apps' MCP servers, apps' access modes, apps answer the AI's questions, apps close idle Casper, apps show running output, my language servers, private ssh passwords, commands that read private places
+  /settings [name], /config [name]  Seven areas with aligned values and help; Up/Down move, Enter/Space change, Left/Right or Tab switch areas, type to search, Esc close. Plain terminals: grouped numbered choices. Saved in ~/.casper/config.yaml for you: web lookups, browser tool, browser clicks, routine commands, auto mode, blocked commands, commands while planning, slow commands, stalled commands, keep going, tasks cut short, starter templates, diagram tool, pages the AI makes, pictures the AI makes, open pages in the browser, updates (auto/notify only/off), notifications, slow moments, side questions with ?, suggestions, built-in skills, GitHub tool, packs, spend notes, spend pause, prompt cache, lean guidance, compact at, hide old tool output, local models, page checks, show the AI the pages, work shown, reasoning headline, theme, untrusted-text reader, helpers that build, Playwright tests, Compose files, send Casper's name to OpenRouter, sign-ins from other tools, readable private places, network server updates, my MCP servers, MCP pictures, apps' MCP servers, apps' access modes, apps answer the AI's questions, apps close idle Casper, apps show running output, my language servers, private ssh passwords, commands that read private places
   /theme                            Pick the screen's colours (the Theme row of /settings), saved for you
   /hotkeys                          The keys Casper uses
   /copy [n]                         Copy the last answer, or its code or quote block n, to the clipboard
@@ -250,6 +250,7 @@ Local commands:
   /verify <lab check>               Run a lab check on your own lab (lab.hosts); asks first, never auto
   /review                           A read-only reviewer AI reads your uncommitted changes (staged, unstaged, new files) for bugs, security issues and missing tests, by file:line; then say "fix 1 and 3"
   /review <branch|commit>           The same for the changes since a branch (its merge-base), or for one commit; a big diff is cut and says what was left out
+  /review #<n>|<pull request link>  The same for this repo's pull request n: fetched read-only from origin, compared with its base branch
   /security-review                  Run the pinned security tools here (no model), then offer an AI review: 1 Stop here · 2 Run the AI review, with its cost; Enter spends nothing
   /security-review ai               The same, and runs the AI review with no box (the cost is printed first)
   /security-review update           Download osv-scanner's advisory data (asks first)

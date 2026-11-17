@@ -355,6 +355,21 @@ export interface RuntimeUsage {
   messages: number;
 }
 
+/** One of the Claude plan's usage windows, as Claude Code last reported it with a response (no extra call). */
+export interface RuntimePlanLimit {
+  /** Claude Code's name for the window: five_hour, seven_day, seven_day_opus … */
+  window: string;
+  status: "allowed" | "allowed_warning" | "rejected";
+  /** When the window resets, in ms since the epoch. */
+  resetsAt?: number;
+  /** The share of the window used: 0 to 1, past 1 when usage runs over. */
+  used?: number;
+  /** Requests go on with the plan's extra usage. */
+  overage: boolean;
+  /** Requests are refused until the reset: used up, with no extra usage. */
+  blocked: boolean;
+}
+
 /** One part of a saved conversation: the person's words, a prompt Casper sent the AI itself, an answer, or a compaction. */
 export type ConversationItem =
   | { kind: "you"; text: string }
@@ -366,6 +381,8 @@ export interface RuntimeConversation {
   id: string; name?: string; modified: string;
   /** The first message sent (Casper's wrapper included; see requestOf) and how many messages it has. */
   firstMessage?: string; messages?: number;
+  /** Where it is saved, read for a task cut short (src/sessions/cut-short.ts). */
+  file?: string;
 }
 
 export interface RuntimeState {
@@ -518,6 +535,9 @@ export interface RuntimeSession {
   setFailover?(models: readonly string[] | undefined): Promise<string[]>;
   setEffort?(level: string, persist: boolean): Promise<RuntimeStatus>;
   getUsage?(): RuntimeUsage;
+  /** The Claude plan's windows Claude Code last reported, the one that matters most first (a used-up one, then extra
+   * usage, then the most used); empty before the first Claude plan request in this Casper. Makes no call. */
+  planLimits?(): RuntimePlanLimit[];
   /** One model call outside the conversation, with the conversation's model and effort unless `effort`
    * asks for another (mapped to what the model supports); `maxTokens` caps the answer. Nothing is added
    * to the transcript. `usage` is null when the provider reported none; `model` names the model that answered. `role: "fast"` uses your fast model when it
@@ -540,6 +560,8 @@ export interface RuntimeSession {
   recentTurns?(count: number): Array<{ role: "user" | "assistant"; text: string }>;
   /** The whole conversation as saved, oldest first: also what a compaction took out of the AI's context (for /export). */
   conversationRecord?(): ConversationItem[];
+  /** The AI's last steps that have no result, when Casper stopped while they ran and nothing came after (decision 108). */
+  cutShort?(): import("../sessions/cut-short").CutShort | undefined;
   compact?(instructions?: string, signal?: AbortSignal): Promise<void>;
   /** `maxTurns` stops the request gracefully after that many model turns (tools of the last turn
    * still finish) and emits turn_limit; unset means no Casper turn limit. `images` go with the text (a model

@@ -1,6 +1,6 @@
 /** Short tab names fit together at 80 columns; full names explain each area. */
 export const SETTINGS_AREAS = [
-  { name: "Tools & browser", tab: "+ Tools", labels: ["Web lookups", "Browser tool", "Browser clicks", "GitHub tool", "Untrusted-text reader", "Built-in skills", "Packs", "Starter templates", "Helpers that build"] },
+  { name: "Tools & browser", tab: "+ Tools", labels: ["Web lookups", "Browser tool", "Browser clicks", "GitHub tool", "Untrusted-text reader", "Built-in skills", "Packs", "Starter templates", "Helpers that build", "Tasks cut short"] },
   { name: "Pages, pictures & diagrams", tab: "◇ Pages", labels: ["Diagram tool", "Pages the AI makes", "Pictures the AI makes", "Open pages in the browser", "Show the AI the pages"] },
   { name: "Commands & checks", tab: "> Checks", labels: ["Routine commands", "Auto mode", "Blocked commands", "Commands while planning", "Slow commands", "Stalled commands", "Keep going", "Page checks", "Playwright tests", "Compose files"] },
   { name: "Models & cost", tab: "$ Models", labels: ["Spend notes", "Spend pause", "Prompt cache", "Lean guidance", "Compact at", "Hide old tool output", "Local models", "Side questions with ?"] },

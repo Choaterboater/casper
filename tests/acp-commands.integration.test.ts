@@ -40,7 +40,7 @@ test("the / commands come after the session/new reply and again after a load; /s
   const [list] = lists(client, sessionId);
   expect(list!.map((command) => command.name)).toEqual(expect.arrayContaining(["status", "review", "mcp", "diff", "usage", "plan"]));
   for (const name of ["clear", "resume", "pane", "theme", "login", "effort", "model", "permissions", "export"]) expect(list!.map((command) => command.name)).not.toContain(name);
-  expect(list!.find((command) => command.name === "review")).toEqual({ name: "review", description: expect.any(String), input: { hint: "[branch|commit]" } });
+  expect(list!.find((command) => command.name === "review")).toEqual({ name: "review", description: expect.any(String), input: { hint: "[branch|commit|#pr]" } });
 
   // A request first, so there is a saved conversation to load.
   expect((await client.request("session/prompt", { sessionId, prompt: text("Hello") })).stopReason).toBe("end_turn");

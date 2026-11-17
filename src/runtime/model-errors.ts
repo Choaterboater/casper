@@ -3,6 +3,8 @@
  * rules read words every vendor uses (status codes, "rate limit", "context length"); anything else keeps the
  * provider's own text. The provider's words stay available (ctrl+t, or a second line on a plain terminal).
  */
+import { clockTime, planLimitInError, planWindowName } from "./plan-limits";
+
 export type ModelErrorCause = "key" | "refused" | "credits" | "rate" | "offline" | "context" | "model" | "tools";
 
 const RULES: ReadonlyArray<{ cause: ModelErrorCause; test: RegExp; line: string }> = [
@@ -34,12 +36,15 @@ const RULES: ReadonlyArray<{ cause: ModelErrorCause; test: RegExp; line: string 
 const UPSTREAM = /\bupstream error\b/i;
 
 /** Lets Pi retry an upstream host failure as it retries a 502, so OpenRouter can route to another host. A credits,
- * key, refusal, window or model error stays final, and so does whatever Pi itself refuses (its quota words, a full window). */
+ * key, refusal, window or model error stays final, and so does whatever Pi itself refuses (its quota words, a full window)
+ * and a used-up Claude plan window before its reset. */
 export function retryUpstreamErrors(session: object): void {
   const piRetries = Reflect.get(session, "_isRetryableError") as unknown;
   if (typeof piRetries !== "function") return;
   Reflect.set(session, "_isRetryableError", (message: { stopReason?: string; errorMessage?: string }) => {
     const text = message.stopReason === "error" ? message.errorMessage ?? "" : "";
+    // A used-up Claude plan window doesn't pass by trying again before its reset.
+    if ((planLimitInError(text)?.resetsAt ?? 0) > Date.now()) return false;
     const retried = piRetries.call(session, message) === true || (UPSTREAM.test(text) && !/quota|budget|billing/i.test(text)
       && !RULES.some((rule) => rule.cause !== "rate" && rule.cause !== "offline" && rule.test.test(text)));
     if (retried) avoidFailedHost(Reflect.get(session, "model"), text);
@@ -117,11 +122,19 @@ export function explainModelError(message: string): { cause: ModelErrorCause; li
     const model = named && named.length <= 60 ? named : "This model";
     return { cause: "tools", line: `${model} can't use tools, and Casper sends them with every request, so it can't answer here, not even a question. Pick another model with /model.` };
   }
+  // The Claude plan's used-up window, which the subscription runtime names in the error: wait for its reset, not a minute.
+  const plan = !rule || rule.cause === "rate" || rule.cause === "offline" ? planLimitInError(message) : undefined;
+  if (plan) return { cause: "rate", line: `Your Claude plan's ${planWindowName(plan.window)} limit is used up; it resets at ${clockTime(plan.resetsAt)}. Next: wait until then, or /model to pick another model.` };
   return rule && { cause: rule.cause, line: rule.line };
 }
 
-/** The receipt's "– Next:" for a failed model run, by cause; undefined keeps the usual "try another model". */
-export function modelErrorNext(cause: ModelErrorCause | undefined, oneShot: boolean): string | undefined {
+/** The receipt's "– Next:" for a failed model run, by cause; undefined keeps the usual "try another model". `plan`: the
+ * Claude plan window that refused it, whose reset the person waits for instead of a minute. */
+export function modelErrorNext(cause: ModelErrorCause | undefined, oneShot: boolean, plan?: { window: string; resetsAt: number }, now = Date.now()): string | undefined {
+  if (cause === "rate" && plan) {
+    const wait = `wait until the ${planWindowName(plan.window)} limit resets at ${clockTime(plan.resetsAt, now)}`;
+    return oneShot ? `${wait}, then run it again, or casper --model <provider/id> "…" to use another model` : `${wait}, or /model to pick another model`;
+  }
   switch (cause) {
     case "key": return oneShot ? "run casper and type /login" : "/login to sign in again";
     case "refused": return oneShot ? "run casper and type /login to check the key, or casper --model <provider/id> \"…\" to use another model" : "check the key with /login, or /model to pick a model your account can use";
