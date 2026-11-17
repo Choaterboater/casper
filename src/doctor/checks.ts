@@ -26,6 +26,7 @@ import { BUILT_IN_THEMES, themeNote } from "../tui/theme";
 import { lastUpdateFailure, updateFailureLines } from "../update/handoff-log";
 import { localModelDefaults, onThisComputer, SERVER_SIDE_TIP, wantsServerTip } from "../runtime/local-models";
 import { compareVersions, defaultRunner, lookUpNewest, type Fetcher, type Install, type ProcessRunner } from "../update/command";
+import { recentSlowMoments, slowLogPath, slowSeconds } from "../platform/slow-moments";
 import { jsonErrorPosition } from "./json-position";
 
 /**
@@ -484,6 +485,16 @@ export async function checkDisk(ctx: DoctorContext): Promise<DoctorLine[]> {
   const places = await savedPlaces(ctx);
   if (free < TOO_LOW) return [fail(`Disk: only ${size(free)} free for ~/.casper`, places ? `free some space; ${places}` : "free some space")];
   return [note(`Disk: ${size(free)} free for ~/.casper`, places)];
+}
+
+// --- Slow moments ---
+
+/** How often, in the last day, a session stopped answering for 2 s or more (decision 110), from ~/.casper/run/slow.log. */
+export async function checkSlowMoments(ctx: DoctorContext, settings: Pick<LoadedConfiguration, "slowMoments"> | undefined): Promise<DoctorLine[]> {
+  const { count, longest } = await recentSlowMoments(ctx.homeDir, ctx.now?.() ?? Date.now());
+  if (!count) return [ok(settings?.slowMoments === false ? "Slow moments: not noted (off in /settings)" : "Slow moments: none in the last day")];
+  const detail = longest ? ` (longest ${slowSeconds(longest.ms)}${longest.activity ? `, while ${longest.activity}` : ""})` : "";
+  return [note(`Slow moments: ${count} in the last day${detail}`, `Log: ${shown(ctx, slowLogPath(ctx.homeDir))}`)];
 }
 
 // --- Network server ---

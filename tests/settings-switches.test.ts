@@ -357,6 +357,21 @@ test("Notifications row: on by default, says it rings only when the terminal is 
   await expect(loadConfiguration({ projectRoot: project, homeDir: home })).rejects.toThrow("notifications is a user setting");
 });
 
+test("Slow moments row: on by default, says nothing is sent and it costs no tokens, a pick writes slow_moments: false", async () => {
+  const { home, project, config, projectFile } = await folders();
+  expect(await valueOf(home, project, "Slow moments")).toBe("on");
+  expect(settingsArea("Slow moments")).toBe(SETTINGS_AREAS.findIndex((area) => area.name === "Display"));
+  const host = fakeHost(home, project, ["Slow moments", "Turn them off", "Done"]);
+  await runSettings(host);
+  expect(host.asked[1]!.split("\n").slice(1)).toEqual(["1 Keep them on", "2 Turn them off"]);
+  expect(host.asked[1]).toContain("~/.casper/run/slow.log");
+  expect(host.asked[1]).toContain("costs no tokens");
+  expect(await readFile(config, "utf8")).toBe("slow_moments: false\n");
+  expect((await host.context())!.slowMoments).toBe(false);
+  await writeFile(projectFile, "slow_moments: on\n");
+  await expect(loadConfiguration({ projectRoot: project, homeDir: home })).rejects.toThrow("slow_moments is a user setting");
+});
+
 test("other_logins: off loads from your own config; a project file can't set it", async () => {
   const { home, project, config, projectFile } = await folders();
   const load = () => loadConfiguration({ projectRoot: project, homeDir: home });

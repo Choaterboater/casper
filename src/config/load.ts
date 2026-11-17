@@ -208,6 +208,8 @@ export interface LoadedConfiguration {
   lspAutostart?: boolean;
   /** `notifications: off` in your own config: no bell or desktop notification when a long task ends or a question waits. Unset: on. */
   notifications?: boolean;
+  /** `slow_moments: off` in your own config: an interactive session records no slow moments (decision 110). Unset: on. */
+  slowMoments?: boolean;
   /** The user's lab devices (lab.hosts), from ~/.casper/config.yaml or the profile only; never a project file. */
   lab?: LabSettings;
   /** The profile whose own lab list replaces yours (~/.casper/profiles/<name>/config.yaml), when it has one. */
@@ -364,7 +366,7 @@ const POLICY_KEYS = {
 } as const;
 const ISOLATE_KEYS = ["parallelAgents", "riskyRefactor", "experimentalBranch"];
 const TOP_LEVEL_KEYS = new Set(["profile", "project", "languages", "frameworks", "packageManager", "commands", "architecture",
-  "conventions", "verify", "verification", "repair", "skills", "visualize", "policy", "services", "smoke", "pages", "lab", "suggestions", "updates", "sideQuestions", "localModels", "modelServers", "cache", "display", "theme", "showPages", "spend", "sandbox", "shell", "web", "reader", "delegate", "browser", "templates", "packs", "github", "telemetry", "tools", "ssh_login", "other_logins", "network_updates", "ai_pages", "open_pages", "pictures", "browser_clicks", "routine_commands", "plan_commands", "private_commands", "auto_mode", "hide_tool_output", "reasoning_headline", "lean_guidance", "compact_at", "slow_commands", "keep_going", "stalled_commands", "mcp_autoconnect", "acp_mcp", "acp_access", "acp_questions", "acp_idle_exit", "acp_live_output", "mcp_pictures", "lsp_autostart", "notifications", ...Object.keys(POLICY_KEYS)]);
+  "conventions", "verify", "verification", "repair", "skills", "visualize", "policy", "services", "smoke", "pages", "lab", "suggestions", "updates", "sideQuestions", "localModels", "modelServers", "cache", "display", "theme", "showPages", "spend", "sandbox", "shell", "web", "reader", "delegate", "browser", "templates", "packs", "github", "telemetry", "tools", "ssh_login", "other_logins", "network_updates", "ai_pages", "open_pages", "pictures", "browser_clicks", "routine_commands", "plan_commands", "private_commands", "auto_mode", "hide_tool_output", "reasoning_headline", "lean_guidance", "compact_at", "slow_commands", "keep_going", "stalled_commands", "mcp_autoconnect", "acp_mcp", "acp_access", "acp_questions", "acp_idle_exit", "acp_live_output", "mcp_pictures", "lsp_autostart", "notifications", "slow_moments", ...Object.keys(POLICY_KEYS)]);
 
 /** Typos used to fall back silently to the defaults; the loader names them instead. */
 function unknownKeys(document: Mapping, label: string): string[] {
@@ -1195,6 +1197,9 @@ export async function loadConfiguration(
   // Whether your terminal rings or shows a notification is yours too.
   if (projectDocument.notifications !== undefined) throw new Error("notifications is a user setting (~/.casper/config.yaml); a project cannot turn Casper's notifications on or off");
   let notifications: boolean | undefined;
+  // Whether this computer's slow moments are recorded is yours too.
+  if (projectDocument.slow_moments !== undefined) throw new Error("slow_moments is a user setting (~/.casper/config.yaml); a project cannot change what Casper records on your computer");
+  let slowMoments: boolean | undefined;
   for (const [document, label] of [[globalDocument, labels.global], [userProfileDocument, labels.userProfile]] as const) {
     toolDownloads = toolsLayer(document, label, sandboxWarnings) ?? toolDownloads;
     browser = onOffLayer(document.browser, label, "browser") ?? browser;
@@ -1231,6 +1236,7 @@ export async function loadConfiguration(
     mcpAutoconnect = onOffLayer(document.mcp_autoconnect, label, "mcp_autoconnect") ?? mcpAutoconnect;
     lspAutostart = onOffLayer(document.lsp_autostart, label, "lsp_autostart") ?? lspAutostart;
     notifications = onOffLayer(document.notifications, label, "notifications") ?? notifications;
+    slowMoments = onOffLayer(document.slow_moments, label, "slow_moments") ?? slowMoments;
     diagrams = diagramLayer(document, label, sandboxWarnings, false) ?? diagrams;
   }
   if (pickedByProject) diagramLayer(profileDocument, labels.profile, sandboxWarnings, true);
@@ -1299,6 +1305,7 @@ export async function loadConfiguration(
     ...(acpLiveOutput !== undefined ? { acpLiveOutput } : {}),
     ...(lspAutostart !== undefined ? { lspAutostart } : {}),
     ...(notifications !== undefined ? { notifications } : {}),
+    ...(slowMoments !== undefined ? { slowMoments } : {}),
     ...(pageChecks !== undefined ? { pageChecks } : {}),
     profileName: selectedProfile,
     policy: mergePolicy(

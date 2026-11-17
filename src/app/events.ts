@@ -406,6 +406,18 @@ export class RuntimeEventView {
   /** A builder started, ended or spent more: redraw the box so its line is current. */
   refreshBuilders(): void { this.renderBox(); }
 
+  /** What runs now in a few words, for a slow moment (decision 110): the kind of step and the tool, never its input. */
+  slowActivity(): string | undefined {
+    const newest = this.steps.filter(step => step.endedAt === undefined && step.start).at(-1);
+    if (newest) {
+      const tool = terminalText(newest.toolName).slice(0, 40);
+      return newest.kind === "command" ? "running a command" : newest.kind === "edit" ? "editing a file"
+        : newest.kind === "read" ? `reading files (${tool})` : `running ${tool}`;
+    }
+    if (this.checks.size) return "running checks";
+    return this.responseActivity ? "the model replied" : undefined;
+  }
+
   /** Names the checks that start next ("tests written from the request alone"); undefined: their own names. */
   labelChecks(label?: string): void { this.checkTitle = label; }
 
