@@ -30,6 +30,17 @@ comments or review threads; the tool is only offered then.
 - `rerun <number>`: re-runs the failed jobs of that pull request's checks, without asking. Casper
   re-runs one pull request at most once every 10 minutes.
 
+## Review a pull request yourself
+
+`/review #12` (or `/review` with the pull request's github.com link, which must be this folder's own
+`origin` repo) has a read-only reviewer look at pull request 12, as `/review` does for your own changes
+([DELEGATION.md](DELEGATION.md)). Casper fetches the pull request and its base branch from `origin`
+into its own refs, with no force and no prune, reviews the pull request's commits since they left the
+base, and deletes those refs when it ends. Nothing is checked out: files outside the diff are your
+checkout's. `gh` names the base branch; without `gh`, or when it can't, Casper says so and uses
+origin's default branch. Someone else's pull request can steer what the reviewer writes, so the
+findings told to the conversation are fenced as untrusted, like the tool's answers.
+
 ## What it never does
 
 - It never sees your GitHub login or `~/.config/gh`. Those stay private places (see

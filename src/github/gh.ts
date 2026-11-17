@@ -105,6 +105,7 @@ export const ghArgs = {
   pr: (repo: Repo, number: number) => ["pr", "view", String(number), "-R", repoText(repo),
     "--json", "number,title,state,author,headRefName,baseRefName,isDraft,mergeable,reviewDecision,statusCheckRollup"],
   log: (repo: Repo, job: string) => ["run", "view", "--job", job, "-R", repoText(repo), "--log-failed"],
+  base: (repo: Repo, number: number) => ["pr", "view", String(number), "-R", repoText(repo), "--json", "baseRefName"],
   rerun: (repo: Repo, run: string) => ["run", "rerun", run, "--failed", "-R", repoText(repo)],
   // -f sends text as is (no @file or {owner} filling); only the checked number goes as a typed -F value.
   comments: (repo: Repo, number: number) => ["api", "graphql", "-f", `query=${REVIEW_QUERY}`, "-f", `owner=${repo.owner}`,
