@@ -22,7 +22,8 @@ import { forgetServerChoices } from "../app/safe-choices";
 import { withLoginDisplay, type LoginDisplay } from "../tui/login";
 import type { ModelServerActions } from "./pi-models";
 import { applyClaudeCodeVersion } from "./claude-code-version";
-import { registerClaudeSubscription } from "./claude-subscription";
+import { CLAUDE_SUBSCRIPTION, registerClaudeSubscription } from "./claude-subscription";
+import { planLimits, planLimitText } from "./plan-limits";
 import type { ClaudeSessions } from "./claude-session";
 import { applyLatestOpenRouterModels, startOpenRouterModels } from "./openrouter-models";
 import { applyLatestAccountModels, startAccountModels } from "./account-models";
@@ -97,6 +98,7 @@ import type {
   RuntimeTool,
   RuntimeToolResult,
   RuntimeUsage,
+  RuntimePlanLimit,
   RuntimeImage,
   RuntimeModelInfo,
   RuntimeModelWordsMatch,
@@ -404,6 +406,8 @@ class PiRuntimeSession implements RuntimeSession {
       effortClassification: this.models.usage(session) };
   }
 
+  planLimits(): RuntimePlanLimit[] { return planLimits.current(); }
+
   complete(input: Parameters<NonNullable<RuntimeSession["complete"]>>[0]) {
     return this.models.complete(this.runtime.session, input);
   }
@@ -496,7 +500,8 @@ class PiRuntimeSession implements RuntimeSession {
     ]);
     const session = this.runtime.session;
     const failover = this.failovers.get(session);
-    failover?.startTask();
+    // The Claude plan window that made an earlier task switch has reset: this one starts on your model again.
+    if (failover?.startTask()) await this.models.failBack(session).catch(() => false);
     this.steeredLines.cleared();
     const cancel = () => { void session.abort().catch(() => {}); };
     const agent = session.agent;
@@ -692,6 +697,9 @@ class PiRuntimeSession implements RuntimeSession {
             };
             // A provider error may be retried: Pi decides at agent_end, so the error waits until then.
             if (event.message.stopReason === "error") this.heldError = end; else this.emit(end);
+            // A Claude plan window that just turned to a warning or to extra usage is said once, in the main conversation.
+            const plan = !this.readOnly && event.message.provider === CLAUDE_SUBSCRIPTION ? planLimits.takeNotice() : undefined;
+            if (plan) this.emit({ type: "notice", message: `Claude plan: ${planLimitText(plan)}.` });
           }
           break;
         case "queue_update":

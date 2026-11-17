@@ -124,6 +124,8 @@ export interface ModelServerActions {
 
 export class PiModels {
   private readonly selections = new WeakMap<AgentSession, Selection>();
+  /** The model failover switched each session to, till it goes back (failoverTo, failBack). */
+  private readonly failedOver = new WeakMap<AgentSession, NonNullable<AgentSession["model"]>>();
   private readonly accounting = new WeakMap<AgentSession, NonNullable<RuntimeUsage["effortClassification"]>>();
   private selecting = false;
   private preparing = false;
@@ -311,11 +313,13 @@ export class PiModels {
    * recorded or saved), and the effort you chose carries over as far as the model has it. */
   async failoverTo(session: AgentSession, model: NonNullable<AgentSession["model"]>): Promise<void> {
     await session.setModel(model, { persist: false });
+    this.failedOver.set(session, session.model ?? model);
     const effort = this.selections.get(session)?.effort;
     if (effort) this.applyEffort(session, effort, true);
   }
   /** After a task that switched models: back to yours, for the next task. False when there is nothing to go back to. */
   async failBack(session: AgentSession): Promise<boolean> {
+    this.failedOver.delete(session);
     const selection = this.selections.get(session);
     const reference = selection?.reference;
     if (!selection || !reference || (session.model?.provider === reference.provider && session.model.id === reference.id)) return false;
@@ -624,7 +628,10 @@ export class PiModels {
 
   status(session: AgentSession): RuntimeStatus {
     const selection = this.selections.get(session)!;
-    const reference = selection.reference;
+    // The model failover switched to stands in for yours till it goes back (after a used-up Claude plan window, for
+    // several tasks): the status is the model in use, not a choice that reads as unavailable.
+    const standIn = session.model && this.failedOver.get(session) === session.model ? session.model : undefined;
+    const reference = standIn ? { provider: standIn.provider, id: standIn.id } : selection.reference;
     const model = reference && session.model?.provider === reference.provider && session.model.id === reference.id
       ? this.catalog.getModel(reference.provider, reference.id) : undefined;
     const stale = reference && this.staleAuth.has(reference.provider);

@@ -997,6 +997,22 @@ cannot guarantee billing or override plan limits. Anthropic's SDK documentation 
 approval for third-party products offering Claude plan login/rate limits; technical compatibility
 is not that approval.
 
+### Claude plan limits
+
+Claude Code reports the plan's usage windows with its responses (the 5-hour limit, the weekly limits),
+and Casper keeps the latest of each, with no extra call and no tokens
+([decision 106](adr/0002/106-the-claude-plan-says-its-limits.md)):
+
+- `/usage` and `/status` show the window that matters most in one line:
+  `Claude plan: 82% of 5-hour limit, resets 3:40 PM`. A window over its limit while the plan's extra usage
+  pays for requests reads `5-hour limit reached, using extra usage`, never as refused.
+- When a window passes Claude Code's warning mark, or requests start using extra usage, one line says so
+  during the task, once per window.
+- When a window is used up, the error says which and when it resets
+  (`Your Claude plan's 5-hour limit is used up; it resets at 3:40 PM.`), and the receipt's next step is to
+  wait until then or pick another model, instead of waiting a minute. Casper doesn't try again before the
+  reset, and with a [failover](#failover) list the task switches at once.
+
 ## Local models
 
 Casper can use a model that runs on your own computer. Start the server and its models show in
@@ -1352,7 +1368,9 @@ stopping. List the models, in your order, by exact ID:
   take the conversation even compacted is passed over. One line says what happened:
   `Switched to provider/model-b because provider/model-a hit its rate limit; compacted the conversation to fit its window. Your next request tries provider/model-a again.`
 - **Back:** the rest of the task stays on the new model. Your next request starts on your model
-  again; your default and the conversation's model don't change.
+  again; your default and the conversation's model don't change. After a used-up Claude plan window
+  ([Claude plan limits](#claude-plan-limits)), the switch is at once and your requests stay on the new
+  model until that window resets, as the line says; the first task after the reset starts on yours.
 - With no model to switch to, the task stops at the limit as before. Casper says once a session how
   to list models, and says when the conversation is too long for the models you listed.
 

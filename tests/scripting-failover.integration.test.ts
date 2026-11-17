@@ -3,6 +3,7 @@ import { readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { cleanUpAfterEach, fixture, type Step } from "./support/scripting";
 import { childTestLimit } from "./support/limits";
+import { planLimitError } from "../src/runtime/plan-limits";
 
 /**
  * Failover through the real CLI and engine: a scripted provider fails one model as providers do (a 429, a usage limit, a
@@ -50,6 +51,48 @@ test("a usage limit, or a model that can't run, switches at once, without Pi's t
     expect(run.stderr).toMatch(/Switched to fixture\/second because fixture\/first (?:hit its usage limit|can't run right now)\./);
   }
 }, childTestLimit(3));
+
+test("after a used-up Claude plan window, the session's tasks stay on the model switched to until it resets, then the next starts on yours", async () => {
+  // The window is used up from the first request, for a few seconds: long enough for two tasks, short enough to wait out.
+  let resetsAt = 0;
+  const f = await fixture((_, payload) => {
+    resetsAt ||= Date.now() + 6_000;
+    return payload.model === "first" && Date.now() < resetsAt
+      ? fail(429, `Rate limit exceeded: You've hit your limit ${planLimitError({ window: "five_hour", resetsAt })}`)
+      : { text: `ANSWER_FROM_${payload.model.toUpperCase()}` };
+  });
+  await settings(f, { modelFailover: ["fixture/second"] }, { enabled: false });
+  const reset = path.join(f.root, "reset");
+  // PiRuntime itself, without the CLI: it reads the fixture's key as written.
+  const agent = path.join(f.home, ".casper/agent");
+  const catalog = path.join(agent, "models.json");
+  await writeFile(catalog, (await readFile(catalog, "utf8")).replace('"apiKey":"synthetic"', '"apiKey":"local-fixture-not-a-secret"'));
+  const child = Bun.spawn([process.execPath, "-e", `
+    import { PiRuntime } from ${JSON.stringify(path.resolve(import.meta.dir, "../src/runtime/pi.ts"))};
+    const runtime = new PiRuntime(); const session = await runtime.start({ cwd: process.cwd(), localModels: false });
+    const notices = []; session.subscribe(event => { if (event.type === "notice") notices.push(event.message); });
+    try {
+      await session.prompt("One."); await session.prompt("Two.");
+      const at = Number(await Bun.file(${JSON.stringify(reset)}).text());
+      while (Date.now() <= at) await Bun.sleep(50);
+      await session.prompt("Three.");
+      console.log(JSON.stringify({ notices, model: session.getStatus().model }));
+    } finally { await runtime.dispose(); }
+  `], { cwd: f.project, env: { ...f.env, PI_CODING_AGENT_DIR: agent, CASPER_AGENT_DIR: agent, PI_OFFLINE: "1", PI_TELEMETRY: "0" }, stdout: "pipe", stderr: "pipe" });
+  // The child reads the reset once the first request has set it.
+  let ended = false;
+  void child.exited.then(() => { ended = true; });
+  const written = (async () => { while (!resetsAt && !ended) await Bun.sleep(10); if (resetsAt) await writeFile(reset, String(resetsAt)); })();
+  const [stdout, stderr, exit] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
+  await written;
+  expect({ exit, stderr }).toEqual({ exit: 0, stderr: "" });
+  // The first task switched at once; the second stayed on the model switched to (yours not tried); the third, after the
+  // reset, started on yours again.
+  expect(models(f)).toEqual(["first", "second", "second", "first"]);
+  const result = JSON.parse(stdout) as { notices: string[]; model: string };
+  expect(result.model).toBe("first");
+  expect(result.notices.filter((notice) => notice.startsWith("Switched to"))).toEqual([expect.stringContaining("Your requests stay on fixture/second until the Claude plan's 5-hour limit resets at")]);
+}, childTestLimit());
 
 test.each([[401, "Unauthorized: invalid api key"], [403, "Forbidden: this key can't use the model"], [400, "Bad Request: unsupported parameter"]] as const)(
   "a %i (%s) never moves the conversation to another model", async (status, error) => {

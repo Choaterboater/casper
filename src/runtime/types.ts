@@ -355,6 +355,21 @@ export interface RuntimeUsage {
   messages: number;
 }
 
+/** One of the Claude plan's usage windows, as Claude Code last reported it with a response (no extra call). */
+export interface RuntimePlanLimit {
+  /** Claude Code's name for the window: five_hour, seven_day, seven_day_opus … */
+  window: string;
+  status: "allowed" | "allowed_warning" | "rejected";
+  /** When the window resets, in ms since the epoch. */
+  resetsAt?: number;
+  /** The share of the window used: 0 to 1, past 1 when usage runs over. */
+  used?: number;
+  /** Requests go on with the plan's extra usage. */
+  overage: boolean;
+  /** Requests are refused until the reset: used up, with no extra usage. */
+  blocked: boolean;
+}
+
 /** One part of a saved conversation: the person's words, a prompt Casper sent the AI itself, an answer, or a compaction. */
 export type ConversationItem =
   | { kind: "you"; text: string }
@@ -518,6 +533,9 @@ export interface RuntimeSession {
   setFailover?(models: readonly string[] | undefined): Promise<string[]>;
   setEffort?(level: string, persist: boolean): Promise<RuntimeStatus>;
   getUsage?(): RuntimeUsage;
+  /** The Claude plan's windows Claude Code last reported, the one that matters most first (a used-up one, then extra
+   * usage, then the most used); empty before the first Claude plan request in this Casper. Makes no call. */
+  planLimits?(): RuntimePlanLimit[];
   /** One model call outside the conversation, with the conversation's model and effort unless `effort`
    * asks for another (mapped to what the model supports); `maxTokens` caps the answer. Nothing is added
    * to the transcript. `usage` is null when the provider reported none; `model` names the model that answered. `role: "fast"` uses your fast model when it

@@ -138,6 +138,47 @@ test("subscription proposals retain Casper's native tools, approvals, private-pa
   } finally { await removeTempDir(root); }
 }, 120_000);
 
+test("a Claude plan window near its limit is said once in the main conversation, never in a side request", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "casper-claude-plan-"));
+  try {
+    const home = path.join(root, "home"), cwd = path.join(root, "project"), agent = path.join(home, ".casper/agent");
+    await mkdir(agent, { recursive: true }); await mkdir(cwd);
+    const cli = path.join(root, process.platform === "win32" ? "synthetic claude.exe" : "synthetic claude");
+    await copyFile(compiled, cli);
+    const source = path.resolve(import.meta.dir, "../src/runtime/pi.ts");
+    const resetsAt = Math.floor(Date.now() / 1000) + 3600;
+    const child = Bun.spawn([process.execPath, "-e", `
+      import { PiRuntime } from ${JSON.stringify(source)};
+      const main = new PiRuntime(); const reader = new PiRuntime();
+      const notices = (session) => { const said = []; session.subscribe(event => { if (event.type === "notice") said.push(event.message); }); return said; };
+      try {
+        const session = await main.start({ cwd: process.cwd(), localModels: false });
+        await session.selectModel({ query: "claude-subscription/claude-opus-4-8", persist: true });
+        const side = await reader.startReadOnly({ cwd: process.cwd(), signal: new AbortController().signal, maxTurns: 1, maxToolCalls: 1 });
+        const sideSaid = notices(side);
+        await side.prompt("Reply briefly.");
+        const mainSaid = notices(session);
+        await session.prompt("Reply briefly.");
+        const first = [...mainSaid];
+        await session.prompt("Reply briefly again.");
+        console.log(JSON.stringify({ side: sideSaid, first, main: mainSaid, provider: session.getStatus().provider, limits: session.planLimits() }));
+      } finally { await reader.dispose(); await main.dispose(); }
+    `], { cwd, env: { ...isolatedEnvironment(home), PI_CODING_AGENT_DIR: agent, PI_OFFLINE: "1", CASPER_OFFLINE: "1", PI_TELEMETRY: "0", CASPER_CLAUDE_PATH: cli,
+      CASPER_TEST_CLAUDE_RATE_LIMIT: JSON.stringify({ status: "allowed_warning", rateLimitType: "five_hour", utilization: 0.82, resetsAt }) },
+      stdout: "pipe", stderr: "pipe", timeout: 60_000 });
+    const [stdout, stderr, exit] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
+    expect({ exit, stderr }).toEqual({ exit: 0, stderr: "" });
+    const result = JSON.parse(stdout);
+    expect(result.provider).toBe("claude-subscription");
+    expect(result.side).toEqual([]);
+    const said = result.main.filter((message: string) => message.startsWith("Claude plan:"));
+    expect(said).toHaveLength(1);
+    expect(said[0]).toMatch(/^Claude plan: 82% of 5-hour limit, resets .+\.$/);
+    expect(result.first).toEqual(result.main);
+    expect(result.limits).toEqual([expect.objectContaining({ window: "five_hour", status: "allowed_warning", used: 0.82, resetsAt: resetsAt * 1000 })]);
+  } finally { await removeTempDir(root); }
+}, 120_000);
+
 test("subscription registration and session-only selection preserve existing saved defaults", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "casper-claude-defaults-"));
   try {

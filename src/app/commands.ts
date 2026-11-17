@@ -3,6 +3,7 @@ import { judgeStatusLine } from "./auto-mode";
 import { someoneAnswers } from "./approvals";
 import { untrustedReason } from "../project/trust";
 import { savedLocalServers } from "../runtime/local-models";
+import { planLimitText } from "../runtime/plan-limits";
 import { addLabHosts, labConfigPlace, labImportList, parseLabFile } from "../network/lab-import";
 import type { LabSettings } from "../network/spec";
 import type { BrowserSession } from "../browser/session";
@@ -415,6 +416,8 @@ export async function runSlashCommand(host: CommandHost, prompt: string): Promis
         const side = host.sideQuestions;
         if (side?.requests) host.output.write(`Side questions (?): ${side.requests}; ${side.unknown ? "at least " : ""}${side.tokens} tokens; cost ${side.unknown && !side.estimatedCost ? "unknown" : `$${side.estimatedCost.toFixed(4)} estimate`}. Separate calls; not in the conversation totals above.\n`);
         if (classifier) host.output.write(`Auto-effort classifier (separate, since session load): ${classifier.requests} request(s); tokens ${formatTerminalJSON(classifier.tokens)}; cost ${classifier.estimatedCost === undefined ? "unknown" : `$${classifier.estimatedCost.toFixed(4)} estimate`}. Failed requests may consume unreported tokens; not included in conversation totals.\n`);
+        const plan = session.planLimits?.()[0];
+        if (plan) host.output.write(`Claude plan: ${planLimitText(plan)}\n`);
       }
       return;
     }
@@ -603,6 +606,8 @@ export async function runSlashCommand(host: CommandHost, prompt: string): Promis
       const usage = host.session?.getUsage?.();
       const cost = usage && formatCostShort(usage, host.session?.getStatus?.());
       host.output.write(` context   ${usage?.context?.percent == null ? "—" : `${usage.context.percent.toFixed(0)}%~`} · ${usage ? `${formatTokenSplit(usage.tokens)}${cost ? ` · ${cost}` : ""}` : "— tokens"} (/context, /usage)\n`);
+      const plan = host.session?.planLimits?.()[0];
+      if (plan) host.output.write(` claude    plan: ${planLimitText(plan)}\n`);
       host.output.write(" policy    native coding tools enabled (/permissions)\n");
       host.output.write(` shell     ${host.sandbox ? sandboxStatusLine(host.sandbox) : "not started"}\n`);
       const judge = host.judgeAllows ? judgeStatusLine({ judgeAllows: [...host.judgeAllows] }) : undefined;

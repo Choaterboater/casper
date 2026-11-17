@@ -69,6 +69,7 @@ import type { TaskClassification } from "../task/classify";
 import { builtOutput, inOutputFolder, planAutoChecks, TESTS_WITHOUT_COMMAND } from "../verify/mode";
 import { outsideWritesReceipt, sandboxReceipt } from "./sandbox";
 import { explainModelError } from "../runtime/model-errors";
+import { planLimitInError } from "../runtime/plan-limits";
 import { tildePath } from "../new/scaffold";
 import { offerNetworkServer } from "./network-host";
 import { updateFooter, nameConversation, phase, clearSteps } from "./footer";
@@ -773,9 +774,10 @@ export async function runModelTask(app: CasperApp, prompt: string, options: { fl
     const snapshotFailure = !changedPaths && app.snapshotFailure ? { reason: app.snapshotFailure,
       edited: toolFiles(workspaceRoot, observations.observedEdits, "all") } : undefined;
     const modelError = execution === "failed" ? explainModelError(app.events.lastError ?? thrownError ?? "")?.cause : undefined;
+    const planLimit = modelError === "rate" ? planLimitInError(app.events.lastError ?? thrownError ?? "") : undefined;
     // The whole answer is a tool call written as text and no tool ran: shown, never run, never retried.
     const wroteToolCall = execution === "completed" && !app.observations.madeToolCalls && isToolCallAsText(app.lastAnswer);
-    app.lastTaskResult = { execution, ...(branchMoved ? { branchMoved: true as const } : {}), ...(modelError ? { modelError } : {}), ...(wroteToolCall ? { wroteToolCallAsText: true as const } : {}), verification, ...(appSmoke ? { appSmoke } : {}), ...observations, ...(snapshotFailure ? { snapshotFailure } : {}), ...(app.untrackedMedia.has(workspaceRoot) ? { mediaLeftOut: true as const } : {}), ...(browser?.checks.length ? { browser, ...(browser.status !== "pass" && (answerClaimsBrowserPass(app.lastAnswer) || (finishAnswer !== undefined && answerClaimsBrowserPass(finishAnswer))) ? { browserClaimed: true } : {}) } : {}),
+    app.lastTaskResult = { execution, ...(branchMoved ? { branchMoved: true as const } : {}), ...(modelError ? { modelError } : {}), ...(planLimit ? { planLimit } : {}), ...(wroteToolCall ? { wroteToolCallAsText: true as const } : {}), verification, ...(appSmoke ? { appSmoke } : {}), ...observations, ...(snapshotFailure ? { snapshotFailure } : {}), ...(app.untrackedMedia.has(workspaceRoot) ? { mediaLeftOut: true as const } : {}), ...(browser?.checks.length ? { browser, ...(browser.status !== "pass" && (answerClaimsBrowserPass(app.lastAnswer) || (finishAnswer !== undefined && answerClaimsBrowserPass(finishAnswer))) ? { browserClaimed: true } : {}) } : {}),
       ...(noCheckAsked && !browser?.checks.length ? { browserNotRecorded: true as const } : {}),
       ...(services.length ? { services } : {}), ...(riskyLines.length ? { riskyLines: [...riskyLines], ...(riskyLines.more ? { riskyMore: riskyLines.more } : {}) } : {}),
       // Smoke checks ran even without a configured command, so "no checks" no longer describes the task.

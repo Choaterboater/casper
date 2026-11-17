@@ -115,7 +115,7 @@ Local commands:
   /suggestions on|off [name]        Turn every suggestion, or one, on or off (suggestions: false in config.yaml too)
   /effort [level|auto] [--session]  The model's supported levels or auto (Casper picks per request); --session before or after; Shift+Tab cycles; /thinking is the same
   /context                          Estimated context and capability counts
-  /usage, /cost                     Session tokens, cache share and optional catalog cost estimate
+  /usage, /cost                     Session tokens, cache share, optional catalog cost estimate and the Claude plan's limit
   /compact [instructions]           Summarize context using the model (not a local-only command)
   /clear, /new                      New conversation; no file rollback
   /resume [id]                      Pick a saved conversation (or give the start of its ID)

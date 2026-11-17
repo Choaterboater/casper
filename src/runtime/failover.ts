@@ -11,7 +11,8 @@
  * - How: the failed request goes again on the new model; when the conversation doesn't fit its window, it is compacted
  *   to fit first, by that model. The engine compacts once, keeping the newest part and summarizing the rest in one
  *   request to that model, so a model whose window can't take the rest is passed over. One line says what switched and
- *   why. The next task goes back to your model.
+ *   why. The next task goes back to your model; after a used-up Claude plan window, the first task once it resets
+ *   (docs/adr/0002/106-the-claude-plan-says-its-limits.md).
  *
  * The engine decides about retries in methods it keeps to itself (`_isRetryableError`, `_willRetryAfterAgentEnd`,
  * `_prepareRetry`); failover wraps them as Casper already wraps the first (src/runtime/model-errors.ts). When the engine
@@ -20,6 +21,7 @@
 import { estimateTokens, shouldCompact, type AgentSession } from "@earendil-works/pi-coding-agent";
 import type { Api, Model } from "@earendil-works/pi-ai";
 import { explainModelError } from "./model-errors";
+import { clockTime, planLimitInError, planWindowName } from "./plan-limits";
 import { modelFacts, providerFacts, type ModelFacts } from "./model-facts";
 
 export type FailoverCause = "rate" | "quota" | "unavailable";
@@ -34,11 +36,11 @@ const ENDING_SOON_MS = 7 * 24 * 60 * 60_000;
 const REASON: Record<FailoverCause, string> = { rate: "hit its rate limit", quota: "hit its usage limit", unavailable: "can't run right now" };
 
 /** Why this error lets the task switch models, or none. Read from the words every provider uses (model-errors.ts). */
-export function failoverCause(errorMessage: string): FailoverCause | undefined {
+export function failoverCause(errorMessage: string, now = Date.now()): FailoverCause | undefined {
   const cause = explainModelError(errorMessage)?.cause;
   if (cause === "credits") return "quota";
-  // A daily or quota limit says 429 too, but waiting a minute doesn't lift it.
-  if (cause === "rate") return /per[- ]?day|daily|quota/i.test(errorMessage) ? "quota" : "rate";
+  // A daily or quota limit says 429 too, and so does a used-up Claude plan window, but waiting a minute lifts neither.
+  if (cause === "rate") return /per[- ]?day|daily|quota/i.test(errorMessage) || (planLimitInError(errorMessage)?.resetsAt ?? 0) > now ? "quota" : "rate";
   if (cause === "model") return "unavailable";
   if (cause) return undefined;
   return /\b50[234]\b|bad gateway|service unavailable|gateway time-?out|upstream error/i.test(errorMessage) ? "unavailable" : undefined;
@@ -123,6 +125,8 @@ export class Failover {
   private tried = new Set<string>();
   /** The model the task started on, once the task switched away from it. */
   private startedOn?: string;
+  /** The Claude plan window that made the task switch, and when it resets: tasks stay on the model switched to till then. */
+  private held?: { window: string; resetsAt: number };
   /** "No model to switch to" is said once a session. */
   private told = false;
 
@@ -162,12 +166,25 @@ export class Failover {
     return true;
   }
 
-  /** A new task: nothing tried yet. */
-  startTask(): void { this.tried.clear(); this.startedOn = undefined; }
-  /** The task ended: true when it switched models, so the caller goes back to yours for the next one. */
-  endTask(): boolean {
+  /** A new task: nothing tried yet. True when a used-up Claude plan window has reset since, so the caller goes back to
+   * your model for this task; while it hasn't, the task stays on the model switched to, and yours isn't tried. */
+  startTask(now = Date.now()): boolean {
+    this.tried.clear();
+    if (this.startedOn !== undefined && this.held && this.held.resetsAt > now) {
+      this.tried.add(this.startedOn);
+      return false;
+    }
+    const back = this.held !== undefined && this.startedOn !== undefined;
+    this.startedOn = undefined; this.held = undefined;
+    return back;
+  }
+  /** The task ended: true when it switched models, so the caller goes back to yours for the next one; false while a
+   * used-up Claude plan window that made it switch hasn't reset. */
+  endTask(now = Date.now()): boolean {
     const switched = this.startedOn !== undefined;
-    this.startTask();
+    this.tried.clear();
+    if (switched && this.held && this.held.resetsAt > now) return false;
+    this.startedOn = undefined; this.held = undefined;
     return switched;
   }
 
@@ -236,8 +253,13 @@ export class Failover {
       engine._retryAttempt = 0;
       const compacted = await this.compactFor(plan.target);
       this.startedOn ??= key(from);
+      // A used-up Claude plan window: your model refuses requests until it resets, so the next tasks stay here till then.
+      const held = planLimitInError(message.errorMessage ?? "");
+      if (held && held.resetsAt > Date.now() && held.resetsAt > (this.held?.resetsAt ?? 0)) this.held = held;
+      const back = !this.held ? `Your next request tries ${this.startedOn} again.`
+        : `Your requests stay on ${key(plan.target)} until the Claude plan's ${planWindowName(this.held.window)} limit resets at ${clockTime(this.held.resetsAt)}, then go back to ${this.startedOn}.`;
       this.hooks.notice(`Switched to ${key(plan.target)} because ${key(from)} ${REASON[plan.cause]}`
-        + `${compacted ? "; compacted the conversation to fit its window" : ""}. Your next request tries ${this.startedOn} again.`);
+        + `${compacted ? "; compacted the conversation to fit its window" : ""}. ${back}`);
       return true;
     }
     return false;
