@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { access, realpath } from "node:fs/promises";
 import path from "node:path";
 import type { CasperPolicy } from "../config/load";
+import { dependencyFoldersIn, linkDependencies, unlinkDependencies } from "../crew/copies";
 import type { RuntimeSession, RuntimeSessionInfo } from "../runtime/types";
 import { GitWorktreeManager, WorktreeCleanupError, type WorktreePatch, type WorktreePlan, type WorktreeRelation } from "../workspace/worktree";
 import { SessionBranchStore, sessionProjectKey, type NamedSessionBranch } from "./store";
@@ -16,6 +17,8 @@ export interface SessionTransition {
   session: RuntimeSessionInfo;
   cleanupWarning?: string;
   preservedPath?: string;
+  /** Dependency folders linked into a new experiment's worktree from the main folder. */
+  linked?: string[];
 }
 
 export interface SessionWorkspaceOptions {
@@ -81,7 +84,7 @@ function branchRecord(options: {
   };
 }
 
-function branchPreview(name: string, source: string, plan?: WorktreePlan): string {
+function branchPreview(name: string, source: string, plan?: WorktreePlan, dependencies: readonly string[] = []): string {
   const lines = [
     "Session branch confirmation",
     `name: ${JSON.stringify(name)}`,
@@ -93,12 +96,19 @@ function branchPreview(name: string, source: string, plan?: WorktreePlan): strin
       `git branch: ${plan.branch}`,
       `base commit: ${plan.baseCommit}`,
       `new worktree: ${plan.path}`,
+      ...dependencies.length ? [`dependency folders: ${dependencies.join(", ")} (linked from the main folder unless Git tracks them; shared, not copied)`] : [],
       "return: candidate diff must be reviewed, then explicitly applied or discarded",
     );
   } else {
     lines.push("workspace: shared with the parent session (isolation disabled or unavailable)");
   }
   return `${lines.join("\n")}\n`;
+}
+
+/** Told to the branch's AI in its fork context only (never the system prompt): a linked folder writes through to main. */
+export function linkedDependencyNote(linked: readonly string[]): string {
+  return `Linked from the main folder, not copied: ${linked.join(", ")}. Installing into or deleting inside them changes the main folder's. `
+    + `To install here, first remove only the link (\`rm ${linked[0]}\`, no trailing slash), then install.`;
 }
 
 function terminalSafe(value: string): string {
@@ -231,7 +241,7 @@ export class SessionWorkspaceManager {
       plan = await this.worktrees.plan(name, sourceWorkspace);
     }
     const approved = await options.confirm(
-      branchPreview(name, sourceWorkspace, plan),
+      branchPreview(name, sourceWorkspace, plan, plan ? await dependencyFoldersIn(sourceWorkspace) : []),
       "Create this session branch?",
     );
     if (!approved) return undefined;
@@ -257,7 +267,10 @@ export class SessionWorkspaceManager {
     try {
       relation = plan ? await this.worktrees!.create(plan) : undefined;
       const workspacePath = relation?.path ?? sourceWorkspace;
-      const target = await runtime.forkSession({ cwd: workspacePath, name, context: options.context });
+      // Git does not track installed dependencies: without the main folder's, tests and dev servers fail in the branch.
+      const linked = relation ? await linkDependencies(relation.mainWorkspace, relation.path) : [];
+      const context = [options.context, linked.length ? linkedDependencyNote(linked) : ""].filter(Boolean).join("\n\n") || undefined;
+      const target = await runtime.forkSession({ cwd: workspacePath, name, context });
       const child = branchRecord({
         name,
         parent: "main",
@@ -270,16 +283,19 @@ export class SessionWorkspaceManager {
         await this.store.insert(child, [main]);
       } catch (error) {
         await runtime.switchSession({ cwd: main.workspacePath, sessionFile: main.sessionFile }).catch(() => {});
-        if (relation) await this.worktrees!.remove(relation).catch(() => {});
         throw error;
       }
       this.currentName = name;
-      return { name, workspacePath, session: target };
+      return { name, workspacePath, session: target, ...linked.length ? { linked } : {} };
     } catch (error) {
       if (relation && runtime.getState().cwd !== sourceWorkspace) {
         await runtime.switchSession({ cwd: main.workspacePath, sessionFile: main.sessionFile }).catch(() => {});
       }
-      if (relation) await this.worktrees!.remove(relation).catch(() => {});
+      if (relation) {
+        // A link left in place reads as an untracked file, and removal refuses a worktree with one.
+        await unlinkDependencies(relation.path, relation.mainWorkspace);
+        await this.worktrees!.remove(relation).catch(() => {});
+      }
       throw error;
     }
   }
@@ -309,6 +325,8 @@ export class SessionWorkspaceManager {
     if (target.worktree) {
       if (!this.worktrees) throw new Error("Git worktree support is unavailable");
       await this.worktrees.validate(target.worktree);
+      // An experiment whose return stopped part way (or one made before links) gets them back.
+      await linkDependencies(target.worktree.mainWorkspace, target.workspacePath);
     }
     const runtime = await options.getRuntime();
     requireBranchingRuntime(runtime);
@@ -333,18 +351,33 @@ export class SessionWorkspaceManager {
     }
     // Verification may generate or normalize files. Capture afterwards so the
     // approved identity always describes the exact candidate being returned.
-    const patch = await this.worktrees.capturePatch(branch.worktree);
+    // The dependency links come out first (checks needed them): git does not match a link against `node_modules/`,
+    // so one left in place would land in the patch; removal never sees them either.
+    const relink = () => linkDependencies(branch.worktree!.mainWorkspace, branch.workspacePath);
+    // Only the links Casper made: a link the repository tracks stays, so the patch never deletes it.
+    await unlinkDependencies(branch.workspacePath, branch.worktree.mainWorkspace);
+    let patch: WorktreePatch;
+    try { patch = await this.worktrees.capturePatch(branch.worktree); }
+    catch (error) { await relink(); throw error; }
     const approved = await options.confirm(
       patchPreview(branch, action, patch, verification),
       `${action === "apply" ? "Apply" : "Discard"} this candidate and return to main?`,
     );
-    if (!approved) return undefined;
+    if (!approved) { await relink(); return undefined; }
 
-    const runtime = await options.getRuntime();
-    requireBranchingRuntime(runtime);
-    await this.resumeActive(runtime);
-    const candidateSession = runtime.getSessionInfo();
-    const switched = await runtime.switchSession({ cwd: main.workspacePath, sessionFile: main.sessionFile, context: options.context });
+    let candidateSession: RuntimeSessionInfo;
+    let switched: RuntimeSessionInfo;
+    try {
+      const runtime = await options.getRuntime();
+      requireBranchingRuntime(runtime);
+      await this.resumeActive(runtime);
+      candidateSession = runtime.getSessionInfo();
+      switched = await runtime.switchSession({ cwd: main.workspacePath, sessionFile: main.sessionFile, context: options.context });
+    } catch (error) {
+      // Still on the branch: it keeps working.
+      await relink();
+      throw error;
+    }
     this.currentName = "main";
 
     let cleanupWarning: string | undefined;

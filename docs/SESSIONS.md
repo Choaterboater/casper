@@ -44,6 +44,21 @@ Copies the current conversation and records the project context. If the policy
 says to isolate experiments (the default) and the project is a Git repo, it also
 creates a clean worktree from the main folder's current commit.
 
+Git does not track installed dependencies, so the worktree links the main folder's
+`node_modules`, `.venv` and `vendor` (those it has and Git does not track) instead of
+installing them, as a crew copy does: tests and dev servers work in the branch at once,
+at no cost. Casper says which it linked
+(`[sessions] Linked from the main folder, not copied: node_modules.`), and tells the
+branch's AI, in that branch's notes only, that an install or delete in them changes the
+main folder's, and to remove just the link (`rm node_modules`, no trailing slash) before
+installing there. The links come out before the diff is captured and stay in place for the
+checks `apply` runs, so they are never in the patch, and leaving deletes only the links,
+never what they point to. Only links that point at the main folder come out: a link the
+repository itself tracks (`vendor -> third`, say) stays, and so stays out of the patch.
+A return you do not finish (`apply` stopped, say) and a later `/switch` to the branch put
+them back
+([decision 115](adr/0002/115-a-branch-links-the-main-folders-dependencies.md)).
+
 You typed the command, so Casper doesn't ask again: it makes the branch and says
 where it is. In one-shot mode (`casper -p "<prompt>"`) it refuses, because there is no one to
 answer.

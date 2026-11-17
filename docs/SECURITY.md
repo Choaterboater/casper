@@ -514,6 +514,11 @@ Each row names the test that fails without it.
   conversation began in,** while the sandbox follows the new folder. A command that writes next to its
   start folder can then be refused; the sandbox is not loosened for it. Start a new session in the new
   folder when that matters.
+- **A `/branch` experiment shares the main folder's dependency folders.** Its `node_modules`, `.venv`
+  and `vendor` are links to the main folder's, so with the sandbox off (the default) an install or
+  `rm -rf node_modules/` in the branch changes the main folder's. The branch's AI is told so and to
+  remove only the link before installing; nothing blocks it
+  ([decision 115](adr/0002/115-a-branch-links-the-main-folders-dependencies.md)).
 - **The AI's own words are its own.** A secret the AI types into a command (a token it read somewhere,
   or made up) is hidden on the screen, in records and on the receipt, and the receipt says to change
   it; the AI still has it, and Pi's own saved conversation keeps the command as the AI sent it.
