@@ -41,6 +41,7 @@ import { autoModeHandledHere, autoModeRequest, setAutoMode } from "./auto-mode";
 import { exportHandledHere, exportRequest, exportWordsLine } from "./export-words";
 import { stopAskingRequest } from "./stop-asking-words";
 import { reloadProject } from "./project-file";
+import { watchSlowMoments, type SlowMomentsOptions } from "../platform/slow-moments";
 import { someoneAnswers } from "./approvals";
 import { pagesCommand } from "./pages";
 import { jobsCommand, jobStatusWords, leavingReply, leavingWords } from "./jobs";
@@ -48,6 +49,19 @@ import { lookCommand, lookTyped } from "./look";
 import { lookWords } from "../look/commands";
 import { rewind } from "./rewind";
 import { readPlan, recentPlans } from "../flows/plan-store";
+
+/** Slow moments (decision 110) for this session: noted while slow_moments is on, stopped when Casper closes.
+ * `seams` are the timer and clocks (tests). */
+export function watchSessionSlowMoments(app: Pick<CasperApp, "sessionHomeDir" | "projectContext" | "commandActive" | "events" | "lifecycle">,
+  seams: Pick<SlowMomentsOptions, "every" | "monotonic" | "clock" | "rss"> = {}): void {
+  const watch = watchSlowMoments({
+    home: app.sessionHomeDir ?? os.homedir(),
+    enabled: () => app.projectContext?.slowMoments !== false,
+    activity: () => app.commandActive ? app.events.slowActivity() ?? "a task ran" : undefined,
+    ...seams,
+  });
+  app.lifecycle.add({ name: "slow-moments", close: () => watch.stop() });
+}
 
 export async function runInteractive(app: CasperApp, cwd = process.cwd(), firstRequest?: string): Promise<void> {
   // Own the terminal before the banner so startup output is transcript, not
@@ -85,6 +99,7 @@ export async function runInteractive(app: CasperApp, cwd = process.cwd(), firstR
   app.savedModelDisplay = await modelPreference(app.sessionHomeDir ?? os.homedir());
   await checkSignIn(app);
   await loadPaneSetting(app);
+  if (app.slowMoments) watchSessionSlowMoments(app);
   updateFooter(app);
   // Looked up beside the prompt, not before it: the prompt never waits on the folder's saved conversations.
   const earlier = offerEarlierConversation(app);

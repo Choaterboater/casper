@@ -1,13 +1,17 @@
 import { afterEach, expect, setDefaultTimeout, test } from "bun:test";
 import { createHash } from "node:crypto";
+import { existsSync } from "node:fs";
 import { mkdir, mkdtemp, readFile, readdir, realpath, rename, rm, stat, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { CandidateLibrary, notLocalSource } from "../src/learn/candidates";
+import { bootEpoch } from "../src/platform/state-lock";
+import { projectStateDirectory } from "../src/project/model";
 import { SkillRegistry } from "../src/skills/registry";
 import { classifyTask } from "../src/task/classify";
 import { needsFifos, needsSymlinks, posixModes, posixOnly } from "./support/platform";
 import { cleanEnv } from "./support/env";
+import { GONE_PID, heldLock } from "./support/stale-lock";
 import { removeTempDir } from "./support/temp-dir";
 import { childTestLimit, finished } from "./support/limits";
 
@@ -121,11 +125,19 @@ test("learn produces an unpromoted draft with host-checked provenance, inspectab
 
 test("digest-bound human promotion makes one candidate a searchable reference without another model call", async () => {
   const f = await fixture();
+  // Locks left by a killed Casper (a gone pid, and one from before a restart) block neither the draft nor the promotion.
+  const state = projectStateDirectory(await realpath(f.project), await realpath(f.home));
+  await mkdir(state, { recursive: true, mode: 0o700 });
+  const draftLock = path.join(state, "learning-candidates.lock"), promotionLock = path.join(f.home, ".casper", "learning-promotion.lock");
+  await heldLock(draftLock, { pid: GONE_PID, boot: bootEpoch() });
+  await heldLock(promotionLock, { pid: process.pid, boot: bootEpoch() - 7_200 }, 0);
   const generated = JSON.parse((await f.run(["learn", f.project])).stdout).draft;
+  expect(existsSync(draftLock)).toBe(false);
   const promoted = await f.run(["learn", "promote", f.project, generated.id, generated.sha256, "1", "reference"]);
   expect({ exit: promoted.exit, stderr: promoted.stderr }).toEqual({ exit: 0, stderr: "" });
   expect(JSON.parse(promoted.stdout)).toMatchObject({ status: "promoted", decision: { draftId: generated.id,
     draftSha256: generated.sha256, candidateIndex: 1, disposition: "reference" } });
+  expect(existsSync(promotionLock)).toBe(false);
   expect(f.payloads).toHaveLength(2);
   const searched = await f.run(["/references", "search", "casper-promoted", "atomic"]);
   expect(searched.exit).toBe(0);

@@ -126,6 +126,8 @@ export interface ProjectContext {
   lspAutostart?: boolean;
   /** `notifications: off` in the user's config: nothing rings when a long task ends or a question waits. Unset: on. */
   notifications?: boolean;
+  /** `slow_moments: off` in the user's config: an interactive session records no slow moments. Unset: on. */
+  slowMoments?: boolean;
   /** `telemetry: off` in the user's config: no OpenRouter app-name headers. Unset: on. */
   telemetry?: boolean;
   rules: {
@@ -262,6 +264,7 @@ export async function loadProjectContext(
     ...(configuration.acpLiveOutput !== undefined ? { acpLiveOutput: configuration.acpLiveOutput } : {}),
     ...(configuration.lspAutostart !== undefined ? { lspAutostart: configuration.lspAutostart } : {}),
     ...(configuration.notifications !== undefined ? { notifications: configuration.notifications } : {}),
+    ...(configuration.slowMoments !== undefined ? { slowMoments: configuration.slowMoments } : {}),
     ...(configuration.toolDownloads !== undefined ? { toolDownloads: configuration.toolDownloads } : {}),
     rules: {
       profile: configuration.profileRules,

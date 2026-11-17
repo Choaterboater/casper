@@ -343,7 +343,7 @@ export async function runCli(): Promise<void> {
   const emit = options.json ? (event: CasperEvent) => { process.stdout.write(formatJsonEvent(event)); } : undefined;
   // Loaded only now: --help, --version and usage errors never need the app.
   const { CasperApp } = await import("./app");
-  const app = new CasperApp({ ...appOptions(),
+  const app = new CasperApp({ ...appOptions(), slowMoments: true,
     // A session says when a newer Casper is out; --json output is for scripts and never does.
     ...(options.json ? {} : { updateCheck: { install: currentInstall(), currentVersion: CASPER_VERSION } }),
     conversation: options.resume ? { resume: options.resume } : options.continueConversation ? { continue: true } : undefined,

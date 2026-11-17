@@ -1,7 +1,8 @@
-import { lstat, readFile, realpath, stat, statfs } from "node:fs/promises";
+import { lstat, readdir, readFile, realpath, stat, statfs } from "node:fs/promises";
 import type { ModelServer } from "../config/model-servers";
 import path from "node:path";
 import { parse as parseYaml } from "yaml";
+import { exportFolder } from "../app/peer-commands";
 import { loadConfiguration, type LoadedConfiguration } from "../config/load";
 import { isValidProfileName } from "../config/profile";
 import { discoverLSPConfiguration } from "../lsp/config";
@@ -25,6 +26,7 @@ import { BUILT_IN_THEMES, themeNote } from "../tui/theme";
 import { lastUpdateFailure, updateFailureLines } from "../update/handoff-log";
 import { localModelDefaults, onThisComputer, SERVER_SIDE_TIP, wantsServerTip } from "../runtime/local-models";
 import { compareVersions, defaultRunner, lookUpNewest, type Fetcher, type Install, type ProcessRunner } from "../update/command";
+import { recentSlowMoments, slowLogPath, slowSeconds } from "../platform/slow-moments";
 import { jsonErrorPosition } from "./json-position";
 
 /**
@@ -61,6 +63,8 @@ export interface DoctorContext {
   now?: () => number;
   /** Free bytes where ~/.casper lives (test seam). */
   freeBytes?: (folder: string) => Promise<number | undefined>;
+  /** How far the low-space line walks saved conversations and exports to size them (test seam). */
+  sizeLimits?: SizeLimits;
   /** Why the sandbox can't hold commands here (test seam); undefined means it can. */
   sandboxProblem?: () => string | undefined;
   /** In a session: the MCP servers as they are now (a failed start says why). */
@@ -412,7 +416,63 @@ async function defaultFreeBytes(folder: string): Promise<number | undefined> {
 }
 
 function size(bytes: number): string {
-  return bytes >= 1024 ** 3 ? `${(bytes / 1024 ** 3).toFixed(1)} GB` : `${Math.round(bytes / 1024 ** 2)} MB`;
+  if (bytes >= 1024 ** 3) return `${(bytes / 1024 ** 3).toFixed(1)} GB`;
+  return bytes >= 1024 ** 2 ? `${Math.round(bytes / 1024 ** 2)} MB` : `${Math.round(bytes / 1024)} KB`;
+}
+
+export interface FolderSize {
+  bytes: number;
+  /** The walk stopped at its entry or time limit: there is more than `bytes`. */
+  cut: boolean;
+}
+
+export interface SizeLimits {
+  entries: number;
+  ms: number;
+  now?: () => number;
+}
+
+const SIZE_LIMITS: SizeLimits = { entries: 20_000, ms: 1000 };
+
+/** How much each folder holds, walked one after another under one shared limit; undefined for a folder that isn't
+ * there. Links are counted as links, never followed. Read only. */
+export async function folderSizes(folders: readonly string[], limits: SizeLimits = SIZE_LIMITS): Promise<Array<FolderSize | undefined>> {
+  const now = limits.now ?? Date.now;
+  const deadline = now() + limits.ms;
+  let left = limits.entries;
+  const sizes: Array<FolderSize | undefined> = [];
+  for (const folder of folders) {
+    if (!(await stat(folder).then((info) => info.isDirectory(), () => false))) { sizes.push(undefined); continue; }
+    const result: FolderSize = { bytes: 0, cut: false };
+    const pending = [folder];
+    while (pending.length) {
+      if (left <= 0 || now() >= deadline) { result.cut = true; break; }
+      const dir = pending.pop()!;
+      const entries = await readdir(dir, { withFileTypes: true }).catch(() => []);
+      const taken = entries.slice(0, left);
+      if (taken.length < entries.length) result.cut = true;
+      left -= taken.length;
+      const infos = await Promise.all(taken.map((entry) => lstat(path.join(dir, entry.name)).catch(() => undefined)));
+      taken.forEach((entry, index) => {
+        if (entry.isDirectory()) pending.push(path.join(dir, entry.name));
+        else result.bytes += infos[index]?.size ?? 0;
+      });
+      if (result.cut) break;
+    }
+    sizes.push(result);
+  }
+  return sizes;
+}
+
+/** Where saved conversations and exports are, with how much each holds: what to look at when space runs low. */
+async function savedPlaces(ctx: DoctorContext): Promise<string | undefined> {
+  const folders = [path.join(ctx.agentDir, "sessions"), exportFolder(ctx.homeDir)];
+  const sizes = await folderSizes(folders, ctx.sizeLimits);
+  const parts = ["saved conversations", "exports"].flatMap((label, index) => {
+    const found = sizes[index];
+    return found ? [`${label} are in ${shown(ctx, folders[index]!)} (${found.cut ? "over " : ""}${size(found.bytes)})`] : [];
+  });
+  return parts.length ? parts.join(", ") : undefined;
 }
 
 export async function checkDisk(ctx: DoctorContext): Promise<DoctorLine[]> {
@@ -420,9 +480,21 @@ export async function checkDisk(ctx: DoctorContext): Promise<DoctorLine[]> {
   const folder = await stat(casper).then(() => casper, () => ctx.homeDir);
   const free = await (ctx.freeBytes ?? defaultFreeBytes)(folder);
   if (free === undefined) return [note("Disk: free space not known")];
-  if (free < TOO_LOW) return [fail(`Disk: only ${size(free)} free for ~/.casper`, "free some space; old saved conversations are in ~/.casper/sessions")];
-  if (free < LOW) return [note(`Disk: ${size(free)} free for ~/.casper`)];
-  return [ok(`Disk: ${size(free)} free`)];
+  if (free >= LOW) return [ok(`Disk: ${size(free)} free`)];
+  // Only named, never removed: what to delete is yours to choose.
+  const places = await savedPlaces(ctx);
+  if (free < TOO_LOW) return [fail(`Disk: only ${size(free)} free for ~/.casper`, places ? `free some space; ${places}` : "free some space")];
+  return [note(`Disk: ${size(free)} free for ~/.casper`, places)];
+}
+
+// --- Slow moments ---
+
+/** How often, in the last day, a session stopped answering for 2 s or more (decision 110), from ~/.casper/run/slow.log. */
+export async function checkSlowMoments(ctx: DoctorContext, settings: Pick<LoadedConfiguration, "slowMoments"> | undefined): Promise<DoctorLine[]> {
+  const { count, longest } = await recentSlowMoments(ctx.homeDir, ctx.now?.() ?? Date.now());
+  if (!count) return [ok(settings?.slowMoments === false ? "Slow moments: not noted (off in /settings)" : "Slow moments: none in the last day")];
+  const detail = longest ? ` (longest ${slowSeconds(longest.ms)}${longest.activity ? `, while ${longest.activity}` : ""})` : "";
+  return [note(`Slow moments: ${count} in the last day${detail}`, `Log: ${shown(ctx, slowLogPath(ctx.homeDir))}`)];
 }
 
 // --- Network server ---

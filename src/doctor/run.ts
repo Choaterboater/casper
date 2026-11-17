@@ -11,7 +11,7 @@ import type { Install } from "../update/command";
 import { runningFromBinary } from "../update/mode";
 import { CASPER_VERSION } from "../version";
 import {
-  checkConfig, checkDisk, checkLanguageServers, checkMcp, checkNetworkServer, checkPathLink, checkSandbox, checkSecurityTools, checkSignIn,
+  checkConfig, checkDisk, checkLanguageServers, checkMcp, checkNetworkServer, checkPathLink, checkSandbox, checkSecurityTools, checkSignIn, checkSlowMoments,
   checkVersion, type DoctorContext, type DoctorFix, type DoctorLine,
 } from "./checks";
 
@@ -41,12 +41,13 @@ export async function collectDoctorLines(ctx: DoctorContext): Promise<DoctorLine
     work.catch((error: unknown) => wrap([{ status: "note", text: `${what}: not checked (${error instanceof Error ? error.message : String(error)})` }]));
   const mcp = await settle(checkMcp(ctx, profile), "MCP", (lines) => ({ lines, servers: [] }));
   const one = (work: Promise<DoctorLine[]>, what: string) => settle(work, what, (lines) => lines);
-  const [version, link, signIn, network, languages, security, sandbox, disk] = await Promise.all([
+  const [version, link, signIn, network, languages, security, sandbox, disk, slow] = await Promise.all([
     one(checkVersion(ctx), "Version"), one(checkPathLink(ctx), "casper on PATH"), one(checkSignIn(ctx, config.loaded?.localModels !== false, config.loaded?.modelServers ?? []), "Sign-in"),
     one(checkNetworkServer(ctx, mcp.servers, config.loaded), "Network server"), one(checkLanguageServers(ctx, profile), "Language servers"),
     one(checkSecurityTools(ctx), "Security tools"), one(checkSandbox(ctx, config.loaded), "Sandbox"), one(checkDisk(ctx), "Disk"),
+    one(checkSlowMoments(ctx, config.loaded), "Slow moments"),
   ]);
-  return [...version, ...link, ...config.lines, ...signIn, ...mcp.lines, ...network, ...languages, ...security, ...sandbox, ...disk];
+  return [...version, ...link, ...config.lines, ...signIn, ...mcp.lines, ...network, ...languages, ...security, ...sandbox, ...disk, ...slow];
 }
 
 const MARK: Record<DoctorLine["status"], string> = { ok: "✓", note: "!", fail: "✗" };

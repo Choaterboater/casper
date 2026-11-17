@@ -7,8 +7,8 @@ import { projectStateDirectory } from "../project/model";
 import { readReferenceFile, referenceText } from "../references/files";
 import { READ_ONLY_STATE_CONFLICT, type AgentRuntime } from "../runtime/types";
 import { MAX_SKILL_BYTES } from "../skills/metadata";
-import { lockBusy } from "../platform/files";
 import { isOutside } from "../platform/inside";
+import { withStateLock, type StateLockOptions } from "../platform/state-lock";
 export { formatTerminalJSON as formatLearningResult } from "../tui/json";
 
 const STORE_BYTES = 1_048_576;
@@ -283,41 +283,41 @@ export class CandidateLibrary {
       const canonicalHome = await realpath(this.home);
       await mkdir(path.join(canonicalHome, ".casper"), { recursive: true, mode: 0o700 });
       const lock = path.join(canonicalHome, ".casper", "learning-promotion.lock");
-      await this.acquire(lock, this.abort.signal);
-      let stagingDirectory: string | undefined;
-      let committed = false;
-      try {
-        const currentDrafts = await this.read(directory, root);
-        const currentDraft = currentDrafts.find((entry) => entry.id === draftId);
-        const currentCandidate = currentDraft?.candidates[candidateIndex - 1];
-        if (!currentDraft || currentDraft.sha256 !== draftSha256 || !currentCandidate || digest(currentCandidate) !== candidateSha256) {
-          throw new Error("Draft changed after consent; inspect it again before promotion");
-        }
-        const decisions = await this.readPromotions(directory, root, currentDrafts);
-        const prior = decisions.find((entry) => entry.draftId === draftId && entry.candidateIndex === candidateIndex);
-        if (prior) {
-          if (prior.draftSha256 !== draftSha256 || prior.candidateSha256 !== candidateSha256 || prior.disposition !== disposition || prior.skillName !== skillName) {
-            throw new Error("This candidate already has a different immutable promotion decision");
+      return withStateLock(lock, async () => {
+        let stagingDirectory: string | undefined;
+        let committed = false;
+        try {
+          const currentDrafts = await this.read(directory, root);
+          const currentDraft = currentDrafts.find((entry) => entry.id === draftId);
+          const currentCandidate = currentDraft?.candidates[candidateIndex - 1];
+          if (!currentDraft || currentDraft.sha256 !== draftSha256 || !currentCandidate || digest(currentCandidate) !== candidateSha256) {
+            throw new Error("Draft changed after consent; inspect it again before promotion");
           }
-          await this.finishArtifact(prior);
-          return { status: "already-decided" as const, decision: prior, guidance: PROMOTION_GUIDANCE };
+          const decisions = await this.readPromotions(directory, root, currentDrafts);
+          const prior = decisions.find((entry) => entry.draftId === draftId && entry.candidateIndex === candidateIndex);
+          if (prior) {
+            if (prior.draftSha256 !== draftSha256 || prior.candidateSha256 !== candidateSha256 || prior.disposition !== disposition || prior.skillName !== skillName) {
+              throw new Error("This candidate already has a different immutable promotion decision");
+            }
+            await this.finishArtifact(prior);
+            return { status: "already-decided" as const, decision: prior, guidance: PROMOTION_GUIDANCE };
+          }
+          const id = randomUUID();
+          const artifact = disposition === "ignore" ? undefined : await this.stageArtifact(directory, draft, candidate, candidateIndex, disposition, id, skillName);
+          stagingDirectory = artifact ? path.dirname(artifact.stagingPath) : undefined;
+          const body = { schemaVersion: 1 as const, id, createdAt: new Date().toISOString(), sourceRoot: root, draftId,
+            draftSha256, candidateIndex, candidateSha256, disposition, ...(skillName ? { skillName } : {}), ...(artifact ? { artifact } : {}) };
+          const decision: LearningPromotion = { ...body, sha256: digest(body) };
+          await this.savePromotions(directory, root, [...decisions, decision]);
+          committed = true;
+          await this.finishArtifact(decision);
+          stagingDirectory = undefined;
+          return { status: disposition === "ignore" ? "ignored" as const : "promoted" as const, decision, guidance: PROMOTION_GUIDANCE };
+        } finally {
+          // Retain committed staging for exact-command recovery if activation failed.
+          if (stagingDirectory && !committed) await rm(stagingDirectory, { recursive: true, force: true });
         }
-        const id = randomUUID();
-        const artifact = disposition === "ignore" ? undefined : await this.stageArtifact(directory, draft, candidate, candidateIndex, disposition, id, skillName);
-        stagingDirectory = artifact ? path.dirname(artifact.stagingPath) : undefined;
-        const body = { schemaVersion: 1 as const, id, createdAt: new Date().toISOString(), sourceRoot: root, draftId,
-          draftSha256, candidateIndex, candidateSha256, disposition, ...(skillName ? { skillName } : {}), ...(artifact ? { artifact } : {}) };
-        const decision: LearningPromotion = { ...body, sha256: digest(body) };
-        await this.savePromotions(directory, root, [...decisions, decision]);
-        committed = true;
-        await this.finishArtifact(decision);
-        stagingDirectory = undefined;
-        return { status: disposition === "ignore" ? "ignored" as const : "promoted" as const, decision, guidance: PROMOTION_GUIDANCE };
-      } finally {
-        // Retain committed staging for exact-command recovery if activation failed.
-        if (stagingDirectory && !committed) await rm(stagingDirectory, { recursive: true, force: true });
-        await rm(lock, { recursive: true, force: true });
-      }
+      }, this.lockOptions(this.abort.signal));
     });
   }
 
@@ -411,16 +411,8 @@ export class CandidateLibrary {
     }
   }
 
-  private async acquire(lock: string, signal: AbortSignal): Promise<void> {
-    for (let attempt = 0; attempt < 100; attempt++) {
-      signal.throwIfAborted();
-      try { await mkdir(lock, { mode: 0o700 }); return; }
-      catch (error) {
-        if (!lockBusy(error)) throw error;
-        await new Promise((resolve) => setTimeout(resolve, 20));
-      }
-    }
-    throw new Error("Learning state is locked; preserve it before retrying");
+  private lockOptions(signal: AbortSignal): StateLockOptions {
+    return { busy: "Learning state is locked; preserve it before retrying", signal };
   }
 
   private artifactText(candidate: LearningCandidate, skillName?: string): string {
@@ -504,20 +496,20 @@ export class CandidateLibrary {
     await this.directory(root);
     await mkdir(directory, { recursive: true, mode: 0o700 });
     const lock = path.join(directory, "learning-candidates.lock");
-    await this.acquire(lock, signal);
-    let temporary: string | undefined;
-    try {
-      signal.throwIfAborted();
-      const drafts = [...await this.read(directory, root), draft];
-      const source = drafts.map((draft) => JSON.stringify(draft) + "\n").join("");
-      if (drafts.length > MAX_DRAFTS || Buffer.byteLength(source) > STORE_BYTES) throw new Error("Learning draft store is full; no draft saved");
-      temporary = path.join(directory, `.learning-${randomUUID()}.tmp`);
-      await writeFile(temporary, source, { flag: "wx", mode: 0o600 });
-      signal.throwIfAborted();
-      await rename(temporary, path.join(directory, "learning-candidates.jsonl"));
-    } finally {
-      if (temporary) await rm(temporary, { force: true });
-      await rm(lock, { recursive: true, force: true });
-    }
+    await withStateLock(lock, async () => {
+      let temporary: string | undefined;
+      try {
+        signal.throwIfAborted();
+        const drafts = [...await this.read(directory, root), draft];
+        const source = drafts.map((draft) => JSON.stringify(draft) + "\n").join("");
+        if (drafts.length > MAX_DRAFTS || Buffer.byteLength(source) > STORE_BYTES) throw new Error("Learning draft store is full; no draft saved");
+        temporary = path.join(directory, `.learning-${randomUUID()}.tmp`);
+        await writeFile(temporary, source, { flag: "wx", mode: 0o600 });
+        signal.throwIfAborted();
+        await rename(temporary, path.join(directory, "learning-candidates.jsonl"));
+      } finally {
+        if (temporary) await rm(temporary, { force: true });
+      }
+    }, this.lockOptions(signal));
   }
 }

@@ -10,6 +10,7 @@ import { readdir, rm } from "node:fs/promises";
 import path from "node:path";
 import { readSmall, writePrivate } from "../mcp/consent";
 import { busyOnWindows } from "../platform/files";
+import { bootEpoch, sameBoot } from "../platform/state-lock";
 import { isProjectKey } from "../pages/store";
 
 export type JobStatus = "running" | "waiting" | "done" | "stopped";
@@ -37,6 +38,8 @@ export interface JobRecord {
   version: 1;
   id: string;
   pid: number;
+  /** When this computer started (bootEpoch): a record from an earlier start is gone even if its pid is in use again. */
+  boot?: number;
   /** The folder the job works in, and its name for the row. */
   root: string;
   folder: string;
@@ -119,7 +122,7 @@ export function parseJob(raw: string, id: string): JobRecord | undefined {
   const n = value.receipt?.n;
   const endedAt = text(value.endedAt, 40), why = text(value.why, 400), answer = text(value.answer, ANSWER_TEXT_LIMIT);
   return {
-    version: 1, id, pid: value.pid!, root, folder, request, leftAt, updatedAt, status: value.status!,
+    version: 1, id, pid: value.pid!, ...(Number.isSafeInteger(value.boot) ? { boot: value.boot } : {}), root, folder, request, leftAt, updatedAt, status: value.status!,
     ...(asked ? { question: asked } : {}),
     ...(endedAt ? { endedAt } : {}),
     ...(why ? { why } : {}),
@@ -131,9 +134,21 @@ export function parseJob(raw: string, id: string): JobRecord | undefined {
 
 export const GONE_WHY = "Casper stopped before the job ended (the computer restarted, or it was closed)";
 
+/** Whether the job's Casper is still running: its pid is there and, when the record says, the computer has not
+ * restarted since. After a restart a pid can belong to another program, so such a record is gone. A job runs for
+ * hours, so a changed boot alone is not enough (a clock set forward moves it too): the computer must also have
+ * started after the job was left. */
+function jobAlive(record: JobRecord, alive: (pid: number) => boolean, boot: () => number): boolean {
+  if (record.boot !== undefined) {
+    const now = boot();
+    if (!sameBoot(record.boot, now) && now * 1000 > Date.parse(record.leftAt)) return false;
+  }
+  return alive(record.pid);
+}
+
 /** A job whose Casper is gone without ending it (the computer restarted, or it was killed) reads as stopped. */
-export function settled(record: JobRecord, alive = processAlive): JobRecord {
-  if ((record.status === "running" || record.status === "waiting") && !alive(record.pid)) {
+export function settled(record: JobRecord, alive = processAlive, boot: () => number = bootEpoch): JobRecord {
+  if ((record.status === "running" || record.status === "waiting") && !jobAlive(record, alive, boot)) {
     const { question: _gone, ...rest } = record;
     return { ...rest, status: "stopped", why: GONE_WHY };
   }
@@ -202,7 +217,7 @@ export async function removeAnswer(directory: string, id: string): Promise<void>
 
 /** Every folder's jobs, this folder's first, then the newest. A folder name must be a project key; anything else
  * under ~/.casper/projects is skipped. */
-export async function listJobs(homeDir: string, hereKey?: string, alive = processAlive): Promise<ListedJob[]> {
+export async function listJobs(homeDir: string, hereKey?: string, alive = processAlive, boot: () => number = bootEpoch): Promise<ListedJob[]> {
   const base = path.join(homeDir, ".casper", "projects");
   const keys = await readdir(base).catch(() => [] as string[]);
   const found = await Promise.all(keys.filter(isProjectKey).map(async (key) => {
@@ -211,7 +226,7 @@ export async function listJobs(homeDir: string, hereKey?: string, alive = proces
     const records = await Promise.all(names.map((name) => /^([0-9a-f]{12})\.json$/.exec(name)?.[1])
       .filter((id): id is string => Boolean(id)).map((id) => readJob(directory, id)));
     return records.filter((record): record is JobRecord => Boolean(record))
-      .map((record): ListedJob => ({ record: settled(record, alive), key, here: key === hereKey, directory }));
+      .map((record): ListedJob => ({ record: settled(record, alive, boot), key, here: key === hereKey, directory }));
   }));
   return found.flat().sort((a, b) => Number(b.here) - Number(a.here) || b.record.updatedAt.localeCompare(a.record.updatedAt));
 }
@@ -228,7 +243,7 @@ export async function pruneJobs(directory: string, days = 30, now = Date.now()):
 }
 
 /** Another Casper's job still working in this folder (one job a folder). Sync: asked while the terminal hangs up. */
-export function liveJobSync(directory: string, ownPid = process.pid, alive = processAlive): JobRecord | undefined {
+export function liveJobSync(directory: string, ownPid = process.pid, alive = processAlive, boot: () => number = bootEpoch): JobRecord | undefined {
   let names: string[];
   try { names = readdirSync(directory); } catch { return undefined; }
   for (const name of names) {
@@ -237,7 +252,7 @@ export function liveJobSync(directory: string, ownPid = process.pid, alive = pro
     let raw: string;
     try { raw = readFileSync(path.join(directory, name), "utf8"); } catch { continue; }
     const record = parseJob(raw.slice(0, RECORD_BYTES), id);
-    if (record && record.pid !== ownPid && (record.status === "running" || record.status === "waiting") && alive(record.pid)) return record;
+    if (record && record.pid !== ownPid && (record.status === "running" || record.status === "waiting") && jobAlive(record, alive, boot)) return record;
   }
   return undefined;
 }

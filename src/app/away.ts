@@ -8,6 +8,7 @@ import { appendFileSync } from "node:fs";
 import path from "node:path";
 import type { CasperApp } from "../app";
 import { stayAfterHangUp } from "../platform/hang-up";
+import { bootEpoch } from "../platform/state-lock";
 import { hideCommandSecrets } from "../secrets/files";
 import { desktopNotify } from "../jobs/notify";
 import { ANSWER_TEXT_LIMIT, jobLog, jobsDirectory, liveJobSync, newJobId, pruneJobs, readAnswer, removeAnswer, writeJob, writeJobSync,
@@ -207,6 +208,12 @@ function quietStdio(): void {
   for (const stream of [process.stdout, process.stderr, process.stdin]) stream.on("error", () => {});
 }
 
+/** A new job's record: this Casper's pid and when this computer started, so after a restart it reads as stopped. */
+export function startingJob(root: string, request: string, now = new Date().toISOString()): JobRecord {
+  return { version: 1, id: newJobId(), pid: process.pid, boot: bootEpoch(), root, folder: path.basename(root),
+    request: jobTitle(request), leftAt: now, updatedAt: now, status: "running" };
+}
+
 /**
  * The terminal went away (it closed, SSH dropped, its tmux window was killed). While a task runs, on macOS or Linux,
  * Casper stays and the task becomes a job; true when it did. Otherwise (no task, Windows, a script, another job already
@@ -219,10 +226,7 @@ export function leaveOnHangUp(app: CasperApp, cancel: () => void, seams: WalkAwa
   const directory = jobsDirectory(app.projectContext.stateDirectory);
   // One job a folder: two AIs never edit the same files on their own.
   if (liveJobSync(directory)) return false;
-  const now = new Date().toISOString();
-  const root = app.activeWorkspaceRoot();
-  const record: JobRecord = { version: 1, id: newJobId(), pid: process.pid, root, folder: path.basename(root),
-    request: jobTitle(app.lastTaskRequest ?? ""), leftAt: now, updatedAt: now, status: "running" };
+  const record = startingJob(app.activeWorkspaceRoot(), app.lastTaskRequest ?? "");
   try { writeJobSync(directory, record); } catch { return false; }
   stayAfterHangUp();
   quietStdio();

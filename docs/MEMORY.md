@@ -64,8 +64,12 @@ text.
 - `/memory` commands themselves stop with an error on an invalid file, rather
   than overwrite it.
 - Each file holds at most 1000 records and 1 MiB. When the outcomes file is
-  full, new outcomes are refused. Nothing is pruned for you, and a stale lock is
-  not removed for you.
+  full, new outcomes are refused. Nothing is pruned for you.
+- A lock left by a Casper that was killed mid-update, or from before the
+  computer restarted, is taken over by the next update: the lock folder says
+  which process holds it
+  ([decision 109](adr/0002/109-a-lock-says-who-holds-it.md)). A lock a running
+  Casper holds is never taken.
 
 Drafting reusable patterns from a repository is a separate command; see
 [LEARNING.md](LEARNING.md).

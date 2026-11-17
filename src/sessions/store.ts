@@ -2,7 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { chmod, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { lockBusy } from "../platform/files";
+import { withStateLock } from "../platform/state-lock";
 import type { WorktreeRelation } from "../workspace/worktree";
 
 export type SessionBranchStatus = "open" | "applied" | "discarded";
@@ -148,19 +148,7 @@ export class SessionBranchStore {
     const directory = path.dirname(this.filePath);
     const lockPath = `${this.filePath}.lock`;
     await mkdir(directory, { recursive: true, mode: 0o700 });
-    let acquired = false;
-    for (let attempt = 0; attempt < 100; attempt++) {
-      try {
-        await mkdir(lockPath, { mode: 0o700 });
-        acquired = true;
-        break;
-      } catch (error) {
-        if (!lockBusy(error)) throw error;
-        await new Promise((resolve) => setTimeout(resolve, 20));
-      }
-    }
-    if (!acquired) throw new Error(`Casper session branch state is locked: ${this.filePath}`);
-    try {
+    await withStateLock(lockPath, async () => {
       try {
         this.document = parseDocument(await readFile(this.filePath, "utf8"), this.filePath, this.document.projectKey);
       } catch (error) {
@@ -176,9 +164,7 @@ export class SessionBranchStore {
       }
       this.document.branches.sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.name.localeCompare(b.name));
       await this.persist();
-    } finally {
-      await rm(lockPath, { recursive: true, force: true });
-    }
+    }, { busy: `Casper session branch state is locked: ${this.filePath}` });
   }
 
   private async persist(): Promise<void> {

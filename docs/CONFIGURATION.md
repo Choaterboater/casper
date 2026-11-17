@@ -633,7 +633,7 @@ loading.
 **Profile trust.** A repository's `profile:` may select one of your existing profiles, including
 its rules, MCP/LSP server definitions, reference sources and the settings a project file may set
 anyway. Your own settings (`sandbox`, `shell`, `web`, `lab`, `spend`, `cache`, `display`, `theme`,
-`showPages`, `hide_tool_output`, `reasoning_headline`, `lean_guidance`, `compact_at`, `suggestions`, `updates`, `sideQuestions`, `localModels`, `modelServers` (from `~/.casper/config.yaml` only), `telemetry`, `ssh_login`, `other_logins`, `network_updates`, `ai_pages`, `open_pages`, `tools.downloads`, `pages: off`, `browser`, `packs`, `skills.imports`, `skills.bundled`, `repair.bigModelLastTry`, `delegate.build`, `mcp_autoconnect`, `lsp_autostart`, `acp_mcp`, `acp_access`, `acp_questions`, `acp_idle_exit`, `acp_live_output`, `mcp_pictures`, `notifications`)
+`showPages`, `hide_tool_output`, `reasoning_headline`, `lean_guidance`, `compact_at`, `suggestions`, `updates`, `sideQuestions`, `localModels`, `modelServers` (from `~/.casper/config.yaml` only), `telemetry`, `ssh_login`, `other_logins`, `network_updates`, `ai_pages`, `open_pages`, `tools.downloads`, `pages: off`, `browser`, `packs`, `skills.imports`, `skills.bundled`, `repair.bigModelLastTry`, `delegate.build`, `mcp_autoconnect`, `lsp_autostart`, `acp_mcp`, `acp_access`, `acp_questions`, `acp_idle_exit`, `acp_live_output`, `mcp_pictures`, `notifications`, `slow_moments`)
 stay those of the profile you chose yourself (or `~/.casper/config.yaml`), so a repository can't
 turn your sandbox off or your web lookups on by picking or naming a profile; the banner says
 `[config] .casper/project.yaml picked profile lab: …`. `CASPER_PROFILE=lab` (or `profile: lab` in
@@ -1437,6 +1437,7 @@ ai_pages: off        # the AI is never offered casper_page: no pages, and no tok
 open_pages: off      # pages the AI makes, and diagram pages, are not opened in your browser; Casper prints the link
 pictures: off        # the AI is never offered make_picture; it draws SVG
 notifications: off   # no bell and no desktop notification when a long task ends or a question waits
+slow_moments: off    # no slow moments noted in ~/.casper/run/slow.log (see Slow moments)
 ```
 
 `network_updates: off` (or **Network server updates** in `/settings`) stops Casper looking for
@@ -1566,6 +1567,22 @@ readable reasoning keeps `Reasoning · 3.0k chars`. `/settings` **Reasoning head
 ```yaml
 # ~/.casper/config.yaml
 reasoning_headline: false   # on (default) or off
+```
+
+**Slow moments.** While an interactive session runs, Casper checks four times a second that it is still answering. When
+it was stuck for about 2 seconds or more (the screen and Esc did not answer), it adds one line to `~/.casper/run/slow.log`
+(`0600`): the time, how long, its memory in use and, during a task, what ran in a few words (`running a command`,
+`the model replied`), never a command or its output. `/doctor` says how many there were in the last day and the
+longest (`Slow moments: 3 in the last day (longest 6.1 s, while running a command)`). The log keeps its newer half
+past 256 KB. Nothing is sent and no model is asked, so it costs no tokens. A pause of a minute or more (a computer that
+slept, or Casper paused from outside) is not counted; on Windows, whose clock runs on while it sleeps, a shorter sleep
+can show up as one.
+`/settings` **Slow moments** turns it off from that moment (it writes `slow_moments: false`); a project file can't set
+it ([decision 110](adr/0002/110-slow-moments-are-noted.md)). `casper -p` and `casper acp` note none.
+
+```yaml
+# ~/.casper/config.yaml
+slow_moments: false   # on (default) or off
 ```
 
 ## Theme

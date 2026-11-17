@@ -5,8 +5,8 @@ import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 import { safeGitArgs } from "../platform/git";
-import { lockBusy } from "../platform/files";
 import { isOutside } from "../platform/inside";
+import { withStateLock } from "../platform/state-lock";
 
 const execFileAsync = promisify(execFile);
 
@@ -389,18 +389,7 @@ export class GitWorktreeManager {
     this.assertManagedPlan(plan);
     await mkdir(this.managedRoot, { recursive: true, mode: 0o700 });
     if (await realpath(this.managedRoot) !== this.managedRoot) throw new Error("Managed worktree root resolves outside Casper state");
-    const lock = `${plan.path}.create-lock`;
-    let acquired = false;
-    for (let attempt = 0; attempt < 100; attempt++) {
-      try { await mkdir(lock, { mode: 0o700 }); acquired = true; break; }
-      catch (error) {
-        if (!lockBusy(error)) throw error;
-        await new Promise((resolve) => setTimeout(resolve, 20));
-      }
-    }
-    if (!acquired) throw new Error("Managed worktree creation is locked");
-    try { return await this.createOwned(plan); }
-    finally { await rm(lock, { recursive: true, force: true }); }
+    return withStateLock(`${plan.path}.create-lock`, () => this.createOwned(plan), { busy: "Managed worktree creation is locked" });
   }
 
   private async createOwned(plan: WorktreePlan): Promise<WorktreeRelation> {

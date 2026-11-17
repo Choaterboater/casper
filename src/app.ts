@@ -137,6 +137,8 @@ export interface CasperAppOptions {
   visualizationProviders?: VisualizationProvider[];
   /** Override ~/.casper for named-session/worktree state (primarily tests/embedders). */
   sessionHomeDir?: string;
+  /** Note slow moments while the interactive session runs (decision 110); the casper command sets it, tests don't. */
+  slowMoments?: boolean;
   /** The secret scrubber (Casper's rules, plus netconan when installed); tests pass their own. */
   scrubber?: Scrubber;
   /** Runs git for /references add, by argv only (tests pass a stub). */
@@ -440,6 +442,8 @@ export class CasperApp {
     /** When those tools ran: a change at any other time is another program's (src/task/attribution.ts). */
     windows?: WriteWindows };
   readonly sessionHomeDir?: string;
+  /** Note slow moments in the interactive session (decision 110). */
+  readonly slowMoments: boolean;
   sessionWorkspace?: SessionWorkspaceManager;
   sessionWorkspaceStart?: Promise<SessionWorkspaceManager>;
   /** Last normal coding/chat request; local commands other than /receipt clear it. Not acceptance evidence. */
@@ -770,6 +774,7 @@ export class CasperApp {
       ?? (options.autoVerify === undefined ? undefined : options.autoVerify ? "offer" : "off");
     this.visualizationProviders = options.visualizationProviders ?? [new MermaidProvider(), new MindMeshProvider(), new DrawioProvider()];
     this.sessionHomeDir = options.sessionHomeDir;
+    this.slowMoments = options.slowMoments ?? false;
     this.scrubber = options.scrubber ?? new Scrubber();
     this.runGit = options.runGit;
     this.copyText = options.copyText;
