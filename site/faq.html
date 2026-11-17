@@ -516,7 +516,8 @@ on in ~/.casper/config.yaml)</pre>
           <p>Yes, on GitHub, when the folder's <code>origin</code> is on github.com and the GitHub tool
           <code>gh</code> is signed in (<code>gh auth login</code>, in your own terminal). Ask "check my PRs" or
           "why did CI fail on 12?". Casper runs <code>gh</code> itself with a short fixed list of actions (open pull
-          requests, one pull request's checks, the failing step and last log lines, re-run failed checks). The AI
+          requests, one pull request's checks, its review comments on the lines they were left on, the failing step and last
+          log lines, re-run failed checks). The AI
           never sees your GitHub login, and what GitHub sends back is marked as other people's words. It acts only on
           the folder's own repo, so it asks nothing; one pull request is re-run at most once per 10 minutes. It does not push, open or merge anything.
           Turn it off with <b>GitHub tool</b> in <code>/settings</code>. See

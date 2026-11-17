@@ -255,8 +255,8 @@ Ctrl+D on an empty prompt exits. [Keys and commands](docs/TERMINAL_UX.md#quick-r
   with `--require-verification`). [Scripting](docs/SCRIPTING.md#exit-codes)
 - **References.** Search local copies of vendor specs and SDKs (Junos YANG, pycentral, mistapi)
   with no model call. [References](docs/REFERENCES.md)
-- **Pull requests and CI.** Ask which pull requests are open or why a check failed; Casper reads
-  the failing step through `gh`, and the AI never sees your GitHub login. [GitHub](docs/GITHUB.md)
+- **Pull requests and CI.** Ask which pull requests are open, what reviewers said on which lines, or why a
+  check failed; Casper reads them through `gh`, and the AI never sees your GitHub login. [GitHub](docs/GITHUB.md)
 - **Skill packs and themes.** Skills you made for Claude Code, Copilot, Codex or Pi (`~/.agents/skills`,
   `~/.claude/skills` …) work here too, and a project's own skills work once you trust its folder.
   `/pack add` a folder or a GitHub commit of skills after a box that
