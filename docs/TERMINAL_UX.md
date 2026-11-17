@@ -47,7 +47,7 @@ over the network, and `/references add` downloads files after asking you.
 | `/context`, `/usage`, `/cost` | Context estimate; session tokens and estimated cost, and the Claude plan's limit once Claude Code has reported it (`/cost` is `/usage`) |
 | `/compact [instructions]` | Summarize the conversation (**makes a model request**) |
 | `/clear`, `/new` | Start a fresh conversation; files and saved conversations stay |
-| `/resume [id]` | Pick a saved conversation from a numbered list, or go back to one (the start of its ID is enough) |
+| `/resume [id\|words]` | Pick a saved conversation from a numbered list, go back to one (the start of its ID is enough), or pick from the ones whose text mentions every word |
 | `/continue` | Go back to the most recent other conversation saved in this folder, as `casper --continue` does at startup |
 | `/diff [n\|list]` | The last task's changes (also outside git), task n's, or a list to pick from; before any task, git's view |
 | `/undo [n]`, `/redo [n]` | Put the last task's (or task n's) files back, or back again (no model; [UNDO.md](UNDO.md)) |
@@ -1099,6 +1099,7 @@ Daily commands include `/help`, `/status`, `/project`, `/diff`, `/verify`, `/ski
 | `/clear` | Fresh saved conversation; files stay as they are (`/undo` puts a task's files back); the earlier conversation stays resumable |
 | `/resume` | Pick a saved conversation from a numbered list (title · when · messages; 1 stays here); then the last few turns show |
 | `/resume <id>` | Go back to that conversation; the first few characters of its ID are enough |
+| `/resume <words>` | Search every saved conversation in this folder: the ones whose messages mention every word (any case, accents ignored), newest first, in the same numbered picker with a short excerpt around the first hit; 1 stays here. Words that are the start of an ID open that conversation instead. Secrets in the excerpt are hidden; no model call |
 | `/continue` | Go back to this folder's most recent other conversation (not the one you are in, nor an empty one `/clear` left); then the last few turns show. With none it says so and nothing changes. In the conversation `/continue`, `/resume`, `--continue` or `--resume` opened, it stays there and says so |
 
 Each start in a folder is a new conversation, as in Claude Code, Codex, Copilot CLI and Pi; only a `/branch`

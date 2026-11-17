@@ -22,7 +22,7 @@ import { formatCacheHitRate, formatCostLong, formatCostShort, formatTokenSplit }
 import { effortChoices, effortProblem } from "../tui/effort";
 import { COMMAND_REGISTRY, sessionFlag } from "../tui/commands";
 import { pickEffort } from "../tui/effort-picker";
-import { commandLabel, displayPath, formatDuration, formatRuntimeStartLine, formatRuntimeStatus, redactPreview, terminalText, toolTarget } from "../tui/format";
+import { commandLabel, displayPath, formatDuration, formatRuntimeStartLine, formatRuntimeStatus, lineText, redactPreview, terminalText, toolTarget } from "../tui/format";
 import type { InteractiveTerminal } from "../tui/terminal";
 import type { CapabilityBroker } from "../capabilities/broker";
 import type { MCPManager, MCPStatus } from "../mcp/manager";
@@ -55,7 +55,7 @@ import { describeVisualization } from "../visualize/tools";
 import { renderProjectSummary } from "../tui/banner";
 import { LifecycleRegistry } from "./lifecycle";
 import type { RenderedVisualization, VisualizationRouter } from "../visualize/router";
-import type { RuntimeAuthenticationResult, RuntimeAuthProvider, RuntimeModelSelection, RuntimeSession, RuntimeTool, AgentRuntime } from "../runtime/types";
+import type { RuntimeAuthenticationResult, RuntimeAuthProvider, RuntimeConversation, RuntimeConversationHit, RuntimeModelSelection, RuntimeSession, RuntimeTool, AgentRuntime } from "../runtime/types";
 import { describeChecksPlan, TESTS_WITHOUT_COMMAND, type ChecksPlan } from "../verify/mode";
 import { detectedMigrations, MIGRATIONS_CHECK } from "../verify/migrations-check";
 import { detectedE2e, E2E_CHECK } from "../verify/e2e";
@@ -66,6 +66,8 @@ import { showReceiptDetail } from "./undo";
 import { UndoStore } from "../task/undo";
 import { tildePath } from "../new/scaffold";
 import { conversationLabel, matchConversation, recentTurnLines } from "../sessions/resume";
+import { SEARCH_HIT_LIMIT, searchWords } from "../sessions/search";
+import { ownSecretValues } from "./network-host";
 import { conversationDay } from "./earlier-conversation";
 import { openCutShort } from "./cut-short";
 import { cutShortLine } from "../sessions/cut-short";
@@ -99,6 +101,8 @@ export interface OutputWriter {
 /** Everything the extracted slash-command handlers touch on the app. The app stays the
  * owner of all state; this interface makes the (wide) coupling explicit instead of private. */
 export interface CommandHost {
+  /** The home Casper reads its own logins from (tests pass a fixture home): their values stay hidden in /resume excerpts. */
+  readonly sessionHomeDir?: string;
   /** What auto mode's judge allowed this session, for /status (src/app/auto-mode.ts). */
   readonly judgeAllows?: ReadonlyArray<{ command: string; reason: string }>;
   /** Whether you trust the open folder: an untrusted one runs none of its checks (src/app/folder-trust.ts). */
@@ -465,26 +469,46 @@ export async function runSlashCommand(host: CommandHost, prompt: string): Promis
         } else {
           let current: string | undefined;
           try { current = session.getSessionInfo?.().sessionId; } catch { current = undefined; }
-          const saved = (await session.listConversations()).filter(item => item.id !== current);
-          if (id) { const match = matchConversation(saved, id); id = match.id; title = conversationLabel(match).title; }
-          else if (!saved.length) { host.output.write("No other saved conversations in this folder.\n"); return; }
+          // An ID (or the start of one) opens that conversation; other words search every saved one's text. Words that
+          // cannot be an ID go straight to the search, which reads the saved files once.
+          const hexId = Boolean(id) && /^[0-9a-f-]+$/i.test(id);
+          const saved = !id || hexId || !session.searchConversations ? (await session.listConversations()).filter(item => item.id !== current) : [];
+          const byId = Boolean(id) && (!session.searchConversations || (hexId && saved.some(item => item.id.startsWith(id))));
+          let found: ReadonlyArray<RuntimeConversationHit> | undefined;
+          if (id && !byId) {
+            const words = searchWords(id);
+            let secretValues: string[] | undefined;
+            try { secretValues = ownSecretValues(host); } catch { secretValues = undefined; }
+            const signal = host.commandAbort?.signal;
+            found = (await session.searchConversations!(words, { ...secretValues ? { secretValues } : {}, ...signal ? { signal } : {} })).filter(item => item.id !== current);
+            if (signal?.aborted) { host.output.write("[session] Search stopped; staying in this conversation.\n"); return; }
+            if (!found.length) { host.output.write(`No saved conversation here mentions ${lineText(id)}.\n`); return; }
+          }
+          const choices: ReadonlyArray<RuntimeConversation & { excerpt?: string }> = found ?? saved;
+          if (byId) { const match = matchConversation(saved, id); id = match.id; title = conversationLabel(match).title; }
+          else if (!choices.length) { host.output.write("No other saved conversations in this folder.\n"); return; }
           else if (host.interactive && host.terminal.canAsk) {
             // A numbered picker, newest first; 1 stays here. Older ones are still there by ID.
-            const shown = saved.slice(0, 8).map(item => ({ item, ...conversationLabel(item) }));
+            const shown = choices.slice(0, 8).map(item => ({ item, ...conversationLabel(item) }));
             const seen = new Set<string>();
             const options = shown.map(entry => {
               const label = seen.has(entry.title) ? `${entry.title} (${entry.item.id.slice(0, 8)})` : entry.title;
               seen.add(entry.title);
-              return { label, description: entry.detail };
+              return { label, description: entry.item.excerpt ? `${entry.detail} · ${entry.item.excerpt}` : entry.detail };
             });
-            if (saved.length > shown.length) host.output.write(`${saved.length - shown.length} older conversation(s) not shown: /resume <id> opens one.\n`);
-            const picked = await host.terminal.pick("Resume which conversation?",
+            if (choices.length > shown.length) host.output.write(found
+              ? `${choices.length - shown.length}${choices.length >= SEARCH_HIT_LIMIT ? " or more" : ""} older match(es) not shown: add a word to narrow it, or /resume <id> opens one.\n`
+              : `${choices.length - shown.length} older conversation(s) not shown: /resume <id> opens one.\n`);
+            const picked = await host.terminal.pick(found ? "Resume which conversation? (newest match first)" : "Resume which conversation?",
               [{ label: STAY_HERE, description: "nothing changes" }, ...options], host.commandAbort?.signal);
             const index = options.findIndex(option => option.label === picked);
             if (index === -1) { host.output.write("[session] Staying in this conversation.\n"); return; }
             id = shown[index]!.item.id; title = shown[index]!.title;
           } else {
-            host.output.write(saved.map(item => { const label = conversationLabel(item); return `${item.id}  ${label.title} · ${label.detail}`; }).join("\n") + "\n");
+            host.output.write(choices.map(item => {
+              const label = conversationLabel(item);
+              return `${item.id}  ${label.title} · ${label.detail}${item.excerpt ? ` · ${terminalText(item.excerpt)}` : ""}`;
+            }).join("\n") + "\n");
             host.output.write("Use /resume <id> (its first few characters are enough); /branch and /switch manage named workspaces.\n");
             return;
           }

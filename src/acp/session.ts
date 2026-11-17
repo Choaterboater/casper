@@ -18,7 +18,8 @@
 // it with no model call, is the app's chat title (session_info_update, decision 96). Each prompt reply carries the
 // conversation's mark, and session/fork goes on with a copy of a saved conversation, whole or cut at a mark; the
 // source is only read (decision 97). A running command's latest lines reach the app while it runs, unless
-// acp_live_output is off or netconan is in use (decision 98).
+// acp_live_output is off or netconan is in use (decision 98). session/resume is session/load without the replay
+// (decision 114).
 
 import os from "node:os";
 import path from "node:path";
@@ -60,13 +61,15 @@ export const ACP_PROTOCOL_VERSION = 1;
 /** The initialize reply, the same from the router and from each session. `acp_mcp: off` says no http server is taken
  * (stdio ones are ACP's baseline; Casper connects none of them either). `_meta.casper.steer`: `_casper/steer` takes a
  * line during a prompt (decision 86). `_meta.casper.title`: Casper sends the chat's title (decision 96).
- * `sessionCapabilities.fork`: session/fork copies a conversation (decision 97). `authMethods`: the ways an app can sign
- * Casper in with `authenticate` (decision 103, src/acp/auth.ts). */
+ * `sessionCapabilities.fork`: session/fork copies a conversation (decision 97); `list`, `resume` and `close`: the
+ * router lists a folder's saved conversations, a session reopens one without its replay, and a close ends its process
+ * (decision 114). `authMethods`: the ways an app can sign Casper in with `authenticate` (decision 103,
+ * src/acp/auth.ts). */
 export function initializeResult(setting: AcpMcpSetting = "on"): Json {
   return {
     protocolVersion: ACP_PROTOCOL_VERSION,
     agentCapabilities: { loadSession: true, promptCapabilities: { image: true, audio: false, embeddedContext: true }, mcpCapabilities: { http: setting !== "off", sse: false },
-      sessionCapabilities: { fork: {} }, _meta: { casper: { steer: true, title: true } } },
+      sessionCapabilities: { fork: {}, list: {}, resume: {}, close: {} }, _meta: { casper: { steer: true, title: true } } },
     agentInfo: { name: "casper", title: "Casper", version: CASPER_VERSION },
     authMethods: authMethods(),
   };
@@ -329,11 +332,12 @@ export async function runAcpSession(options: SessionOptions): Promise<void> {
     if (value === "read" && before !== "read") asker?.withdrawAll();
   };
 
-  // session/new, session/load (the conversation goes on) or session/fork (a copy goes on, decision 97).
-  const open = async (params: Json, kind: "new" | "load" | "fork"): Promise<Json> => {
+  // session/new, session/load (the conversation goes on, replayed to the app first), session/resume (it goes on with
+  // no replay, decision 114) or session/fork (a copy goes on, decision 97).
+  const open = async (params: Json, kind: "new" | "load" | "resume" | "fork"): Promise<Json> => {
     if (app) throw new RpcFailure(RPC.invalidRequest, "This Casper process already holds a session");
     folder = await sessionFolder(params);
-    const load = kind === "load";
+    const load = kind === "load" || kind === "resume";
     if (kind !== "new" && (typeof params.sessionId !== "string" || !CONVERSATION_ID.test(params.sessionId))) throw new RpcFailure(RPC.invalidParams, `session/${kind} needs a sessionId`);
     // The point to cut at: a mark from a prompt reply. None copies the whole conversation.
     const at = kind === "fork" ? ((params._meta as Json | undefined)?.casper as Json | undefined)?.at : undefined;
@@ -448,6 +452,8 @@ export async function runAcpSession(options: SessionOptions): Promise<void> {
     // "Yes to everything this session", /permissions all or ask: the app's chip hears it at once, mid-prompt too.
     created.onAccessChange = announce;
     if (load) {
+      // A resume replays nothing: the app still shows the conversation.
+      if (kind === "resume") return { configOptions: configOptions(), modes: modeState(created, hide) };
       // The conversation so far, as the person typed it.
       for (const entry of app.session?.conversationEntries?.() ?? []) {
         // Casper's own rounds (review, repair) are left out, and its notes around a request are taken off.
@@ -470,6 +476,7 @@ export async function runAcpSession(options: SessionOptions): Promise<void> {
   const afterOpen = () => { sendCommands(); sendTitle(); };
   connection.onRequest("session/new", (params) => open(params, "new"), afterOpen);
   connection.onRequest("session/load", (params) => open(params, "load"), afterOpen);
+  connection.onRequest("session/resume", (params) => open(params, "resume"), afterOpen);
   connection.onRequest("session/fork", (params) => open(params, "fork"), afterOpen);
   connection.onRequest("session/prompt", async (params) => {
     if (!app || !sessionId || params.sessionId !== sessionId) throw new RpcFailure(RPC.notFound, "Unknown session");

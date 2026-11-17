@@ -51,6 +51,9 @@ export async function handleBranchCommand(app: CasperApp, prompt: string): Promi
   }
   await rebindWorkspace(app, transition.workspacePath);
   app.output.write(`[sessions] active ${transition.name} · ${transition.workspacePath}\n`);
+  if (transition.linked) {
+    app.output.write(`[sessions] Linked from the main folder, not copied: ${transition.linked.join(", ")}. An install or delete in them changes the main folder's.\n`);
+  }
 }
 
 export async function handleSwitchCommand(app: CasperApp, prompt: string): Promise<void> {

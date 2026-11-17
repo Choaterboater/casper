@@ -44,6 +44,21 @@ Copies the current conversation and records the project context. If the policy
 says to isolate experiments (the default) and the project is a Git repo, it also
 creates a clean worktree from the main folder's current commit.
 
+Git does not track installed dependencies, so the worktree links the main folder's
+`node_modules`, `.venv` and `vendor` (those it has and Git does not track) instead of
+installing them, as a crew copy does: tests and dev servers work in the branch at once,
+at no cost. Casper says which it linked
+(`[sessions] Linked from the main folder, not copied: node_modules.`), and tells the
+branch's AI, in that branch's notes only, that an install or delete in them changes the
+main folder's, and to remove just the link (`rm node_modules`, no trailing slash) before
+installing there. The links come out before the diff is captured and stay in place for the
+checks `apply` runs, so they are never in the patch, and leaving deletes only the links,
+never what they point to. Only links that point at the main folder come out: a link the
+repository itself tracks (`vendor -> third`, say) stays, and so stays out of the patch.
+A return you do not finish (`apply` stopped, say) and a later `/switch` to the branch put
+them back
+([decision 115](adr/0002/115-a-branch-links-the-main-folders-dependencies.md)).
+
 You typed the command, so Casper doesn't ask again: it makes the branch and says
 where it is. In one-shot mode (`casper -p "<prompt>"`) it refuses, because there is no one to
 answer.
@@ -117,7 +132,23 @@ an empty one `/clear` left). With none, it says
 In the conversation `/continue`, `/resume`, `--continue` or `--resume` opened, `/continue` stays there and
 says so, rather than going back to the one you left; `/resume` lists the others.
 Conversations are saved per folder, so `/continue` and `/resume` see only this
-folder's: to pick up work from another folder, start Casper there. Casper's AI can't
+folder's: to pick up work from another folder, start Casper there.
+
+`/resume <words>` searches every conversation saved in this folder, not only the
+newest eight the list shows. A conversation matches when its name or its messages
+(what you typed and what the AI wrote; Casper's own hint lines are left out) hold every
+word, in any case and with accents ignored (`cafe` finds `Café`). The matches come
+newest first in the same numbered picker, `1 Stay in this conversation` first, each with
+a short excerpt around its first hit; in a one-shot run they are listed with their IDs.
+With none, it says `No saved conversation here mentions <words>.` and nothing changes.
+Words that are the start of a saved conversation's ID (all hex, as `/resume 0193ab`)
+open that conversation, as before; `casper --resume <id-prefix>` still takes only an ID.
+The search reads each conversation's text only while it searches, at most its first and
+last 200,000 characters, and hides secrets before it matches (key-shaped values such as
+`sk-…` too): a hidden secret never matches and never shows in an excerpt. It stops at the
+50 newest matches, never holds up your keys, and `Esc` stops it and keeps you where you
+are. It runs on your computer: no model call, no tokens
+([decision 113](adr/0002/113-resume-searches-saved-conversations.md)). Casper's AI can't
 open them for you; asked to continue a last session, it names these commands.
 
 ### Coming back to main from an experiment

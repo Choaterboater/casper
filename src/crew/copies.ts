@@ -1,4 +1,4 @@
-import { lstat, rmdir, symlink, unlink } from "node:fs/promises";
+import { lstat, readlink, realpath, rmdir, symlink, unlink } from "node:fs/promises";
 import path from "node:path";
 
 /**
@@ -15,6 +15,13 @@ async function kind(file: string): Promise<"folder" | "link" | "other" | undefin
   } catch { return undefined; }
 }
 
+/** The dependency folders your folder has (real folders, not links), in DEPENDENCY_FOLDERS order. */
+export async function dependencyFoldersIn(main: string): Promise<string[]> {
+  const found: string[] = [];
+  for (const name of DEPENDENCY_FOLDERS) if (await kind(path.join(main, name)) === "folder") found.push(name);
+  return found;
+}
+
 /** Links each dependency folder your folder has and the copy lacks (a tracked vendor/ is already there). */
 export async function linkDependencies(main: string, copy: string): Promise<string[]> {
   const linked: string[] = [];
@@ -29,11 +36,23 @@ export async function linkDependencies(main: string, copy: string): Promise<stri
   return linked;
 }
 
-/** Takes the links out again (before the copy's changes are read), never a real folder a builder made. */
-export async function unlinkDependencies(copy: string): Promise<void> {
+/** Whether the link at `file` points at `target` (a Windows junction may read back with a `\\?\` start). */
+async function pointsAt(file: string, target: string): Promise<boolean> {
+  const plain = (value: string) => {
+    const resolved = path.resolve(path.dirname(file), value.replace(/^\\\\\?\\/, "")).replace(/[\\/]+$/, "");
+    return process.platform === "win32" ? resolved.toLowerCase() : resolved;
+  };
+  try { if (plain(await readlink(file)) === plain(target)) return true; } catch { return false; }
+  try { return await realpath(file) === await realpath(target); } catch { return false; }
+}
+
+/** Takes the links out again (before the copy's changes are read), never a real folder a builder made. With `main`,
+ * only the links that point at its folders: a link the repository itself tracks (`vendor -> third`) stays. */
+export async function unlinkDependencies(copy: string, main?: string): Promise<void> {
   for (const name of DEPENDENCY_FOLDERS) {
     const file = path.join(copy, name);
+    if (await kind(file) !== "link" || (main !== undefined && !await pointsAt(file, path.join(main, name)))) continue;
     // A Windows junction comes out with rmdir (never what it points to).
-    if (await kind(file) === "link") await unlink(file).catch(() => rmdir(file)).catch(() => {});
+    await unlink(file).catch(() => rmdir(file)).catch(() => {});
   }
 }
