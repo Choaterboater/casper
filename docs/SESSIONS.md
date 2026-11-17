@@ -117,7 +117,23 @@ an empty one `/clear` left). With none, it says
 In the conversation `/continue`, `/resume`, `--continue` or `--resume` opened, `/continue` stays there and
 says so, rather than going back to the one you left; `/resume` lists the others.
 Conversations are saved per folder, so `/continue` and `/resume` see only this
-folder's: to pick up work from another folder, start Casper there. Casper's AI can't
+folder's: to pick up work from another folder, start Casper there.
+
+`/resume <words>` searches every conversation saved in this folder, not only the
+newest eight the list shows. A conversation matches when its name or its messages
+(what you typed and what the AI wrote; Casper's own hint lines are left out) hold every
+word, in any case and with accents ignored (`cafe` finds `Café`). The matches come
+newest first in the same numbered picker, `1 Stay in this conversation` first, each with
+a short excerpt around its first hit; in a one-shot run they are listed with their IDs.
+With none, it says `No saved conversation here mentions <words>.` and nothing changes.
+Words that are the start of a saved conversation's ID (all hex, as `/resume 0193ab`)
+open that conversation, as before; `casper --resume <id-prefix>` still takes only an ID.
+The search reads each conversation's text only while it searches, at most its first and
+last 200,000 characters, and hides secrets before it matches (key-shaped values such as
+`sk-…` too): a hidden secret never matches and never shows in an excerpt. It stops at the
+50 newest matches, never holds up your keys, and `Esc` stops it and keeps you where you
+are. It runs on your computer: no model call, no tokens
+([decision 113](adr/0002/113-resume-searches-saved-conversations.md)). Casper's AI can't
 open them for you; asked to continue a last session, it names these commands.
 
 ### Coming back to main from an experiment

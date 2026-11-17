@@ -11,6 +11,7 @@ import { alive, COMMAND_MARK, jobRoots, leftRunning } from "./left-running";
 import { followLogHint, remoteLog, TIME_LIMIT_NOTE, wrapsTimeLimit } from "./command-hints";
 import { pidFile, STALLED_EXIT_CODE, stalledMessage, watchStall } from "./stalled-commands";
 import { matchConversation } from "../sessions/resume";
+import { searchConversationTexts } from "../sessions/search";
 import { PiModels } from "./pi-models";
 import { BASH_TIMEOUT_CAP_SECONDS, COMMAND_GUIDANCE, SEARCH_GUIDANCE, LEAN_COMMAND_GUIDANCE, LEAN_SEARCH_GUIDANCE, projectGuidance } from "./guidance";
 import { AgentShellGuard, AGENT_SHELL_GUIDANCE, HELPER_SHELL_GUIDANCE } from "./agent-shell-guard";
@@ -105,6 +106,7 @@ import type {
   RuntimeModelWordsMatch,
   RuntimeModelWordsOptions,
   RuntimeConversation,
+  RuntimeConversationHit,
   ConversationItem,
   RuntimeEvent,
   ToolDisplay,
@@ -416,6 +418,10 @@ class PiRuntimeSession implements RuntimeSession {
   async listConversations(): Promise<RuntimeConversation[]> {
     return (await SessionManager.list(this.runtime.cwd)).map(info => ({ id: info.id, name: info.name, modified: info.modified.toISOString(),
       firstMessage: info.firstMessage.slice(0, 4000), messages: info.messageCount, file: info.path }));
+  }
+
+  searchConversations(words: readonly string[], options: { secretValues?: readonly string[]; signal?: AbortSignal } = {}): Promise<RuntimeConversationHit[]> {
+    return searchSavedConversations(this.runtime.cwd, words, options);
   }
 
   recentTurns(count: number): Array<{ role: "user" | "assistant"; text: string }> {
@@ -961,6 +967,15 @@ export async function savedConversations(cwd: string): Promise<RuntimeConversati
   if (!existsSync(dir)) return [];
   return (await SessionManager.list(cwd, dir)).map(info => ({ id: info.id, name: info.name, modified: info.modified.toISOString(),
     firstMessage: info.firstMessage.slice(0, 4000), messages: info.messageCount, file: info.path }));
+}
+
+/** The conversations saved for `cwd` whose text holds every one of `words` (/resume <words>), newest first. Pi's list reads
+ * every message's text: it is kept only for this search, never on the listing the start row and /continue use. */
+export async function searchSavedConversations(cwd: string, words: readonly string[],
+  options: { secretValues?: readonly string[]; sessionDir?: string; signal?: AbortSignal } = {}): Promise<RuntimeConversationHit[]> {
+  const listed = (await SessionManager.list(cwd, options.sessionDir)).map(info => ({ id: info.id, name: info.name, modified: info.modified.toISOString(),
+    firstMessage: info.firstMessage.slice(0, 4000), messages: info.messageCount, text: info.allMessagesText }));
+  return searchConversationTexts(listed, words, { ...options.secretValues ? { values: options.secretValues } : {}, ...options.signal ? { signal: options.signal } : {} });
 }
 
 export class PiRuntime implements AgentRuntime {

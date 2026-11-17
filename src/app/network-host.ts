@@ -122,13 +122,13 @@ export function networkLoginHost(app: CasperApp): LoginHost {
 }
 
 /** ~/.casper/network-logins.json: its tokens are hidden in every tool output the AI reads. */
-export function networkLoginFile(app: CasperApp): string {
+export function networkLoginFile(app: Pick<CasperApp, "sessionHomeDir">): string {
   return loginFile(app.sessionHomeDir ?? os.homedir());
 }
 
 /** Casper's own secrets, as exact values: secret-named environment values, its login file's keys and the saved
  * network logins. Hidden wherever they turn up, MCP results and reference excerpts too. */
-export function ownSecretValues(app: CasperApp): string[] {
+export function ownSecretValues(app: Pick<CasperApp, "sessionHomeDir">): string[] {
   return [...new Set([...secretEnvValues(), ...loginFileValues(path.join(casperAgentDir(), "auth.json")), ...networkLoginValues(networkLoginFile(app)), ...savedKeyValues(app.sessionHomeDir ?? os.homedir()), ...typedSecretValues()])]
     .sort((a, b) => b.length - a.length);
 }

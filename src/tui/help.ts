@@ -118,7 +118,7 @@ Local commands:
   /usage, /cost                     Session tokens, cache share, optional catalog cost estimate and the Claude plan's limit
   /compact [instructions]           Summarize context using the model (not a local-only command)
   /clear, /new                      New conversation; no file rollback
-  /resume [id]                      Pick a saved conversation (or give the start of its ID)
+  /resume [id|words]                Pick a saved conversation, give the start of its ID, or search every one for words
   /continue                         Go back to the most recent other conversation saved in this folder, as casper --continue does at startup; each start is a new conversation, and 1 on the start's row runs this
   /diff [n|list]                    Task n's changes (default: the last task in this folder), also outside git; list picks one. Before any task in this folder: git status plus tracked diff against HEAD
   /undo [n]                         Put back the files of the last task (or task n); files changed since are left alone
@@ -272,7 +272,7 @@ Side questions: a line you start with ? (? what does ECONNRESET mean) goes to yo
 Shift+Tab cycles auto and the model's supported levels and saves the level it stops at, like /effort. One-off --effort never saves.
 /effort auto lets Casper pick per request: low for reading/explaining/diagrams, medium for tests and configuration, high for fixes, features and refactors, from the model's supported levels.
 Context is estimated and may be unavailable; cost estimates are not subscription billing.
-/clear keeps saved conversations and workspace files. Conversations are saved per folder: /continue and /resume see this folder's. /resume takes the start of an ID; /switch uses workspace names.
+/clear keeps saved conversations and workspace files. Conversations are saved per folder: /continue and /resume see this folder's. /resume takes the start of an ID, or words to search for; /switch uses workspace names.
 Esc or Ctrl+C cancels the picker. Plain/redirected terminals list models; use an exact ID to select.
 Restored conversations keep their model; a missing or unavailable model blocks sending.
 Without a restored selection or Casper default, choose with /model; there is no other fallback.

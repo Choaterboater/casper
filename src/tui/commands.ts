@@ -72,7 +72,7 @@ export const COMMAND_REGISTRY: readonly CommandSpec[] = [
   // start model work of their own (one at a time). Every other command runs at once, also during a task.
   { name: "compact", description: "The model summarizes the conversation so far", argumentHint: "[instructions]", waits: ANY },
   { name: "clear", description: "Start a fresh conversation; keep files and saved conversations", aliases: ["new"], waits: ANY },
-  { name: "resume", description: "Go back to a saved conversation (a numbered list)", argumentHint: "[id]", waits: ANY },
+  { name: "resume", description: "Go back to a saved conversation (a numbered list; words search them)", argumentHint: "[id|words]", waits: ANY },
   { name: "continue", description: "Go back to the most recent other conversation saved in this folder", waits: ANY },
   { name: "diff", description: "The last task's changes: /diff 12, /diff list", argumentHint: "[n|list]", afterCleanupError: /^(?:\d+)?$/,
     subcommands: [{ name: "list", description: "Pick a task's changes from a list", afterCleanupError: NONE }] },

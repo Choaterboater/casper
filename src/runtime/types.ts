@@ -385,6 +385,9 @@ export interface RuntimeConversation {
   file?: string;
 }
 
+/** A saved conversation a /resume search found, with a short excerpt (secrets hidden) around its first hit. */
+export interface RuntimeConversationHit extends RuntimeConversation { excerpt: string }
+
 export interface RuntimeState {
   cwd: string;
   isStreaming: boolean;
@@ -552,6 +555,10 @@ export interface RuntimeSession {
     /** Why the answer ended ("stop", "length"…), and the token limit it had. */
     stopReason?: string; maxTokens?: number }>;
   listConversations?(): Promise<RuntimeConversation[]>;
+  /** The saved conversations whose text holds every one of `words` (folded, see src/sessions/search.ts), newest first,
+   * at most SEARCH_HIT_LIMIT. Their text is read only while searching; `secretValues` are hidden like the rest; `signal`
+   * stops it. No model call. */
+  searchConversations?(words: readonly string[], options?: { secretValues?: readonly string[]; signal?: AbortSignal }): Promise<RuntimeConversationHit[]>;
   clearConversation?(): Promise<void>;
   /** `keepUnwritten: false` drops a new conversation that has no saved response yet instead of
    * saving it for /resume (a startup `--resume` has nothing worth keeping). */
