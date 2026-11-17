@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import {
   checkConfig, checkDisk, checkLanguageServers, checkMcp, checkNetworkServer, checkPathLink, checkSandbox, checkSignIn, checkVersion,
-  type DoctorContext,
+  folderSizes, type DoctorContext,
 } from "../src/doctor/checks";
 import { jsonErrorPosition } from "../src/doctor/json-position";
 import { formatDoctorLines, runDoctor, type DoctorIO } from "../src/doctor/run";
@@ -185,9 +185,62 @@ test("sandbox: off unless you turn it on is a note, not a problem, whether or no
 
 test("disk: low space for ~/.casper is named", async () => {
   const dir = await home();
-  expect((await checkDisk(context(dir, { freeBytes: async () => 100 * 1024 ** 2 })))[0]).toMatchObject({ status: "fail", text: "Disk: only 100 MB free for ~/.casper" });
-  expect((await checkDisk(context(dir, { freeBytes: async () => 1024 ** 3 })))[0]!.status).toBe("note");
+  expect((await checkDisk(context(dir, { freeBytes: async () => 100 * 1024 ** 2 })))[0]).toEqual({ status: "fail", text: "Disk: only 100 MB free for ~/.casper", next: "free some space" });
+  expect((await checkDisk(context(dir, { freeBytes: async () => 1024 ** 3 })))[0]).toEqual({ status: "note", text: "Disk: 1.0 GB free for ~/.casper" });
   expect((await checkDisk(context(dir)))[0]!.status).toBe("ok");
+});
+
+test("disk: low space names where saved conversations and exports are and how much they hold, and removes nothing", async () => {
+  const dir = await home();
+  const conversations = path.join(dir, ".casper", "agent", "sessions", "--project--");
+  const exports = path.join(dir, ".casper", "exports");
+  await mkdir(conversations, { recursive: true });
+  await mkdir(exports, { recursive: true });
+  await writeFile(path.join(conversations, "one.jsonl"), Buffer.alloc(3 * 1024 ** 2));
+  await writeFile(path.join(conversations, "two.jsonl"), Buffer.alloc(2 * 1024 ** 2));
+  await writeFile(path.join(exports, "casper-conversation.md"), Buffer.alloc(40 * 1024));
+  const places = "saved conversations are in ~/.casper/agent/sessions (5 MB), exports are in ~/.casper/exports (40 KB)";
+  expect(await checkDisk(context(dir, { freeBytes: async () => 100 * 1024 ** 2 }))).toEqual([{ status: "fail",
+    text: "Disk: only 100 MB free for ~/.casper", next: `free some space; ${places}` }]);
+  expect(await checkDisk(context(dir, { freeBytes: async () => 1024 ** 3 }))).toEqual([{ status: "note", text: "Disk: 1.0 GB free for ~/.casper", next: places }]);
+  expect(await checkDisk(context(dir))).toEqual([{ status: "ok", text: "Disk: 50.0 GB free" }]);
+  expect((await Array.fromAsync(new Bun.Glob("**/*").scan({ cwd: path.join(dir, ".casper"), onlyFiles: true }))).sort())
+    .toEqual(["agent/sessions/--project--/one.jsonl", "agent/sessions/--project--/two.jsonl", "exports/casper-conversation.md"].map((file) => path.join(...file.split("/"))).sort());
+});
+
+test("disk: saved conversations are named where the agent folder really is, moved within your home or out of it", async () => {
+  const dir = await home();
+  const moved = path.join(dir, "elsewhere", "agent");
+  await mkdir(path.join(moved, "sessions", "--project--"), { recursive: true });
+  await writeFile(path.join(moved, "sessions", "--project--", "one.jsonl"), Buffer.alloc(3 * 1024 ** 2));
+  // The default place holds something too: the hint must not name it.
+  await mkdir(path.join(dir, ".casper", "agent", "sessions"), { recursive: true });
+  await writeFile(path.join(dir, ".casper", "agent", "sessions", "old.jsonl"), Buffer.alloc(1024));
+  const low = { freeBytes: async () => 1024 ** 3 };
+  expect((await checkDisk(context(dir, { ...low, agentDir: moved })))[0]!.next).toBe("saved conversations are in ~/elsewhere/agent/sessions (3 MB)");
+  const outside = await home();
+  const agent = path.join(outside, "agent");
+  await mkdir(path.join(agent, "sessions"), { recursive: true });
+  await writeFile(path.join(agent, "sessions", "one.jsonl"), Buffer.alloc(2 * 1024 ** 2));
+  expect((await checkDisk(context(dir, { ...low, agentDir: agent })))[0]!.next).toBe(`saved conversations are in ${path.join(agent, "sessions")} (2 MB)`);
+});
+
+test("disk: a walk cut short by its entry or time limit says over, and a folder that isn't there is left out", async () => {
+  const dir = await home();
+  const conversations = path.join(dir, ".casper", "agent", "sessions");
+  await mkdir(path.join(conversations, "--a--"), { recursive: true });
+  await mkdir(path.join(conversations, "--b--"), { recursive: true });
+  for (const name of ["--a--", "--b--"]) await writeFile(path.join(conversations, name, "one.jsonl"), Buffer.alloc(2 * 1024 ** 2));
+  const missing = path.join(dir, ".casper", "exports");
+  expect(await folderSizes([conversations, missing], { entries: 100, ms: 60_000 })).toEqual([{ bytes: 4 * 1024 ** 2, cut: false }, undefined]);
+  const byEntries = await folderSizes([conversations], { entries: 3, ms: 60_000 });
+  expect(byEntries[0]!.cut).toBe(true);
+  expect(byEntries[0]!.bytes).toBe(2 * 1024 ** 2);
+  let clock = 0;
+  const byTime = await folderSizes([conversations], { entries: 100, ms: 1000, now: () => (clock += 600) });
+  expect(byTime[0]!.cut).toBe(true);
+  const line = await checkDisk(context(dir, { freeBytes: async () => 1024 ** 3, sizeLimits: { entries: 3, ms: 60_000 } }));
+  expect(line[0]!.next).toBe("saved conversations are in ~/.casper/agent/sessions (over 2 MB)");
 });
 
 test("network server: not installed is something to fix; installed shows the version and the saved logins by product", async () => {
