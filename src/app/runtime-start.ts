@@ -32,6 +32,8 @@ import { tellJobEnded } from "./background-ended";
 import { STALL_SECONDS } from "../runtime/stalled-commands";
 import { checkChangeOptions } from "./check-changes";
 import { showWaiting } from "./during-work";
+import { openCutShort } from "./cut-short";
+import { cutShortLine } from "../sessions/cut-short";
 
 /** One adapter-construction owner, shared by auth and session startup. */
 export function acquireRuntime(app: CasperApp): Promise<AgentRuntime> {
@@ -195,6 +197,8 @@ export async function applyRunConversation(app: CasperApp, session: RuntimeSessi
   }
   app.continuedConversation = target;
   app.output.write(`[session] Continuing conversation ${target}.\n`);
+  const cut = openCutShort(app, session);
+  if (cut) app.output.write(`${terminalText(cutShortLine(cut))}\n`);
 }
 
 /** A selector or level the catalog rejects is a usage error; missing credentials are not. */

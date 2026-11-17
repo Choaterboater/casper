@@ -71,6 +71,8 @@ async function userMessage(request: { message: { content: unknown } }) {
   const text = JSON.stringify(request.message.content);
   log({ user: text.slice(0, 80) });
   if (!initialized) { initialized = true; send({ ...common, type: "system", subtype: "init", ...account, apiKeySource: "none", model: "claude-opus-4-8", tools: [], mcp_servers: [] }); }
+  // As live Claude Code does with each response: where the plan's usage window stands (CASPER_TEST_CLAUDE_RATE_LIMIT).
+  if (process.env.CASPER_TEST_CLAUDE_RATE_LIMIT) send({ ...common, type: "rate_limit_event", rate_limit_info: JSON.parse(process.env.CASPER_TEST_CLAUDE_RATE_LIMIT) });
   if (text.includes("SUBSCRIPTION_TOOL_FIXTURE") && !text.includes("structured context checkpoint") && !text.includes("PREFIX of a turn")) {
     // A seeded session (after compaction or a restart) goes on after the results its transcript already has.
     for (const proposal of PROPOSALS) {

@@ -91,6 +91,8 @@ export interface TaskResult {
   wroteToolCallAsText?: true;
   /** Why the model run failed, when the provider's error names a cause (bad key, no credits, rate limit …). */
   modelError?: ModelErrorCause;
+  /** The used-up Claude plan window that refused the run, and when it resets (ms since the epoch). */
+  planLimit?: { window: string; resetsAt: number };
   verification?: VerificationReport;
   /** One final app request/load and its cleanup; a runtime observation, never behavioral proof. */
   appSmoke?: AppSmokeReport;
@@ -1091,7 +1093,7 @@ function withVerdict(task: TaskResult, body: string[], options: ReceiptOptions, 
       if (task.execution === "failed") {
         // Casper checked the edits the model left: say how they fared, then what to do next.
         const checked = !report?.results.length ? "" : failedChecks.length ? `; on those changes ${failedChecks.join(", ")}` : "; the checks pass on those changes";
-        const nextStep = modelErrorNext(task.modelError, options.surface === "one-shot")
+        const nextStep = modelErrorNext(task.modelError, options.surface === "one-shot", task.planLimit)
           ?? (options.surface === "one-shot" ? "casper --model <provider/id> \"…\" to try another model" : "/model to try another model, then ask again");
         const next = `– Next: ${nextStep}`;
         info.set(next, { section: "next", detail: nextStep });

@@ -69,12 +69,14 @@ import type { TaskClassification } from "../task/classify";
 import { builtOutput, inOutputFolder, planAutoChecks, TESTS_WITHOUT_COMMAND } from "../verify/mode";
 import { outsideWritesReceipt, sandboxReceipt } from "./sandbox";
 import { explainModelError } from "../runtime/model-errors";
+import { planLimitInError } from "../runtime/plan-limits";
 import { tildePath } from "../new/scaffold";
 import { offerNetworkServer } from "./network-host";
 import { updateFooter, nameConversation, phase, clearSteps } from "./footer";
 import { reviewPendingParts, partsNotReviewed, prepareCapabilities, serviceManager, stopDebugger, planPages, pageNotesFor, pagePaths } from "./task-tools";
 import { withoutPasted, type RequestWords } from "./request-words";
 import { applyWords, hasWords } from "./task-words";
+import { goOnAtPlanReset } from "./plan-reset";
 import { ensureModel, retryModelFailure, bigModelReceipt, bigModelNotice, imagesForModel, switchForPictures, restoreModel } from "./big-model";
 import { attachImages } from "./images";
 import { confirmYes, someoneAnswers } from "./approvals";
@@ -86,6 +88,8 @@ import { projectPrivatePaths, reportSkillWarnings } from "./wiring";
 import { appAgentDir, ensureRuntime } from "./runtime-start";
 import { reloadProject, writeProjectFile } from "./project-file";
 import { requestAsItStands, withLinesBeforeModel } from "./steered-request";
+import { openCutShort } from "./cut-short";
+import { CUT_SHORT_GO_ON, cutShortNote } from "../sessions/cut-short";
 import { personNote } from "./person-note";
 
 /** `guide`: guidance a command the user typed adds to this one request (/look's instructions), after the request. */
@@ -159,7 +163,9 @@ export async function runModelTask(app: CasperApp, prompt: string, options: { fl
   app.runtimeCheckInputs = new WeakMap();
   app.offeredAppSmoke = undefined;
   app.automaticServices = new Set();
-  const classification = classifyTask(prompt);
+  // Going on with a task cut short (the start's row): read as the request it worked on, not as these words.
+  const goingOn = typed.trim() === CUT_SHORT_GO_ON && app.session ? openCutShort(app, app.session)?.request : undefined;
+  const classification = classifyTask(goingOn ?? prompt);
   // beforeChanges policy: under-specified implement/configure work must see one recorded
   // ask attempt before the first edit. Interactive sessions and form apps only — one-shot
   // cannot ask, so denying edits there would only deadlock the task.
@@ -172,7 +178,7 @@ export async function runModelTask(app: CasperApp, prompt: string, options: { fl
   app.editGateActive = ((app.interactive && app.terminal.rich) || app.remoteQuestions)
     && context.policy.behavior.askQuestions === "beforeChanges"
     && (classification.intent === "implement" || classification.intent === "configure")
-    && underSpecifiedTarget(typed);
+    && underSpecifiedTarget(goingOn ?? typed);
   // Debug values and active debuggees do not silently become model-task context.
   await stopDebugger(app);
   // A finished task's immutable evidence belongs to its receipt, not the next prompt. Its checks go on, so this task can
@@ -380,6 +386,10 @@ export async function runModelTask(app: CasperApp, prompt: string, options: { fl
         if (app.closing || app.commandAbort?.signal.aborted) return;
       }
       const emptyFolder = await emptyFolderNote(workspaceRoot);
+      // Casper closed while the conversation's last steps ran: one note before this request (decision 108). The start
+      // row's "Go on with the task that was cut short" sends the note alone.
+      const cut = openCutShort(app, session);
+      const goOn = cut !== undefined && typed.trim() === CUT_SHORT_GO_ON;
       await session.prompt(withLinesBeforeModel(app, [
         // A picture that failed after the last request ended, told once.
         ...app.pendingPictures.takeUnseen(),
@@ -389,7 +399,8 @@ export async function runModelTask(app: CasperApp, prompt: string, options: { fl
         takeOpenPlan(app),
         // Only in a folder holding nothing but .casper: `git clone <url> .` would refuse it.
         emptyFolder,
-        formatTaskPrompt(prompt, classification, context.model, { verificationMode, proveChange: proving, typed, machines: machineNames(app.machines, app.sessionHomeDir), readOnly,
+        cut && !goOn ? cutShortNote(cut) : "",
+        formatTaskPrompt(goOn ? cutShortNote(cut, true) : prompt, classification, context.model, { verificationMode, proveChange: proving, typed: goingOn ?? typed, machines: machineNames(app.machines, app.sessionHomeDir), readOnly,
           reviewFollows: context.verification.review === true, afterContext: Boolean(memoryContext || skillContext) }),
         planBlock,
         // "in parallel", "by yourself": one line, only where builders are offered.
@@ -773,9 +784,10 @@ export async function runModelTask(app: CasperApp, prompt: string, options: { fl
     const snapshotFailure = !changedPaths && app.snapshotFailure ? { reason: app.snapshotFailure,
       edited: toolFiles(workspaceRoot, observations.observedEdits, "all") } : undefined;
     const modelError = execution === "failed" ? explainModelError(app.events.lastError ?? thrownError ?? "")?.cause : undefined;
+    const planLimit = modelError === "rate" ? planLimitInError(app.events.lastError ?? thrownError ?? "") : undefined;
     // The whole answer is a tool call written as text and no tool ran: shown, never run, never retried.
     const wroteToolCall = execution === "completed" && !app.observations.madeToolCalls && isToolCallAsText(app.lastAnswer);
-    app.lastTaskResult = { execution, ...(branchMoved ? { branchMoved: true as const } : {}), ...(modelError ? { modelError } : {}), ...(wroteToolCall ? { wroteToolCallAsText: true as const } : {}), verification, ...(appSmoke ? { appSmoke } : {}), ...observations, ...(snapshotFailure ? { snapshotFailure } : {}), ...(app.untrackedMedia.has(workspaceRoot) ? { mediaLeftOut: true as const } : {}), ...(browser?.checks.length ? { browser, ...(browser.status !== "pass" && (answerClaimsBrowserPass(app.lastAnswer) || (finishAnswer !== undefined && answerClaimsBrowserPass(finishAnswer))) ? { browserClaimed: true } : {}) } : {}),
+    app.lastTaskResult = { execution, ...(branchMoved ? { branchMoved: true as const } : {}), ...(modelError ? { modelError } : {}), ...(planLimit ? { planLimit } : {}), ...(wroteToolCall ? { wroteToolCallAsText: true as const } : {}), verification, ...(appSmoke ? { appSmoke } : {}), ...observations, ...(snapshotFailure ? { snapshotFailure } : {}), ...(app.untrackedMedia.has(workspaceRoot) ? { mediaLeftOut: true as const } : {}), ...(browser?.checks.length ? { browser, ...(browser.status !== "pass" && (answerClaimsBrowserPass(app.lastAnswer) || (finishAnswer !== undefined && answerClaimsBrowserPass(finishAnswer))) ? { browserClaimed: true } : {}) } : {}),
       ...(noCheckAsked && !browser?.checks.length ? { browserNotRecorded: true as const } : {}),
       ...(services.length ? { services } : {}), ...(riskyLines.length ? { riskyLines: [...riskyLines], ...(riskyLines.more ? { riskyMore: riskyLines.more } : {}) } : {}),
       // Smoke checks ran even without a configured command, so "no checks" no longer describes the task.
@@ -913,7 +925,8 @@ export async function runPlanTurn(app: CasperApp, session: RuntimeSession, reque
     app.planning = true;
     // Show only Casper's plan screen, not the raw answer too. This resets held words for every rewrite.
     app.events.holdText("Writing the plan");
-    try { await session.prompt(withLinesBeforeModel(app, prompt), signal, { request, typed, maxTurns: app.maxTurns }); }
+    const cut = openCutShort(app, session);
+    try { await session.prompt(withLinesBeforeModel(app, cut ? `${cutShortNote(cut)}\n\n${prompt}` : prompt), signal, { request, typed, maxTurns: app.maxTurns }); }
     finally { app.planning = false; app.events.holdText(undefined); }
     const written = app.events.heldWords();
     const showWritten = () => {
@@ -1360,11 +1373,20 @@ function takeOpenPlan(app: CasperApp): string {
 /** Keep going (src/task/keep-going.ts, decision 39): in a session, the AI stopped with work it says is not done, or after
  * saying what it does next, and asked the person nothing. Casper sends it on, at most KEEP_GOING_ROUNDS times, and not
  * again once a round leaves as much open as before. A stop, a failure, a turn or spend limit, a tool run after the AI's
- * last words, or keep_going: off ends it. The round is the task's own turn: the same gates, approvals and budget. */
+ * last words, or keep_going: off ends it. The round is the task's own turn: the same gates, approvals and budget.
+ * A turn that failed on a used-up Claude plan window goes on once the window resets, as one of these rounds, once a
+ * task (src/app/plan-reset.ts, decision 107). */
 async function keepGoing(app: CasperApp, session: RuntimeSession, request: string): Promise<void> {
   if (!app.interactive || app.projectContext?.keepGoing === false) return;
   let before = Number.POSITIVE_INFINITY;
-  for (let round = 1; round <= KEEP_GOING_ROUNDS; round++) {
+  let waited = false;
+  for (let round = 1; ; round++) {
+    if (!waited) {
+      const plan = await goOnAtPlanReset(app, session, request, round);
+      if (plan === "stopped") return;
+      if (plan === "resumed") { waited = true; continue; }
+    }
+    if (round > KEEP_GOING_ROUNDS) return;
     if (app.closing || app.commandAbort?.signal.aborted || app.taskRuntimeCancelled || app.taskRuntimeFailed
       || app.taskTurnLimit !== undefined || app.taskSpendStop !== undefined || app.toolAfterAnswer) return;
     const need = keepGoingNeed(app.lastAnswer);

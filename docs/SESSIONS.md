@@ -79,7 +79,20 @@ says so (`[task] "run test" runs this project's test check (npm run test) in a n
 offers `1 Ask in today's conversation instead`, which sends the same words there (`/continue <request>` does that too).
 Anything else you type starts the new one (`continue the refactor` is a request), later in a
 conversation `continue` means keep going, and Enter runs nothing
-([decision 42](adr/0002/42-a-plain-start-is-new.md), [decision 53](adr/0002/53-a-start-that-refers-back.md)). When you start Casper
+([decision 42](adr/0002/42-a-plain-start-is-new.md), [decision 53](adr/0002/53-a-start-that-refers-back.md)).
+
+**A task cut short.** When Casper stopped while the AI's steps were running (it crashed or was killed, the computer
+restarted, its console closed), those steps have no result, and the model would read each one as failed
+(`No result provided`) though it may have run. The start's row then reads
+`Next: 1 Go on with the task that was cut short (push the release, today)`. Its key continues that conversation and sends
+one note as the request: it names each step with no result (`- bash: git push origin main`), says it may have run or may
+still be running, and asks the AI to check before repeating a step that changes something, then go on. However the
+conversation is continued (`/continue`, `/resume`, `--continue`, `--resume`, or a line that refers back), the next request
+carries that note once, and `/continue`, `/resume` and `--continue` say
+`[session] Its last task was cut short while bash was running; the AI checks before repeating a step.` An Esc is not
+cut short, a conversation another Casper is still working in isn't either, and a conversation that wasn't cut short is
+unchanged. `/settings` **Tasks cut short** turns it off (it writes `cut_short: false`)
+([decision 108](adr/0002/108-a-task-cut-short-goes-on-carefully.md)). When you start Casper
 inside an experiment's worktree folder, it resumes that branch's saved
 conversation: that folder is for that branch. A Git worktree you made yourself (`git worktree add`) is a folder
 of its own: it starts on its own `main`, and its saved conversation is kept
@@ -173,7 +186,16 @@ spend pause, the AI's own question) waits, and the job with it, until you answer
 waiting. A password or secret box (ssh, sudo, `casper_secret`) never travels between terminals: on a job that
 login or secret is refused, as in a run that can't ask.
 
-**Limits.** A job stops after 4 hours of work (time waiting on you doesn't count), and a question waits 24 hours;
+**A Claude plan limit.** When the job's task stops on a used-up Claude plan limit that resets within a day, the job
+waits for the reset and goes on ([decision 107](adr/0002/107-a-task-goes-on-when-the-claude-plan-resets.md)). `/jobs`
+says `waiting till the Claude plan's 5-hour limit resets at 3:40 PM`; there is nothing to answer, and the row says
+`Job working here`.
+
+**A job Casper stopped mid-step.** When the computer restarted or Casper was closed while a job's steps ran, `/jobs show`
+in its folder offers `1 Go on with the task that was cut short`, as the start's row there does; in another folder it says
+which folder to start Casper in ([decision 108](adr/0002/108-a-task-cut-short-goes-on-carefully.md)).
+
+**Limits.** A job stops after 4 hours of work (time waiting on you or on a plan limit doesn't count), and a question waits 24 hours;
 then the job ends with a receipt that says why. The spend rules are yours as always. One job a folder: a second
 Casper in the same folder whose terminal closes mid-task stops as before.
 

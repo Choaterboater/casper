@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import type { Query, SDKMessage, SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
+import type { Query, SDKMessage, SDKRateLimitInfo, SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import type { Message, ToolResultMessage } from "@earendil-works/pi-ai";
 
@@ -83,13 +83,19 @@ export class ClaudeSession {
   /** `keep`: a session with tools, kept for the next request; a tool-less side request's session closes after it. */
   constructor(readonly signature: string, readonly keep: boolean) {}
 
-  /** Reads Claude Code's events into `events` from now until it ends. */
-  start(query: QueryHandle): void {
+  /** Reads Claude Code's events into `events` from now until it ends. The plan's limits go to `limits` as they come,
+   * before any event after them is read, so a refused turn's error already knows its window. */
+  start(query: QueryHandle, limits?: { record(info: SDKRateLimitInfo): void }): void {
     this.query = query;
     open.add(this);
     if (!exitHook) { exitHook = true; process.once("exit", () => { for (const session of [...open]) session.close(); }); }
     void (async () => {
-      try { for await (const event of query) this.events.push(event); }
+      try {
+        for await (const event of query) {
+          if (event.type === "rate_limit_event") { try { limits?.record(event.rate_limit_info); } catch { /* a shape this version can't read */ } }
+          this.events.push(event);
+        }
+      }
       catch (error) { this.error = error; }
       finally { this.events.end(); open.delete(this); this.onEnded?.(); }
     })();

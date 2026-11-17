@@ -50,6 +50,10 @@ export class AwayJob implements AwayAsker {
   private questions: Promise<unknown> = Promise.resolve();
   private finished = false;
   private writes: Promise<void> = Promise.resolve();
+  /** Why the task waits on something that isn't you (waitFor). */
+  private pausedFor?: string;
+  /** Holds Casper while it waits: with the terminal gone, nothing else would, and the wait's own timer doesn't. */
+  private holding?: ReturnType<typeof setInterval>;
 
   constructor(private readonly app: CasperApp, directory: string, record: JobRecord, private readonly cancel: () => void,
     private readonly seams: WalkAwaySeams = {}) {
@@ -149,16 +153,40 @@ export class AwayJob implements AwayAsker {
     return answer;
   }
 
+  /** The task waits for something that isn't you (a Claude plan limit's reset): the record says waiting, and why, with no
+   * question to answer. Waiting isn't work. */
+  async waitFor(why: string): Promise<void> {
+    if (this.finished || this.pausedFor !== undefined) return;
+    this.pausedFor = why;
+    this.holding = setInterval(() => {}, 60_000);
+    this.worked += Date.now() - this.workingSince;
+    clearTimeout(this.workTimer);
+    this.app.output.write(`[job] Waiting: ${why}.\n`);
+    await this.save((record) => ({ ...record, status: "waiting", why, updatedAt: new Date().toISOString() }));
+  }
+
+  /** The wait waitFor began is over: the job works again. */
+  async waitOver(): Promise<void> {
+    if (this.pausedFor === undefined) return;
+    this.pausedFor = undefined;
+    clearInterval(this.holding);
+    if (this.finished) return;
+    await this.save(({ why: _waited, ...record }) => ({ ...record, status: "running", updatedAt: new Date().toISOString() }));
+    this.workingSince = Date.now();
+    if (!this.stopReason) this.armWorkLimit();
+  }
+
   /** The task ended (and anything you queued during it): the result, a notification, then Casper exits. */
   async finish(): Promise<void> {
     if (this.finished) return;
     this.finished = true;
     clearTimeout(this.workTimer);
+    clearInterval(this.holding);
     const task = this.app.getLastTaskResult();
     const answer = this.app.lastAnswer.trim().slice(0, ANSWER_TEXT_LIMIT);
     const why = this.stopReason ?? (task?.execution === "cancelled" ? "the task was stopped" : undefined);
     const status = why ? "stopped" as const : "done" as const;
-    await this.save(({ question: _none, ...record }) => ({ ...record, status, endedAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
+    await this.save(({ question: _none, why: _waited, ...record }) => ({ ...record, status, endedAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
       ...(why ? { why } : {}), ...(answer ? { answer } : {}),
       ...(task ? { receipt: { text: formatShortReceipt(task).slice(0, 32_000), ...(task.receipt ? { n: task.receipt } : {}) } } : {}) }));
     this.app.output.write(`[job] ${status === "done" ? "Done" : `Stopped: ${why}`}. The result is waiting for you in Casper.\n`);
@@ -203,5 +231,7 @@ export function leaveOnHangUp(app: CasperApp, cancel: () => void, seams: WalkAwa
   app.terminal.leave(job.output(), job);
   app.output.write(`[job] The terminal closed; this task keeps going on this computer as job ${record.id}.\n`);
   job.start();
+  // The terminal closed while the task waits for a Claude plan limit to reset: the job waits for it too.
+  if (app.planWait) void job.waitFor(app.planWait.why);
   return true;
 }

@@ -26,6 +26,7 @@ Tools & browser
   Packs                                 on
   Untrusted-text reader                 on
   Helpers that build                    off
+  Tasks cut short                       on
 
 Web lookups are on (DuckDuckGo).
 ↑/↓ move · Enter/Space change · ←/→/Tab area · type to search · Esc close
@@ -203,8 +204,17 @@ stops, and asks you nothing, Casper sends it on itself with what is still open:
 `↻ keep going 1/2: 2 items still open, so the AI carries on (Esc stops it)`. That is two rounds a task at most, and none
 after a round that leaves as much open as before. A round is the task's own turn, so every approval box,
 the sandbox and the spend pause apply as usual. Only in a session: one-shot runs and `--json` don't.
-It is on. Turn it off with `/settings` (it writes `keep_going: false`) and the AI waits for you to say
+A task that stopped on a used-up Claude plan limit goes on by itself once the limit resets, as one of the two rounds
+([Claude plan limits](#claude-plan-limits)). It is on. Turn it off with `/settings` (it writes `keep_going: false`) and the AI waits for you to say
 go. A project file can't set it. See [decision 39](adr/0002/39-keep-going.md).
+
+### Tasks cut short
+
+When Casper closed while the AI's steps ran (a crash, a restart, a closed console), the start's row offers
+`Go on with the task that was cut short`, and the next request in that conversation tells the AI those steps may have
+run, so it checks before repeating one ([SESSIONS.md](SESSIONS.md)). It is on. Turn it off
+with `/settings` (it writes `cut_short: false`): the start offers a plain Continue and nothing is added to a request. A
+project file can't set it. See [decision 108](adr/0002/108-a-task-cut-short-goes-on-carefully.md).
 
 ### Stalled commands
 
@@ -997,6 +1007,30 @@ cannot guarantee billing or override plan limits. Anthropic's SDK documentation 
 approval for third-party products offering Claude plan login/rate limits; technical compatibility
 is not that approval.
 
+### Claude plan limits
+
+Claude Code reports the plan's usage windows with its responses (the 5-hour limit, the weekly limits),
+and Casper keeps the latest of each, with no extra call and no tokens
+([decision 106](adr/0002/106-the-claude-plan-says-its-limits.md)):
+
+- `/usage` and `/status` show the window that matters most in one line:
+  `Claude plan: 82% of 5-hour limit, resets 3:40 PM`. A window over its limit while the plan's extra usage
+  pays for requests reads `5-hour limit reached, using extra usage`, never as refused.
+- When a window passes Claude Code's warning mark, or requests start using extra usage, one line says so
+  during the task, once per window.
+- When a window is used up, the error says which and when it resets
+  (`Your Claude plan's 5-hour limit is used up; it resets at 3:40 PM.`), and the receipt's next step is to
+  wait until then or pick another model, instead of waiting a minute. Casper doesn't try again before the
+  reset, and with a [failover](#failover) list the task switches at once.
+- When no listed model can take the task on and the limit resets within a day (the 5-hour limit), one line
+  says so: `Claude's 5-hour limit resets at 3:40 PM; Casper goes on then. Type anything or press Esc to cancel.`
+  At the reset the AI carries on where it stopped (`↻ keep going 1/2: Claude's 5-hour limit reset, so the AI
+  carries on`), told to check what already took effect before repeating a step. It is one of
+  [keep going](#keep-going)'s two rounds, once a task, so `keep_going: off` turns it off too. A line you type,
+  Esc, a change to the folder's files, or another model in use while it waits cancels it. A weekly reset is only
+  named: Casper doesn't wait more than a day. In a [walk-away job](SESSIONS.md) the job waits and goes on
+  ([decision 107](adr/0002/107-a-task-goes-on-when-the-claude-plan-resets.md)).
+
 ## Local models
 
 Casper can use a model that runs on your own computer. Start the server and its models show in
@@ -1352,7 +1386,9 @@ stopping. List the models, in your order, by exact ID:
   take the conversation even compacted is passed over. One line says what happened:
   `Switched to provider/model-b because provider/model-a hit its rate limit; compacted the conversation to fit its window. Your next request tries provider/model-a again.`
 - **Back:** the rest of the task stays on the new model. Your next request starts on your model
-  again; your default and the conversation's model don't change.
+  again; your default and the conversation's model don't change. After a used-up Claude plan window
+  ([Claude plan limits](#claude-plan-limits)), the switch is at once and your requests stay on the new
+  model until that window resets, as the line says; the first task after the reset starts on yours.
 - With no model to switch to, the task stops at the limit as before. Casper says once a session how
   to list models, and says when the conversation is too long for the models you listed.
 

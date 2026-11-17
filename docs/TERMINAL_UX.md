@@ -44,7 +44,7 @@ over the network, and `/references add` downloads files after asking you.
 | `/model`, `/model <words>`, `/model big <model>`, `/model failover <models>` | Pick a model (remembered; `--session`, before or after the model, for this conversation only); words pick the model they name (`/model opus 5.5`), several ask which, none name the closest; your big model for when repairs run out; the models a task goes on with when its model hits a limit |
 | `/effort [level\|auto]`, `/thinking` | Reasoning effort (the model's own levels; one it lacks is refused), or `auto` per request; Shift+Tab cycles it (see [Model and effort](#model-and-effort)) |
 | `/login [provider]`, `/logout [provider]` | Sign in to a provider: `codex`, `copilot`, `anthropic` or `openrouter` (see [Provider login](#provider-login)), or add a model server on another computer (the list's last row); remove a sign-in Casper saved (`/logout` alone lists them; environment variables stay) |
-| `/context`, `/usage`, `/cost` | Context estimate; session tokens and estimated cost (`/cost` is `/usage`) |
+| `/context`, `/usage`, `/cost` | Context estimate; session tokens and estimated cost, and the Claude plan's limit once Claude Code has reported it (`/cost` is `/usage`) |
 | `/compact [instructions]` | Summarize the conversation (**makes a model request**) |
 | `/clear`, `/new` | Start a fresh conversation; files and saved conversations stay |
 | `/resume [id]` | Pick a saved conversation from a numbered list, or go back to one (the start of its ID is enough) |
@@ -692,7 +692,14 @@ live rows, popups or pickers, or a duplicated prompt box (`bun test tests/termin
   `Switched to provider/model-b because provider/model-a hit its rate limit. Your next request tries provider/model-a again.`
   After a free OpenRouter model the newest free OpenRouter models follow your list; Casper never adds a
   paid model, or moves another model's conversation to a free one, by itself. `/model failover` shows
-  the list and `/model failover clear` removes it ([Failover](CONFIGURATION.md#failover)).
+  the list and `/model failover clear` removes it ([Failover](CONFIGURATION.md#failover)). When a Claude
+  plan's 5-hour or weekly limit is used up, the switch is at once, and your requests stay on the model it
+  switched to until that limit resets: `Your requests stay on provider/model-b until the Claude plan's
+  5-hour limit resets at 3:40 PM, then go back to claude-subscription/claude-opus-4-8.`
+  With no listed model to go on, a limit that resets within a day is waited for:
+  `Claude's 5-hour limit resets at 3:40 PM; Casper goes on then. Type anything or press Esc to cancel.`
+  At the reset the task goes on as a keep going round
+  ([Claude plan limits](CONFIGURATION.md#claude-plan-limits)).
 - A fresh interactive session clears the viewport at startup: the new session renders from
   the top of the screen and the previous run's transcript stays in scrollback.
 - While a prompt runs or tool activity is on screen, the footer spinner, the status row and a running
@@ -1087,7 +1094,7 @@ Daily commands include `/help`, `/status`, `/project`, `/diff`, `/verify`, `/ski
 | Command | Effect |
 | --- | --- |
 | `/context` | Runtime context estimate and counts; no invented per-file token attribution |
-| `/usage` | Tokens split into out, new and cached plus the raw counts; catalog cost estimate for the whole session, or the subscription name with the pay-per-token figure; not billing |
+| `/usage` | Tokens split into out, new and cached plus the raw counts; catalog cost estimate for the whole session, or the subscription name with the pay-per-token figure; not billing. With a Claude plan, one more line: `Claude plan: 82% of 5-hour limit, resets 3:40 PM` (`/status` shows it too) |
 | `/compact [instructions]` | Explicit cancellable model-assisted summary; **can make a model request** |
 | `/clear` | Fresh saved conversation; files stay as they are (`/undo` puts a task's files back); the earlier conversation stays resumable |
 | `/resume` | Pick a saved conversation from a numbered list (title · when · messages; 1 stays here); then the last few turns show |
@@ -1104,6 +1111,11 @@ yesterday's conversation on offer, a short first line that refers back (`re run 
 sent into it with one `[session] Continuing today's conversation (…)` line, and one that only names a project check
 (`run test`) says which check it runs and offers `1 Ask in today's conversation instead` on its Next row. Anything else typed is the new conversation's first request, and
 Enter runs nothing ([decision 42](adr/0002/42-a-plain-start-is-new.md), [decision 53](adr/0002/53-a-start-that-refers-back.md)).
+When that conversation's last task was cut short (Casper closed while the AI's steps ran), the same key reads
+`Go on with the task that was cut short (<request>, today)` and sends a note naming each step with no result as the
+request; `/continue`, `/resume` and `--continue` into it print `[session] Its last task was cut short while bash was
+running; the AI checks before repeating a step.` before `Ready: …`
+([decision 108](adr/0002/108-a-task-cut-short-goes-on-carefully.md)).
 The AI's words drop Markdown's escapes wherever they show: in its answers' inline code (`casper\_check` reads
 `casper_check`, `\~/x` reads `~/x`; a fenced block stays as written), a step's title and the status row
 (`tests/markdown-escapes.test.ts`).

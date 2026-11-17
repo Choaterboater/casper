@@ -104,6 +104,8 @@ export interface ProjectContext {
   slowCommands?: boolean;
   /** `keep_going: off` in the user's config: the AI stopping with work open waits for the person. Unset: on. */
   keepGoing?: boolean;
+  /** `cut_short: off` in the user's config: a task cut short isn't offered or noted (decision 108). Unset: on. */
+  cutShort?: boolean;
   /** `stalled_commands: off` in the user's config: a command with no output and no CPU is left to its limit. Unset: on. */
   stalledCommands?: boolean;
   /** `mcp_autoconnect: off` in the user's config: their own MCP servers wait for /mcp connect. Unset: on. */
@@ -249,6 +251,7 @@ export async function loadProjectContext(
     ...(configuration.compactAt !== undefined ? { compactAt: configuration.compactAt } : {}),
     ...(configuration.slowCommands !== undefined ? { slowCommands: configuration.slowCommands } : {}),
     ...(configuration.keepGoing !== undefined ? { keepGoing: configuration.keepGoing } : {}),
+    ...(configuration.cutShort !== undefined ? { cutShort: configuration.cutShort } : {}),
     ...(configuration.stalledCommands !== undefined ? { stalledCommands: configuration.stalledCommands } : {}),
     ...(configuration.mcpAutoconnect !== undefined ? { mcpAutoconnect: configuration.mcpAutoconnect } : {}),
     ...(configuration.acpMcp !== undefined ? { acpMcp: configuration.acpMcp } : {}),

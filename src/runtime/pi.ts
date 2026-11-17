@@ -22,7 +22,8 @@ import { forgetServerChoices } from "../app/safe-choices";
 import { withLoginDisplay, type LoginDisplay } from "../tui/login";
 import type { ModelServerActions } from "./pi-models";
 import { applyClaudeCodeVersion } from "./claude-code-version";
-import { registerClaudeSubscription } from "./claude-subscription";
+import { CLAUDE_SUBSCRIPTION, registerClaudeSubscription } from "./claude-subscription";
+import { planLimits, planLimitText } from "./plan-limits";
 import type { ClaudeSessions } from "./claude-session";
 import { applyLatestOpenRouterModels, startOpenRouterModels } from "./openrouter-models";
 import { applyLatestAccountModels, startAccountModels } from "./account-models";
@@ -71,6 +72,7 @@ import { LoopGuard } from "./loop-guard";
 import { ToolHistory, TOOL_HISTORY_ENTRY } from "./tool-history";
 import { SteeredLines, STEERED_LINE_ENTRY, steeredAt, userText } from "./steered-lines";
 import { CASPER_SAID_ENTRY, conversationRecord, saidBy } from "../sessions/record";
+import { cutShortTurn, markRunning, runningElsewhere, type CutShort } from "../sessions/cut-short";
 import { ELISION_NOTE, elisionTexts, newElisions } from "./elision";
 import { addsSecret } from "../secrets/files";
 import { ToolArgumentRepair } from "./tool-repair";
@@ -97,6 +99,7 @@ import type {
   RuntimeTool,
   RuntimeToolResult,
   RuntimeUsage,
+  RuntimePlanLimit,
   RuntimeImage,
   RuntimeModelInfo,
   RuntimeModelWordsMatch,
@@ -404,13 +407,15 @@ class PiRuntimeSession implements RuntimeSession {
       effortClassification: this.models.usage(session) };
   }
 
+  planLimits(): RuntimePlanLimit[] { return planLimits.current(); }
+
   complete(input: Parameters<NonNullable<RuntimeSession["complete"]>>[0]) {
     return this.models.complete(this.runtime.session, input);
   }
 
   async listConversations(): Promise<RuntimeConversation[]> {
     return (await SessionManager.list(this.runtime.cwd)).map(info => ({ id: info.id, name: info.name, modified: info.modified.toISOString(),
-      firstMessage: info.firstMessage.slice(0, 4000), messages: info.messageCount }));
+      firstMessage: info.firstMessage.slice(0, 4000), messages: info.messageCount, file: info.path }));
   }
 
   recentTurns(count: number): Array<{ role: "user" | "assistant"; text: string }> {
@@ -427,6 +432,13 @@ class PiRuntimeSession implements RuntimeSession {
 
   conversationRecord(): ConversationItem[] {
     return conversationRecord(this.runtime.session.sessionManager.getBranch());
+  }
+
+  cutShort(): CutShort | undefined {
+    const session = this.runtime.session;
+    // Another Casper still working in this conversation: its steps are running, not cut short.
+    if (session.sessionFile && runningElsewhere(session.sessionFile)) return undefined;
+    return cutShortTurn(session.sessionManager.getBranch());
   }
 
   /** Who wrote the message a prompt added after `from` (the leaf before it): the person (`typed`, their words) or
@@ -496,7 +508,8 @@ class PiRuntimeSession implements RuntimeSession {
     ]);
     const session = this.runtime.session;
     const failover = this.failovers.get(session);
-    failover?.startTask();
+    // The Claude plan window that made an earlier task switch has reset: this one starts on your model again.
+    if (failover?.startTask()) await this.models.failBack(session).catch(() => false);
     this.steeredLines.cleared();
     const cancel = () => { void session.abort().catch(() => {}); };
     const agent = session.agent;
@@ -544,6 +557,8 @@ class PiRuntimeSession implements RuntimeSession {
       });
     };
     promptSignal.addEventListener("abort", cancel, { once: true });
+    // This process works in the conversation till the prompt ends: a Casper started meanwhile doesn't read it as cut short.
+    const unmark = this.readOnly ? () => {} : markRunning(session.sessionFile);
     try {
       promptSignal.throwIfAborted();
       const status = await this.models.preparePrompt(session, options?.request ?? text, promptSignal);
@@ -568,6 +583,7 @@ class PiRuntimeSession implements RuntimeSession {
       });
       throw error;
     } finally {
+      unmark();
       // A window error Pi did not compact and retry for is the outcome after all.
       const overflow = this.overflowError; this.overflowError = undefined;
       if (overflow) this.emit(overflow);
@@ -692,6 +708,9 @@ class PiRuntimeSession implements RuntimeSession {
             };
             // A provider error may be retried: Pi decides at agent_end, so the error waits until then.
             if (event.message.stopReason === "error") this.heldError = end; else this.emit(end);
+            // A Claude plan window that just turned to a warning or to extra usage is said once, in the main conversation.
+            const plan = !this.readOnly && event.message.provider === CLAUDE_SUBSCRIPTION ? planLimits.takeNotice() : undefined;
+            if (plan) this.emit({ type: "notice", message: `Claude plan: ${planLimitText(plan)}.` });
           }
           break;
         case "queue_update":
@@ -941,7 +960,7 @@ export async function savedConversations(cwd: string): Promise<RuntimeConversati
   const dir = path.join(path.resolve(getAgentDir()), "sessions", `--${path.resolve(cwd).replace(/^[/\\]/, "").replace(/[/\\:]/g, "-")}--`);
   if (!existsSync(dir)) return [];
   return (await SessionManager.list(cwd, dir)).map(info => ({ id: info.id, name: info.name, modified: info.modified.toISOString(),
-    firstMessage: info.firstMessage.slice(0, 4000), messages: info.messageCount }));
+    firstMessage: info.firstMessage.slice(0, 4000), messages: info.messageCount, file: info.path }));
 }
 
 export class PiRuntime implements AgentRuntime {

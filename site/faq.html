@@ -101,7 +101,11 @@
           <p>When a model hits a rate or usage limit, a task can go on with the next model you list with
           <code>/model failover</code>, compacted first when that model's window is smaller. After a free
           OpenRouter model, the newest free ones follow by themselves. Casper never adds a paid model you didn't
-          list, and never moves a conversation from another model to a free one by itself.</p>
+          list, and never moves a conversation from another model to a free one by itself. When a Claude plan's
+          5-hour or weekly limit is used up, the switch is at once and lasts until that limit resets;
+          <code>/usage</code> shows how much of the plan's limit is used and when it resets. With no model listed
+          to go on, a task that stopped on the 5-hour limit waits for its reset and carries on by itself; type
+          anything or press Esc to cancel.</p>
           <p>A model on your own computer works too: start Ollama, LM Studio, llama.cpp, vLLM, SGLang or an
           MLX server (MLX LM / vllm-mlx) and its models show in <code>/model</code>, with no sign-in and no file to edit.
           Automatic local discovery checks five loopback ports: 11434, 1234, 8080, 8000 and 30000.
