@@ -1,19 +1,25 @@
 // `casper acp`: an Agent Client Protocol agent on stdin and stdout (agentclientprotocol.com), so an app or an editor
 // drives the real Casper. This process only routes: each session runs in a Casper process of its own
-// (src/acp/session.ts), started for session/new, session/load or session/fork (decision 97), so sessions run side by
-// side without sharing a folder or a sandbox. The client's messages go to the session they name; the session's
-// updates, permission requests and forms (elicitation/create) come back as they are. Each session is told the client's
-// capabilities. A line the app sends during a prompt (`_casper/steer`, decision 86) goes to its session as a prompt
-// does, and so does its question whether it may close an idle Casper (`_casper/idle`, decision 91).
-// Signing in, asking what is saved and signing out are answered here (src/acp/auth.ts, decision 103).
+// (src/acp/session.ts), started for session/new, session/load, session/resume or session/fork (decision 97), so
+// sessions run side by side without sharing a folder or a sandbox. The client's messages go to the session they name;
+// the session's updates, permission requests and forms (elicitation/create) come back as they are. Each session is told
+// the client's capabilities. A line the app sends during a prompt (`_casper/steer`, decision 86) goes to its session as
+// a prompt does, and so does its question whether it may close an idle Casper (`_casper/idle`, decision 91).
+// Signing in, asking what is saved and signing out are answered here (src/acp/auth.ts, decision 103), and so is
+// session/list, from the saved files with no session process (src/acp/session-list.ts). session/close stops the
+// session's prompt and ends its process, and what that session allowed ends with it (decision 114).
 
+import os from "node:os";
 import path from "node:path";
 import type { Subprocess } from "bun";
 import { runningFromBinary } from "../update/mode";
 import { RpcConnection, RpcFailure, RPC, type Json } from "./rpc";
 import { readAcpMcpSetting } from "../config/load";
+import { inspectProject } from "../project/inspect";
 import { initializeResult, sessionFolder } from "./session";
 import { AcpAuth } from "./auth";
+import { listSessions } from "./session-list";
+import { ownSecretValues } from "../app/network-host";
 
 /** Set only on the session processes this router starts (removed from their own environment at once). */
 export const SESSION_ENV = "CASPER_ACP_SESSION";
@@ -23,6 +29,25 @@ interface SessionProcess {
   connection: RpcConnection;
   /** The session's command list and chat title, held until this router has written the reply that names the session. */
   held?: Json[];
+  /** Its prompts the client is still waiting for, each settled once its reply is out: session/close waits for them. */
+  prompts: Set<Promise<void>>;
+}
+
+/** How long session/close waits for a stopped prompt's reply, and then for the process to exit before it is killed. */
+export const CLOSE_WAIT_MS = 10_000;
+
+/** session/close's own work: the session's prompt stops as session/cancel stops it and its reply goes out (at most
+ * `waitMs`), then its input ends so it closes as Casper closes; one still running `waitMs` later is killed. */
+export async function closeSessionProcess(session: Pick<SessionProcess, "child" | "connection" | "prompts">, sessionId: string,
+  waitMs = CLOSE_WAIT_MS): Promise<void> {
+  session.connection.notify("session/cancel", { sessionId });
+  await Promise.race([Promise.all(session.prompts), pause(waitMs)]);
+  try { session.child.stdin.end(); } catch { /* already gone */ }
+  await Promise.race([session.child.exited, pause(waitMs)]);
+  if (session.child.exitCode === null && session.child.signalCode === null) {
+    session.child.kill("SIGKILL");
+    await Promise.race([session.child.exited, pause(5_000)]);
+  }
 }
 
 /** The requests that name a session and go to its process as they are: a steer too (decision 86), and the idle check
@@ -48,9 +73,12 @@ export function sessionArgs(argv: readonly string[]): string[] {
   return args;
 }
 
-/** What a session sends right after its reply to session/new, session/load or session/fork (decisions 96 and 97), and
- * a model list or mode that changed as it opened (a model server found meanwhile). */
+/** What a session sends right after its reply to session/new, session/load, session/resume or session/fork (decisions
+ * 96 and 97), and a model list or mode that changed as it opened (a model server found meanwhile). */
 const AFTER_REPLY = new Set(["available_commands_update", "session_info_update", "config_option_update", "current_mode_update"]);
+
+/** A wait that does not keep this process alive by itself. */
+const pause = (ms: number) => new Promise<void>((resolve) => { setTimeout(resolve, ms).unref(); });
 
 /** How this Casper starts itself: the release program, or Bun with the checkout's cli.ts. */
 function selfCommand(): string[] {
@@ -62,6 +90,9 @@ function selfCommand(): string[] {
 export async function runAcpServer(argv: readonly string[], launchedFrom: string): Promise<void> {
   const client = new RpcConnection(Bun.stdin.stream(), (line) => { process.stdout.write(line); });
   const sessions = new Map<string, SessionProcess>();
+  // The sessions session/close is ending, until their process has gone: a reopen or a fork of one waits for that, so
+  // two processes never write the same conversation.
+  const closing = new Map<string, Promise<void>>();
   // Every session process until it has exited, a failed start's too: this one never exits before them, so a client
   // that saw it exit can remove the folders the sessions worked in (Windows refuses while a process is in one).
   const running = new Set<SessionProcess["child"]>();
@@ -69,10 +100,13 @@ export async function runAcpServer(argv: readonly string[], launchedFrom: string
   // What the client said it can do (forms, decision 83), passed to each session as it starts.
   let clientCapabilities: Json | undefined;
 
-  const start = async (method: "session/new" | "session/load" | "session/fork", params: Json): Promise<Json> => {
+  const start = async (method: "session/new" | "session/load" | "session/resume" | "session/fork", params: Json): Promise<Json> => {
     // Checked here too, so a wrong folder costs no process.
     const folder = await sessionFolder(params);
-    if (method === "session/load" && typeof params.sessionId === "string" && sessions.has(params.sessionId)) {
+    const reopens = method === "session/load" || method === "session/resume";
+    const ending = typeof params.sessionId === "string" ? closing.get(params.sessionId) : undefined;
+    if (ending) await ending.catch(() => {});
+    if (reopens && typeof params.sessionId === "string" && sessions.has(params.sessionId)) {
       throw new RpcFailure(RPC.invalidRequest, `Session ${params.sessionId} is already open`);
     }
     const child = Bun.spawn([...selfCommand(), ...args], { cwd: launchedFrom, env: { ...process.env, [SESSION_ENV]: "1" },
@@ -80,7 +114,7 @@ export async function runAcpServer(argv: readonly string[], launchedFrom: string
     running.add(child);
     void child.exited.then(() => { running.delete(child); });
     const connection = new RpcConnection(child.stdout, (line) => { child.stdin.write(line); child.stdin.flush(); });
-    const session: SessionProcess = { child, connection, held: [] };
+    const session: SessionProcess = { child, connection, held: [], prompts: new Set() };
     // What the session says for a person (Casper's transcript) goes to this process's stderr, as --json's does.
     void (async () => { for await (const chunk of child.stderr) process.stderr.write(chunk); })().catch(() => {});
     connection.onNotification("session/update", (update) => {
@@ -95,7 +129,7 @@ export async function runAcpServer(argv: readonly string[], launchedFrom: string
       await connection.request("initialize", { protocolVersion: initializeResult().protocolVersion, ...(clientCapabilities ? { clientCapabilities } : {}) });
       const result = await connection.request(method, { ...params, cwd: folder }) as Json;
       // A fork's process holds the new conversation: the source keeps its own process, if it has one.
-      const id = method === "session/load" ? params.sessionId : result.sessionId;
+      const id = reopens ? params.sessionId : result.sessionId;
       if (typeof id !== "string" || sessions.has(id)) throw new RpcFailure(RPC.internal, "The session did not start");
       sessions.set(id, session);
       void child.exited.then(() => { if (sessions.get(id) === session) sessions.delete(id); });
@@ -132,8 +166,41 @@ export async function runAcpServer(argv: readonly string[], launchedFrom: string
   client.onNotification("_casper/auth/cancel", () => auth.cancel());
   client.onRequest("session/new", (params) => start("session/new", params), (result) => release((result as Json | null)?.sessionId));
   client.onRequest("session/load", (params) => start("session/load", params), (_result, params) => release(params.sessionId));
+  client.onRequest("session/resume", (params) => start("session/resume", params), (_result, params) => release(params.sessionId));
   client.onRequest("session/fork", (params) => start("session/fork", params), (result) => release((result as Json | null)?.sessionId));
-  for (const method of SESSION_REQUESTS) client.onRequest(method, async (params) => route(params).connection.request(method, params));
+  for (const method of SESSION_REQUESTS) client.onRequest(method, async (params) => {
+    const session = route(params);
+    const reply = session.connection.request(method, params);
+    if (method === "session/prompt") {
+      const settled = reply.then(() => {}, () => {});
+      session.prompts.add(settled);
+      void settled.then(() => { session.prompts.delete(settled); });
+    }
+    return reply;
+  });
+  // The folder's saved conversations, read from disk here: no session process starts for a list (decision 114).
+  client.onRequest("session/list", async (params) => {
+    let folder: string;
+    try { folder = await sessionFolder(params); }
+    catch { return { sessions: [] }; /* a folder that is not there has nothing saved to open */ }
+    return listSessions(folder, params.cursor, {
+      saved: async (dir) => (await import("../runtime/pi")).savedConversations((await inspectProject(dir)).root),
+      secrets: () => ownSecretValues({ sessionHomeDir: os.homedir() }),
+    });
+  });
+  // session/close (decision 114): its prompt stops as session/cancel stops it and its reply goes out, then the process
+  // ends as Casper closes. From the moment it is asked the session is unknown, so a later prompt gets -32002, and
+  // session/load or session/resume may open the conversation again in a new process, at Ask first (decision 91), once
+  // the old process has gone.
+  client.onRequest("session/close", async (params) => {
+    const session = route(params);
+    const id = params.sessionId as string;
+    sessions.delete(id);
+    const done = closeSessionProcess(session, id);
+    closing.set(id, done);
+    try { await done; } finally { if (closing.get(id) === done) closing.delete(id); }
+    return {};
+  });
   client.onNotification("session/cancel", (params) => { try { route(params).connection.notify("session/cancel", params); } catch { /* an unknown session has nothing to stop */ } });
 
   // Ctrl+C, SIGTERM or the client gone: each session closes as Casper closes (its checks and services stop), then

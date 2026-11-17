@@ -200,6 +200,12 @@ only up to the message the app picks, on the same model and effort and with the 
 name. The conversation it came from stays exactly as it was, also while it is still answering.
 [Decision 97](docs/adr/0002/97-an-acp-app-forks-a-casper-conversation.md).
 
+The app can list a folder's saved conversations, the ones `/resume` lists, newest first with their titles, so a chat
+you had in the terminal shows in its sidebar too. Listing starts no Casper and calls no model, and a secret in a title
+stays hidden. The app can reopen one without replaying it, and close one session alone: its running prompt stops, its
+Casper ends, and "Yes, for this session" and the access mode end with it, so a reopened chat starts at Ask first.
+[Decision 114](docs/adr/0002/114-an-acp-app-lists-resumes-and-closes-casper-sessions.md).
+
 Type `/help` for the commands. Ctrl+C stops the current work but keeps changes already made;
 Ctrl+D on an empty prompt exits. [Keys and commands](docs/TERMINAL_UX.md#quick-reference).
 
