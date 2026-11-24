@@ -107,6 +107,7 @@ test("/resume <words> searches every saved conversation's text: a numbered picke
     app.input.write("2");
     await app.until(() => resumed.length === 1);
     expect(resumed).toEqual(["a1b2c3d4-0000"]);
+    await app.until(text => text.includes('Back in "Fix the login bug"') && text.lastIndexOf('Back in "Fix the login bug"') < text.lastIndexOf("Ready: nothing is running"));
     // An ID's start that matches stays an ID: no search.
     app.input.write("/resume a1ff\r");
     await app.until(() => resumed.length === 2);
