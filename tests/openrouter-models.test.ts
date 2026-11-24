@@ -76,6 +76,19 @@ async function stock(dir: string, models: object[]) {
   await writeFile(path.join(dir, "models-store.json"), JSON.stringify({ openrouter: { models, checkedAt: now, lastModified: now, etag: "\"fixture\"" } }));
 }
 
+/** Waits for the catalog's background refreshes, so a rewritten store isn't overwritten by an older read. */
+function refreshesOf(catalog: ModelRuntime): () => Promise<void> {
+  const running = new Set<Promise<unknown>>();
+  const refresh = catalog.refresh.bind(catalog);
+  catalog.refresh = (options) => {
+    const run = refresh(options);
+    running.add(run);
+    run.then(() => running.delete(run), () => running.delete(run));
+    return run;
+  };
+  return async () => { while (running.size) await Promise.allSettled([...running]); };
+}
+
 /** A real engine catalog in a fresh folder, with (or without) an OpenRouter sign-in, as a start leaves it. */
 async function engine(options: { signedIn?: boolean } = {}) {
   const dir = await mkdtemp(path.join(os.tmpdir(), "casper-openrouter-models-")); dirs.push(dir);
@@ -130,6 +143,7 @@ test("over the engine's list: a model it lists keeps its request settings and ta
 
 test("signed in to OpenRouter: a model released today is in the catalog at once, the engine's newer list shows through on /model, and a failed read keeps the models", async () => {
   const { dir, catalog } = await engine();
+  const settled = refreshesOf(catalog);
   expect(catalog.getModel("openrouter", "vendor-d/new-model")).toBeUndefined();
   const { state, fetch } = host();
   const models = startOpenRouterModels(catalog, session().signal, { env: {}, fetch, freshMs: 0 });
@@ -142,6 +156,7 @@ test("signed in to OpenRouter: a model released today is in the catalog at once,
   expect(catalog.getModel("openrouter", "vendor-e/no-tools")).toBeUndefined();
 
   // pi.dev's copy catches up while the session runs: /model's refresh lays the list over the engine's newer one.
+  await settled();
   await stock(dir, [known, older, picture, { ...older, id: "vendor-b/listed-later", name: "Vendor B: Later" }]);
   await catalog.refresh({ providers: ["openrouter"], allowNetwork: false });
   await models.refresh();
